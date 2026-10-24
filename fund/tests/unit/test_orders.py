@@ -278,12 +278,20 @@ class TestPlaceOrders:
 
     def test_deterministic(self, db_session) -> None:
         _seed_panel(db_session)
+        # A second call under the *same* portfolio would return the stored ticket
+        # and compare a row with itself; a distinct portfolio forces a fresh pricing.
+        other_portfolio = uuid.UUID("22222222-2222-2222-2222-222222222222")
 
         first = place_orders(db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID)
-        second = place_orders(db_session, _ASOF, _WEIGHTS, _PORTFOLIO_ID)
+        second = place_orders(db_session, _ASOF, _WEIGHTS, other_portfolio)
 
+        assert first["data"]["idempotent"] is False
+        assert second["data"]["idempotent"] is False
+        assert second["data"]["order_id"] != first["data"]["order_id"]
         assert first["data"]["weights_hash"] == second["data"]["weights_hash"]
         assert first["data"]["lines"] == second["data"]["lines"]
+        for key in ("notional", "total_commission", "total_slippage_cost"):
+            assert first["data"][key] == second["data"][key]
 
     def test_empty_weights_is_error(self, db_session) -> None:
         result = place_orders(db_session, _ASOF, {}, _PORTFOLIO_ID)
