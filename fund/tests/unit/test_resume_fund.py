@@ -16,6 +16,7 @@ Zero live LLM, zero network: ``ScriptedFundModel`` + ``MemorySaver`` +
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -40,7 +41,7 @@ from _fund_fakes import (
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import AgentDecision, PaperOrder
+from portopt_db.models import AgentDecision, PaperOrder, PortfolioJournal
 from pydantic import Field
 
 from fund import observe
@@ -960,6 +961,140 @@ def test_fundrun_resume_refuses_approve_when_the_fund_is_frozen(db_session) -> N
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
 
 
+# --- an approved gate that is not the order commit ------------------------------
+
+_PRIOR_HOLDINGS = {"AAA": 0.6, "BBB": 0.4}
+_EXTRA_GATES = ("optimize_portfolio", "place_orders")
+
+
+def _run_to_extra_gate(db_session, saver, store, expected) -> FundRun:
+    """A portfolio's second round, whose persisted mandate adds ``optimize_portfolio``
+    to the gates: the PM pauses at that gate, well before ``place_orders``. The
+    portfolio already holds ``_PRIOR_HOLDINGS``. The first round's forced gate set is
+    spent, so the mandate's own gates apply."""
+    from fund.audit import MandateRepository
+    from fund.audit.autonomy_repository import AutonomyRepository
+
+    AutonomyRepository(db_session).consume_first_round(PORTFOLIO_ID)
+    PositionRepository(db_session).set_holdings(
+        PORTFOLIO_ID,
+        [{"ticker": t, "weight": w} for t, w in _PRIOR_HOLDINGS.items()],
+        asof=dt.date(2024, 1, 2),
+    )
+    mandate = make_mandate().model_copy(update={"hitl_gates": _EXTRA_GATES})
+    MandateRepository(db_session).upsert(mandate)
+    run = run_fund(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        mandate,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+    )
+    gated = [r["name"] for r in run.interrupt["action_requests"]]
+    assert gated == ["optimize_portfolio"]
+    return run
+
+
+def _assert_still_awaiting_the_next_gate(db_session, run_id) -> None:
+    row = AgentRunRepository(db_session).get_run(run_id)
+    assert row.status == "paused"
+    assert row.finished_at is None
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == _PRIOR_HOLDINGS
+    assert db_session.query(PortfolioJournal).all() == []
+
+
+def test_resume_fund_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
+    db_session,
+) -> None:
+    """Approving ``optimize_portfolio`` lets the PM run on to the ``place_orders`` gate,
+    which pauses the graph again. The approve must not finalise the run: that would
+    stamp it completed with no ticket, replace the holdings with an empty or partial
+    snapshot, and strand the real gate behind the finalised-run guard."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_extra_gate(db_session, saver, store, expected)
+
+    result = resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert result["__interrupt__"][0].value["action_requests"][0]["name"] == (
+        "place_orders"
+    )
+    _assert_still_awaiting_the_next_gate(db_session, run.run_id)
+
+    resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    (order,) = _paper_orders(db_session)
+    assert order.weights == expected
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "completed"
+    assert row.weights == expected
+    assert _positions_map(db_session) == expected
+
+
+def test_fundrun_resume_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
+    db_session,
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_extra_gate(db_session, MemorySaver(), _store_with_cs(), expected)
+
+    run.resume("approve")
+
+    _assert_still_awaiting_the_next_gate(db_session, run.run_id)
+
+    run.resume("approve")
+
+    (order,) = _paper_orders(db_session)
+    assert order.weights == expected
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "completed"
+    assert _positions_map(db_session) == expected
+
+
+def test_resume_fund_reject_of_an_extra_gate_still_closes_the_run(db_session) -> None:
+    """A reject is the adviser abandoning the rebalance: it closes the run even though
+    the PM goes on to re-gate, so the freeze-a-run killswitch (a reject) always ends it
+    and the holdings stay as they were."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_extra_gate(db_session, saver, store, expected)
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "rejected"
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == _PRIOR_HOLDINGS
+
+
 # --- parity: FundRun.resume and resume_fund leave identical state ------------
 
 
@@ -1780,8 +1915,6 @@ def _reprofile_with_energy_exclusion(db_session, store: InMemoryStore) -> None:
 
 def _assert_nothing_booked(db_session, run_id) -> None:
     """No ticket, no held book, no journal row: the refusal left the books untouched."""
-    from portopt_db.models import PortfolioJournal
-
     assert _paper_orders(db_session) == []
     assert _positions_map(db_session) == {}
     assert db_session.query(PortfolioJournal).count() == 0

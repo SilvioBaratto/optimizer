@@ -386,6 +386,10 @@ def build_fund_agent(
 # the only real PM gate today — grow this tuple as gates ship.
 _ALL_ORCHESTRATOR_GATES: tuple[str, ...] = ("place_orders",)
 
+# The gated tool whose approval commits the paper ticket; any other gate a mandate adds
+# only steers the PM towards it.
+_ORDER_GATE = "place_orders"
+
 
 def _effective_gates(config: FundConfig, mandate: PortfolioMandate) -> dict[str, bool]:
     """Union the config's gated tools with the mandate's ``hitl_gates``.
@@ -652,6 +656,7 @@ def _settle_hitl(
     weights: dict[str, float],
     decision: str,
     result: Any,
+    regated_from: str | None = None,
 ) -> None:
     """Finalise an approve/reject resume, verifying an approve actually ticketed.
 
@@ -662,8 +667,27 @@ def _settle_hitl(
     it finalises ``incomplete`` (``"place_orders_failed"``). When the resumed PM
     answered by re-gating (``result`` carries a fresh interrupt) the run stays alive as
     ``"responded"`` instead, with the declined approve on the audit trail. Reject and
-    a ticketed approve go through :func:`_finalize_hitl`. No commit.
+    a ticketed approve go through :func:`_finalize_hitl`.
+
+    An approve that ``regated_from`` an earlier, non-order gate (see
+    :class:`_GateResume`) finalises nothing: it only records the decision and leaves
+    the run alive at the fresh gate, whose own approve is the order commit. Finalising
+    there would stamp the run ``completed`` with no ticket, replace the holdings with
+    whatever weights existed before the allocator ran, and strand the real gate behind
+    the finalised-run guard. A reject always closes the run, whatever the PM does
+    afterwards, so the freeze-a-run killswitch (a reject) cannot be outlived by a
+    re-gating PM. No commit.
     """
+    if regated_from is not None and decision == "approve":
+        from fund.audit import AgentRunRepository
+
+        AgentRunRepository(session).append_decision(
+            run_id,
+            agent="orchestrator",
+            step=regated_from,
+            hitl_decision={"decision": decision, "regated": True},
+        )
+        return
     if decision != "approve" or _ticket_placed(
         session, run_id=run_id, portfolio_id=portfolio_id, asof=asof, weights=weights
     ):
@@ -999,7 +1023,7 @@ class FundRun:
         if run.portfolio_id is None:
             raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
         approved_weights = _optimizer_weights(self.session, self.run_id)
-        result = _resume_gate(
+        resumed = _resume_gate(
             self.agent,
             self.ctx,
             self.thread_config,
@@ -1007,6 +1031,7 @@ class FundRun:
             pm_directive=pm_directive,
             approved_weights=approved_weights,
         )
+        result = resumed.result
         if decision == "respond":
             _finalize_respond(
                 self.session,
@@ -1023,6 +1048,7 @@ class FundRun:
             weights=approved_weights,
             decision=decision,
             result=result,
+            regated_from=resumed.regated_from,
         )
         return result
 
@@ -1167,6 +1193,29 @@ def _replace_consumed_ticket(ctx: Any, weights: dict[str, float]) -> None:
         )
 
 
+def _pending_gate_names(agent: Any, thread_config: dict[str, Any]) -> tuple[str, ...]:
+    """Names of the gated tools the thread is currently paused on, in request order."""
+    names: list[str] = []
+    for interrupt in agent.get_state(thread_config).interrupts:
+        value = getattr(interrupt, "value", None)
+        requests = value.get("action_requests") if isinstance(value, dict) else None
+        names.extend(str(r.get("name")) for r in requests or [] if isinstance(r, dict))
+    return tuple(names)
+
+
+@dataclass(frozen=True)
+class _GateResume:
+    """What driving one gate decision through the graph produced.
+
+    ``regated_from`` names the gate an approve resolved when that gate was not the
+    order commit and the PM, running on, stopped at a fresh one: the run is still
+    awaiting an adviser decision. ``None`` for every other outcome.
+    """
+
+    result: dict[str, Any]
+    regated_from: str | None = None
+
+
 def _resume_gate(
     agent: Any,
     ctx: Any,
@@ -1175,7 +1224,7 @@ def _resume_gate(
     decision: str,
     pm_directive: str | None,
     approved_weights: dict[str, float],
-) -> dict[str, Any]:
+) -> _GateResume:
     """Resume the paused PM for a gate decision, shared by both resume routes.
 
     The run is claimed first (:meth:`AgentRunRepository.claim_for_resume`): the status
@@ -1205,9 +1254,17 @@ def _resume_gate(
             f"agent_run {ctx.run_id} is no longer at a live gate (another resolver "
             "finalised it first); nothing was resumed"
         )
+    gated: tuple[str, ...] = (
+        _pending_gate_names(agent, thread_config) if decision == "approve" else ()
+    )
     if decision == "approve" and _gate_consumed(agent, thread_config):
         _replace_consumed_ticket(ctx, approved_weights)
-    return _resume_agent(agent, thread_config, decision, pm_directive)
+    result = _resume_agent(agent, thread_config, decision, pm_directive)
+    # Approving a gate other than the order commit (a mandate-added tool gate) just
+    # lets the PM run on; if it stops at another gate the approve settled nothing.
+    if gated and _ORDER_GATE not in gated and _extract_interrupt(result) is not None:
+        return _GateResume(result, regated_from=gated[0])
+    return _GateResume(result)
 
 
 def _finalize_respond(
@@ -1989,8 +2046,9 @@ def resume_fund(
     # weights, while a PM that re-runs the allocator afterwards moves the latest
     # optimizer decision off the weights the ticket was placed with.
     approved_weights = _optimizer_weights(session, rid)
+    regated_from: str | None = None
     try:
-        result = _resume_gate(
+        resumed = _resume_gate(
             agent,
             ctx,
             thread_config,
@@ -1998,6 +2056,8 @@ def resume_fund(
             pm_directive=pm_directive,
             approved_weights=approved_weights,
         )
+        result = resumed.result
+        regated_from = resumed.regated_from
     except Exception as exc:
         # The checkpointer commits on its own connection while the ticket and
         # positions live in the caller's uncommitted session. If the PM's follow-up
@@ -2023,6 +2083,7 @@ def resume_fund(
         weights=approved_weights,
         decision=decision,
         result=result,
+        regated_from=regated_from,
     )
     return result
 
