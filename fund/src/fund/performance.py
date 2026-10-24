@@ -545,6 +545,24 @@ def _as_date(value: Any) -> dt.date | None:
     return None
 
 
+def _ticket_order_columns(paper_order: Any) -> tuple[Any, ...]:
+    """Sort keys that rank paper tickets from oldest to newest, with no ties.
+
+    Tickets for the same decision bar share ``asof`` and ``fill_date`` but may carry
+    different weights (a re-run after a reject, a sweep plus a manual run), so those
+    two keys alone leave their order to the database. ``created_at`` then ``id``
+    make the newest ticket supersede the others deterministically; NAV reads the
+    ascending order and the holdings table the descending one, so both follow the
+    same ticket.
+    """
+    return (
+        paper_order.fill_date,
+        paper_order.asof,
+        paper_order.created_at,
+        paper_order.id,
+    )
+
+
 def _ticket_book(
     ticket: Any, base_prices: pd.DataFrame
 ) -> dict[str, tuple[float, dt.date, float]]:
@@ -780,7 +798,7 @@ def build_nav_series(
         session.execute(
             select(PaperOrder)
             .where(PaperOrder.portfolio_id == portfolio_id)
-            .order_by(PaperOrder.fill_date, PaperOrder.asof)
+            .order_by(*_ticket_order_columns(PaperOrder))
         )
         .scalars()
         .all()
@@ -1157,7 +1175,7 @@ def _active_ticket(session: Any, portfolio_id: uuid.UUID, asof: dt.date | None) 
     stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
     if asof is not None:
         stmt = stmt.where(PaperOrder.fill_date <= asof)
-    stmt = stmt.order_by(PaperOrder.fill_date.desc(), PaperOrder.asof.desc())
+    stmt = stmt.order_by(*(c.desc() for c in _ticket_order_columns(PaperOrder)))
     return session.execute(stmt).scalars().first()
 
 
@@ -1171,7 +1189,7 @@ def _tickets_through(
     stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
     if asof is not None:
         stmt = stmt.where(PaperOrder.fill_date <= asof)
-    stmt = stmt.order_by(PaperOrder.fill_date, PaperOrder.asof)
+    stmt = stmt.order_by(*_ticket_order_columns(PaperOrder))
     return list(session.execute(stmt).scalars().all())
 
 

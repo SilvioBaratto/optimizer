@@ -16,7 +16,12 @@ from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.orders.paper_order import PaperOrder
 from portopt_db.models.universe.universe import Exchange, Instrument
 
-from fund.performance import FxCoverageError, holding_marks, marked_weights
+from fund.performance import (
+    FxCoverageError,
+    build_nav_series,
+    holding_marks,
+    marked_weights,
+)
 
 _PID = uuid.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 _D1 = dt.date(2026, 10, 2)  # fill bar
@@ -666,3 +671,59 @@ def test_holding_marks_raise_for_a_holding_with_no_resolvable_currency(db_sessio
 
     with pytest.raises(FxCoverageError, match="US1"):
         holding_marks(_PID, session=db_session, base_currency="EUR")
+
+
+@pytest.mark.parametrize("latest", ["AAA", "BBB"])
+def test_same_bar_tickets_resolve_to_the_latest_created_for_nav_and_holdings(
+    db_session, latest
+):
+    """Tickets sharing asof and fill_date supersede each other by creation time.
+
+    NAV and the holdings table must follow the *same* ticket, whichever physical
+    row order the database returns for the tied sort keys.
+    """
+    d1, d2, d3 = dt.date(2026, 10, 2), dt.date(2026, 10, 3), dt.date(2026, 10, 6)
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    paths = {"AAA": ("100", "105", "110"), "BBB": ("100", "100", "100")}
+    for ticker, closes in paths.items():
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        for day, close in zip((d1, d2, d3), closes, strict=True):
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=Decimal(close),
+                    price_unit="USD",
+                )
+            )
+    early = dt.datetime(2026, 10, 1, 9, 0, tzinfo=dt.UTC)
+    late = early + dt.timedelta(hours=1)
+    for ticker in ("AAA", "BBB"):
+        db_session.add(
+            PaperOrder(
+                portfolio_id=_PID,
+                asof=dt.date(2026, 10, 1),
+                weights_hash=f"h-{ticker}",
+                weights={ticker: 1.0},
+                fill_date=d1,
+                lines=[{"ticker": ticker, "notional": 10000.0, "fill_price": 100.0}],
+                notional=10000.0,
+                total_commission=0.0,
+                total_slippage_cost=0.0,
+                created_at=late if ticker == latest else early,
+            )
+        )
+    db_session.flush()
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+    nav = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    assert [m.ticker for m in marks] == [latest]
+    expected_nav = 11000.0 if latest == "AAA" else 10000.0
+    assert nav[-1].nav == pytest.approx(expected_nav, rel=1e-9)
