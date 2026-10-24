@@ -10317,3 +10317,23 @@ async def test_deliberation_enter_on_a_step_leaves_the_cursor_on_that_step(
         await pilot.press("enter")
         await pilot.pause()
         assert view.selected_step == 12
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_status_column_is_dot_plus_label(shell_env) -> None:
+    """Status never travels as a bare glyph: the live column is headed ``status`` and
+    each cell pairs the marker with a word, the gate row reading as paused."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert next(iter(live.columns.values())).label.plain == "status"
+        view.ingest_event(_scripted_stream(rid)[0])
+        assert live.get_cell_at(Coordinate(0, 0)) == "● live"
+        view.ingest_event(_scripted_stream(rid)[1])
+        assert live.get_cell_at(Coordinate(0, 0)) == "✓ done"
+        view.ingest_event(_scripted_stream(rid)[2])
+        assert live.get_cell_at(Coordinate(2, 0)) == "· paused"
