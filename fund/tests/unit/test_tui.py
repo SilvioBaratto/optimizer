@@ -524,6 +524,67 @@ async def test_shell_focused_launch_preselects_without_spurious_refocus(
         assert focus_paints == [_PID_A, _PID_B]
 
 
+def _seed_two_portfolio_runs(env) -> None:
+    with env.get_session() as session:
+        repo = AgentRunRepository(session)
+        for seed, pid in enumerate((_PID_A, _PID_B), start=1):
+            repo.create_run(
+                portfolio_id=pid,
+                asof=date(2026, 1, 2),
+                seed=seed,
+                universe=[],
+                optimizer_config={},
+            )
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_picker_reseed_keeps_focus_without_a_fund_wide_bounce(
+    shell_env, monkeypatch
+) -> None:
+    # Re-seeding the options resets the Select to NULL; that intermediate NULL must not
+    # reach on_select_changed, or the shell repaints fund-wide before snapping back.
+    _seed_two_portfolio_runs(shell_env)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        seen = []
+        original = ShellApp._refresh_runstate
+
+        def _spy(self) -> None:
+            seen.append(self._portfolio_id)
+            original(self)
+
+        monkeypatch.setattr(ShellApp, "_refresh_runstate", _spy)
+        app._populate_picker()
+        await pilot.pause()
+        assert seen == []  # no focus change ever surfaced
+        assert app._portfolio_id == _PID_A
+        assert app.query_one("#hdr-portfolio", Select).value == str(_PID_A)
+
+
+@pytest.mark.asyncio
+async def test_picker_reseed_read_error_keeps_options_and_focus(
+    shell_env, monkeypatch
+) -> None:
+    # A transient roster read error must not empty the picker nor drop the focus.
+    _seed_two_portfolio_runs(shell_env)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+
+        def _boom(session):
+            raise ConnectionError("pool timeout")
+
+        monkeypatch.setattr(observe, "list_portfolios", _boom)
+        app._populate_picker()
+        await pilot.pause()
+        assert app._portfolio_id == _PID_A
+        assert app.query_one("#hdr-portfolio", Select).value == str(_PID_A)
+        assert set(app._portfolio_ids) == {_PID_A, _PID_B}
+
+
 @pytest.mark.asyncio
 async def test_shell_blank_pick_returns_fund_wide_without_crashing(shell_env) -> None:
     # Picking the blank "⟨fund-wide⟩" row must return to fund-wide (portfolio_id=None),
