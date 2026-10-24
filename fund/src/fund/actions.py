@@ -994,8 +994,8 @@ def _append_audit(
 ) -> HumanAuditLog:
     """Append one ``human_audit_log`` row and return it.
 
-    Imports the repo from its submodule (never the ``fund.audit`` root, which pulls
-    the langgraph persistence bootstrap).
+    Imports the repo from its submodule, keeping ``fund.actions`` free of the
+    ``fund.audit`` package at import time.
     """
     from fund.audit.human_audit_repository import HumanAuditLogRepository
 

@@ -185,9 +185,9 @@ def _autonomy_blocks_round(session: Session, portfolio_id: uuid.UUID) -> bool:
     """Whether a FROZEN fund or portfolio should block a rebalance round.
 
     Reads the autonomy posture, lazy-importing ``AutonomyRepository`` from its
-    **submodule** (never the ``fund.audit`` root, whose package ``__init__`` pulls the
-    langgraph persistence bootstrap) so a bare ``import fund.scheduler`` stays
-    agent-stack-free. Fund scope wins over portfolio scope — a FROZEN fund blocks every
+    **submodule** so a bare ``import fund.scheduler`` stays agent-stack-free
+    (``fund.audit`` loads its langgraph bootstrap on demand, so the lazy import is
+    defence in depth). Fund scope wins over portfolio scope — a FROZEN fund blocks every
     portfolio.
 
     Args:

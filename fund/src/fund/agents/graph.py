@@ -525,9 +525,10 @@ def _write_portfolio_journal(
 
     Assembles ``allocation`` (target weights), ``trades`` (committed fills), and
     ``drift`` (vs ``prior_weights``) plus a deterministic narrative, then upserts
-    keyed on ``(portfolio_id, asof)``. Repos are imported lazily — ``fund.audit``
-    drags in the agent stack, so a bare ``import fund.agents.graph`` must not — and
-    no ``commit`` is issued (the caller owns the transaction).
+    keyed on ``(portfolio_id, asof)``. Repos are imported lazily so a bare
+    ``import fund.agents.graph`` stays light (``fund.audit`` loads its langgraph
+    bootstrap on demand, so this is defence in depth) and no ``commit`` is issued
+    (the caller owns the transaction).
     """
     from portopt_db.repositories.orders.portfolio_journal_repository import (
         PortfolioJournalRepository,

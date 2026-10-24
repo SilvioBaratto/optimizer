@@ -143,11 +143,11 @@ def test_last_nav_before_is_none_without_an_earlier_row(db_session):
 def test_module_declares_no_agent_stack_imports():
     """The repo module's own imports reference no agent stack.
 
-    langgraph is pulled by the ``fund.audit`` package ``__init__`` (via
-    persistence) and is a known, shared cost; the scheduler stays agent-stack-free
-    by lazy-importing this repo inside the step. What must hold here is that this
-    module declares no ``deepagents`` / ``langgraph`` / ``fund.agents`` import of
-    its own, so the lazy import adds no deep-agent dependency.
+    The scheduler stays agent-stack-free by lazy-importing this repo inside the
+    step (``fund.audit`` loads its langgraph bootstrap on demand; see
+    ``test_audit_submodule_imports``). What must hold here is that this module
+    declares no ``deepagents`` / ``langgraph`` / ``fund.agents`` import of its own,
+    so the lazy import adds no deep-agent dependency.
     """
     forbidden = ("deepagents", "langgraph", "fund.agents")
     source = Path(nav_history_repository.__file__).read_text(encoding="utf-8")

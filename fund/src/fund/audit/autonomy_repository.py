@@ -7,10 +7,9 @@ Alembic-owned); its *behavior* lives here, mirroring the ``portfolio_mandates`` 
 session. No ``commit``: the caller owns the transaction boundary.
 
 This module is deliberately agent-stack-free (``portopt_db`` + ``sqlalchemy`` +
-stdlib only). Callers that must stay free of ``deepagents``/``langgraph`` — the
-scheduler and worker entrypoints — import it from this submodule directly rather
-than via ``fund.audit`` (whose package ``__init__`` eagerly loads the langgraph
-checkpointer bootstrap).
+stdlib only), and so is importing it: ``fund.audit``'s package ``__init__`` loads the
+langgraph checkpointer bootstrap only on demand. Callers that must stay free of
+``deepagents``/``langgraph`` — the scheduler and worker entrypoints — rely on that.
 """
 
 from __future__ import annotations

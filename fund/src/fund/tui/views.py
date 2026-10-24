@@ -489,8 +489,8 @@ def _gate_text(session: Any, saver: Any, run_id: uuid.UUID) -> str | None:
     """Render the selected run's gate detail, or ``None`` when the run is gone.
 
     Needs the ORM run row (for its ``thread_id``) that ``observe.interrupt_for``
-    reads, so the run repo is imported lazily from its submodule — never the
-    ``fund.audit`` root (which pulls the langgraph bootstrap).
+    reads, so the run repo is imported lazily from its submodule, keeping
+    ``fund.tui.views`` free of the ``fund.audit`` package at import time.
     """
     from fund.audit.repository import AgentRunRepository
 
@@ -934,8 +934,8 @@ class MandateView(ShellView):
     ) -> tuple[str | None, str]:
         """The active suitability band + a caps summary, read lazily off the profile.
 
-        Imports the repo from its submodule (never the ``fund.audit`` root, which pulls
-        the langgraph persistence bootstrap).
+        Imports the repo from its submodule, keeping ``fund.tui.views`` free of the
+        ``fund.audit`` package at import time.
         """
         from fund.audit.mifid_repository import MifidProfileRepository
 
