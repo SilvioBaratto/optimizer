@@ -370,6 +370,26 @@ class TestRunInstruction:
         assert "Since last rebalance — prior AAA 0.6." in seed
         assert "Produce an allocation" in seed
 
+    def test_lists_remembered_directives_ahead_of_the_instruction(self) -> None:
+        """A remembered steer reaches the PM, so the soft guardrail is actually read."""
+        mandate = _mandate().model_copy(
+            update={"remembered_directives": ("never exceed 5% energy", "keep 5% cash")}
+        )
+
+        seed = _run_instruction(mandate, str(_PORTFOLIO_ID), _ASOF)
+
+        assert "- never exceed 5% energy" in seed
+        assert "- keep 5% cash" in seed
+        assert seed.index("never exceed 5% energy") < seed.index(
+            "Produce an allocation"
+        )
+
+    def test_no_directive_block_without_remembered_directives(self) -> None:
+        """A mandate with nothing remembered adds no directive block to the seed."""
+        seed = _run_instruction(_mandate(), str(_PORTFOLIO_ID), _ASOF)
+
+        assert "directive" not in seed.lower()
+
 
 def test_run_fund_seed_references_prior_history(
     db_session, monkeypatch: pytest.MonkeyPatch
@@ -395,6 +415,40 @@ def test_run_fund_seed_references_prior_history(
     assert "Since last rebalance" in captured["seed"]
     assert "AAA" in captured["seed"]
     assert "VIX spiked; risk-off" in captured["seed"]
+
+
+def test_run_fund_seed_carries_the_mandates_remembered_directives(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``run_fund`` hands the PM the portfolio's persisted directives on every round."""
+    import fund.agents.graph as graph_mod
+
+    _seed_panel(db_session)
+    captured: dict[str, str] = {}
+    original = graph_mod._run_instruction
+
+    def _spy(mandate, portfolio_id, asof, history_summary=""):
+        seed = original(mandate, portfolio_id, asof, history_summary)
+        captured["seed"] = seed
+        return seed
+
+    monkeypatch.setattr(graph_mod, "_run_instruction", _spy)
+    model = ScriptedFundModel(universe=_UNIVERSE, weights=_expected_weights(db_session))
+    mandate = _mandate().model_copy(
+        update={"remembered_directives": ("never exceed 5% energy",)}
+    )
+
+    run_fund(
+        model,
+        mandate,
+        portfolio_id=_PORTFOLIO_ID,
+        asof=_ASOF,
+        session=db_session,
+        checkpointer=MemorySaver(),
+        store=_store_with_cs(),
+    )
+
+    assert "never exceed 5% energy" in captured["seed"]
 
 
 # --- LLM weights are ignored: the ticket uses the optimizer's audited weights --

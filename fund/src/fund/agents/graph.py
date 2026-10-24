@@ -656,12 +656,22 @@ def _run_instruction(
     When ``history_summary`` is non-empty it is prepended as a context block so
     the PM sees the portfolio's recent allocation/trades and the latest market
     digest before deciding; an empty summary (first run) yields the bare seed.
+    The mandate's ``remembered_directives`` follow as a bulleted block, so a steer the
+    adviser persisted reaches every later round as a soft guardrail.
     """
     benchmark = f", benchmark {mandate.benchmark}" if mandate.benchmark else ""
     history = f"{history_summary}\n\n" if history_summary else ""
+    directives = ""
+    if mandate.remembered_directives:
+        listed = "\n".join(f"- {text}" for text in mandate.remembered_directives)
+        directives = (
+            "Standing adviser directives (remembered from earlier rounds; they steer "
+            "the allocation but never override the hard constraints or the risk "
+            f"gate):\n{listed}\n\n"
+        )
     return (
-        f"{history}Produce an allocation for portfolio {portfolio_id} as of "
-        f"{asof.isoformat()}. Mandate: capital {mandate.capital} "
+        f"{history}{directives}Produce an allocation for portfolio {portfolio_id} "
+        f"as of {asof.isoformat()}. Mandate: capital {mandate.capital} "
         f"{mandate.base_currency}{benchmark}. Delegate in order economist -> "
         f"allocator -> risk -> executor, then commit the risk-approved trades "
         f"through place_orders."
