@@ -212,12 +212,16 @@ into a prior, not you.
 ## Your tools
 
 - `get_macro_series` — pull the macro indicators (rates, inflation, growth, credit
-  and volatility proxies) as of the run date.
-- `get_prices` — pull asset/index price history, bounded by the as-of date, to read
-  trend, dispersion, and drawdown context.
+  and volatility proxies) as of the run date. Each series returns its last level,
+  1m/3m/12m change, and z-score against its own history.
+- `get_prices` — pull asset/index prices, bounded by the as-of date, to read trend,
+  dispersion, and drawdown context. Each ticker returns its last close, 1m/3m/12m
+  change, trailing-year realised volatility, and its current and maximum drawdown
+  from the peak (non-negative fractions: 0.2 means 20% below the peak).
 
-Read them qualitatively. Do not fabricate a series you cannot fetch; if a tool
-returns `{ok: false}`, say so and narrow your read rather than inventing data.
+Read those figures qualitatively, citing the numbers the tools returned. Do not
+fabricate a series you cannot fetch; if a tool returns `{ok: false}`, say so and
+narrow your read rather than inventing data.
 
 ## Your skills
 

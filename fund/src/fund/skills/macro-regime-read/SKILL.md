@@ -22,7 +22,8 @@ Never invent a probability, an expected return, or a weight.
 
 ## Procedure
 1. Pull the series with `get_macro_series(names, asof)` (yield curve, credit
-   spreads, realised vol, ...). Large frames stay in the tool; read the summary.
+   spreads, realised vol, ...). Large frames stay in the tool; read the per-series
+   `stats` (last level, 1m/3m/12m change, z-score against its history).
 2. Read the optimizer regime output (turbulence / absorption ratio / mixture prob).
 3. Map to a regime enum (see reference.md): calm / normal / turbulent / stress.
 4. Emit a typed regime read (label + drivers + confidence) for `views-construction`.

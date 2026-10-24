@@ -2,8 +2,9 @@
 
 Reads FRED observations out of the shared ``portopt_db`` layer via
 :class:`~portopt_db.repositories.macro.macro_regime_repository.MacroRegimeRepository`
-and hands the agent a JSON-serialisable shape/coverage **summary** — never the
-raw observation matrix. The tool is a pure function of ``(session,
+and hands the agent a JSON-serialisable shape/coverage **summary** plus a bounded
+set of per-series statistics (level, horizon changes, z-score) — never the raw
+observation matrix. The tool is a pure function of ``(session,
 names, asof)``: same seeded data + same args ⇒ identical output.
 
 Contract (via :func:`fund.tools._base.tool_envelope`):
@@ -39,6 +40,7 @@ from fund.tools._base import (
     summarize_frame,
     tool_envelope,
 )
+from fund.tools._stats import level_stats
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -161,7 +163,7 @@ def get_macro_series(
     names: Sequence[str],
     asof: dt.date | str,
 ) -> ToolResult:
-    """Return a macro-series-panel summary for ``names`` as of ``asof``.
+    """Return a macro-series-panel summary and per-series statistics as of ``asof``.
 
     Args:
         session: A sync ``portopt_db`` session; the tool does not own it.
@@ -174,8 +176,11 @@ def get_macro_series(
 
     Returns:
         ``ok`` with a shape/coverage summary of the wide macro frame, plus
-        ``asof``, ``requested`` and ``missing`` (requested series absent from the
-        panel). ``err`` on empty ``names``.
+        ``asof``, ``requested``, ``missing`` (requested series absent from the
+        panel) and ``stats``: per populated series its ``last`` level and
+        ``last_date``, the level differences ``change_1m``/``change_3m``/
+        ``change_12m`` and the ``zscore`` of the last level against the series'
+        history to ``asof``. ``err`` on empty ``names``.
     """
     if not names:
         return err("no series requested")
@@ -186,6 +191,7 @@ def get_macro_series(
     summary["asof"] = coerce_date(asof).isoformat()
     summary["requested"] = list(names)
     summary["missing"] = missing
+    summary["stats"] = level_stats(frame)
     return ok(summary)
 
 

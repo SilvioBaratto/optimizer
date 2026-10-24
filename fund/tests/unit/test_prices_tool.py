@@ -12,13 +12,18 @@ contract as a pure function of a seeded SQLite DB:
   rescaled) before any return is derived, so the optimiser sees the same
   base-currency series the NAV tracker marks;
 * a delisted or stale ticker is excluded and flagged ``missing`` instead of being
-  forward-filled into a flat, zero-variance tail the optimiser would favour.
+  forward-filled into a flat, zero-variance tail the optimiser would favour;
+* the summary carries per-ticker derived statistics (level, horizon changes,
+  realised volatility, drawdown), so the economist reads numbers rather than only
+  column names and coverage.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import json
 
+import numpy as np
 import pandas as pd
 import pytest
 from portopt_db.models.market_data.yfinance_data import PriceHistory
@@ -550,3 +555,127 @@ class TestDeadAndStaleTickersAreNotInvestable:
 
         assert list(frame.columns) == ["DIVS"]
         assert missing == []
+
+
+_STATS_ASOF = dt.date(2024, 1, 5)
+
+
+def _stat_path() -> dict[dt.date, float]:
+    """Peak of 150, a trough of 100, then a partial recovery to 120."""
+    return {
+        dt.date(2023, 1, 4): 80.0,
+        dt.date(2023, 6, 1): 150.0,
+        dt.date(2023, 10, 4): 100.0,
+        dt.date(2023, 12, 4): 110.0,
+        dt.date(2024, 1, 4): 120.0,
+    }
+
+
+class TestGetPricesStatistics:
+    def test_horizon_changes_are_simple_returns_to_the_last_close(
+        self, db_session
+    ) -> None:
+        _seed_prices(db_session, _seed_instrument(db_session, "AAA"), _stat_path())
+
+        result = get_prices(db_session, _STATS_ASOF, ["AAA"])
+
+        stats = result["data"]["stats"]["AAA"]
+        assert stats["last"] == pytest.approx(120.0)
+        assert stats["last_date"] == "2024-01-04"
+        assert stats["change_1m"] == pytest.approx(120.0 / 110.0 - 1.0)
+        assert stats["change_3m"] == pytest.approx(0.2)
+        assert stats["change_12m"] == pytest.approx(0.5)
+
+    def test_drawdown_is_a_non_negative_magnitude_from_the_running_peak(
+        self, db_session
+    ) -> None:
+        _seed_prices(db_session, _seed_instrument(db_session, "AAA"), _stat_path())
+
+        stats = get_prices(db_session, _STATS_ASOF, ["AAA"])["data"]["stats"]["AAA"]
+
+        assert stats["drawdown"] == pytest.approx(1.0 - 120.0 / 150.0)
+        assert stats["max_drawdown"] == pytest.approx(1.0 - 100.0 / 150.0)
+        assert stats["max_drawdown"] >= stats["drawdown"] >= 0.0
+
+    def test_series_at_its_peak_has_zero_drawdown(self, db_session) -> None:
+        _seed_prices(
+            db_session,
+            _seed_instrument(db_session, "AAA"),
+            {dt.date(2023, 12, 4): 100.0, dt.date(2024, 1, 4): 110.0},
+        )
+
+        stats = get_prices(db_session, _STATS_ASOF, ["AAA"])["data"]["stats"]["AAA"]
+
+        assert stats["drawdown"] == 0.0
+        assert stats["max_drawdown"] == 0.0
+
+    def test_realised_vol_is_annualised_from_daily_returns(self, db_session) -> None:
+        rng = np.random.default_rng(7)
+        days = [dt.date(2023, 3, 1) + dt.timedelta(days=i) for i in range(300)]
+        closes = 100.0 * np.cumprod(1.0 + rng.normal(0.0, 0.01, len(days)))
+        _seed_prices(
+            db_session,
+            _seed_instrument(db_session, "AAA"),
+            dict(zip(days, closes.tolist(), strict=True)),
+        )
+
+        stats = get_prices(db_session, dt.date(2024, 1, 1), ["AAA"])["data"]["stats"][
+            "AAA"
+        ]
+
+        trailing = pd.Series(closes).tail(253)
+        expected = trailing.pct_change().dropna().std(ddof=1) * np.sqrt(252)
+        assert stats["realised_vol"] == pytest.approx(expected)
+
+    def test_each_ticker_gets_its_own_statistics(self, db_session) -> None:
+        _two_ticker_panel(db_session)
+
+        stats = get_prices(db_session, _ASOF, ["AAA", "BBB"])["data"]["stats"]
+
+        assert set(stats) == {"AAA", "BBB"}
+        assert stats["AAA"]["last"] == pytest.approx(12.0)
+        assert stats["BBB"]["last"] == pytest.approx(22.0)
+
+    def test_missing_ticker_has_no_statistics(self, db_session) -> None:
+        _two_ticker_panel(db_session)
+
+        data = get_prices(db_session, _ASOF, ["AAA", "GHOST"])["data"]
+
+        assert data["missing"] == ["GHOST"]
+        assert set(data["stats"]) == {"AAA"}
+
+    def test_statistics_are_bounded_scalars_never_a_series(self, db_session) -> None:
+        _seed_prices(db_session, _seed_instrument(db_session, "AAA"), _stat_path())
+
+        stats = get_prices(db_session, _STATS_ASOF, ["AAA"])["data"]["stats"]["AAA"]
+
+        assert len(stats) <= 12
+        assert all(
+            v is None or isinstance(v, (int, float, str)) for v in stats.values()
+        )
+
+    def test_single_bar_degrades_to_null_statistics_not_nan(self, db_session) -> None:
+        _seed_prices(
+            db_session,
+            _seed_instrument(db_session, "AAA"),
+            {dt.date(2024, 1, 4): 12.0},
+        )
+
+        result = get_prices(db_session, _STATS_ASOF, ["AAA"])
+
+        stats = result["data"]["stats"]["AAA"]
+        assert stats["last"] == pytest.approx(12.0)
+        assert stats["change_1m"] is None
+        assert stats["realised_vol"] is None
+        json.dumps(result, allow_nan=False)
+
+    def test_non_price_field_reports_levels_without_return_statistics(
+        self, db_session
+    ) -> None:
+        _two_ticker_panel(db_session)
+
+        stats = get_prices(db_session, _ASOF, ["AAA"], field="volume")["data"]["stats"]
+
+        assert stats["AAA"]["last"] == pytest.approx(100.0)
+        assert "realised_vol" not in stats["AAA"]
+        assert "drawdown" not in stats["AAA"]

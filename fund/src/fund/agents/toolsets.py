@@ -340,9 +340,11 @@ def _bind_get_prices(ctx: RunContext) -> BaseTool:
 
     @tool
     def get_prices(tickers: list[str]) -> ToolResult:
-        """Daily-close coverage summary for ``tickers`` as of the run date (no
-        look-ahead). Returns the ``{ok, data}`` envelope with a shape/coverage
-        summary — never the raw price matrix."""
+        """Daily-close statistics for ``tickers`` as of the run date (no
+        look-ahead). Returns the ``{ok, data}`` envelope: per ticker the last close,
+        its 1m/3m/12m change, trailing-year realised volatility and drawdown (current
+        and maximum, non-negative fractions below the peak: 0.2 means 20% down), plus
+        a coverage summary and any ``missing`` tickers — never the raw price matrix."""
         return _get_prices_impl(ctx, tickers)
 
     return get_prices
@@ -353,11 +355,13 @@ def _bind_get_macro(ctx: RunContext) -> BaseTool:
 
     @tool
     def get_macro_series(names: list[str]) -> ToolResult:
-        """Macro-series coverage summary for the FRED ``names`` as of the run date.
+        """Macro-series statistics for the FRED ``names`` as of the run date.
+        Returns the ``{ok, data}`` envelope: per series the last level, its
+        1m/3m/12m change and z-score against its history, plus a coverage summary.
         Observations appear only after an estimated publication lag, so the newest
         monthly/quarterly prints may be absent and the NBER recession flags
-        (``USREC``/``USRECDM``) are never shown. Returns the ``{ok, data}``
-        envelope; absent series are flagged in ``missing``, never raised."""
+        (``USREC``/``USRECDM``) are never shown. Absent series are flagged in
+        ``missing``, never raised."""
         return _get_macro_impl(ctx, names)
 
     return get_macro_series

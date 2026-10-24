@@ -2,9 +2,10 @@
 
 Reads daily price history out of the shared ``portopt_db`` layer via
 ``YFinanceRepository`` and hands the agent a JSON-serialisable shape/coverage
-**summary** — never the raw price matrix. The tool is a pure function of
-``(session, asof, tickers, field)``: same seeded data + same args ⇒ identical
-output.
+**summary** plus a bounded set of per-ticker statistics (level, horizon changes,
+realised volatility, drawdown) — never the raw price matrix. The tool is a pure
+function of ``(session, asof, tickers, field)``: same seeded data + same args ⇒
+identical output.
 
 Contract (via ``tool_envelope``):
 
@@ -34,6 +35,7 @@ from fund.tools._base import (
     summarize_frame,
     tool_envelope,
 )
+from fund.tools._stats import level_stats, price_stats
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -176,7 +178,7 @@ def get_prices(
     *,
     field: str = "close",
 ) -> ToolResult:
-    """Return a price-panel summary for ``tickers`` as of ``asof``.
+    """Return a price-panel summary and per-ticker statistics as of ``asof``.
 
     Args:
         session: A sync ``portopt_db`` session; the tool does not own it.
@@ -188,9 +190,16 @@ def get_prices(
 
     Returns:
         ``ok`` with a shape/coverage summary of the wide price frame, plus
-        ``asof``, ``field``, ``requested`` and ``missing`` (requested tickers
-        absent from the panel). ``err`` on empty ``tickers`` or an unknown
-        ``field``.
+        ``asof``, ``field``, ``requested``, ``missing`` (requested tickers absent
+        from the panel) and ``stats``: per priced ticker its ``last`` value and
+        ``last_date``, ``change_1m``/``change_3m``/``change_12m`` and, for the
+        price-level columns, the trailing-year ``realised_vol``, ``drawdown`` and
+        ``max_drawdown`` (non-negative fractions below the running peak: ``0.2``
+        is 20% down, as for every ``max_drawdown`` in ``fund``). Statistics are in
+        each listing's own currency (returns
+        are unit-free; levels are not comparable across currencies). Any other
+        column reports level differences and a ``zscore`` instead. ``err`` on empty
+        ``tickers`` or an unknown ``field``.
     """
     if not tickers:
         return err("no tickers requested")
@@ -204,6 +213,9 @@ def get_prices(
     summary["field"] = field
     summary["requested"] = list(tickers)
     summary["missing"] = missing
+    summary["stats"] = (
+        price_stats(frame) if field in _PRICE_LEVEL_FIELDS else level_stats(frame)
+    )
     return ok(summary)
 
 

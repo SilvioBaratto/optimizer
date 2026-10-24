@@ -195,6 +195,20 @@ def test_bound_get_prices_returns_summary_envelope(db_session) -> None:
     assert result["data"]["asof"] == _ASOF.isoformat()
 
 
+def test_bound_get_prices_hands_the_economist_numbers_to_read(db_session) -> None:
+    _seed_panel(db_session)
+    ctx = _make_context(db_session)
+    get_prices = _find(bind_toolset("economist", ctx), "get_prices")
+
+    result = get_prices.invoke({"tickers": _UNIVERSE})
+
+    stats = result["data"]["stats"]
+    assert set(stats) == set(_UNIVERSE)
+    assert all(entry["last"] is not None for entry in stats.values())
+    assert "statistics" in get_prices.description.lower()
+    assert "non-negative" in get_prices.description.lower()
+
+
 def test_bound_macro_flags_missing_series(db_session) -> None:
     ctx = _make_context(db_session)
     macro = _find(bind_toolset("economist", ctx), "get_macro_series")

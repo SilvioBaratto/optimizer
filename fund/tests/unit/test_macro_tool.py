@@ -8,13 +8,17 @@ pure function of a seeded SQLite DB of FRED observations:
 * an unknown series / a series with no observations is **flagged**, not raised;
 * empty ``names`` degrades to ``{ok: false}``;
 * a malformed ``asof`` degrades to ``{ok: false}``, never an exception;
-* identical inputs on identical data give identical output (determinism).
+* identical inputs on identical data give identical output (determinism);
+* the summary carries per-series derived statistics (level, horizon changes,
+  z-score), so the economist reads numbers rather than only coverage.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import json
 
+import numpy as np
 import pandas as pd
 import pytest
 from portopt_db.models.macro.macro_regime import FredObservation
@@ -391,3 +395,89 @@ class TestGetMacroSeriesLiveRead:
         result = get_macro_series(db_session, ["USREC"], today)
 
         assert result["data"]["missing"] == ["USREC"]
+
+
+# Late enough that the sparsely observed spread, classed quarterly, has cleared
+# its publication lag; the statistics are anchored on each series' own last date.
+_STATS_ASOF = dt.date(2024, 6, 1)
+_SPREAD = {
+    dt.date(2023, 1, 4): 0.50,
+    dt.date(2023, 6, 1): 0.20,
+    dt.date(2023, 10, 4): -0.10,
+    dt.date(2023, 12, 4): 0.10,
+    dt.date(2024, 1, 4): -0.40,
+}
+
+
+class TestGetMacroSeriesStatistics:
+    def test_horizon_changes_are_level_differences(self, db_session) -> None:
+        _seed_series(db_session, "T10Y2Y", _SPREAD)
+
+        result = get_macro_series(db_session, ["T10Y2Y"], _STATS_ASOF)
+
+        stats = result["data"]["stats"]["T10Y2Y"]
+        assert stats["last"] == pytest.approx(-0.40)
+        assert stats["last_date"] == "2024-01-04"
+        assert stats["change_1m"] == pytest.approx(-0.40 - 0.10)
+        assert stats["change_3m"] == pytest.approx(-0.40 - -0.10)
+        assert stats["change_12m"] == pytest.approx(-0.40 - 0.50)
+
+    def test_zscore_places_the_last_level_in_its_own_history(self, db_session) -> None:
+        _seed_series(db_session, "T10Y2Y", _SPREAD)
+
+        stats = get_macro_series(db_session, ["T10Y2Y"], _STATS_ASOF)["data"]["stats"][
+            "T10Y2Y"
+        ]
+
+        levels = np.array(list(_SPREAD.values()))
+        expected = (levels[-1] - levels.mean()) / levels.std(ddof=1)
+        assert stats["zscore"] == pytest.approx(expected)
+
+    def test_mixed_frequency_series_are_summarised_on_their_own_dates(
+        self, db_session
+    ) -> None:
+        # CPI prints monthly while VIX prints daily: the union index holds NaN for
+        # CPI on most days, which must not leak into its last level or changes.
+        _seed_series(
+            db_session,
+            "CPIAUCSL",
+            {
+                dt.date(2023, 11, 1): 300.0,
+                dt.date(2023, 12, 1): 301.0,
+                dt.date(2024, 1, 1): 303.0,
+            },
+        )
+        _seed_series(
+            db_session,
+            "VIXCLS",
+            {dt.date(2024, 1, 2) + dt.timedelta(days=i): 13.0 + i for i in range(3)},
+        )
+
+        stats = get_macro_series(db_session, ["CPIAUCSL", "VIXCLS"], _STATS_ASOF)[
+            "data"
+        ]["stats"]
+
+        assert stats["CPIAUCSL"]["last"] == pytest.approx(303.0)
+        assert stats["CPIAUCSL"]["last_date"] == "2024-01-01"
+        assert stats["CPIAUCSL"]["change_1m"] == pytest.approx(2.0)
+        assert stats["VIXCLS"]["last"] == pytest.approx(15.0)
+
+    def test_series_without_enough_history_reports_null_changes(
+        self, db_session
+    ) -> None:
+        _seed_series(db_session, "T10Y2Y", {dt.date(2024, 1, 4): 0.1})
+
+        result = get_macro_series(db_session, ["T10Y2Y"], _STATS_ASOF)
+
+        stats = result["data"]["stats"]["T10Y2Y"]
+        assert stats["last"] == pytest.approx(0.1)
+        assert stats["change_12m"] is None
+        assert stats["zscore"] is None
+        json.dumps(result, allow_nan=False)
+
+    def test_missing_series_has_no_statistics(self, db_session) -> None:
+        _seed_series(db_session, "T10Y2Y", _SPREAD)
+
+        data = get_macro_series(db_session, ["T10Y2Y", "NOPE"], _STATS_ASOF)["data"]
+
+        assert set(data["stats"]) == {"T10Y2Y"}
