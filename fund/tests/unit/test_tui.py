@@ -7956,6 +7956,85 @@ async def test_ask_log_renders_bracketed_answer_verbatim(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ask_log_shows_bracketed_answer_text_verbatim(shell_env) -> None:
+    """Tickers in brackets and markdown links survive: the log never parses markup.
+
+    Parsed as Textual markup, ``[AAPL]`` and ``[report]`` were silently deleted, so a
+    grounded answer reached the adviser with its ticker names missing.
+    """
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    answer = "We hold [AAPL], [MSFT] and [NVDA] (see [report](https://x.y/z))."
+    app = _make_shell(
+        shell_env,
+        portfolio_id=_PID_A,
+        model_factory=lambda: _CannedAskModel(answer=answer),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("which names are we holding?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert answer in str(view.query_one("#ask-log", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_ask_log_stray_closing_tag_in_answer_does_not_crash(shell_env) -> None:
+    """A model answer holding ``[/INST]`` renders as text instead of ending the TUI."""
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=1)
+        session.commit()
+
+    answer = "Closing tag leak: [/INST] done"
+    app = _make_shell(
+        shell_env,
+        portfolio_id=_PID_A,
+        model_factory=lambda: _CannedAskModel(answer=answer),
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("how are we doing?")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+        assert app.is_running
+        assert answer in str(view.query_one("#ask-log", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_ask_log_typed_closing_tag_turn_does_not_crash(shell_env) -> None:
+    """An adviser turn like 'why is [/x] trimmed?' is logged verbatim, not parsed."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)  # model_factory=lambda: None
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("why is [/x] trimmed?")
+        await pilot.pause()
+        assert app.is_running
+        log = str(view.query_one("#ask-log", Static).render())
+        assert "why is [/x] trimmed?" in log
+
+
+@pytest.mark.asyncio
+async def test_status_bar_shows_bracketed_message_verbatim(shell_env) -> None:
+    """Error text with brackets ('[Errno 111]', '[/]') reaches the status bar intact."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        message = "ask failed: [Errno 111] connection refused [/]"
+        app._set_status(message)
+        await pilot.pause()
+        assert app.last_status == message
+        assert message in str(app.query_one("#status-bar", Static).render())
+
+
+@pytest.mark.asyncio
 async def test_ask_query_without_model_degrades_to_status(shell_env) -> None:
     """No model configured → a status line + log note, never a crash, no answer."""
     with shell_env.get_session() as session:
