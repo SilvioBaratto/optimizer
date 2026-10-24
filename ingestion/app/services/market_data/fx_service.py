@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import Any
+from typing import Any, NoReturn
 
 import pandas as pd
 from sqlalchemy import select
@@ -120,6 +120,23 @@ def _utc_now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
+def _abort_without_rows(
+    on_progress: ProgressCallback, errors: list[str], message: str
+) -> NoReturn:
+    """Record the run's errors on the job, then fail it.
+
+    The errors go through ``on_progress`` before the raise because the scheduler's
+    own failed update carries no error list; without this the per-symbol reasons
+    would never reach ``background_job_errors``.
+
+    Raises:
+        FeedOutageError: Always, with ``message``.
+    """
+    logger.warning(message)
+    on_progress(errors=errors, result={"rows_total": 0, "error_count": len(errors)})
+    raise FeedOutageError(message)
+
+
 def run_fx_fetch(
     yf_client: Any,
     *,
@@ -133,8 +150,8 @@ def run_fx_fetch(
     the USD leg (``{CCY}USD=X``) for each currency plus the base, computes
     base-per-quote rates cross-via-USD on aligned dates, and upserts them. A
     failing or empty leg is logged and skipped rather than sinking the run; if
-    the base's own USD leg is unavailable nothing can be converted, so the run
-    writes no rows and raises instead of reporting success.
+    the base's own USD leg is unavailable, or every leg fails, nothing can be
+    converted, so the run writes no rows and raises instead of reporting success.
 
     Args:
         yf_client: Configured yfinance client exposing ``fetch_history``.
@@ -146,9 +163,9 @@ def run_fx_fetch(
         Dict with ``rows_total`` (rows upserted) and ``error_count``.
 
     Raises:
-        FeedOutageError: The base currency's USD leg could not be fetched, so no
-            rate could be computed. The per-symbol errors are passed to
-            ``on_progress`` before the raise.
+        FeedOutageError: The base currency's USD leg could not be fetched, or
+            every attempted leg failed, so no rate could be computed. The
+            per-symbol errors are passed to ``on_progress`` before the raise.
     """
     from portopt_db.repositories.market_data.fx_rates_repository import (
         FxRatesRepository,
@@ -192,16 +209,19 @@ def run_fx_fetch(
     base_leg = None if base == "USD" else usd_legs.get(base)
     base_dates = set(base_leg) if base_leg is not None else None
     if base != "USD" and base_leg is None:
-        result = {"rows_total": 0, "error_count": len(errors)}
-        logger.warning(
-            "fx_fetch: base USD leg (%sUSD=X) unavailable; wrote no rows", base
-        )
-        on_progress(errors=errors, result=result)
-        raise FeedOutageError(
-            f"fx_fetch: base USD leg ({base}USD=X) unavailable; no rates written"
+        _abort_without_rows(
+            on_progress,
+            errors,
+            f"fx_fetch: base USD leg ({base}USD=X) unavailable; no rates written",
         )
 
     rows = _build_rows(base, quotes, usd_legs, base_leg, base_dates)
+    if not rows and errors:
+        _abort_without_rows(
+            on_progress,
+            errors,
+            f"fx_fetch: {len(errors)} leg(s) failed and no rate could be computed",
+        )
     with database_manager.get_session() as session:
         written = FxRatesRepository(session).upsert_rates(rows)
         session.commit()

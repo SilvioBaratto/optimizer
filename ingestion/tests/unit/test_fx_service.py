@@ -229,6 +229,49 @@ class TestRunFxFetch:
         ]
         assert persisted == [["EURUSD=X: empty"]]
 
+    def test_every_leg_failing_raises_instead_of_completing_empty(
+        self, fx_session
+    ) -> None:
+        """A USD-base run whose every leg fails is an outage, not an empty success."""
+        _seed_eur_usd_gbp(fx_session)
+        on_progress = MagicMock()
+        yf = MagicMock()
+        yf.fetch_history.side_effect = RuntimeError("429 Too Many Requests")
+
+        with pytest.raises(FeedOutageError):
+            run_fx_fetch(yf, base="USD", on_progress=on_progress)
+
+        assert fx_session.query(FxRate).count() == 0
+        persisted = [
+            c.kwargs["errors"]
+            for c in on_progress.call_args_list
+            if "errors" in c.kwargs
+        ]
+        assert [len(errors) for errors in persisted] == [2]
+        assert not any(
+            c.kwargs.get("status") == "completed" for c in on_progress.call_args_list
+        )
+
+    def test_partial_leg_failure_still_completes_with_errors(self, fx_session) -> None:
+        """One dead quote leg among working ones keeps the run completed."""
+        _seed_eur_usd_gbp(fx_session)
+        on_progress = MagicMock()
+
+        def _fetch(symbol, **kw):
+            if symbol == "GBPUSD=X":
+                raise RuntimeError("boom")
+            return _close_frame([self._D1], [1.10])
+
+        yf = MagicMock()
+        yf.fetch_history.side_effect = _fetch
+
+        result = run_fx_fetch(yf, base="USD", on_progress=on_progress)
+
+        assert result["rows_total"] == 1
+        final = on_progress.call_args_list[-1].kwargs
+        assert final["status"] == "completed"
+        assert final["errors"] == ["GBPUSD=X: boom"]
+
     def test_no_session_is_held_while_fetching_from_yahoo(
         self, fx_session, monkeypatch
     ) -> None:
