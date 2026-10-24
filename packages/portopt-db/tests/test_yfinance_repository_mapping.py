@@ -20,6 +20,7 @@ from sqlalchemy.dialects import postgresql
 from portopt_db.repositories.market_data.yfinance_repository import (
     YFinanceRepository,
     _safe_date,
+    _safe_str,
 )
 
 _IID = uuid4()
@@ -174,6 +175,39 @@ class TestDegradedInfoKeepsStoredDescription:
         assert "sector_key = excluded.sector_key" not in update
         assert "industry_key = excluded.industry_key" not in update
         assert "shares_short = excluded.shares_short" in update
+
+
+class TestNulBytesNeverReachPostgres:
+    """PostgreSQL text cannot hold NUL, and psycopg2 refuses the whole multi-row
+    INSERT when any value carries one, so one scraped page with a stray NUL
+    would otherwise drop every news row of the ticker for that run."""
+
+    def test_safe_str_removes_nul(self) -> None:
+        assert _safe_str("a\x00b") == "ab"
+
+    def test_safe_str_removes_nul_before_truncating(self) -> None:
+        assert _safe_str("\x00abcdef", max_len=3) == "abc"
+
+    def test_scraped_article_body_is_cleaned(self, repo) -> None:
+        repo.session.execute.return_value.scalar_one_or_none.return_value = "ACME"
+        repo.upsert_news(_IID, [{"uuid": "a", "full_content": "pa\x00ge body"}])
+        assert _rows(repo)[0]["full_content"] == "page body"
+
+    def test_body_that_is_only_nul_counts_as_no_body(self, repo) -> None:
+        repo.session.execute.return_value.scalar_one_or_none.return_value = "ACME"
+        repo.upsert_news(_IID, [{"uuid": "a", "full_content": "\x00"}])
+        update_columns = repo._upsert.call_args.kwargs["update_columns"]
+        assert update_columns is not None
+        assert "full_content" not in update_columns
+
+    def test_headline_is_cleaned(self, repo) -> None:
+        repo.session.execute.return_value.scalar_one_or_none.return_value = "ACME"
+        repo.upsert_news(_IID, [{"uuid": "a", "title": "Fed\x00 holds"}])
+        assert _rows(repo)[0]["title"] == "Fed holds"
+
+    def test_company_summary_is_cleaned(self, repo) -> None:
+        repo.upsert_profile(_IID, {"longBusinessSummary": "Makes\x00 widgets."})
+        assert _rows(repo)[0]["long_business_summary"] == "Makes widgets."
 
 
 class TestAnalystEstimates:

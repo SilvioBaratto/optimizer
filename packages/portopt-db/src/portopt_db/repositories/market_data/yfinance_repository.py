@@ -116,11 +116,20 @@ def _safe_percent_as_fraction(v: Any) -> float | None:
     return None if f is None else f / 100.0
 
 
+def _strip_nul(text: str) -> str:
+    """Remove NUL characters, which PostgreSQL text cannot hold.
+
+    psycopg2 rejects the whole multi-row INSERT when any value carries one, so a
+    single stray NUL in scraped text would otherwise drop every row in the batch.
+    """
+    return text.replace("\x00", "")
+
+
 def _safe_str(v: Any, max_len: int | None = None) -> str | None:
     v = _safe_val(v)
     if v is None:
         return None
-    s = str(v)
+    s = _strip_nul(str(v))
     if max_len:
         s = s[:max_len]
     return s
@@ -1689,6 +1698,8 @@ class YFinanceRepository(RepositoryBase):
 
             # Full content (scraped upstream by NewsClient if available)
             full_content = article.get("full_content")
+            if isinstance(full_content, str):
+                full_content = _strip_nul(full_content)
 
             rows.append(
                 {
