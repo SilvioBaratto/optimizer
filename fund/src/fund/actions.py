@@ -387,8 +387,9 @@ def resume_message(
     ``place_orders`` reports a missing fill bar or unknown ticker as a soft failure, so
     the resume itself succeeds. An approve/edit whose run did not end ``completed``
     (finalised ``incomplete``, or re-gated and left ``paused`` / ``responded``) placed
-    no paper ticket; claiming plain success would hide that from the adviser. A PM
-    follow-up turn that failed after the gate was consumed (``resume_error``) is
+    no paper ticket; claiming plain success would hide that from the adviser. A respond
+    the PM answered without re-gating is reported ``incomplete``, not ``responded``.
+    A PM follow-up turn that failed after the gate was consumed (``resume_error``) is
     appended: the decision stands, but the adviser should know the model did not finish.
 
     Args:
@@ -407,6 +408,14 @@ def resume_message(
         run = AgentRunRepository(session).get_run(run_id)
         if run is not None and run.status != "completed":
             message += f", but no paper ticket was placed (run is {run.status})"
+    elif action == "respond":
+        run = AgentRunRepository(session).get_run(run_id)
+        if run is not None and run.status == "incomplete":
+            # The PM answered without re-gating, so the run was finalised: "responded"
+            # alone would send the adviser to wait for a gate that never appears.
+            message = (
+                f"run {run_id} incomplete (the PM did not re-gate after the response)"
+            )
     error = (result or {}).get("resume_error")
     if error:
         message += f" (PM follow-up failed: {error})"

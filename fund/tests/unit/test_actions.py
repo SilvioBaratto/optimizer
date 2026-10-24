@@ -382,6 +382,33 @@ def test_respond_barge_in_regates_and_logs_human_audit_row(paused_env) -> None:
         assert rows[0].portfolio_id == PORTFOLIO_ID
 
 
+def test_respond_that_finalises_the_run_incomplete_says_so(paused_env) -> None:
+    """A PM that does not re-gate after a respond leaves nothing to approve.
+
+    The status line must report the finalised run, not imply it is back at a gate.
+    """
+    env = paused_env
+    with env.get_session() as session:
+        result = apply_action(
+            "respond",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            # The default model orders once and never re-gates after the respond.
+            model=ScriptedFundModel(universe=UNIVERSE, weights=env.expected),
+            pm_directive="Looks fine, proceed.",
+        )
+        session.commit()
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "incomplete"
+
+    assert "incomplete" in result.message
+    assert "responded" not in result.message
+    assert "awaiting approval" not in result.message
+
+
 def test_respond_requires_a_pm_directive(paused_env) -> None:
     """Respond without a directive is rejected before the agent stack is touched."""
     env = paused_env
@@ -959,6 +986,33 @@ def test_run_reports_a_paused_round_as_awaiting_approval(paused_env) -> None:
         )
 
     assert "paused (awaiting approval)" in result.message
+
+
+@pytest.mark.parametrize(
+    ("status", "awaits_approval"),
+    [("paused", True), ("incomplete", False), ("rejected", False)],
+)
+def test_run_message_claims_awaiting_approval_only_for_a_paused_run(
+    db_session, status, awaits_approval
+) -> None:
+    """A run that ended without a gate (round cap, no order, freeze) has nothing to
+    approve, so its status line must not say it is awaiting approval."""
+    run_id = uuid.uuid4()
+
+    def fake_run_fund(*_args, **_kwargs):
+        return SimpleNamespace(run_id=run_id, status=status)
+
+    with mock.patch("fund.agents.graph.run_fund", fake_run_fund):
+        result = apply_action(
+            "run",
+            session=db_session,
+            portfolio_id=PORTFOLIO_ID,
+            mandate=make_mandate(),
+            asof=dt.date(2026, 1, 2),
+        )
+
+    assert status in result.message
+    assert ("awaiting approval" in result.message) is awaits_approval
 
 
 def test_is_within_suitability_band_treats_the_assessment_band_as_a_ceiling() -> None:
