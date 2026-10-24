@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import subprocess
 import sys
+import threading
 import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -33,15 +34,15 @@ from _fund_fakes import (
     make_constraint_set,
     make_mandate,
     seed_panel,
+    threaded_sqlite_engine,
 )
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import AgentDecision, AgentRun, Base
+from portopt_db.models import AgentDecision, AgentRun, Exchange
 from pydantic import Field
-from sqlalchemy import create_engine
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from fund.agents.graph import stream_fund
 from fund.audit import (
@@ -71,14 +72,9 @@ class _FreezeMidRoundModel(ScriptedFundModel):
 
 
 @pytest.fixture
-def stream_env():
+def stream_env(tmp_path):
     """An isolated SQLite engine + in-memory LangGraph handles + a scripted model."""
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,  # one connection => one in-memory DB across threads
-    )
-    Base.metadata.create_all(engine)
+    engine = threaded_sqlite_engine(tmp_path / "stream.db")
     session_local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     saver = MemorySaver()
     store = InMemoryStore()
@@ -109,6 +105,30 @@ def stream_env():
         model_factory=lambda: ScriptedFundModel(universe=UNIVERSE, weights=expected),
     )
     engine.dispose()
+
+
+def test_stream_env_sessions_do_not_share_a_transaction(stream_env) -> None:
+    """The stream writes on a worker thread while the cockpit reads on another: one
+    session closing must not roll back another's flushed, not yet committed write."""
+
+    def poll() -> None:
+        with stream_env.get_session() as poller:
+            poller.execute(select(1))
+
+    with stream_env.get_session() as writer:
+        writer.add(Exchange(name="EX-isolation"))
+        writer.flush()
+        poller_thread = threading.Thread(target=poll)
+        poller_thread.start()
+        poller_thread.join()
+        writer.commit()
+
+    with stream_env.get_session() as reader:
+        written = reader.scalars(
+            select(Exchange).where(Exchange.name == "EX-isolation")
+        ).one_or_none()
+
+    assert written is not None
 
 
 def test_stream_fund_yields_ordered_tagged_events_then_pauses(stream_env) -> None:

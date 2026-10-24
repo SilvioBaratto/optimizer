@@ -39,14 +39,14 @@ from _fund_fakes import (
     make_constraint_set,
     make_mandate,
     seed_panel,
+    threaded_sqlite_engine,
 )
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import Base, HumanAuditLog, PaperOrder
-from sqlalchemy import create_engine
+from portopt_db.models import Exchange, HumanAuditLog, PaperOrder
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 from textual.coordinate import Coordinate
 from textual.css.query import NoMatches
 from textual.widgets import (
@@ -113,14 +113,9 @@ class _FakePool:
 
 
 @pytest.fixture
-def tui_env():
+def tui_env(tmp_path):
     """An isolated SQLite engine + in-memory LangGraph handles with a paused run."""
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,  # one connection => one in-memory DB across threads
-    )
-    Base.metadata.create_all(engine)
+    engine = threaded_sqlite_engine(tmp_path / "tui.db")
     session_local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     saver = MemorySaver()
     store = InMemoryStore()
@@ -301,18 +296,13 @@ _VIEW_KEYS = (
 
 
 @pytest.fixture
-def shell_env():
+def shell_env(tmp_path):
     """An empty isolated SQLite + in-memory LangGraph handles for the shell.
 
     Lighter than ``tui_env`` (no seeded paused run): the shell's Phase-0 slices
     only need a mountable frame and, for the picker, a session to read ids from.
     """
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+    engine = threaded_sqlite_engine(tmp_path / "shell.db")
     session_local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
     @contextmanager
@@ -333,6 +323,32 @@ def shell_env():
         pool=pool,
     )
     engine.dispose()
+
+
+@pytest.mark.parametrize("env_name", ["tui_env", "shell_env", "onboard_env"])
+def test_env_sessions_do_not_share_a_transaction(request, env_name) -> None:
+    """The shell polls on one thread while a worker writes on another: one session
+    closing must not roll back another's flushed, not yet committed write."""
+    env = request.getfixturevalue(env_name)
+
+    def poll() -> None:
+        with env.get_session() as poller:
+            poller.execute(select(1))
+
+    with env.get_session() as writer:
+        writer.add(Exchange(name="EX-isolation"))
+        writer.flush()
+        poller_thread = threading.Thread(target=poll)
+        poller_thread.start()
+        poller_thread.join()
+        writer.commit()
+
+    with env.get_session() as reader:
+        written = reader.scalars(
+            select(Exchange).where(Exchange.name == "EX-isolation")
+        ).one_or_none()
+
+    assert written is not None
 
 
 # A config that gates nothing by itself, so the Mandate's own gate set is the only
@@ -2866,19 +2882,14 @@ def _fill_questionnaire(screen, answers, *, capital: str) -> None:
 
 
 @pytest.fixture
-def onboard_env():
+def onboard_env(tmp_path):
     """A seeded price panel + shared LangGraph handles for the full onboard cycle.
 
     Unlike ``tui_env`` nothing is pre-seeded beyond prices: the new portfolio, its
     mandate, and its active ``ConstraintSet`` are all created *through the TUI* (the
     profiler's approve caches the set the subsequent run resolves).
     """
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+    engine = threaded_sqlite_engine(tmp_path / "onboard.db")
     session_local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     saver = MemorySaver()
     store = InMemoryStore()
@@ -5583,6 +5594,10 @@ async def test_freeze_mid_stream_leaves_no_approvable_gate(
             universe=[],
             optimizer_config={},
         )
+        # SQLite admits one writer, so a round holding its run row uncommitted would
+        # queue the adviser's freeze until it timed out; Postgres lets both through.
+        # A committed ``running`` row is no paused gate either, so the race holds.
+        session.commit()
         run_ids.append(run.id)
         yield StreamEvent(
             kind="step",
