@@ -2883,6 +2883,84 @@ def test_audit_csv_cells_neutralise_formula_injection() -> None:
     assert _audit_cell({"k": "=v"}) == '{"k": "=v"}'
 
 
+@pytest.mark.asyncio
+async def test_audit_repaint_keeps_cursor_and_scroll(shell_env) -> None:
+    # A long timeline is browsed with the keyboard while the poll tick repaints it;
+    # the highlight and the viewport must not snap back to the top every tick.
+    with shell_env.get_session() as session:
+        hlog = HumanAuditLogRepository(session)
+        for _ in range(80):
+            hlog.append(action="approve", portfolio_id=_PID_A, actor="human")
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        assert table.row_count == 80
+        table.move_cursor(row=70)
+        await pilot.pause()
+        scrolled = table.scroll_y
+        assert scrolled > 0
+
+        view.refresh_view()  # what every poll tick does
+        await pilot.pause()
+
+        assert table.cursor_row == 70
+        assert table.scroll_y == scrolled
+
+        # A viewport scrolled away from the cursor (mouse wheel) is held too.
+        table.scroll_to(y=5, animate=False)
+        await pilot.pause()
+        assert table.scroll_y == 5
+
+        view.refresh_view()
+        await pilot.pause()
+
+        assert table.cursor_row == 70
+        assert table.scroll_y == 5
+
+
+@pytest.mark.asyncio
+async def test_audit_filter_change_starts_the_new_timeline_at_the_top(
+    shell_env,
+) -> None:
+    # The cursor is held across same-dataset polls only: a different filter is a
+    # different timeline, so it must not inherit the old cursor row or scroll offset.
+    with shell_env.get_session() as session:
+        hlog = HumanAuditLogRepository(session)
+        for _ in range(80):
+            hlog.append(action="approve", portfolio_id=_PID_A, actor="human")
+        for _ in range(5):
+            hlog.append(
+                action="guardrail_override",
+                portfolio_id=_PID_A,
+                actor="human",
+                override_flag=True,
+            )
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        table = view.query_one("#audit-table", DataTable)
+        assert table.row_count == 85
+        table.move_cursor(row=70)
+        await pilot.pause()
+        assert table.scroll_y > 0
+
+        for toggle, rows in (
+            (view.toggle_overrides, 5),
+            (view.toggle_overrides, 85),
+            (view.toggle_portfolio_scope, 85),
+        ):
+            table.move_cursor(row=min(70, table.row_count - 1))
+            await pilot.pause()
+            toggle()
+            await pilot.pause()
+            assert table.row_count == rows, toggle.__name__
+            assert table.cursor_row == 0, toggle.__name__
+            assert table.scroll_y == 0, toggle.__name__
+
+
 # --- Deliberation replay view: transcript + step detail (T9) ------------------
 
 
@@ -2961,6 +3039,83 @@ async def test_deliberation_row_selection_drives_steps_then_detail(shell_env) ->
         await pilot.pause()
         assert view.selected_step == 0
         assert "allocator" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_deliberation_repaint_keeps_run_and_step_cursors(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_run(session, _PID_A, seed=2)
+        run_id = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        runs = view.query_one("#delib-runs", DataTable)
+        assert runs.row_count == 2
+        view.select_run(run_id)
+        await pilot.pause()
+        steps = view.query_one("#delib-steps", DataTable)
+        assert steps.row_count == 3
+        runs.move_cursor(row=1)
+        steps.move_cursor(row=2)
+
+        view.refresh_view()
+        await pilot.pause()
+
+        assert runs.cursor_row == 1
+        assert steps.cursor_row == 2
+
+
+@pytest.mark.asyncio
+async def test_deliberation_other_run_starts_its_steps_at_the_top(shell_env) -> None:
+    # Steps are keyed by position, so a freshly picked run's transcript would inherit
+    # the previous run's cursor row unless the dataset change resets it.
+    with shell_env.get_session() as session:
+        first = _seed_run_with_steps(session)
+        second = _seed_run_with_steps(session)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        steps = view.query_one("#delib-steps", DataTable)
+        view.select_run(first)
+        await pilot.pause()
+        steps.move_cursor(row=2)
+        assert steps.cursor_row == 2
+
+        view.refresh_view()  # a poll tick on the same run keeps the cursor
+        await pilot.pause()
+        assert steps.cursor_row == 2
+
+        view.select_run(second)
+        await pilot.pause()
+
+        assert steps.row_count == 3
+        assert steps.cursor_row == 0
+
+
+@pytest.mark.asyncio
+async def test_deliberation_other_portfolio_starts_its_runs_at_the_top(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        for seed in range(3):
+            _seed_run(session, _PID_A, seed=seed)
+            _seed_run(session, _PID_B, seed=seed)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        runs = view.query_one("#delib-runs", DataTable)
+        assert runs.row_count == 3
+        runs.move_cursor(row=2)
+        assert runs.cursor_row == 2
+
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert runs.row_count == 3
+        assert runs.cursor_row == 0
 
 
 @pytest.mark.asyncio
@@ -6142,6 +6297,74 @@ async def test_performance_strip_and_holdings_render(shell_env) -> None:
         assert "RETURNS" in view.summary_text and "RISK" in view.summary_text
         # The one USD holding is marked into the holdings table.
         assert view.query_one("#perf-holdings", DataTable).row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_performance_repaint_keeps_the_highlighted_holding(shell_env) -> None:
+    from fund.performance import HoldingMark
+
+    marks = [
+        HoldingMark(
+            ticker=ticker,
+            shares=1.0,
+            value=100.0,
+            weight=0.25,
+            return_1d=0.01,
+            return_1m=0.02,
+            return_1y=0.03,
+            contribution=0.0025,
+            unrealized_pnl=1.0,
+        )
+        for ticker in ("AAA", "BBB", "CCC", "DDD")
+    ]
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        table = view.query_one("#perf-holdings", DataTable)
+        view._paint_holdings(marks)
+        table.move_cursor(row=2)
+        assert _cursor_key(table) == "CCC"
+
+        view._paint_holdings(marks)
+        await pilot.pause()
+
+        assert _cursor_key(table) == "CCC"
+
+
+@pytest.mark.asyncio
+async def test_performance_other_portfolio_starts_its_holdings_at_the_top(
+    shell_env,
+) -> None:
+    from fund.performance import HoldingMark
+
+    marks = [
+        HoldingMark(
+            ticker=ticker,
+            shares=1.0,
+            value=100.0,
+            weight=0.25,
+            return_1d=0.01,
+            return_1m=0.02,
+            return_1y=0.03,
+            contribution=0.0025,
+            unrealized_pnl=1.0,
+        )
+        for ticker in ("AAA", "BBB", "CCC", "DDD")
+    ]
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_performance(app, pilot)
+        table = view.query_one("#perf-holdings", DataTable)
+        view._paint_holdings(marks)
+        table.move_cursor(row=2)
+        assert _cursor_key(table) == "CCC"
+
+        # Another book's holdings may share tickers; the cursor must not carry over.
+        app._portfolio_id = _PID_B
+        view._paint_holdings(marks)
+        await pilot.pause()
+
+        assert _cursor_key(table) == "AAA"
 
 
 @pytest.mark.asyncio

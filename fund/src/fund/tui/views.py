@@ -24,6 +24,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
+from weakref import WeakKeyDictionary
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -46,7 +47,7 @@ from fund.tui.readouts import attribution_bar, render_readout
 from fund.tui.stream import StepStatus, StreamEvent
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Callable, Generator, Hashable
     from contextlib import AbstractContextManager
 
     from sqlalchemy.orm import Session
@@ -116,28 +117,47 @@ RAIL_LABELS: dict[str, str] = {
 }
 
 
-@contextmanager
-def _keep_cursor(table: DataTable) -> Generator[None]:
-    """Hold ``table``'s cursor row across a clear-and-refill repaint.
+# The dataset each polled table last painted, so a repaint can tell a poll of the same
+# data (hold the cursor) from a swap to different data (start at the top). Weak keys let
+# a table's entry die with its view.
+_PAINTED_SCOPE: WeakKeyDictionary[DataTable, Hashable] = WeakKeyDictionary()
 
-    ``DataTable.clear()`` resets the cursor to row 0, so a table repainted on every
-    poll tick would yank the adviser's highlight back to the top and a following Enter
-    would act on the wrong row. The cursor is re-seated on the same row key when that
-    row survives the refill, else on the same index clamped to the new row count (rows
-    added without a key get a fresh random key each paint and so take that fallback).
+
+@contextmanager
+def _keep_cursor(table: DataTable, scope: Hashable = None) -> Generator[None]:
+    """Hold ``table``'s cursor row and scroll offset across a clear-and-refill repaint.
+
+    ``DataTable.clear()`` resets the cursor to row 0 and scrolls to the top, so a table
+    repainted on every poll tick would yank the adviser's highlight and viewport back to
+    the top and a following Enter would act on the wrong row. The cursor is re-seated on
+    the same row key when that row survives the refill, else on the same index clamped
+    to the new row count (rows added without a key get a fresh random key each paint and
+    so take that fallback).
+
+    Only a repaint of the *same* dataset is held. ``scope`` identifies the dataset the
+    table shows (a filter set, the focused portfolio, the picked run); when it differs
+    from the last paint the new rows are a different list, so they start at the top
+    rather than inheriting a row index and viewport that belonged to the old one
+    (positional keys and unkeyed rows would land the cursor on an arbitrary row).
     """
+    held = _PAINTED_SCOPE.get(table, scope) == scope
+    _PAINTED_SCOPE[table] = scope
     index = table.cursor_row
+    scroll_y = table.scroll_y
     key = (
         table.coordinate_to_cell_key(table.cursor_coordinate).row_key
         if table.row_count
         else None
     )
     yield
-    if not table.row_count:
+    if not held or not table.row_count:
         return
     if key is not None and key in table.rows:
         index = table.get_row_index(key)
     table.move_cursor(row=min(index, table.row_count - 1))
+    # Queued after the cursor move's own scroll-into-view so the previous viewport
+    # wins; the virtual height is only settled after the next refresh.
+    table.call_after_refresh(table.scroll_to, y=scroll_y, animate=False, force=True)
 
 
 class ShellView(Vertical):
@@ -1203,14 +1223,17 @@ class AuditView(ShellView):
 
     def _paint_table(self) -> None:
         table = self.query_one("#audit-table", DataTable)
-        table.clear()
-        for entry in self._entries:
-            table.add_row(
-                entry.when.strftime("%m-%d %H:%M"),
-                _short(entry.portfolio_id) if entry.portfolio_id else "fund",
-                entry.actor,
-                _audit_label(entry),
-            )
+        pid = self.shell._portfolio_id if self.filter_portfolio else None
+        scope = (self.filter_kind, self.filter_overrides, pid)
+        with _keep_cursor(table, scope):
+            table.clear()
+            for entry in self._entries:
+                table.add_row(
+                    entry.when.strftime("%m-%d %H:%M"),
+                    _short(entry.portfolio_id) if entry.portfolio_id else "fund",
+                    entry.actor,
+                    _audit_label(entry),
+                )
         if self.selected_index is not None and self.selected_index >= len(
             self._entries
         ):
@@ -1708,14 +1731,15 @@ class DeliberationView(ShellView):
 
     def _paint_runs(self, runs: list[RunSummary]) -> None:
         table = self.query_one("#delib-runs", DataTable)
-        table.clear()
-        for run in runs:
-            table.add_row(
-                _short(run.run_id),
-                run.asof.isoformat(),
-                run.status,
-                key=str(run.run_id),
-            )
+        with _keep_cursor(table, self.shell._portfolio_id):
+            table.clear()
+            for run in runs:
+                table.add_row(
+                    _short(run.run_id),
+                    run.asof.isoformat(),
+                    run.status,
+                    key=str(run.run_id),
+                )
         if self.selected_run_id is not None and all(
             run.run_id != self.selected_run_id for run in runs
         ):
@@ -1725,14 +1749,15 @@ class DeliberationView(ShellView):
     def _paint_steps(self, entries: list[Any]) -> None:
         self._entries = entries
         table = self.query_one("#delib-steps", DataTable)
-        table.clear()
-        for position, entry in enumerate(entries):
-            table.add_row(
-                str(entry.index),
-                entry.agent,
-                entry.step or entry.source,
-                key=str(position),
-            )
+        with _keep_cursor(table, self.selected_run_id):
+            table.clear()
+            for position, entry in enumerate(entries):
+                table.add_row(
+                    str(entry.index),
+                    entry.agent,
+                    entry.step or entry.source,
+                    key=str(position),
+                )
         if self.selected_step is not None and self.selected_step >= len(entries):
             self.selected_step = None
 
@@ -2239,16 +2264,17 @@ class PerformanceView(ShellView):
     def _paint_holdings(self, marks: list[HoldingMark]) -> None:
         self._marks = marks
         table = self.query_one("#perf-holdings", DataTable)
-        table.clear()
-        for mark in marks:
-            table.add_row(
-                mark.ticker,
-                _amt(mark.value),
-                _pct(mark.return_1d),
-                _pct(mark.contribution),
-                _amt(mark.unrealized_pnl),
-                key=mark.ticker,
-            )
+        with _keep_cursor(table, self.shell._portfolio_id):
+            table.clear()
+            for mark in marks:
+                table.add_row(
+                    mark.ticker,
+                    _amt(mark.value),
+                    _pct(mark.return_1d),
+                    _pct(mark.contribution),
+                    _amt(mark.unrealized_pnl),
+                    key=mark.ticker,
+                )
         # Drop a drill-down selection that has left the book (e.g. after a rebalance).
         if self.selected_ticker is not None and all(
             mark.ticker != self.selected_ticker for mark in marks
