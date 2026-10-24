@@ -22,6 +22,7 @@ from _fund_fakes import (
     ASOF,
     PORTFOLIO_ID,
     UNIVERSE,
+    PmFailsAfterOrderModel,
     ScriptedFundModel,
     expected_weights,
     make_constraint_set,
@@ -375,6 +376,100 @@ def test_fundrun_resume_approve_without_fill_bar_finalises_incomplete(
     assert _paper_orders(db_session) == []
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "incomplete"
     assert _positions_map(db_session) == {}
+
+
+# --- a failure after the gate is consumed must not orphan the approval --------
+
+
+def test_resume_fund_approve_survives_pm_failure_after_the_ticket(db_session) -> None:
+    """The PM's follow-up turn can fail (429) after ``place_orders`` ran. The gate is
+    consumed and the ticket written, so the approval must still be finalised rather
+    than propagate: the caller rolls the session back on an exception, which would
+    drop the ticket while the checkpoint keeps the tool step done."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    result = resume_fund(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=PmFailsAfterOrderModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert "429" in result["resume_error"]
+    assert len(_paper_orders(db_session)) == 1
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "completed"
+    assert _positions_map(db_session) == expected
+
+
+def test_resume_fund_reject_survives_pm_failure_after_the_gate(db_session) -> None:
+    """A reject whose follow-up PM turn fails is still recorded, not left paused."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    class _FailsOnAnyPmTurn(ScriptedFundModel):
+        def _pm_turn(self, messages):
+            raise RuntimeError("429 rate limited")
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=_FailsOnAnyPmTurn(universe=UNIVERSE, weights=expected),
+    )
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+    assert _paper_orders(db_session) == []
+
+
+def test_resume_fund_reraises_when_the_gate_was_not_consumed(
+    db_session, monkeypatch
+) -> None:
+    """A failure before the interrupt is consumed leaves the gate pending, so the
+    exception propagates and the adviser can simply retry."""
+    from fund.agents import graph
+
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    class _DeadAgent:
+        def invoke(self, *_args, **_kwargs):
+            raise ConnectionError("checkpointer unreachable")
+
+    monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: _DeadAgent())
+
+    with pytest.raises(ConnectionError):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        )
+
+    assert observe._has_pending_interrupt(saver, str(run.run_id))
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
 
 
 # --- _finalize_hitl unit surface: order_lines enrich the snapshot ------------

@@ -32,6 +32,7 @@ from _fund_fakes import (
     ASOF,
     PORTFOLIO_ID,
     UNIVERSE,
+    PmFailsAfterOrderModel,
     ScriptedFundModel,
     expected_weights,
     make_constraint_set,
@@ -42,6 +43,7 @@ from _profiler_fakes import make_model as make_profiler_model
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import Base
+from portopt_db.models.market_data.yfinance_data import PriceHistory
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -229,6 +231,42 @@ def test_approve_finalizes_run(harness, monkeypatch) -> None:
         assert row.status == "completed"
         assert row.weights == expected
     assert harness.pool.closed >= 2  # run + approve each closed the pool
+
+
+def test_approve_without_a_ticket_says_so_and_exits_nonzero(
+    harness, monkeypatch
+) -> None:
+    """``place_orders`` finding no fill bar finalises the run incomplete with no
+    ticket: the CLI must not echo a bare "approved" nor exit 0 for it."""
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    with harness.read() as session:
+        session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()
+        session.commit()
+
+    res = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+
+    assert res.exit_code != 0
+    assert "no paper ticket" in res.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(run_id).status == "incomplete"
+
+
+def test_approve_surfaces_a_failed_pm_follow_up(harness, monkeypatch) -> None:
+    """A PM turn that dies after the gate was consumed leaves the decision standing
+    (exit 0, run completed) but the operator must be told the model did not finish."""
+    run_id, expected, _res = _seed_and_run(harness, monkeypatch)
+    monkeypatch.setattr(
+        cli,
+        "build_primary",
+        lambda *a, **k: PmFailsAfterOrderModel(universe=UNIVERSE, weights=expected),
+    )
+
+    res = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+
+    assert res.exit_code == 0, res.output
+    assert "PM follow-up failed" in res.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(run_id).status == "completed"
 
 
 def test_reject_finalizes_run(harness, monkeypatch) -> None:

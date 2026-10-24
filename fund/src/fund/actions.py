@@ -372,30 +372,43 @@ def _apply_resume(
         run_id=rid,
         portfolio_id=pid,
         audit_id=row.id,
-        message=_resume_message(session, rid, action),
+        message=resume_message(session, rid, action, result),
         detail=result,
     )
 
 
-def _resume_message(session: Session, run_id: uuid.UUID, action: str) -> str:
-    """The status line for a resumed run, honest about an approve that ticketed nothing.
+def resume_message(
+    session: Session, run_id: uuid.UUID, action: str, result: dict[str, Any] | None
+) -> str:
+    """The status line for a resumed run, honest about what the resume really did.
 
     ``place_orders`` reports a missing fill bar or unknown ticker as a soft failure, so
     the resume itself succeeds. An approve/edit whose run did not end ``completed``
-    (finalised ``incomplete``, or re-gated and still ``paused``) placed no paper ticket;
-    claiming plain success would hide that from the adviser.
+    (finalised ``incomplete``, or re-gated and left ``paused`` / ``responded``) placed
+    no paper ticket; claiming plain success would hide that from the adviser. A PM
+    follow-up turn that failed after the gate was consumed (``resume_error``) is
+    appended: the decision stands, but the adviser should know the model did not finish.
+
+    Args:
+        session: A sync session that sees the resume's writes; not committed here.
+        run_id: The resumed run.
+        action: The logged action (``approve`` / ``edit`` / ``reject`` / ...).
+        result: The ``resume_run`` return value, or ``None``.
+
+    Returns:
+        The one-line status message.
     """
     from fund.audit.repository import AgentRunRepository
 
-    past = _PAST.get(action, action)
+    message = f"run {run_id} {_PAST.get(action, action)}"
     if action in ("approve", "edit"):
         run = AgentRunRepository(session).get_run(run_id)
-        if run is not None and run.status in ("incomplete", "paused"):
-            return (
-                f"run {run_id} {past}, but no paper ticket was placed "
-                f"(run is {run.status})"
-            )
-    return f"run {run_id} {past}"
+        if run is not None and run.status != "completed":
+            message += f", but no paper ticket was placed (run is {run.status})"
+    error = (result or {}).get("resume_error")
+    if error:
+        message += f" (PM follow-up failed: {error})"
+    return message
 
 
 def _apply_edit(
@@ -483,7 +496,7 @@ def _apply_edit(
         run_id=rid,
         portfolio_id=pid,
         audit_id=row.id,
-        message=_resume_message(session, rid, "edit"),
+        message=resume_message(session, rid, "edit", result),
         detail=result,
     )
 
@@ -1052,4 +1065,9 @@ def is_within_suitability_band(proposed_band: str, suitability_band: str) -> boo
     )
 
 
-__all__ = ["ActionResult", "apply_action", "is_within_suitability_band"]
+__all__ = [
+    "ActionResult",
+    "apply_action",
+    "is_within_suitability_band",
+    "resume_message",
+]

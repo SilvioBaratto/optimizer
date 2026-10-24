@@ -33,6 +33,7 @@ needs no environment (mirrors :mod:`fund.agents.profiler`).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NotRequired, cast
@@ -47,6 +48,8 @@ from fund.agents.prompts import (
 )
 from fund.agents.skills import skill_sources
 from fund.config import FundConfig, settings
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import datetime as dt
@@ -473,8 +476,9 @@ def _finalize_hitl(
 ) -> None:
     """Finalise a HITL decision — the single write path both resume routes share.
 
-    Used by :meth:`FundRun.resume` (the live in-process handle) **and**
-    :func:`resume_fund` (the cross-process rebuild), so the two cannot diverge.
+    Reached through :func:`_settle_hitl` by :meth:`FundRun.resume` (the live in-process
+    handle) **and** :func:`resume_fund` (the cross-process rebuild), so the two cannot
+    diverge.
     ``approve`` finalises the run ``completed`` with the optimizer ``weights`` and
     replaces the portfolio's ``positions`` snapshot built from them (O1 = Option B
     per-ticker row dicts; ``order_lines``, when supplied, carries the filled
@@ -672,8 +676,9 @@ class FundRun:
     ``constraint_set``, the load-bearing optimizer ``weights`` (captured from the
     audit trail before the pause), the ``interrupt`` payload the adviser reviews,
     the run ``status``, and enough state to resume. ``resume("approve")`` commits
-    the paper ticket and finalises the run completed; any other decision commits no
-    order, records the HITL choice, and finalises the run rejected.
+    the paper ticket and finalises the run completed, or incomplete when
+    ``place_orders`` wrote no ticket (see :func:`_settle_hitl`); ``resume("reject")``
+    commits no order, records the HITL choice, and finalises the run rejected.
     """
 
     constraint_set: ConstraintSet
@@ -692,13 +697,14 @@ class FundRun:
 
         ``approve`` runs the gated ``place_orders`` tool (the paper ticket is written
         and the executor decision logged inside the closure), then finalises the run
-        as completed with the optimizer's weights. ``reject`` writes no order, records
-        the HITL choice, and finalises rejected. ``respond`` threads ``pm_directive``
-        back to the PM and lets it continue: if it re-gates the run stays alive as
-        ``"responded"`` (still awaiting approval), else it finalises ``incomplete`` —
-        delegated to :func:`_finalize_respond`.
+        as completed with the optimizer's weights, or incomplete when no ticket was
+        written (or leaves it awaiting the adviser if the PM re-gated). ``reject``
+        writes no order, records the HITL choice, and finalises rejected. ``respond``
+        threads ``pm_directive`` back to the PM and lets it continue: if it re-gates
+        the run stays alive as ``"responded"`` (still awaiting approval), else it
+        finalises ``incomplete`` — delegated to :func:`_finalize_respond`.
 
-        Approve/reject finalisation is delegated to the shared :func:`_finalize_hitl`,
+        Approve/reject finalisation is delegated to the shared :func:`_settle_hitl`,
         and respond to :func:`_finalize_respond`, so this in-process path and the
         cross-process :func:`resume_fund` cannot diverge — both stamp the audit trail
         identically. The run's ``portfolio_id`` / ``asof`` (which ``FundRun`` does not
@@ -1241,9 +1247,11 @@ def resume_fund(
     TUI HITL queue) resumes a paused ``place_orders`` gate by **rebuilding** the PM
     agent against the *same* ``checkpointer`` + ``thread_id`` and issuing
     ``Command(resume=…)`` itself. Approving executes the interrupted commit inside
-    the graph (so a ``model`` is required to resume); the shared
-    :func:`_finalize_hitl` then stamps the terminal audit state and, on approve, the
-    positions snapshot — leaving DB state identical to :meth:`FundRun.resume`.
+    the graph (so a ``model`` is required to resume); the shared :func:`_settle_hitl`
+    then stamps the terminal audit state and, on a ticketed approve, the positions
+    snapshot — leaving DB state identical to :meth:`FundRun.resume`. A PM follow-up
+    turn that fails after the gate was consumed does not raise: the decision stands
+    and the failure is returned as ``{"resume_error": ...}``.
 
     Loads the ``agent_run`` to recover its ``thread_id`` / ``portfolio_id`` / ``asof``
     (an unknown ``run_id`` raises ``LookupError``), re-guards the portfolio's active
@@ -1334,10 +1342,25 @@ def resume_fund(
         "configurable": {"thread_id": resolved_thread_id},
         "recursion_limit": config.recursion_limit,
     }
-    result: dict[str, Any] = agent.invoke(
-        _resume_command(decision, pm_directive),
-        config=thread_config,
-    )
+    try:
+        result: dict[str, Any] = agent.invoke(
+            _resume_command(decision, pm_directive),
+            config=thread_config,
+        )
+    except Exception as exc:
+        # The checkpointer commits on its own connection while the ticket and
+        # positions live in the caller's uncommitted session. If the PM's follow-up
+        # turn fails after the gate was consumed, propagating would roll the ticket
+        # back yet leave the checkpoint past the tool step: the run would stay
+        # "paused" with no pending interrupt, gone from the queue and unretryable.
+        # So once the gate is consumed the decision stands and is finalised; a gate
+        # still pending means nothing moved and the failure is safely retryable.
+        if observe._has_pending_interrupt(checkpointer, resolved_thread_id):
+            raise
+        _log.warning(
+            "resume of run %s failed after the gate was consumed", rid, exc_info=True
+        )
+        result = {"resume_error": f"{type(exc).__name__}: {exc}"}
     if decision == "respond":
         _finalize_respond(session, run_id=rid, result=result, pm_directive=pm_directive)
         return result

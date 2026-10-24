@@ -187,6 +187,20 @@ class ScriptedFundModel(BaseChatModel):
         return AIMessage(content="allocator report: candidate weights ready.")
 
 
+class PmFailsAfterOrderModel(ScriptedFundModel):
+    """A :class:`ScriptedFundModel` whose PM turn raises once ``place_orders`` ran.
+
+    Models a provider failure (429 / timeout) on the PM's follow-up turn after an
+    approved gate: the interrupt is already consumed and the paper ticket written when
+    the call blows up, so the resume raises *after* the checkpoint has moved on.
+    """
+
+    def _pm_turn(self, messages: list[BaseMessage]) -> AIMessage:
+        if _count_tool_calls(messages, "place_orders"):
+            raise RuntimeError("429 rate limited")
+        return super()._pm_turn(messages)
+
+
 def _task_call(subagent: str, index: int) -> AIMessage:
     """A PM assistant turn delegating to ``subagent`` via the built-in ``task``."""
     return AIMessage(

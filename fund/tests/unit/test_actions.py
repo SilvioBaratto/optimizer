@@ -186,6 +186,50 @@ def test_approve_without_a_ticket_does_not_report_plain_success(
         assert len(HumanAuditLogRepository(session).list_recent(action=action)) == 1
 
 
+def test_approve_that_regates_on_a_responded_run_is_not_reported_as_plain_success(
+    paused_env,
+) -> None:
+    """A run an earlier barge-in left ``responded`` whose approve ticketed nothing
+    (no fill bar) and re-gated stays ``responded``; the status line must still say no
+    paper ticket was placed rather than a bare "approved"."""
+    env = paused_env
+
+    def regating() -> ScriptedFundModel:
+        return ScriptedFundModel(universe=UNIVERSE, weights=env.expected, max_orders=3)
+
+    with env.get_session() as session:
+        apply_action(
+            "respond",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=regating(),
+            pm_directive="Trim AAA before committing.",
+        )
+        session.commit()
+    _drop_bars_after_asof(env)
+
+    with env.get_session() as session:
+        result = apply_action(
+            "approve",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=regating(),
+        )
+        session.commit()
+
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "responded"
+        assert session.query(PaperOrder).count() == 0
+    assert "no paper ticket" in result.message
+    assert "responded" in result.message
+
+
 def test_reject_resumes_run_and_logs_audit(paused_env) -> None:
     """Reject finalises the run rejected (no weights) and logs a reject row."""
     env = paused_env

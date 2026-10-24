@@ -45,6 +45,7 @@ from typing import Any, NoReturn
 import typer
 
 from fund import observe
+from fund.actions import resume_message
 from fund.agents.graph import resume_run, run_fund
 from fund.agents.model import build_primary
 from fund.agents.profiler import run_profiler
@@ -68,8 +69,6 @@ mandate_app = typer.Typer(
     add_completion=False, help="Per-portfolio mandate management."
 )
 app.add_typer(mandate_app, name="mandate")
-
-_PAST = {"approve": "approved", "reject": "rejected"}
 
 # Module-level typer option (B008: a list-typed default must be a shared singleton,
 # not an inline call); the gated-tool flag is identical for `mandate set` and `run`.
@@ -355,7 +354,7 @@ def _resume(run_id: str, decision: str) -> None:
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
-            resume_run(
+            result = resume_run(
                 rid,
                 decision,
                 session=session,
@@ -364,12 +363,18 @@ def _resume(run_id: str, decision: str) -> None:
                 model=model,
             )
             session.commit()
+            message = resume_message(session, rid, decision, result)
+            run = AgentRunRepository(session).get_run(rid)
+            ticketed = decision != "approve" or (
+                run is not None and run.status == "completed"
+            )
     except (RuntimeError, ValueError, LookupError) as exc:
         _fail(str(exc))
     finally:
         persistence.pool.close()
-    typer.echo(f"run {rid} {_PAST[decision]}")
-    _exit(True)
+    typer.echo(message)
+    # An approve that placed no ticket is a failed approve for a script driving this.
+    _exit(ticketed)
 
 
 @app.command()

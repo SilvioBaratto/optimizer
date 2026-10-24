@@ -40,7 +40,7 @@ from _fund_fakes import (
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import Base
+from portopt_db.models import Base, PaperOrder
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -793,6 +793,34 @@ async def test_decisions_approve_resumes_on_worker_and_refreshes(tui_env) -> Non
         assert len(rows) == 1
         assert rows[0].run_id == tui_env.run_id
         assert rows[0].portfolio_id == PORTFOLIO_ID
+
+
+@pytest.mark.asyncio
+async def test_decisions_approve_survives_pm_failure_after_the_ticket(tui_env) -> None:
+    """A PM follow-up LLM turn that fails after ``place_orders`` ran does not undo the
+    approval: the ticket is kept, the run ends completed, and the status line reports
+    the PM failure instead of an action failure."""
+    from _fund_fakes import PmFailsAfterOrderModel
+
+    def failing_model():
+        return PmFailsAfterOrderModel(universe=UNIVERSE, weights=tui_env.expected)
+
+    app = _make_shell(tui_env, model_factory=failing_model)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "action failed" not in app.last_status
+        assert "approved" in app.last_status
+        assert "PM follow-up failed" in app.last_status
+    with tui_env.get_session() as session:
+        run = AgentRunRepository(session).get_run(tui_env.run_id)
+        assert run.status == "completed"
+        assert session.query(PaperOrder).count() == 1
 
 
 @pytest.mark.asyncio
