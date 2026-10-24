@@ -368,6 +368,38 @@ def test_main_still_closes_resources_and_returns_after_a_clean_drain(
     assert exit_codes == []
 
 
+# --- early shutdown ---------------------------------------------------------
+
+
+def test_main_installs_the_signal_handlers_before_booting(monkeypatch) -> None:
+    """PID 1 drops SIGTERM until it has a handler, so a stop during boot is lost."""
+    stubs = _install_main_stubs(monkeypatch, healthy=True)
+    monkeypatch.setattr(
+        worker, "_install_signal_handlers", lambda: stubs.calls.append("handlers")
+    )
+
+    worker.main()
+
+    assert stubs.calls[0] == "handlers"
+    assert stubs.calls.index("handlers") < stubs.calls.index("init_db")
+
+
+def test_main_does_not_start_the_scheduler_after_a_shutdown_during_boot(
+    monkeypatch,
+) -> None:
+    stubs = _install_main_stubs(monkeypatch, healthy=True)
+    requested = threading.Event()
+    requested.set()
+    monkeypatch.setattr(worker, "_shutdown", requested)
+
+    worker.main()
+
+    stubs.scheduler.start.assert_not_called()
+    stubs.runtime.persistence.pool.close.assert_called_once()
+    assert "close_db" in stubs.calls
+    assert stubs.installed[-1] is None
+
+
 # --- liveness ---------------------------------------------------------------
 
 

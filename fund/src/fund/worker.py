@@ -8,7 +8,9 @@ orphan reaper — mirroring ``ingestion/app/worker.py`` with the fund deltas.
 Boot sequence (``main``):
 
 1. ``load_project_env()`` **first**, before any import reads the environment.
-2. ``_configure_logging()``.
+2. ``_configure_logging()`` → ``_install_signal_handlers()`` (SIGTERM **and** SIGINT
+   set a module ``threading.Event``; installed before the slow steps because PID 1
+   ignores a signal it has no handler for).
 3. ``init_db()`` + ``health_check()`` (a failed check warns but does not abort —
    the engine is lazy and a transient blip must not stop a deploy).
 4. Build the lifetime runtime **once** — ``build_primary``/``build_fallback``
@@ -18,9 +20,9 @@ Boot sequence (``main``):
 5. ``_reconcile_orphans()`` — a startup heartbeat-lease reap so a slot orphaned by
    a crashed predecessor does not block its type forever.
 6. ``create_scheduler()`` → ``start()``.
-7. ``_install_signal_handlers()`` (SIGTERM **and** SIGINT set a module
-   ``threading.Event``) → ``_wait_for_shutdown()``, which beats the heartbeat file the
-   container healthcheck reads and exits non-zero if APScheduler's thread has died.
+7. ``_wait_for_shutdown()``, which beats the heartbeat file the container
+   healthcheck reads and exits non-zero if APScheduler's thread has died. A shutdown
+   requested during boot skips the scheduler and releases the runtime instead.
 8. Drain: ``scheduler.pause()`` → ``scheduler.shutdown(wait=True)`` bounded by
    ``fund_shutdown_drain_timeout_seconds``. A clean drain then runs ``pool.close()``
    → ``close_db()``. A timed-out drain leaves the pool and engine open (the step
@@ -245,6 +247,10 @@ def main() -> None:
     """Run the fund daemon until a shutdown signal arrives."""
     _configure_logging()
     logger.info("Starting fund daemon")
+    # First, before the slow boot steps: as a container's PID 1 the process ignores
+    # SIGTERM until it has a handler, so a stop during boot would run out the grace
+    # period and end in SIGKILL.
+    _install_signal_handlers()
 
     init_db()
     logger.info("Database initialized")
@@ -253,6 +259,13 @@ def main() -> None:
 
     runtime = _build_runtime()
     configure_runtime(runtime)
+
+    if _shutdown.is_set():
+        logger.info("Shutdown requested during boot; not starting the scheduler")
+        configure_runtime(None)
+        runtime.persistence.pool.close()
+        close_db()
+        return
 
     _reconcile_orphans()
 
@@ -264,7 +277,6 @@ def main() -> None:
         settings.fund_drift_interval_seconds,
     )
 
-    _install_signal_handlers()
     touch_heartbeat()
     if not _wait_for_shutdown(scheduler):
         logger.critical("APScheduler thread died; exiting so the container restarts")
