@@ -861,6 +861,105 @@ def test_resume_fund_backs_off_when_another_resolver_finalised_the_run_first(
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
 
 
+# --- a freeze that landed while the run was still being driven -----------------
+
+
+def _freeze_by_name(db_session, scope: str) -> None:
+    """Flip the autonomy row FROZEN without touching any run — what a freeze that
+    committed before the run row became visible (an in-flight sweep) leaves behind."""
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    repo = AutonomyRepository(db_session)
+    if scope == "fund":
+        repo.set_state(AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="halt")
+    else:
+        repo.set_state(
+            AutonomyScope.PORTFOLIO, PORTFOLIO_ID, AutonomyState.FROZEN, reason="halt"
+        )
+
+
+@pytest.mark.parametrize("scope", ["fund", "portfolio"])
+@pytest.mark.parametrize("decision", ["approve", "respond"])
+def test_resume_fund_refuses_to_advance_a_run_whose_scope_is_frozen(
+    db_session, scope, decision
+) -> None:
+    """A round that was mid-flight when the killswitch fired commits as ``paused`` after
+    the freeze already listed the live gates, so it is approvable under a halted
+    autonomy. Approve (and the respond that keeps the run alive) must refuse."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _freeze_by_name(db_session, scope)
+    model = ScriptedFundModel(universe=UNIVERSE, weights=expected)
+
+    with pytest.raises(RuntimeError, match="frozen"):
+        resume_fund(
+            run.run_id,
+            decision,
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=model,
+            pm_directive="go on",
+        )
+
+    assert model.generate_calls == 0
+    assert _paper_orders(db_session) == []
+    assert _positions_map(db_session) == {}
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+
+
+def test_resume_fund_reject_is_still_allowed_when_frozen(db_session) -> None:
+    """Rejecting is the safe direction: an adviser must be able to close the stranded
+    gate of a halted fund."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    _freeze_by_name(db_session, "fund")
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+    assert _paper_orders(db_session) == []
+
+
+def test_fundrun_resume_refuses_approve_when_the_fund_is_frozen(db_session) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        db_session,
+        MemorySaver(),
+        _store_with_cs(),
+    )
+    _freeze_by_name(db_session, "fund")
+
+    with pytest.raises(RuntimeError, match="frozen"):
+        run.resume("approve")
+
+    assert _paper_orders(db_session) == []
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+
+
 # --- parity: FundRun.resume and resume_fund leave identical state ------------
 
 

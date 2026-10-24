@@ -676,6 +676,78 @@ def test_resume_profiler_cannot_approve_an_already_rejected_run(db_session) -> N
     assert approvals == []
 
 
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+@pytest.mark.parametrize("status", ["rejected", "completed", "pending"])
+def test_resume_profiler_refuses_a_run_that_is_not_at_a_live_gate(
+    db_session, status, decision
+) -> None:
+    """A freeze rejects a paused profiler gate at the DB without resolving its
+    checkpoint, so a blind resume would re-drive ``save_profile`` and write the MiFID
+    profile and ConstraintSet the adviser had halted."""
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    row.status = status
+    db_session.flush()
+
+    with pytest.raises(ValueError, match=status):
+        resume_profiler(
+            run.run_id,
+            decision,
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=_resume_model(),
+        )
+
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+    assert store.get((str(pid),), settings.constraint_set_store_key) is None
+    assert row.status == status
+
+
+def test_resume_profiler_backs_off_when_another_resolver_settled_the_gate_first(
+    db_session, monkeypatch
+) -> None:
+    """The status guard is a plain read: a reject committed between it and the resume
+    must stop this resolver before it drives the checkpointed graph."""
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+    run = _run_to_gate(
+        make_model(make_answers(), portfolio_id=str(pid)),
+        db_session,
+        saver,
+        store,
+        portfolio_id=pid,
+    )
+    original = AgentRunRepository.claim_for_resume
+
+    def reject_lands_then_claim(self, run_id):
+        self.finalize_run(run_id, weights={}, status="rejected")
+        return original(self, run_id)
+
+    monkeypatch.setattr(AgentRunRepository, "claim_for_resume", reject_lands_then_claim)
+
+    with pytest.raises(ValueError, match="no longer at a live gate"):
+        resume_profiler(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=_resume_model(),
+        )
+
+    assert MifidProfileRepository(db_session).get_active(pid) is None
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+
+
 # --- resume_run dispatches by the run's step --------------------------------
 
 

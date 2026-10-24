@@ -1187,10 +1187,19 @@ def _resume_gate(
     every other decision is the plain :func:`_resume_agent`.
 
     Raises:
+        RuntimeError: The fund or the portfolio is frozen and ``decision`` is not a
+            reject.
         ValueError: The run is no longer at a live gate.
     """
     from fund.audit.repository import AgentRunRepository
 
+    # The status guard and the freeze check of ``resume_fund`` are plain reads, so a
+    # freeze committed since (a round that was mid-flight when the killswitch fired
+    # commits its gate afterwards) must be seen here too, and the in-process
+    # ``FundRun.resume`` route has no earlier check at all. Reject stays open so the
+    # adviser can still close the gate.
+    if decision != "reject":
+        _raise_if_frozen(ctx.session, ctx.portfolio_id, doing=f"{decision} a run")
     if not AgentRunRepository(ctx.session).claim_for_resume(ctx.run_id):
         raise ValueError(
             f"agent_run {ctx.run_id} is no longer at a live gate (another resolver "

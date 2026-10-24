@@ -1218,6 +1218,14 @@ def resume_profiler(
         "configurable": {"thread_id": resolved_thread_id},
         "recursion_limit": config.recursion_limit,
     }
+    # The status guard above is a plain read; claim the gate so a concurrent reject,
+    # freeze or second approve that settled it since makes this resolver back off
+    # instead of driving the same thread.
+    if not audit.claim_for_resume(rid):
+        raise ValueError(
+            f"agent_run {rid} is no longer at a live gate (another resolver "
+            "finalised it first); nothing was resumed"
+        )
     result = _resume_at_gate(agent, thread_config, decision, audit=audit, run_id=rid)
     if decision != "approve":
         # Reject writes nothing, but records the HITL choice + finalises the run so
