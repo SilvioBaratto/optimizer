@@ -9,9 +9,11 @@ converges to one row.
 from __future__ import annotations
 
 import datetime as dt
+import math
 import uuid
 from typing import Any
 
+import pandas as pd
 from sqlalchemy import select
 
 from portopt_db.models.market_data.etf_metadata import (
@@ -42,6 +44,29 @@ def _pick(metrics: dict[str, float], *keys: str) -> float | None:
         if value is not None:
             return value
     return None
+
+
+def _holding_name(value: Any) -> str | None:
+    """Return a holding name, or None for a missing cell.
+
+    A pandas string column holds missing names as NaN, which PostgreSQL would
+    store as the literal text ``'NaN'``.
+    """
+    if value is None:
+        return None
+    try:
+        if bool(pd.isna(value)):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
+def _finite_or_none(value: Any) -> Any:
+    """Map NaN/inf to None; PostgreSQL ``numeric`` would store them as numbers."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 class ETFMetadataRepository(RepositoryBase):
@@ -198,8 +223,8 @@ class ETFMetadataRepository(RepositoryBase):
                 "instrument_id": instrument_id,
                 "as_of": as_of,
                 "holding_symbol": symbol,
-                "holding_name": h.get("name"),
-                "weight": h.get("weight"),
+                "holding_name": _holding_name(h.get("name")),
+                "weight": _finite_or_none(h.get("weight")),
             }
         rows = list(by_symbol.values())
         if not rows:

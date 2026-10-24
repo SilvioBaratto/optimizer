@@ -228,6 +228,35 @@ def test_holdings_dedup_duplicate_symbols_in_one_batch(db_session) -> None:
     assert float(row.weight) == 0.2
 
 
+def test_holdings_payload_carries_no_nan_name_or_weight(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing holding name arrives as pandas NaN and must reach SQL as NULL.
+
+    SQLite silently stores float NaN as NULL, so the PostgreSQL behaviour (the
+    text 'NaN' in a varchar column) is only visible on the upsert payload.
+    """
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        repo, "_upsert", lambda _model, rows, **_kw: captured.extend(rows)
+    )
+
+    repo.upsert_holdings(
+        inst.id,
+        _AS_OF,
+        [
+            {"symbol": "AAA", "name": float("nan"), "weight": float("nan")},
+            {"symbol": "BBB", "name": "Beta", "weight": float("inf")},
+            {"symbol": "CCC", "name": "Gamma", "weight": 0.1},
+        ],
+    )
+
+    assert [r["holding_name"] for r in captured] == [None, "Beta", "Gamma"]
+    assert [r["weight"] for r in captured] == [None, None, 0.1]
+
+
 def test_sector_weights_upsert_is_idempotent(db_session) -> None:
     repo = ETFMetadataRepository(db_session)
     inst = _instrument(db_session)
