@@ -394,6 +394,80 @@ def test_without_a_summary_override_deepagents_defaults_stay(tmp_path, monkeypat
         assert _summarizers(sub.get("middleware", [])) == []
 
 
+class _ParallelToolCallsModel(BaseChatModel):
+    """A PM that asks for two ``get_portfolio_history`` reads in one assistant turn."""
+
+    @property
+    def _llm_type(self) -> str:
+        return "parallel-tool-calls"
+
+    def bind_tools(self, tools: Any, **_: Any) -> _ParallelToolCallsModel:
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any | None = None,
+        **_: Any,
+    ) -> ChatResult:
+        if any(isinstance(m, ToolMessage) for m in messages):
+            reply = AIMessage(content="reads finished")
+        else:
+            calls = [
+                {"name": "get_portfolio_history", "args": {}, "id": f"call_read_{i}"}
+                for i in range(2)
+            ]
+            reply = AIMessage(content="", tool_calls=calls)
+        return ChatResult(generations=[ChatGeneration(message=reply)])
+
+
+def test_parallel_tool_calls_in_one_turn_do_not_share_the_session_concurrently(
+    monkeypatch,
+) -> None:
+    import threading
+    import time
+
+    from fund import tools as fund_tools
+
+    state = {"active": 0, "max_active": 0}
+    guard = threading.Lock()
+
+    def probe(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        with guard:
+            state["active"] += 1
+            state["max_active"] = max(state["max_active"], state["active"])
+        time.sleep(0.05)
+        with guard:
+            state["active"] -= 1
+        return {"ok": True, "data": {}}
+
+    class _Savepoint:
+        def commit(self) -> None: ...
+
+        def rollback(self) -> None: ...
+
+    class _SavepointSession:
+        """Just enough session for the tool wrapper's SAVEPOINT bookkeeping."""
+
+        def begin_nested(self) -> _Savepoint:
+            return _Savepoint()
+
+    monkeypatch.setattr(fund_tools, "get_portfolio_history", probe)
+    ctx = dataclasses.replace(_ctx(), session=_SavepointSession())
+    agent = graph.build_fund_agent(
+        _ParallelToolCallsModel(), checkpointer=MemorySaver(), store=None, ctx=ctx
+    )
+
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": _PM_SEED}]},
+        config={"configurable": {"thread_id": "parallel-reads"}},
+    )
+
+    assert result["messages"][-1].content == "reads finished"
+    assert state["max_active"] == 1
+
+
 # --- T5: effective interrupt_on = config.interrupt_on ∪ mandate.hitl_gates ------
 
 
