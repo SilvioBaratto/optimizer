@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.services._shared import trading_calendar
 from app.services._shared.trading_calendar import (
     get_expected_trading_sessions,
     has_sufficient_history,
@@ -25,6 +26,7 @@ from app.services._shared.trading_calendar import (
     parse_period_years,
     period_start_date,
 )
+from app.services.universe.trading212.config import UniverseBuilderConfig
 
 
 class TestParsePeriodYears:
@@ -88,6 +90,25 @@ class TestExpectedTradingSessions:
         )
         assert sessions is not None
         assert 240 <= sessions <= 256
+
+    @pytest.mark.parametrize(
+        "exchange", sorted(UniverseBuilderConfig().yahoo_suffix_map)
+    )
+    def test_when_universe_exchange_then_calendar_resolves(self, exchange: str) -> None:
+        # The universe scope is exactly ``yahoo_suffix_map``; a venue missing from
+        # the calendar map silently loses the truncated-history guard.
+        assert get_expected_trading_sessions(exchange, "5y", self._REF) is not None
+
+    def test_when_exchange_has_no_calendar_then_skip_is_logged_once(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr(trading_calendar, "_UNMAPPED_LOGGED", set())
+        with caplog.at_level("INFO", logger=trading_calendar.logger.name):
+            get_expected_trading_sessions("Bogus Exchange", "1y", self._REF)
+            get_expected_trading_sessions("Bogus Exchange", "1y", self._REF)
+        skipped = [r for r in caplog.records if "Bogus Exchange" in r.getMessage()]
+        assert len(skipped) == 1
+        assert skipped[0].levelname == "INFO"
 
     # ------------------------------------------------------------------
     # Uncovered branch: lines 54-56 — Feb-29 leap-year fallback (day=28)

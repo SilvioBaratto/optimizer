@@ -9,13 +9,28 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Keys are the exchange names the universe stores (``yahoo_suffix_map``): a venue
+# missing here silently loses the truncated-history guard. AIM shares the London
+# calendar; Gettex has no calendar of its own and follows the Frankfurt sessions.
 EXCHANGE_NAME_TO_MIC = {
     "NYSE": "XNYS",
     "NASDAQ": "XNAS",
     "London Stock Exchange": "XLON",
+    "London Stock Exchange AIM": "XLON",
     "Euronext Paris": "XPAR",
+    "Euronext Amsterdam": "XAMS",
+    "Euronext Brussels": "XBRU",
+    "Euronext Lisbon": "XLIS",
     "Deutsche Börse Xetra": "XFRA",
+    "Gettex": "XFRA",
+    "Borsa Italiana": "XMIL",
+    "Bolsa de Madrid": "XMAD",
+    "SIX Swiss Exchange": "XSWX",
+    "Wiener Börse": "XWBO",
+    "Toronto Stock Exchange": "XTSE",
 }
+
+_UNMAPPED_LOGGED: set[str] = set()
 
 
 def parse_period_years(period: str) -> int | None:
@@ -87,6 +102,15 @@ def get_expected_trading_sessions(
 
     mic = EXCHANGE_NAME_TO_MIC.get(exchange_name)
     if mic is None:
+        # Once per name: the fetch loop asks for every instrument, and the point
+        # is only to make the skipped guard discoverable.
+        if exchange_name not in _UNMAPPED_LOGGED:
+            _UNMAPPED_LOGGED.add(exchange_name)
+            logger.info(
+                "No trading calendar for exchange %r; history sufficiency check "
+                "skipped for its instruments",
+                exchange_name,
+            )
         return None
 
     if reference_date is None:
