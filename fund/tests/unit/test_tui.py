@@ -7767,6 +7767,11 @@ class _CannedAskModel(BaseChatModel):
         )
 
 
+def _pane_text(view, selector: str) -> str:
+    """The text a Static pane currently shows, markup already resolved."""
+    return str(view.query_one(selector, Static).render())
+
+
 async def _open_ask(app, pilot) -> AskView:
     """Switch the shell to the Ask view and paint it."""
     await pilot.pause()
@@ -8032,6 +8037,157 @@ async def test_status_bar_shows_bracketed_message_verbatim(shell_env) -> None:
         await pilot.pause()
         assert app.last_status == message
         assert message in str(app.query_one("#status-bar", Static).render())
+
+
+# --- Model and adviser text in the other free-text panes ----------------------
+
+# Bracketed tokens a report can legitimately carry; parsed as Textual markup the
+# first two vanish and the stray closing tag raises MarkupError.
+_BRACKETED = "Verdict: [BLOCK] sector [Energy] 0.41 [/INST] done"
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_detail_shows_bracketed_report_verbatim(
+    shell_env,
+) -> None:
+    """A streamed subagent report keeps its [BLOCK]/[Energy] tokens and cannot crash."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        view.ingest_event(
+            StreamEvent(
+                kind="step",
+                run_id=rid,
+                index=0,
+                agent="risk",
+                step="report",
+                status=StepStatus.LIVE,
+                text=_BRACKETED,
+            )
+        )
+        await pilot.pause()
+        assert app.is_running
+        assert _BRACKETED in _pane_text(view, "#delib-detail")
+
+
+@pytest.mark.asyncio
+async def test_deliberation_replay_detail_shows_bracketed_report_verbatim(
+    shell_env,
+) -> None:
+    """A replayed step's payload is shown as stored, brackets and all."""
+    with shell_env.get_session() as session:
+        repo = AgentRunRepository(session)
+        run = repo.create_run(
+            portfolio_id=_PID_A,
+            asof=date(2026, 1, 2),
+            seed=1,
+            universe=[],
+            optimizer_config={},
+        )
+        repo.append_decision(
+            run.id,
+            agent="executor",
+            step="place_orders",
+            hitl_decision={"feedback": _BRACKETED},
+        )
+        session.commit()
+        run_id = run.id
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(0)
+        await pilot.pause()
+        assert app.is_running
+        assert _BRACKETED in view.detail_text
+        assert _BRACKETED in _pane_text(view, "#delib-detail")
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_detail_shows_bracketed_narrative_verbatim(
+    shell_env, monkeypatch
+) -> None:
+    """Journal narratives and the economist read keep their bracketed tokens."""
+    import dataclasses
+
+    brief = dataclasses.replace(
+        _full_brief(_PID_A),
+        market_events=({"as_of": "2026-10-06", "narrative": _BRACKETED},),
+        economist_read=_BRACKETED,
+    )
+    monkeypatch.setattr(observe, "daily_brief", lambda *a, **k: brief)
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        assert app.is_running
+        assert _BRACKETED in _pane_text(view, "#brief-detail")
+
+
+@pytest.mark.asyncio
+async def test_decisions_gate_shows_bracketed_why_verbatim(
+    tui_env, monkeypatch
+) -> None:
+    """The gate's "why" is model prose and must reach the reviewer unparsed."""
+    monkeypatch.setattr(
+        observe,
+        "interrupt_for",
+        lambda saver, run: {
+            "action_requests": [
+                {"name": "place_orders", "description": _BRACKETED, "args": {}}
+            ]
+        },
+    )
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        assert app.is_running
+        assert _BRACKETED in _pane_text(view, "#decisions-gate")
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_shows_bracketed_values_verbatim(shell_env) -> None:
+    """Audit provenance carries agent/adviser strings; brackets must not be parsed."""
+    with shell_env.get_session() as session:
+        HumanAuditLogRepository(session).append(
+            action="guardrail_override",
+            portfolio_id=_PID_B,
+            actor="human",
+            target="risk_band",
+            prev_value="balanced",
+            new_value=_BRACKETED,
+            source="mifid_profile",
+        )
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        await pilot.pause()
+        assert app.is_running
+        assert _BRACKETED in _pane_text(view, "#audit-detail")
+
+
+@pytest.mark.asyncio
+async def test_mandate_directive_rows_show_bracketed_text_verbatim(shell_env) -> None:
+    """A remembered directive typed as 'avoid [Energy] [/x]' lists as typed."""
+    with shell_env.get_session() as session:
+        mandate = make_mandate().model_copy(
+            update={"remembered_directives": (_BRACKETED,)}
+        )
+        MandateRepository(session).upsert(mandate)
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        await pilot.pause()
+        assert app.is_running
+        rows = view.query_one("#mandate-directives", ListView).query(Label)
+        assert [str(row.render()) for row in rows] == [_BRACKETED]
 
 
 @pytest.mark.asyncio

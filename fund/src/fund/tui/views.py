@@ -326,6 +326,8 @@ class DecisionsView(ShellView):
             yield DataTable(
                 id="decisions-table", cursor_type="row", classes="decisions-queue"
             )
+            # The gate's "why" is model prose; as markup, "[BLOCK]" would vanish and a
+            # stray "[/x]" would raise MarkupError. The panes below follow suit.
             yield Static(
                 "(select a paused gate)",
                 id="decisions-gate",
