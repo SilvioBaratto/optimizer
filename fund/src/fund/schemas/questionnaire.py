@@ -19,6 +19,12 @@ the LLM only ever emits typed answers, never a knob):
 Validation matches SPEC §5: an out-of-range Likert response, a non-ISO currency,
 and an unknown GICS sector are all rejected at construction. Everything is
 ``frozen=True`` (hashable) and JSON round-trips as a tested invariant.
+
+The answer models also *close* the object (``extra="forbid"``) and require every
+pillar, ESG included, with no defaults. A small tool-calling model extracts these
+from free text, and an omitted ``esg`` pillar or a mis-keyed one (``excluded_sectors``
+next to a valid ``exclusions``) must raise and trigger the retry rather than read as
+"no exclusions" and silently drop a client's hard ESG block.
 """
 
 from __future__ import annotations
@@ -58,6 +64,10 @@ _Pillar = Literal["knowledge", "capacity", "objectives", "esg"]
 _QuestionKind = Literal["single_choice", "multi_choice", "likert", "numeric"]
 
 
+# The LLM-extracted answer shapes: frozen (hashable) and closed to unknown keys.
+_ANSWERS_CONFIG = ConfigDict(frozen=True, extra="forbid")
+
+
 class MiFIDQuestion(BaseModel):
     """One questionnaire item, tagged by the ESMA pillar it assesses.
 
@@ -79,7 +89,7 @@ class KnowledgeAnswers(BaseModel):
     """Pillar 1 — knowledge & experience. Low ``level`` (``none`` / ``basic``)
     drives the ``UniverseFilters`` restrictions the fund toolsets enforce."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _ANSWERS_CONFIG
 
     level: KnowledgeLevel = Field(
         description=(
@@ -98,7 +108,7 @@ class CapacityAnswers(BaseModel):
     feed ``_appetite_from_capacity`` (SPEC §8.2) — never fused with tolerance.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _ANSWERS_CONFIG
 
     max_1yr_loss_pct: float = Field(
         ge=0.0,
@@ -125,7 +135,7 @@ class ObjectivesAnswers(BaseModel):
     (the ``risk_measure`` / ``beta`` driver) — the two are deliberately separate.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _ANSWERS_CONFIG
 
     goal: ObjectiveChoice = Field(
         description=(
@@ -158,15 +168,16 @@ class ObjectivesAnswers(BaseModel):
 class EsgAnswers(BaseModel):
     """Pillar 4 — ESG preferences. ``exclusions`` are GICS sectors the client
     refuses to hold; the profiler turns them into a HARD ``EsgPolicy`` block.
-    Defaults to no stated preference."""
+    ``exclusions`` has no default: "no preference" is an explicit empty tuple, so an
+    omitted answer cannot pass as one."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _ANSWERS_CONFIG
 
     exclusions: tuple[GicsSector, ...] = Field(
-        default=(),
         description=(
             "GICS sectors the client refuses to hold on ESG grounds (a subset of "
-            "the 11 sectors); empty when none stated."
+            "the 11 sectors). Always present: an empty list when the client names "
+            "none."
         ),
     )
 
@@ -179,7 +190,7 @@ class MiFIDAnswers(BaseModel):
     supplied to ``build_constraint_set`` / ``run_profiler`` at mapping time.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = _ANSWERS_CONFIG
 
     base_currency: str = Field(
         pattern=r"^[A-Z]{3}$",
@@ -190,7 +201,7 @@ class MiFIDAnswers(BaseModel):
     knowledge: KnowledgeAnswers
     capacity: CapacityAnswers
     objectives: ObjectivesAnswers
-    esg: EsgAnswers = EsgAnswers()
+    esg: EsgAnswers
 
 
 class SuitabilityAssessment(BaseModel):

@@ -21,8 +21,10 @@ import pytest
 from fund.agents.profiler import (
     SuitabilityBreachError,
     _esg_policy,
+    _interrupt_description,
     _ke_filters,
     build_constraint_set,
+    run_mapping,
 )
 from fund.schemas.constraint_set import EsgPolicy, UniverseFilters
 from fund.schemas.enums import (
@@ -101,6 +103,24 @@ def test_excluding_every_sector_hard_blocks() -> None:
     # and the breach propagates through the full mapping
     with pytest.raises(SuitabilityBreachError):
         build_constraint_set(_answers(exclusions=all_sectors), portfolio_id="pf-1")
+
+
+def test_approval_gate_description_shows_the_esg_exclusions() -> None:
+    # The adviser approves from this text alone, so a dropped exclusion must be
+    # visible there rather than only in the raw prompt hash.
+    _, suitability = run_mapping(
+        _answers(exclusions=(GicsSector.ENERGY,)), portfolio_id="pf-1"
+    )
+
+    description = _interrupt_description("pf-1", suitability, "EUR")
+
+    assert "ESG exclusions: energy" in description
+
+
+def test_approval_gate_description_states_when_there_are_no_esg_exclusions() -> None:
+    _, suitability = run_mapping(_answers(), portfolio_id="pf-1")
+
+    assert "ESG exclusions: none" in _interrupt_description("pf-1", suitability, "EUR")
 
 
 # --- K&E universe filters --------------------------------------------------

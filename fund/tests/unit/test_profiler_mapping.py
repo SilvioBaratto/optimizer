@@ -75,7 +75,7 @@ def _answers(
             likert_items=likert,
             loss_reaction=reaction,
         ),
-        esg=EsgAnswers(),
+        esg=EsgAnswers(exclusions=()),
     )
 
 

@@ -466,7 +466,8 @@ _EXTRACTION_SYSTEM_PROMPT = (
     "- objectives.likert_items: a non-empty list of integers 1-7\n"
     "- capacity.max_1yr_loss_pct: a fraction in [0, 1] (e.g. 40% -> 0.4)\n"
     "- capacity.buffer_months: months of expenses (>= 0)\n"
-    "- esg.exclusions: a subset of the 11 GICS sectors, or empty\n"
+    "- esg: always include this object; esg.exclusions is a subset of the 11 GICS "
+    "sectors, or [] when the client names none\n"
     "- base_currency: an ISO-4217 alpha code (e.g. EUR)\n"
     "Fill every required field from the client's statements; do not invent fields."
 )
