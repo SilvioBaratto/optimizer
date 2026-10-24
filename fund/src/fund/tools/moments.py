@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, cast
 from optimizer.moments import MomentEstimationConfig, build_prior
 from optimizer.preprocessing import prices_to_returns
 
-from fund.tools._base import ToolResult, err, ok, tool_envelope
+from fund.tools._base import PERIODS_PER_YEAR, ToolResult, err, ok, tool_envelope
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
@@ -79,9 +79,10 @@ def estimate_moments(
     Returns:
         ``ok`` with ``assets`` (priced tickers, in order), ``mu`` (``{ticker:
         float}``), ``cov`` (row-major ``N x N`` matrix aligned to ``assets``),
-        ``n_observations``, ``missing``, ``dropped`` (priced tickers excluded
-        for having fewer than 20 returns or under half the panel's median
-        history) and ``cov_estimator``. ``err`` on an empty universe, no priced
+        ``n_observations``, ``periods_per_year`` (``mu`` and ``cov`` are per daily
+        bar; scale them by it to annualise), ``missing``, ``dropped`` (priced
+        tickers excluded for having fewer than 20 returns or under half the panel's
+        median history) and ``cov_estimator``. ``err`` on an empty universe, no priced
         assets, or too little history, including a common sample shorter than
         twice the number of assets left after the drop.
     """
@@ -138,6 +139,7 @@ def estimate_moments(
             "mu": mu,
             "cov": cov,
             "n_observations": int(returns.shape[0]),
+            "periods_per_year": PERIODS_PER_YEAR,
             "missing": missing,
             "dropped": dropped,
             "cov_estimator": cfg.cov_estimator.value,

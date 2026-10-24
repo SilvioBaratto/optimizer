@@ -3947,6 +3947,9 @@ async def test_deliberation_expand_renders_recomputed_results(
         assert "compute to view" not in detail  # markers replaced by live numbers
         assert "sharpe 0.60" in detail  # the frontier point
         assert "sharpe 0.55" in detail  # the backtest
+        # Both figures are annual, and the adviser is told so.
+        assert "frontier point (annualised)" in detail
+        assert "backtest (annualised)" in detail
 
 
 @pytest.mark.asyncio

@@ -612,7 +612,7 @@ def test_bound_backtest_returns_metrics(db_session) -> None:
     result = backtest.invoke({})
 
     assert result["ok"] is True
-    assert "sharpe_ratio" in result["data"]["metrics"]
+    assert "annualized_sharpe_ratio" in result["data"]["metrics"]
 
 
 def test_bound_backtest_flags_optimizer_weights_as_in_sample(db_session) -> None:
@@ -826,7 +826,11 @@ def test_optimize_audit_persists_the_metrics_fund_status_reads(db_session) -> No
     AgentRunRepository(db_session).mark_paused(ctx.run_id)
     state = observe.portfolio_state(db_session, _PORTFOLIO_ID)
     assert state.metrics == pytest.approx(result["data"]["metrics"])
-    assert set(state.metrics) == {"mean", "standard_deviation", "sharpe_ratio"}
+    assert set(state.metrics) == {
+        "annualized_mean",
+        "annualized_standard_deviation",
+        "annualized_sharpe_ratio",
+    }
 
 
 def test_bound_optimize_persists_the_optimizer_metrics(db_session) -> None:
@@ -846,7 +850,11 @@ def test_bound_optimize_persists_the_optimizer_metrics(db_session) -> None:
     )
     logged = json.loads(decision.llm_response)["metrics"]
     assert logged == pytest.approx(result["data"]["metrics"])
-    assert set(logged) == {"mean", "standard_deviation", "sharpe_ratio"}
+    assert set(logged) == {
+        "annualized_mean",
+        "annualized_standard_deviation",
+        "annualized_sharpe_ratio",
+    }
 
 
 def test_bound_optimize_records_the_universe_on_the_run(db_session) -> None:

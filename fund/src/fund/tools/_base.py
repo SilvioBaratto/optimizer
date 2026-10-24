@@ -21,6 +21,7 @@ from __future__ import annotations
 import datetime as dt
 import functools
 import logging
+import math
 from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, ParamSpec
@@ -98,6 +99,30 @@ def thin_sample_error(prices: Any, returns: Any, *, action: str) -> str | None:
         f"{shortest} has only {int(priced_days.min())} priced days, so drop it "
         "from the universe or wait for more history"
     )
+
+
+def annualized_metrics(portfolio: Any) -> dict[str, float]:
+    """Annualise a skfolio portfolio's per-bar mean, volatility and Sharpe ratio.
+
+    skfolio reports these per observation (daily here), which reads as noise
+    ("vol 0.01") next to the annual figures clients and thresholds are quoted in.
+    Return and volatility scale with ``PERIODS_PER_YEAR`` and ``sqrt`` of it
+    respectively, and so does the Sharpe ratio.
+
+    Args:
+        portfolio: A skfolio ``Portfolio`` (anything exposing ``mean``,
+            ``standard_deviation`` and ``sharpe_ratio``).
+
+    Returns:
+        ``annualized_mean``, ``annualized_standard_deviation`` and
+        ``annualized_sharpe_ratio``, in that order.
+    """
+    root = math.sqrt(PERIODS_PER_YEAR)
+    return {
+        "annualized_mean": float(portfolio.mean) * PERIODS_PER_YEAR,
+        "annualized_standard_deviation": float(portfolio.standard_deviation) * root,
+        "annualized_sharpe_ratio": float(portfolio.sharpe_ratio) * root,
+    }
 
 
 def ok(data: Any) -> ToolResult:
@@ -216,6 +241,7 @@ __all__ = [
     "MIN_RETURN_OBSERVATIONS",
     "PERIODS_PER_YEAR",
     "ToolResult",
+    "annualized_metrics",
     "coerce_date",
     "err",
     "ok",

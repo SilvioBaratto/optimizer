@@ -363,14 +363,34 @@ def test_compute_results_annualises_frontier_and_backtest_metrics(
     raw = backtest(priced_session, ASOF, weights, window={"train_size": 756})
     raw_metrics = raw["data"]["metrics"]
     assert result.backtest is not None
-    assert result.backtest.mean == pytest.approx(raw_metrics["mean"] * 252)
+    assert result.backtest.mean == pytest.approx(raw_metrics["annualized_mean"])
     assert result.backtest.standard_deviation == pytest.approx(
-        raw_metrics["standard_deviation"] * np.sqrt(252)
+        raw_metrics["annualized_standard_deviation"]
     )
     assert result.backtest.sharpe_ratio == pytest.approx(
-        raw_metrics["sharpe_ratio"] * np.sqrt(252)
+        raw_metrics["annualized_sharpe_ratio"]
     )
     assert result.backtest.max_drawdown == pytest.approx(raw_metrics["max_drawdown"])
+
+
+def test_compute_results_backtest_carries_annualised_metrics(
+    priced_session: Session,
+) -> None:
+    from fund.tools.risk import backtest
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    weights = {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}
+    expected = backtest(priced_session, ASOF, weights)["data"]["metrics"]
+
+    result = compute_results(
+        priced_session, ASOF, list(UNIVERSE), constraint_set, weights
+    )
+
+    assert result.backtest is not None
+    assert result.backtest.mean == pytest.approx(expected["annualized_mean"])
+    assert result.backtest.sharpe_ratio == pytest.approx(
+        expected["annualized_sharpe_ratio"]
+    )
 
 
 def test_compute_results_degrades_on_empty_inputs(priced_session: Session) -> None:
@@ -616,9 +636,9 @@ def test_compute_results_frontier_replays_the_recorded_optimizer_config(
     assert result.frontier is not None
     metrics = expected["data"]["metrics"]
     assert result.frontier.sharpe_ratio == pytest.approx(
-        metrics["sharpe_ratio"] * math.sqrt(_PERIODS_PER_YEAR)
+        metrics["annualized_sharpe_ratio"]
     )
-    assert result.frontier.mean == pytest.approx(metrics["mean"] * _PERIODS_PER_YEAR)
+    assert result.frontier.mean == pytest.approx(metrics["annualized_mean"])
 
 
 def test_unreadable_recorded_constraint_set_degrades_to_an_error(

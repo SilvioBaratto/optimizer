@@ -386,8 +386,12 @@ class TestAllocatorToolsSeeBaseCurrencyReturns:
         raw = optimize_portfolio(db_session, _FX_ASOF, ["USDX"])
         eur = optimize_portfolio(db_session, _FX_ASOF, ["USDX"], base_currency="EUR")
 
-        assert raw["data"]["metrics"]["mean"] == pytest.approx(raw_mean)
-        assert eur["data"]["metrics"]["mean"] == pytest.approx(eur_mean)
+        assert raw["data"]["metrics"]["annualized_mean"] == pytest.approx(
+            raw_mean * 252
+        )
+        assert eur["data"]["metrics"]["annualized_mean"] == pytest.approx(
+            eur_mean * 252
+        )
 
     def test_backtest_metrics_include_the_fx_return(self, db_session) -> None:
         _seed_usd_and_eur_panel(db_session)
@@ -396,8 +400,12 @@ class TestAllocatorToolsSeeBaseCurrencyReturns:
         raw = backtest(db_session, _FX_ASOF, {"USDX": 1.0})
         eur = backtest(db_session, _FX_ASOF, {"USDX": 1.0}, base_currency="EUR")
 
-        assert raw["data"]["metrics"]["mean"] == pytest.approx(raw_mean)
-        assert eur["data"]["metrics"]["mean"] == pytest.approx(eur_mean)
+        assert raw["data"]["metrics"]["annualized_mean"] == pytest.approx(
+            raw_mean * 252
+        )
+        assert eur["data"]["metrics"]["annualized_mean"] == pytest.approx(
+            eur_mean * 252
+        )
 
     def test_universe_filter_forwards_base_currency_to_the_loader(
         self, db_session, monkeypatch: pytest.MonkeyPatch

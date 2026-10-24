@@ -170,6 +170,8 @@ class TestEstimateMoments:
         assert all(len(row) == len(_UNIVERSE) for row in cov)
         assert data["n_observations"] == _N_DAYS - 1
         assert data["cov_estimator"] == "ledoit_wolf"
+        # mu / cov are per daily bar; the unit is stated so they are not read as annual.
+        assert data["periods_per_year"] == 252
 
     def test_covariance_is_symmetric(self, db_session) -> None:
         _seed_panel(db_session)
@@ -383,14 +385,29 @@ class TestOptimizePortfolio:
         assert all(w >= -1e-9 for w in weights.values())  # long-only
         assert math.isclose(sum(weights.values()), 1.0, abs_tol=1e-6)
 
-    def test_reports_metrics(self, db_session) -> None:
+    def test_reports_annualised_metrics_not_per_period_ones(self, db_session) -> None:
+        # skfolio's mean / std / Sharpe are per daily bar; unlabelled they read as
+        # "mean 0.00, vol 0.01" and invite comparison against annual thresholds.
         _seed_panel(db_session)
+        frame, _ = load_price_frame(db_session, _ASOF, _UNIVERSE)
+        returns = prices_to_returns(frame)
+        model = build_mean_risk(MeanRiskConfig()).fit(returns)
+        daily = model.predict(returns)
 
         metrics = optimize_portfolio(db_session, _ASOF, _UNIVERSE)["data"]["metrics"]
 
-        assert "mean" in metrics
-        assert "standard_deviation" in metrics
-        assert "sharpe_ratio" in metrics
+        assert set(metrics) == {
+            "annualized_mean",
+            "annualized_standard_deviation",
+            "annualized_sharpe_ratio",
+        }
+        assert metrics["annualized_mean"] == pytest.approx(daily.mean * 252)
+        assert metrics["annualized_standard_deviation"] == pytest.approx(
+            daily.standard_deviation * math.sqrt(252)
+        )
+        assert metrics["annualized_sharpe_ratio"] == pytest.approx(
+            daily.sharpe_ratio * math.sqrt(252)
+        )
 
     def test_empty_universe_is_error(self, db_session) -> None:
         result = optimize_portfolio(db_session, _ASOF, [])
@@ -897,6 +914,6 @@ class TestSolverNoiseIsCleaned:
             X=optimize_mod.prices_to_returns(frame),
             weights=[data["weights"][a] for a in data["assets"]],
         )
-        assert data["metrics"]["standard_deviation"] == pytest.approx(
-            replayed.standard_deviation
+        assert data["metrics"]["annualized_standard_deviation"] == pytest.approx(
+            replayed.standard_deviation * math.sqrt(252)
         )

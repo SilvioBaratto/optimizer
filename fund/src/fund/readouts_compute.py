@@ -14,7 +14,6 @@ the tools never raise across their envelope, so a failure degrades to an error s
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeGuard
 
@@ -33,11 +32,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from sqlalchemy.orm import Session
-
-# The frozen tools report per-observation (daily) metrics from skfolio ``Portfolio``
-# objects built with its default ``annualization_factor``; ``fund.performance``
-# annualises with the same 252, so the Deliberation and Performance views agree.
-_PERIODS_PER_YEAR = 252.0
 
 
 @dataclass(frozen=True)
@@ -382,16 +376,15 @@ def _cardinality_cap(constraint_set: Mapping[str, Any]) -> str | None:
 
 
 def _annualised(metrics: Mapping[str, Any]) -> tuple[float, float, float]:
-    """Scale a tool's per-observation mean, volatility and Sharpe to per-year.
+    """A tool's annualised mean, volatility and Sharpe, as it reports them.
 
-    The mean scales linearly with the period count, volatility and the Sharpe ratio
-    (a mean over a volatility) with its square root.
+    The tools annualise their own metrics (252 daily bars), so the Deliberation and
+    Performance views and the agent read the same per-year figures.
     """
-    root = math.sqrt(_PERIODS_PER_YEAR)
     return (
-        float(metrics.get("mean", 0.0)) * _PERIODS_PER_YEAR,
-        float(metrics.get("standard_deviation", 0.0)) * root,
-        float(metrics.get("sharpe_ratio", 0.0)) * root,
+        float(metrics.get("annualized_mean", 0.0)),
+        float(metrics.get("annualized_standard_deviation", 0.0)),
+        float(metrics.get("annualized_sharpe_ratio", 0.0)),
     )
 
 

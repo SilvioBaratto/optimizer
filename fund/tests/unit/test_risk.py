@@ -20,11 +20,15 @@ from __future__ import annotations
 import datetime as dt
 import math
 
+import numpy as np
 import pytest
+from optimizer.preprocessing import prices_to_returns
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
+from skfolio import Portfolio
 
 from fund.tools._base import MIN_RETURN_OBSERVATIONS
+from fund.tools.prices import load_price_frame
 from fund.tools.risk import backtest, risk_check
 
 _START = dt.date(2024, 1, 1)
@@ -239,9 +243,12 @@ class TestBacktest:
         assert result["ok"] is True
         data = result["data"]
         metrics = data["metrics"]
-        assert {"mean", "standard_deviation", "sharpe_ratio", "max_drawdown"} <= set(
-            metrics
-        )
+        assert set(metrics) == {
+            "annualized_mean",
+            "annualized_standard_deviation",
+            "annualized_sharpe_ratio",
+            "max_drawdown",
+        }
         # The default walk-forward window is far larger than the seed → no split is
         # possible, so the tool falls back to the full sample.
         assert data["n_folds"] == 0
@@ -384,6 +391,22 @@ class TestBacktest:
         # The optimizer's nu1/nu2/nu3 ceilings sit on the additive return path, so the
         # basis is part of the result rather than something the caller must assume.
         assert result["data"]["drawdown_basis"] == "compounded"
+
+    def test_metrics_are_annualised_from_per_period_values(self, db_session) -> None:
+        _seed_panel(db_session)
+        weights = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+        frame, _ = load_price_frame(db_session, _ASOF, list(weights))
+        daily = Portfolio(prices_to_returns(frame), np.array(list(weights.values())))
+
+        metrics = backtest(db_session, _ASOF, weights)["data"]["metrics"]
+
+        assert metrics["annualized_mean"] == pytest.approx(daily.mean * 252)
+        assert metrics["annualized_standard_deviation"] == pytest.approx(
+            daily.standard_deviation * math.sqrt(252)
+        )
+        assert metrics["annualized_sharpe_ratio"] == pytest.approx(
+            daily.sharpe_ratio * math.sqrt(252)
+        )
 
     def test_full_sample_fallback_flagged_in_sample(self, db_session) -> None:
         # Default window → min_needed (824) ≫ the 59 seeded return rows, exactly the

@@ -40,7 +40,14 @@ from optimizer.optimization import (
 from optimizer.preprocessing import prices_to_returns
 from skfolio import Portfolio
 
-from fund.tools._base import ToolResult, err, ok, thin_sample_error, tool_envelope
+from fund.tools._base import (
+    ToolResult,
+    annualized_metrics,
+    err,
+    ok,
+    thin_sample_error,
+    tool_envelope,
+)
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
@@ -193,7 +200,8 @@ def optimize_portfolio(
 
     Returns:
         ``ok`` with ``weights`` (``{ticker: float}`` from skfolio), ``metrics``
-        (in-sample ``mean`` / ``standard_deviation`` / ``sharpe_ratio``),
+        (in-sample, annualised: ``annualized_mean`` /
+        ``annualized_standard_deviation`` / ``annualized_sharpe_ratio``),
         ``assets``, ``n_observations``, ``missing`` and ``risk_aversion`` (the
         coefficient the solver ran with, after rescaling to the risk measure).
         ``err`` on an empty universe, no priced assets, too little history, or a
@@ -231,11 +239,7 @@ def optimize_portfolio(
 
     assets = [str(col) for col in returns.columns]
     weights = {a: float(w) for a, w in zip(assets, model.weights_, strict=True)}
-    metrics = {
-        "mean": float(portfolio.mean),
-        "standard_deviation": float(portfolio.standard_deviation),
-        "sharpe_ratio": float(portfolio.sharpe_ratio),
-    }
+    metrics = annualized_metrics(portfolio)
 
     return ok(
         {

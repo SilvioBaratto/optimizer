@@ -42,6 +42,7 @@ from skfolio import Portfolio
 
 from fund.tools._base import (
     ToolResult,
+    annualized_metrics,
     coerce_date,
     err,
     ok,
@@ -174,8 +175,9 @@ def backtest(
             scaled or part-cash book. ``None`` evaluates the vector as given.
 
     Returns:
-        ``ok`` with ``metrics`` (``mean`` / ``standard_deviation`` /
-        ``sharpe_ratio`` / ``max_drawdown``, over the evaluated window),
+        ``ok`` with ``metrics`` (annualised ``annualized_mean`` /
+        ``annualized_standard_deviation`` / ``annualized_sharpe_ratio`` plus the
+        ``max_drawdown`` fraction, over the evaluated window),
         ``full_sample_max_drawdown`` (the same drawdown over every aligned return row,
         including the initial training block the walk-forward blocks skip; the figure
         to compare with a drawdown ceiling), ``drawdown_basis``, ``n_observations``
@@ -261,9 +263,7 @@ def backtest(
         else float(portfolio.max_drawdown)
     )
     metrics = {
-        "mean": float(portfolio.mean),
-        "standard_deviation": float(portfolio.standard_deviation),
-        "sharpe_ratio": float(portfolio.sharpe_ratio),
+        **annualized_metrics(portfolio),
         # skfolio yields -0.0 for a path with no drawdown; max() pins it to +0.0.
         "max_drawdown": max(0.0, float(portfolio.max_drawdown)),
     }
