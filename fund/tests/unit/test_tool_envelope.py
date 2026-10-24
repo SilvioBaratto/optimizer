@@ -217,13 +217,42 @@ class TestSummarizeFrame:
         assert summary["rows"] == 3
         assert summary["cols"] == 2
         assert summary["columns"] == ["AAA", "BBB"]
-        assert summary["na_counts"] == {"AAA": 1, "BBB": 0}
-        # 1 NaN of 6 cells → coverage 5/6.
-        assert summary["coverage"] == 5 / 6
+        # AAA stopped quoting after its second row; BBB is quoted throughout.
+        assert summary["series"]["AAA"]["observations"] == 2
+        assert summary["series"]["AAA"]["first"].startswith("2020-01-01")
+        assert summary["series"]["AAA"]["last"].startswith("2020-01-02")
+        assert summary["series"]["BBB"]["observations"] == 3
+        assert summary["series"]["BBB"]["last"].startswith("2020-01-03")
         assert summary["index_start"].startswith("2020-01-01")
         assert summary["index_end"].startswith("2020-01-03")
         # No raw frame leaked into the summary.
         assert not any(isinstance(v, pd.DataFrame) for v in summary.values())
+
+    def test_complete_monthly_series_is_not_reported_as_mostly_missing(self) -> None:
+        # Daily and monthly series outer-joined onto one grid: each is complete on
+        # its own calendar, so the grid's alignment holes must not read as gaps.
+        daily = pd.Series(1.0, index=pd.bdate_range("2023-01-02", periods=250))
+        monthly = pd.Series(
+            range(12), index=pd.date_range("2023-01-31", periods=12, freq="ME")
+        )
+        frame = pd.DataFrame({"DGS10": daily, "CPIAUCSL": monthly})
+
+        summary = summarize_frame(frame, name="macro")
+
+        assert "na_counts" not in summary
+        assert "coverage" not in summary
+        assert summary["series"]["DGS10"]["observations"] == 250
+        assert summary["series"]["CPIAUCSL"]["observations"] == 12
+        assert summary["series"]["CPIAUCSL"]["first"].startswith("2023-01-31")
+        assert summary["series"]["CPIAUCSL"]["last"].startswith("2023-12-31")
+
+    def test_all_missing_column_reports_zero_observations_and_no_span(self) -> None:
+        idx = pd.date_range("2020-01-01", periods=2, freq="D")
+        df = pd.DataFrame({"AAA": [1.0, 2.0], "EMPTY": [np.nan, np.nan]}, index=idx)
+
+        summary = summarize_frame(df)
+
+        assert summary["series"]["EMPTY"] == {"observations": 0}
 
     def test_empty_frame_is_serialisable(self) -> None:
         summary = summarize_frame(pd.DataFrame(), name="empty")

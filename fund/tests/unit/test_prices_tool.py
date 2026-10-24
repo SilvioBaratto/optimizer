@@ -179,7 +179,7 @@ class TestGetPricesHappyPath:
 
         assert result["ok"] is True
         assert result["data"]["field"] == "volume"
-        assert result["data"]["coverage"] == 1.0
+        assert result["data"]["series"]["AAA"]["observations"] == 1
 
 
 class TestGetPricesFlagsAndErrors:

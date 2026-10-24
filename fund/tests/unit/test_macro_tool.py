@@ -88,9 +88,10 @@ class TestGetMacroSeriesHappyPath:
 
         assert result["data"]["requested"] == ["T10Y2Y", "VIXCLS"]
 
-    def test_unaligned_series_report_partial_coverage(self, db_session) -> None:
-        # Two series on disjoint dates → the union index carries NaNs where a
-        # series has no observation, so overall coverage drops below 1.0.
+    def test_unaligned_series_report_their_own_observations(self, db_session) -> None:
+        # Two series on disjoint dates share a union index of two rows, but each is
+        # complete on its own calendar: the summary reports what each one holds
+        # instead of counting the alignment holes as missing data.
         _seed_series(db_session, "AAA", {dt.date(2024, 1, 2): 1.0})
         _seed_series(db_session, "BBB", {dt.date(2024, 1, 3): 2.0})
 
@@ -100,8 +101,10 @@ class TestGetMacroSeriesHappyPath:
         data = result["data"]
         assert data["rows"] == 2
         assert data["cols"] == 2
-        assert data["coverage"] < 1.0
-        assert data["na_counts"] == {"AAA": 1, "BBB": 1}
+        assert data["series"]["AAA"]["observations"] == 1
+        assert data["series"]["AAA"]["last"].startswith("2024-01-02")
+        assert data["series"]["BBB"]["observations"] == 1
+        assert data["series"]["BBB"]["first"].startswith("2024-01-03")
 
     def test_respects_asof_upper_bound(self, db_session) -> None:
         _seed_series(

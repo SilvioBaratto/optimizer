@@ -254,9 +254,16 @@ def session_scope(manager: DatabaseManager) -> Generator[Session, None, None]:
 def summarize_frame(frame: Any, *, name: str = "frame") -> dict[str, Any]:
     """Collapse a pandas DataFrame to a JSON-serialisable shape/coverage summary.
 
-    Returns row/column counts, column labels, per-column NaN counts, overall
-    non-NaN coverage, and (for a DatetimeIndex) the index span — never the frame
-    itself, so a large price/return matrix never reaches the model verbatim.
+    Returns row/column counts, column labels, the index span (for a
+    DatetimeIndex) and, per column, how many observations it holds and, with a
+    DatetimeIndex, the dates of its first and last one — never the frame itself,
+    so a large price/return matrix never reaches the model verbatim.
+
+    The per-column figures are deliberately not NaN counts on the shared index:
+    the panels are outer-joined, so a monthly series next to a daily one, or two
+    exchange calendars, leave holes that are alignment and not missing data. A
+    column's own span against ``index_start``/``index_end`` shows a series that
+    ends early or starts late.
 
     Args:
         frame: The DataFrame to summarise.
@@ -265,7 +272,9 @@ def summarize_frame(frame: Any, *, name: str = "frame") -> dict[str, Any]:
 
     Returns:
         A dict with keys ``name``, ``rows``, ``cols``, ``columns``, optionally
-        ``index_start``/``index_end``, ``na_counts``, and ``coverage``.
+        ``index_start``/``index_end``, and ``series`` mapping each column to its
+        ``observations`` (non-null count) plus ``first``/``last`` when the index
+        is dates and the column holds any observation.
     """
     n_rows, n_cols = frame.shape
     summary: dict[str, Any] = {
@@ -279,13 +288,21 @@ def summarize_frame(frame: Any, *, name: str = "frame") -> dict[str, Any]:
 
     import pandas as pd
 
-    if isinstance(frame.index, pd.DatetimeIndex):
+    dated = isinstance(frame.index, pd.DatetimeIndex)
+    if dated:
         summary["index_start"] = str(frame.index.min())
         summary["index_end"] = str(frame.index.max())
 
-    na = frame.isna().sum()
-    summary["na_counts"] = {str(col): int(na[col]) for col in frame.columns}
-    summary["coverage"] = float(1.0 - frame.isna().to_numpy().mean())
+    series: dict[str, dict[str, Any]] = {}
+    for position, label in enumerate(frame.columns):
+        column = frame.iloc[:, position]
+        entry: dict[str, Any] = {"observations": int(column.notna().sum())}
+        first = column.first_valid_index()
+        if dated and first is not None:
+            entry["first"] = str(first)
+            entry["last"] = str(column.last_valid_index())
+        series[str(label)] = entry
+    summary["series"] = series
     return summary
 
 
