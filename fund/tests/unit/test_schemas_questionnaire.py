@@ -174,6 +174,27 @@ def test_structured_call_retries_when_the_esg_pillar_is_omitted():
     assert answers.esg.exclusions == (GicsSector.ENERGY,)
 
 
+def test_answers_default_to_every_datum_stated():
+    assert _valid_answers().unanswered == ()
+
+
+def test_answers_can_declare_which_data_the_client_did_not_state():
+    a = _valid_answers(unanswered=("capacity.buffer_months", "objectives.likert_items"))
+    assert a.unanswered == ("capacity.buffer_months", "objectives.likert_items")
+    assert MiFIDAnswers.model_validate_json(a.model_dump_json()) == a
+
+
+def test_unanswered_marker_rejects_a_datum_the_questionnaire_does_not_have():
+    with pytest.raises(pydantic.ValidationError):
+        _valid_answers(unanswered=("capacity.salary",))
+
+
+def test_legacy_answers_without_the_unanswered_key_still_validate():
+    payload = _valid_answers().model_dump(mode="json")
+    payload.pop("unanswered", None)
+    assert MiFIDAnswers.model_validate(payload).unanswered == ()
+
+
 def test_all_pillar_models_are_frozen():
     a = _valid_answers()
     with pytest.raises(pydantic.ValidationError):

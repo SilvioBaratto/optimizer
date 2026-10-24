@@ -611,3 +611,13 @@ def test_build_profiler_agent_keeps_deepagents_summarization_without_override(
     )
 
     assert not captured.get("middleware")
+
+
+def test_extraction_prompt_tells_the_model_to_mark_unstated_data_not_invent_it():
+    from fund.agents.profiler import _EXTRACTION_SYSTEM_PROMPT
+
+    assert "unanswered" in _EXTRACTION_SYSTEM_PROMPT
+    # The old blanket instruction forced a fabricated value for any omitted datum.
+    assert "Fill every required field from the client's statements" not in (
+        _EXTRACTION_SYSTEM_PROMPT
+    )

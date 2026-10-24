@@ -69,6 +69,7 @@ __all__ = [
     "FLAG_OBJECTIVE_CAPACITY_MISMATCH",
     "FLAG_OVERCONFIDENCE",
     "FLAG_REACTION_TOLERANCE_MISMATCH",
+    "FLAG_UNANSWERED_INPUT",
     "ProfilerRun",
     "SuitabilityBreachError",
     "assess_suitability",
@@ -92,6 +93,8 @@ _SAVE_PROFILE_TOOL = "save_profile"
 FLAG_OBJECTIVE_CAPACITY_MISMATCH = "objective_capacity_mismatch"
 FLAG_OVERCONFIDENCE = "overconfidence"
 FLAG_REACTION_TOLERANCE_MISMATCH = "reaction_tolerance_mismatch"
+# Prefix of one flag per datum the client text never stated (``<prefix>:<datum>``).
+FLAG_UNANSWERED_INPUT = "unanswered_input"
 
 
 class SuitabilityBreachError(ValueError):
@@ -312,6 +315,12 @@ def _inconsistency_flags(
         and objectives.loss_reaction is LossReaction.SELL_ALL
     ):
         flags.append(FLAG_REACTION_TOLERANCE_MISMATCH)
+    # An assumed placeholder feeds the binding a_gamma exactly like a real answer, so
+    # the gate must say which inputs were not client-provided.
+    flags.extend(
+        f"{FLAG_UNANSWERED_INPUT}:{datum}"
+        for datum in dict.fromkeys(answers.unanswered)
+    )
     return tuple(flags)
 
 
@@ -469,7 +478,14 @@ _EXTRACTION_SYSTEM_PROMPT = (
     "- esg: always include this object; esg.exclusions is a subset of the 11 GICS "
     "sectors, or [] when the client names none\n"
     "- base_currency: an ISO-4217 alpha code (e.g. EUR)\n"
-    "Fill every required field from the client's statements; do not invent fields."
+    "- unanswered: the dotted path of every datum the client did NOT state (e.g. "
+    "'capacity.buffer_months', 'objectives.likert_items'); [] when everything was "
+    "stated. A required field must still hold a value, so give each unstated datum "
+    "its most conservative value (knowledge.level none, max_1yr_loss_pct 0, "
+    "buffer_months 0, likert_items [1], goal protection, horizon short, "
+    "loss_reaction sell_all, esg.exclusions []) and list its path here.\n"
+    "Take every other value from the client's statements and never guess an "
+    "unstated one from context; do not invent fields."
 )
 
 

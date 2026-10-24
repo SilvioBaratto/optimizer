@@ -134,6 +134,7 @@ def make_answers(
     knowledge: KnowledgeLevel = KnowledgeLevel.INFORMED,
     currency: str = "EUR",
     exclusions: tuple[Any, ...] = (),
+    unanswered: tuple[Any, ...] = (),
 ) -> MiFIDAnswers:
     """A valid ``MiFIDAnswers`` (defaults land in the Balanced band, no flags)."""
     return MiFIDAnswers(
@@ -147,6 +148,7 @@ def make_answers(
             loss_reaction=reaction,
         ),
         esg=EsgAnswers(exclusions=exclusions),
+        unanswered=unanswered,
     )
 
 

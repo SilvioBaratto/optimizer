@@ -107,6 +107,17 @@ def test_inconsistency_flags_surface_in_interrupt_payload(db_session):
         assert flag in description
 
 
+def test_unanswered_datum_surfaces_in_interrupt_payload(db_session):
+    pid = uuid.uuid4()
+    answers = make_answers(unanswered=("capacity.buffer_months",))
+    model = make_model(answers, portfolio_id=str(pid))
+
+    run = _run(model, db_session, portfolio_id=pid)
+
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "unanswered_input:capacity.buffer_months" in description
+
+
 # --- audit trail records the HITL decision ----------------------------------
 
 

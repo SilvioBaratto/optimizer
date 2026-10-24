@@ -25,6 +25,12 @@ pillar, ESG included, with no defaults. A small tool-calling model extracts thes
 from free text, and an omitted ``esg`` pillar or a mis-keyed one (``excluded_sectors``
 next to a valid ``exclusions``) must raise and trigger the retry rather than read as
 "no exclusions" and silently drop a client's hard ESG block.
+
+Because every datum is required, a client text that never mentions one (a cash
+buffer, say) would otherwise force the extractor to invent it. ``MiFIDAnswers.
+unanswered`` is the escape hatch: the extractor lists the datum it could not ground in
+the text, the profiler turns each entry into an inconsistency flag shown at the HITL
+gate, and the adviser sees that the value was assumed rather than client-provided.
 """
 
 from __future__ import annotations
@@ -42,8 +48,8 @@ from fund.schemas.enums import (
     RiskToleranceBand,
 )
 
-# ``QUESTION_BANK`` is a public module-level constant (accessed via
-# ``fund.schemas.questionnaire.QUESTION_BANK``); it is deliberately not in
+# ``QUESTION_BANK`` and the ``UnansweredDatum`` alias are public module-level names
+# (accessed via ``fund.schemas.questionnaire.<name>``); they are deliberately not in
 # ``__all__`` — the re-export surface lists the schema *types* only.
 __all__ = [
     "CapacityAnswers",
@@ -59,6 +65,21 @@ __all__ = [
 # tolerance appetite as ``mean(likert_items)`` rescaled ``(x - 1) / 6``, so the
 # valid range is [1, 7] (1 → appetite 0.0, 7 → appetite 1.0).
 LikertScore = Annotated[int, Field(ge=1, le=7)]
+
+# Every datum of ``MiFIDAnswers`` as a dotted path. Closed on purpose: a mis-spelled
+# path must fail validation (and trigger the extraction retry) instead of becoming a
+# flag the adviser cannot map back to a field.
+UnansweredDatum = Literal[
+    "base_currency",
+    "knowledge.level",
+    "capacity.max_1yr_loss_pct",
+    "capacity.buffer_months",
+    "objectives.goal",
+    "objectives.horizon",
+    "objectives.likert_items",
+    "objectives.loss_reaction",
+    "esg.exclusions",
+]
 
 _Pillar = Literal["knowledge", "capacity", "objectives", "esg"]
 _QuestionKind = Literal["single_choice", "multi_choice", "likert", "numeric"]
@@ -188,6 +209,11 @@ class MiFIDAnswers(BaseModel):
     ``base_currency`` is the client's reporting currency (ISO-4217 alpha).
     The ``portfolio_id`` is **not** carried here — it is a persistence concern
     supplied to ``build_constraint_set`` / ``run_profiler`` at mapping time.
+
+    ``unanswered`` names the data the client text did not state; the values filled in
+    for them are placeholders, not client answers, and the profiler flags each one at
+    the HITL gate. It defaults to empty so a fully-answered form, the TUI form path and
+    records persisted before the field existed all validate unchanged.
     """
 
     model_config = _ANSWERS_CONFIG
@@ -202,6 +228,13 @@ class MiFIDAnswers(BaseModel):
     capacity: CapacityAnswers
     objectives: ObjectivesAnswers
     esg: EsgAnswers
+    unanswered: tuple[UnansweredDatum, ...] = Field(
+        default=(),
+        description=(
+            "Dotted paths of every datum the client did NOT state (e.g. "
+            "'capacity.buffer_months'). Empty when the client answered everything."
+        ),
+    )
 
 
 class SuitabilityAssessment(BaseModel):

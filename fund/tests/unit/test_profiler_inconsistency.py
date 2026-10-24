@@ -18,6 +18,7 @@ from fund.agents.profiler import (
     FLAG_OBJECTIVE_CAPACITY_MISMATCH,
     FLAG_OVERCONFIDENCE,
     FLAG_REACTION_TOLERANCE_MISMATCH,
+    FLAG_UNANSWERED_INPUT,
     SuitabilityBreachError,
     _category,
     assess_suitability,
@@ -50,6 +51,7 @@ def _answers(
     goal: ObjectiveChoice = ObjectiveChoice.GROWTH,
     reaction: LossReaction = LossReaction.HOLD,
     exclusions: tuple[GicsSector, ...] = (),
+    unanswered: tuple[str, ...] = (),
 ) -> MiFIDAnswers:
     return MiFIDAnswers(
         base_currency="EUR",
@@ -62,6 +64,7 @@ def _answers(
             loss_reaction=reaction,
         ),
         esg=EsgAnswers(exclusions=exclusions),
+        unanswered=unanswered,  # type: ignore[arg-type]
     )
 
 
@@ -113,6 +116,33 @@ def test_high_tolerance_but_panic_reaction_flags_mismatch() -> None:
     )
     assert FLAG_REACTION_TOLERANCE_MISMATCH in sa.inconsistency_flags
     assert FLAG_OVERCONFIDENCE not in sa.inconsistency_flags
+
+
+# --- unstated data is flagged, never passed off as client-provided ---------
+
+
+def test_unanswered_datum_is_flagged_for_the_adviser() -> None:
+    answers = _answers(unanswered=("capacity.buffer_months",))
+    _, sa = run_mapping(answers, portfolio_id="pf-1")
+    assert f"{FLAG_UNANSWERED_INPUT}:capacity.buffer_months" in sa.inconsistency_flags
+
+
+def test_each_unanswered_datum_gets_its_own_flag_once() -> None:
+    answers = _answers(
+        unanswered=(
+            "capacity.buffer_months",
+            "objectives.likert_items",
+            "capacity.buffer_months",
+        )
+    )
+    _, sa = run_mapping(answers, portfolio_id="pf-1")
+    unanswered = [
+        f for f in sa.inconsistency_flags if f.startswith(f"{FLAG_UNANSWERED_INPUT}:")
+    ]
+    assert unanswered == [
+        f"{FLAG_UNANSWERED_INPUT}:capacity.buffer_months",
+        f"{FLAG_UNANSWERED_INPUT}:objectives.likert_items",
+    ]
 
 
 # --- no auto-clamp: flags do not move a_gamma ------------------------------
