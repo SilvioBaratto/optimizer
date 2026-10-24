@@ -566,6 +566,90 @@ def test_load_run_transcript_interleaves_messages_and_decisions_in_order(db_sess
     assert order.payload == {"hitl_decision": {"decision": "pending"}}
 
 
+def test_load_run_transcript_anchors_each_redelegation_to_its_own_message(db_session):
+    # Risk rejects, the PM re-delegates to the allocator: the second proposal must
+    # follow the rejection that caused it, not pile up at the first delegation.
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-redelegate",
+    )
+    audit = AgentRunRepository(db_session)
+    for weights in ({"AAA": 0.9, "BBB": 0.1}, {"AAA": 0.6, "BBB": 0.4}):
+        audit.append_decision(
+            run.id,
+            agent="allocator",
+            step="optimize_portfolio",
+            llm_response=json.dumps({"weights": weights}),
+        )
+    db_session.expire(run, ["decisions"])
+    _seed_thread(
+        saver,
+        "thread-redelegate",
+        [
+            HumanMessage(content="Produce an allocation."),
+            _task_msg("allocator"),
+            ToolMessage(content="proposal 1", tool_call_id="call_allocator"),
+            _task_msg("risk"),
+            ToolMessage(content="REJECT: concentration", tool_call_id="call_risk"),
+            _task_msg("allocator"),
+            ToolMessage(content="proposal 2", tool_call_id="call_allocator"),
+            _task_msg("risk"),
+            ToolMessage(content="PASS", tool_call_id="call_risk"),
+        ],
+    )
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert [(e.source, e.index) for e in entries] == [
+        ("message", 0),  # human
+        ("message", 1),  # task(allocator) #1
+        ("decision", 0),
+        ("message", 2),  # proposal 1
+        ("message", 3),  # task(risk) #1
+        ("message", 4),  # REJECT
+        ("message", 5),  # task(allocator) #2
+        ("decision", 1),
+        ("message", 6),  # proposal 2
+        ("message", 7),  # task(risk) #2
+        ("message", 8),  # PASS
+    ]
+
+
+def test_load_run_transcript_keeps_all_rows_of_a_single_delegation_together(
+    db_session,
+):
+    saver = MemorySaver()
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="thread-multi-row",
+    )
+    audit = AgentRunRepository(db_session)
+    for _ in range(2):
+        audit.append_decision(run.id, agent="allocator", step="optimize_portfolio")
+    db_session.expire(run, ["decisions"])
+    _seed_thread(
+        saver,
+        "thread-multi-row",
+        [_task_msg("allocator"), _task_msg("risk")],
+    )
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert [(e.source, e.index) for e in entries] == [
+        ("message", 0),
+        ("decision", 0),
+        ("decision", 1),
+        ("message", 1),
+    ]
+
+
 def test_load_run_transcript_trails_unanchored_decisions(db_session):
     saver = MemorySaver()
     run = _make_run(

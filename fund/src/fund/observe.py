@@ -316,17 +316,29 @@ def load_run_transcript(session: Any, saver: Any, run: Any) -> list[TranscriptEn
     (an agent that logged a row without a PM-thread tool call) trail in
     ``decision_index`` order. Messages from agents that log no decision (economist,
     risk) simply appear on their own.
+
+    An agent can be delegated to more than once (the PM re-delegates to the allocator
+    after a risk rejection), and decisions carry no timestamp to tell the rounds
+    apart. A message therefore claims only the first matching decision while a later
+    message still matches it, so each re-delegation gets the next proposal; the last
+    matching message claims whatever is left, which keeps several rows logged by one
+    delegation together.
     """
     entries: list[TranscriptEntry] = []
     messages = _messages_for(saver, getattr(run, "thread_id", None))
     subagents = _subagent_by_call(messages)
+    all_tokens = [_message_tokens(message) for message in messages]
     remaining = list(run.decisions)
     for index, message in enumerate(messages):
         entries.append(_message_entry(message, index, subagents))
-        tokens = _message_tokens(message)
+        tokens = all_tokens[index]
         if not tokens:
             continue
-        for decision in [d for d in remaining if _decision_matches(d, tokens)]:
+        later = all_tokens[index + 1 :]
+        matched = [d for d in remaining if _decision_matches(d, tokens)]
+        for position, decision in enumerate(matched):
+            if position and any(_decision_matches(decision, t) for t in later):
+                continue
             entries.append(_decision_entry(decision))
             remaining.remove(decision)
     entries.extend(_decision_entry(decision) for decision in remaining)
