@@ -1594,7 +1594,7 @@ class DeliberationView(ShellView):
         self.query_one("#delib-runs", DataTable).add_columns("run", "asof", "status")
         self.query_one("#delib-steps", DataTable).add_columns("idx", "agent", "step")
         live = self.query_one("#delib-live", DataTable)
-        live.add_columns("", "agent", "step")
+        live.add_columns("status", "agent", "step")
         live.display = False
 
     def refresh_view(self) -> None:
@@ -1658,11 +1658,11 @@ class DeliberationView(ShellView):
         table = self.query_one("#delib-live", DataTable)
         if self._live_events and self._live_events[-1].status is StepStatus.LIVE:
             table.update_cell_at(
-                Coordinate(len(self._live_events) - 1, 0), StepStatus.DONE.glyph
+                Coordinate(len(self._live_events) - 1, 0), StepStatus.DONE.marker
             )
         self._live_events.append(event)
         table.add_row(
-            event.status.glyph,
+            event.status_text,
             event.agent,
             event.step or event.kind,
             key=str(event.index),

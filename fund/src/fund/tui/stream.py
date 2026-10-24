@@ -30,6 +30,11 @@ class StepStatus(str, Enum):
         """Return the single-character marker the timeline renders for this status."""
         return _STATUS_GLYPHS[self]
 
+    @property
+    def marker(self) -> str:
+        """Return the glyph plus its word, so the status never relies on shape alone."""
+        return f"{self.glyph} {self.value}"
+
 
 _STATUS_GLYPHS = {
     StepStatus.LIVE: "●",
@@ -69,6 +74,18 @@ class StreamEvent:
     status: StepStatus
     text: str
     payload: dict[str, Any] | None = None
+
+    @property
+    def status_text(self) -> str:
+        """Return the timeline status cell: glyph plus a word.
+
+        A step shows its liveness (``● live``); a terminal event shows its ``kind``
+        instead (``· paused`` / ``· incomplete``), because every terminal event
+        carries ``PENDING`` and would otherwise read identically.
+        """
+        if self.kind == "step":
+            return self.status.marker
+        return f"{self.status.glyph} {self.kind}"
 
 
 __all__ = ["StepStatus", "StreamEvent"]

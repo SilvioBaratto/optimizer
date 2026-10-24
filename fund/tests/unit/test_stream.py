@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import subprocess
 import sys
+import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -219,6 +220,32 @@ def test_stream_fund_halts_at_the_gate_when_frozen_while_in_flight(
         run = AgentRunRepository(session).get_run(terminal.run_id)
         assert run is not None
         assert run.status == "rejected"
+
+
+@pytest.mark.parametrize(
+    ("kind", "status", "expected"),
+    [
+        ("step", StepStatus.LIVE, "\u25cf live"),
+        ("step", StepStatus.DONE, "\u2713 done"),
+        ("paused", StepStatus.PENDING, "\u00b7 paused"),
+        ("incomplete", StepStatus.PENDING, "\u00b7 incomplete"),
+    ],
+)
+def test_status_text_pairs_the_glyph_with_a_word(
+    kind: str, status: StepStatus, expected: str
+) -> None:
+    """A step states its liveness and a terminal event its outcome, never a bare dot."""
+    event = StreamEvent(
+        kind=kind,
+        run_id=uuid.uuid4(),
+        index=0,
+        agent="orchestrator",
+        step="place_orders",
+        status=status,
+        text="",
+    )
+
+    assert event.status_text == expected
 
 
 def test_import_stream_is_agent_stack_light() -> None:

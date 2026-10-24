@@ -4375,9 +4375,9 @@ async def test_deliberation_live_renders_steps_and_flips_markers(shell_env) -> N
         assert live.display is True
         assert live.row_count == 3  # the two steps + the terminal gate row
         # Each new event flips the prior LIVE step ●→✓; the terminal row stays ·.
-        assert live.get_cell_at(Coordinate(0, 0)) == StepStatus.DONE.glyph
-        assert live.get_cell_at(Coordinate(1, 0)) == StepStatus.DONE.glyph
-        assert live.get_cell_at(Coordinate(2, 0)) == StepStatus.PENDING.glyph
+        assert live.get_cell_at(Coordinate(0, 0)) == StepStatus.DONE.marker
+        assert live.get_cell_at(Coordinate(1, 0)) == StepStatus.DONE.marker
+        assert live.get_cell_at(Coordinate(2, 0)) == "\u00b7 paused"
         assert "awaiting the execution gate" in view.live_text
 
 
@@ -4421,6 +4421,55 @@ async def test_deliberation_detail_scrolls_when_the_report_overflows(shell_env) 
         await pilot.pause()
         assert scroller.scroll_y == scroller.max_scroll_y > 0
         assert detail.region.width <= scroller.region.width  # wraps, no sideways spill
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_status_cells_pair_glyph_with_a_label(
+    shell_env,
+) -> None:
+    """Status is dot + label under a named column, never a bare glyph."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        await pilot.pause()
+        view.ingest_event(_scripted_stream(rid)[0])
+        live = view.query_one("#delib-live", DataTable)
+        assert live.get_cell_at(Coordinate(0, 0)) == "\u25cf live"
+        view.ingest_event(_scripted_stream(rid)[1])
+        await pilot.pause()
+        assert live.get_cell_at(Coordinate(0, 0)) == "\u2713 done"
+        headers = [str(column.label) for column in live.columns.values()]
+        assert headers[0] == "status"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["paused", "incomplete"])
+async def test_deliberation_live_terminal_row_states_the_round_outcome(
+    shell_env, kind: str
+) -> None:
+    """A paused gate and an incomplete round must not read the same in the table."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        await pilot.pause()
+        view.ingest_event(
+            StreamEvent(
+                kind=kind,
+                run_id=rid,
+                index=0,
+                agent="orchestrator",
+                step="place_orders",
+                status=StepStatus.PENDING,
+                text="terminal",
+            )
+        )
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert live.get_cell_at(Coordinate(0, 0)) == f"\u00b7 {kind}"
 
 
 @pytest.mark.asyncio
