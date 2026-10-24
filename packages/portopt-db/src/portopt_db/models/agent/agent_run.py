@@ -1,8 +1,8 @@
 """SQLAlchemy models for agent-run audit trail (``agent_runs`` / ``agent_decisions``).
 
 A ``fund`` run is one allocator pass: the LLM chooses, the optimizer computes.
-``AgentRun`` is the run-level record (universe in, weights out, config + seed for
-determinism); ``AgentDecision`` is the ordered per-step trail (constraint/view
+``AgentRun`` is the run-level record (universe in, weights out, config + an audit seed
+label); ``AgentDecision`` is the ordered per-step trail (constraint/view
 snapshots, the LLM prompt/response-or-hash, any HITL decision). The model lives
 here in ``portopt_db`` — pure SQLAlchemy, no ``optimizer``/``deepagents`` import —
 while the ``AgentRunRepository`` behavior lives in ``fund``, mirroring the
@@ -55,7 +55,8 @@ class AgentRun(BaseModel):
         UUID(as_uuid=True), nullable=True
     )
     asof: Mapped[date] = mapped_column(Date, nullable=False)
-    # RNG seed pinned so an identical run reproduces identical weights (D-determinism).
+    # Audit label for the run. The allocator path draws no random numbers, so identical
+    # inputs reproduce identical weights without it; it pins nothing.
     seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     universe: Mapped[list[str]] = mapped_column(_JSON, nullable=False)
     optimizer_config: Mapped[dict[str, Any]] = mapped_column(_JSON, nullable=False)

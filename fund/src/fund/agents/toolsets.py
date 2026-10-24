@@ -243,14 +243,24 @@ def _append_allocator_decision(
     optimizer_config: dict[str, Any],
     weights: dict[str, float],
     metrics: dict[str, float],
+    *,
+    universe: list[str],
+    missing: list[str],
 ) -> None:
     """Append the allocator's optimize decision: constraint set + the effective
     (applied) optimizer config + the optimizer's weights (never model-emitted) and
-    their in-sample metrics."""
+    their in-sample metrics + the universe it was given and the tickers it had to drop
+    for lack of prices."""
     from fund.audit import AgentRunRepository
 
     payload = json.dumps(
-        {"optimizer_config": optimizer_config, "weights": weights, "metrics": metrics},
+        {
+            "optimizer_config": optimizer_config,
+            "weights": weights,
+            "metrics": metrics,
+            "universe": universe,
+            "missing": missing,
+        },
         sort_keys=True,
         default=str,
     )
@@ -387,12 +397,21 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
         base_currency=ctx.base_currency,
     )
     if result.get("ok"):
+        from fund.audit import AgentRunRepository
+
         _append_allocator_decision(
             ctx,
             cs,
             _effective_optimizer_config(constraints, result["data"]["risk_aversion"]),
             result["data"]["weights"],
             result["data"]["metrics"],
+            universe=list(universe),
+            missing=list(result["data"]["missing"]),
+        )
+        # ``assets`` is what the optimiser fitted over; the requested ``universe`` also
+        # holds the tickers it dropped for lack of prices.
+        AgentRunRepository(ctx.session).set_universe(
+            ctx.run_id, result["data"]["assets"]
         )
     return result
 

@@ -379,6 +379,25 @@ class AgentRunRepository(RepositoryBase):
         self.session.refresh(run)
         return run
 
+    def set_universe(
+        self, run_id: uuid.UUID, universe: Sequence[str]
+    ) -> AgentRun | None:
+        """Record the tickers the allocator optimised over; ``None`` if not found.
+
+        A run is opened with an empty universe because the allocator picks its
+        candidates at runtime. Each successful optimisation replaces it, so the stored
+        universe is always the one behind the run's latest audited weights. Pass the
+        tickers the optimiser actually fitted, not the ones requested: a requested
+        ticker it dropped for lack of prices was not allocated and does not belong here.
+        """
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        run.universe = list(universe)
+        self.session.flush()
+        self.session.refresh(run)
+        return run
+
     def mark_paused(self, run_id: uuid.UUID) -> AgentRun | None:
         """Flip the run to ``"paused"`` at a HITL gate; ``None`` if not found."""
         run = self.get_run(run_id)

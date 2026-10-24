@@ -151,13 +151,18 @@ def _constraint_set(**overrides: object) -> ConstraintSet:
     return ConstraintSet(**kwargs)  # type: ignore[arg-type]
 
 
-def _make_context(db_session, *, store: InMemoryStore | None = None) -> RunContext:
+def _make_context(
+    db_session,
+    *,
+    store: InMemoryStore | None = None,
+    universe: list[str] = _UNIVERSE,
+) -> RunContext:
     """Build a RunContext over a freshly created audit run."""
     run = AgentRunRepository(db_session).create_run(
         portfolio_id=_PORTFOLIO_ID,
         asof=_ASOF,
         seed=0,
-        universe=_UNIVERSE,
+        universe=universe,
         optimizer_config={"step": "toolset"},
     )
     return RunContext(
@@ -837,6 +842,47 @@ def test_bound_optimize_persists_the_optimizer_metrics(db_session) -> None:
     logged = json.loads(decision.llm_response)["metrics"]
     assert logged == pytest.approx(result["data"]["metrics"])
     assert set(logged) == {"mean", "standard_deviation", "sharpe_ratio"}
+
+
+def test_bound_optimize_records_the_universe_on_the_run(db_session) -> None:
+    """A run is opened with an empty universe (the allocator picks its candidates at
+    runtime). Once ``optimize_portfolio`` succeeds the run holds the tickers the
+    optimiser actually allocated over, without the ones it dropped for lack of prices;
+    the allocator decision keeps both the requested universe and the dropped tickers,
+    so an auditor can see what was asked for and what was left out."""
+    _seed_panel(db_session)
+    ctx = _make_context(db_session, universe=[])
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+    requested = [*_UNIVERSE, "ZZZ"]
+
+    result = optimize.invoke({"universe": requested})
+
+    assert result["ok"] is True
+    run = AgentRunRepository(db_session).get_run(ctx.run_id)
+    assert run is not None
+    assert run.universe == _UNIVERSE
+    (decision,) = (
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "allocator")
+        )
+        .scalars()
+        .all()
+    )
+    payload = json.loads(decision.llm_response)
+    assert payload["universe"] == requested
+    assert payload["missing"] == ["ZZZ"]
+
+
+def test_failed_optimize_leaves_the_run_universe_untouched(db_session) -> None:
+    ctx = _make_context(db_session, universe=[])
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": ["ZZZ"]})
+
+    assert result["ok"] is False
+    run = AgentRunRepository(db_session).get_run(ctx.run_id)
+    assert run is not None
+    assert run.universe == []
 
 
 def test_optimize_applies_and_logs_the_mapped_mifid_config(db_session) -> None:

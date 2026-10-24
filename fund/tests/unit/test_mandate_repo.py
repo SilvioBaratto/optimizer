@@ -217,6 +217,22 @@ def test_set_thread_id_returns_none_for_unknown_run(db_session):
     assert repo.set_thread_id(uuid.uuid4(), "t") is None
 
 
+def test_set_universe_replaces_the_run_universe(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _run(repo, None)
+    assert run.universe == ["AAPL"]
+
+    updated = repo.set_universe(run.id, ["AAA", "BBB"])
+
+    assert updated is not None
+    assert db_session.get(AgentRun, run.id).universe == ["AAA", "BBB"]
+
+
+def test_set_universe_returns_none_for_unknown_run(db_session):
+    repo = AgentRunRepository(db_session)
+    assert repo.set_universe(uuid.uuid4(), ["AAA"]) is None
+
+
 def test_mark_paused_sets_status(db_session):
     repo = AgentRunRepository(db_session)
     run = _run(repo, None)

@@ -1531,8 +1531,11 @@ def _prepare_fund_run(
             f"first to establish a risk profile."
         )
 
-    # 31 bits: ``agent_runs.seed`` is a signed int4 on Postgres, and a 32-bit draw
-    # overflows it on about half of all runs.
+    # 31 bits: ``agent_runs.seed`` is a signed 32-bit INTEGER on PostgreSQL, so a full
+    # 32-bit draw overflows the INSERT about half the time (SQLite never notices). The
+    # seed is an audit label only: the allocator path draws no random numbers (a convex
+    # min-variance QP over deterministic estimators), so identical inputs reproduce
+    # identical weights without it.
     run_seed = seed if seed is not None else secrets.randbits(31)
     active_profile = MifidProfileRepository(session).get_active(pid_uuid)
     audit = AgentRunRepository(session)
@@ -1540,6 +1543,7 @@ def _prepare_fund_run(
         portfolio_id=pid_uuid,
         asof=asof,
         seed=run_seed,
+        # Candidates are picked at runtime; optimize_portfolio records them.
         universe=[],
         optimizer_config={
             "step": "fund",
