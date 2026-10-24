@@ -1011,6 +1011,8 @@ class AuditView(ShellView):
         yield Static("", id="audit-filters", classes="view-subtitle")
         with Horizontal(classes="audit-body"):
             yield DataTable(id="audit-table", cursor_type="row", classes="audit-table")
+            # Literal text: the record carries human free text (a rationale) whose
+            # brackets must neither vanish as style tags nor raise MarkupError.
             yield Static(
                 "(select a decision)",
                 id="audit-detail",
@@ -1142,6 +1144,8 @@ _AUDIT_CSV_HEADER: tuple[str, ...] = (
     "idempotency_key",
     "override_flag",
     "suitability_flag",
+    "target",
+    "rationale",
 )
 
 
@@ -1162,6 +1166,8 @@ def _audit_detail(entry: Any) -> str:
         lines.append(f"portfolio {_short(entry.portfolio_id)}")
     if entry.run_id:
         lines.append(f"run #{_short(entry.run_id)}")
+    if entry.target:
+        lines.append(f"target: {entry.target}")
     if entry.prev_value is not None:
         lines.append(f"prev: {entry.prev_value}")
     if entry.new_value is not None:
@@ -1170,6 +1176,8 @@ def _audit_detail(entry: Any) -> str:
         lines.append(f"source: {entry.source}")
     if entry.idempotency_key:
         lines.append(f"idemp: {entry.idempotency_key}")
+    if entry.rationale:
+        lines.append(f"rationale: {entry.rationale}")
     if entry.override_flag:
         lines.append("⚑ override")
     if entry.suitability_flag:
@@ -1205,6 +1213,8 @@ def _audit_csv_row(entry: Any) -> list[str]:
         _csv_safe(entry.idempotency_key or ""),
         str(entry.override_flag),
         str(entry.suitability_flag),
+        _csv_safe(entry.target or ""),
+        _csv_safe(entry.rationale or ""),
     ]
 
 

@@ -2503,6 +2503,70 @@ async def test_audit_export_writes_csv(shell_env, tmp_path) -> None:
     assert text.strip().count("\n") >= 3  # header + 3 data rows
 
 
+def _seed_rearm_with_rationale(session) -> None:
+    HumanAuditLogRepository(session).append(
+        action="rearm",
+        actor="human",
+        target="fund",
+        new_value={"state": "armed"},
+        rationale="drawdown reviewed with the risk committee",
+    )
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_shows_rationale_and_target(shell_env) -> None:
+    with shell_env.get_session() as session:
+        _seed_rearm_with_rationale(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        assert "target: fund" in view.detail_text
+        assert "drawdown reviewed with the risk committee" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_renders_bracketed_rationale_verbatim(shell_env) -> None:
+    """A rationale is free text: brackets are literal, never Textual markup.
+
+    ``[/ops]`` is an unmatched closing tag that makes markup parsing raise, and
+    ``[CRO approved]`` would be swallowed as a style tag; either corrupts or crashes
+    the pane that is labelled an immutable audit record.
+    """
+    rationale = "closed per [/ops] review [CRO approved]"
+    with shell_env.get_session() as session:
+        HumanAuditLogRepository(session).append(
+            action="rearm", actor="human", target="fund", rationale=rationale
+        )
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.select_index(0)
+        await pilot.pause()
+        rendered = view.query_one("#audit-detail", Static).visual.plain
+    assert f"rationale: {rationale}" in rendered
+
+
+@pytest.mark.asyncio
+async def test_audit_export_includes_rationale_and_target(shell_env, tmp_path) -> None:
+    import csv
+
+    with shell_env.get_session() as session:
+        _seed_rearm_with_rationale(session)
+        session.commit()
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        out = tmp_path / "audit.csv"
+        view.export_csv(str(out))
+    with out.open(newline="", encoding="utf-8") as handle:
+        (row,) = csv.DictReader(handle)
+    assert row["target"] == "fund"
+    assert row["rationale"] == "drawdown reviewed with the risk committee"
+
+
 def test_audit_csv_cells_neutralise_formula_injection() -> None:
     """Agent-generated cells starting with a spreadsheet trigger are de-fanged."""
     from fund.tui.views import _audit_cell, _csv_safe

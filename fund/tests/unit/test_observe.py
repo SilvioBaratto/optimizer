@@ -1521,6 +1521,31 @@ def test_audit_timeline_filters_compose(db_session):
     assert len(observe.audit_timeline(db_session, portfolio_id=_AUDIT_PID_B)) == 1
 
 
+def test_audit_timeline_carries_the_target_and_rationale_of_human_rows(db_session):
+    from fund.audit.human_audit_repository import HumanAuditLogRepository
+
+    HumanAuditLogRepository(db_session).append(
+        action="rearm",
+        target="fund",
+        new_value={"state": "armed"},
+        rationale="drawdown reviewed with the risk committee",
+    )
+
+    (row,) = observe.audit_timeline(db_session, kind="human")
+
+    assert row.target == "fund"
+    assert row.rationale == "drawdown reviewed with the risk committee"
+
+
+def test_audit_timeline_agent_rows_carry_no_target_or_rationale(db_session):
+    _seed_audit(db_session)
+
+    (agent_row,) = observe.audit_timeline(db_session, kind="agent")
+
+    assert agent_row.target is None
+    assert agent_row.rationale is None
+
+
 def _seed_one_transaction_run(db_session, steps: list[str]) -> None:
     """Append ``steps`` as one run's decisions, all stamped with the same instant.
 

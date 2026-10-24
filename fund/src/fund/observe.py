@@ -194,6 +194,11 @@ class AuditEntry:
         idempotency_key: The human row's dedup key; ``None`` for agent rows.
         override_flag: ⚑ a guardrail edited past its MiFID band (human only).
         suitability_flag: ⚠ outside the suitability band (human only).
+        target: The field, gate, or scope the human action touched (e.g. a re-arm's
+            ``"fund"`` / ``"portfolio"`` scope); ``None`` for agent rows.
+        rationale: The free-text reason recorded with the human action — the only
+            place a fund re-arm's mandatory justification is stored; ``None`` for
+            agent rows.
     """
 
     when: dt.datetime
@@ -208,6 +213,8 @@ class AuditEntry:
     idempotency_key: str | None
     override_flag: bool
     suitability_flag: bool
+    target: str | None = None
+    rationale: str | None = None
 
 
 def drift_l1(current: dict[str, float], target: dict[str, float]) -> float:
@@ -977,6 +984,8 @@ def _human_audit_entries(
             idempotency_key=row.idempotency_key,
             override_flag=row.override_flag,
             suitability_flag=row.suitability_flag,
+            target=row.target,
+            rationale=row.rationale,
         )
         for row in rows
     ]
