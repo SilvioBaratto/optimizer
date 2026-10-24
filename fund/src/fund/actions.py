@@ -1025,12 +1025,13 @@ def _apply_run(
         idempotency_key=idempotency_key,
         rationale=rationale,
     )
+    outcome = "awaiting approval" if run.status == "paused" else "no ticket to approve"
     return ActionResult(
         action="run",
         run_id=run.run_id,
         portfolio_id=portfolio_id,
         audit_id=row.id,
-        message=f"run {run.run_id} {run.status} (awaiting approval)",
+        message=f"run {run.run_id} {run.status} ({outcome})",
     )
 
 

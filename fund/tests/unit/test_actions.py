@@ -20,6 +20,7 @@ from unittest import mock
 
 import pytest
 from _fund_fakes import (
+    ASOF,
     PORTFOLIO_ID,
     UNIVERSE,
     ScriptedFundModel,
@@ -699,6 +700,46 @@ def test_run_without_asof_drives_at_the_default_decision_bar(
         )
 
     assert driven == [fillable_bar]
+
+
+def test_run_reports_a_gateless_incomplete_round_as_incomplete(paused_env) -> None:
+    """A round that ends ``incomplete`` (here: the risk check blocked the ticket) has
+    no gate to approve, so its message must not claim it is awaiting approval."""
+    model = ScriptedFundModel(
+        universe=UNIVERSE, weights=paused_env.expected, risk_passes=False
+    )
+    with paused_env.get_session() as session:
+        result = apply_action(
+            "run",
+            session=session,
+            portfolio_id=PORTFOLIO_ID,
+            mandate=make_mandate(),
+            asof=ASOF,
+            model=model,
+            checkpointer=paused_env.saver,
+            store=paused_env.store,
+        )
+        status = AgentRunRepository(session).get_run(result.run_id).status
+
+    assert status == "incomplete"
+    assert "incomplete" in result.message
+    assert "awaiting approval" not in result.message
+
+
+def test_run_reports_a_paused_round_as_awaiting_approval(paused_env) -> None:
+    with paused_env.get_session() as session:
+        result = apply_action(
+            "run",
+            session=session,
+            portfolio_id=PORTFOLIO_ID,
+            mandate=make_mandate(),
+            asof=ASOF,
+            model=paused_env.model_factory(),
+            checkpointer=paused_env.saver,
+            store=paused_env.store,
+        )
+
+    assert "paused (awaiting approval)" in result.message
 
 
 def test_is_within_suitability_band_treats_the_assessment_band_as_a_ceiling() -> None:
