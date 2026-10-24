@@ -327,6 +327,52 @@ def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
     )
 
 
+# Only bars this recent count when judging what the stored panel covers: an
+# instrument with nothing newer is delisted/dormant and must not hold the bar back.
+_DECISION_BAR_LOOKBACK_DAYS = 14
+# Share of the recently-priced universe allowed to lag the chosen bar (a market closed
+# for a holiday, a half-ingested day) before the bar is judged not yet fillable.
+_DECISION_BAR_LAGGING_SHARE = 0.1
+
+
+def default_decision_bar(session: Any, *, today: dt.date | None = None) -> dt.date:
+    """The newest decision bar whose next close is already stored for the universe.
+
+    ``place_orders`` fills at the first close strictly after the decision bar (D30),
+    so a bar equal to the wall-clock date (or to the last stored bar) has nothing to
+    fill at until a later ingest: an approval in that window finalises the run with no
+    ticket. This picks the day before the bar that all but
+    ``_DECISION_BAR_LAGGING_SHARE`` of the recently-priced instruments have reached, so
+    the ticket fills at a close that exists now and uses no price after the decision.
+
+    Args:
+        session: An injected sync ``portopt_db`` session; not owned here (no commit).
+        today: Upper bound for the bars considered (UTC date by default); also the
+            fallback when no instrument has a recent bar.
+
+    Returns:
+        The decision bar, or ``today`` when no recent price data is stored.
+    """
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+    from sqlalchemy import func, select
+
+    day = today if today is not None else dt.datetime.now(dt.UTC).date()
+    stmt = (
+        select(func.max(PriceHistory.date))
+        .where(
+            PriceHistory.close.is_not(None),
+            PriceHistory.date >= day - dt.timedelta(days=_DECISION_BAR_LOOKBACK_DAYS),
+            PriceHistory.date <= day,
+        )
+        .group_by(PriceHistory.instrument_id)
+    )
+    latest = sorted(session.execute(stmt).scalars())
+    if not latest:
+        return day
+    reached = latest[int(len(latest) * _DECISION_BAR_LAGGING_SHARE)]
+    return reached - dt.timedelta(days=1)
+
+
 def interrupt_for(saver: Any, run: Any) -> dict[str, Any] | None:
     """The pending HITL interrupt payload for ``run``'s thread, or ``None`` (§4f).
 
@@ -1078,6 +1124,7 @@ __all__ = [
     "TranscriptEntry",
     "audit_timeline",
     "daily_brief",
+    "default_decision_bar",
     "drift_l1",
     "get_mandate",
     "holdings_summary",

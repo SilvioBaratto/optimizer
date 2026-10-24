@@ -17,6 +17,8 @@ directly (no compiled graph, no model), asserting:
   completed run's weights, else the latest allocator proposal) with the right drift,
   and ``metrics`` stay best-effort (never fabricated);
 * ``get_mandate`` rehydrates the pydantic ``PortfolioMandate`` from the JSON column;
+* ``default_decision_bar`` picks the day before the bar the universe has reached, so
+  the next close ``place_orders`` fills at is already stored;
 * ``import fund.observe`` drags in no ``deepagents`` / ``langchain`` / ``langgraph``.
 """
 
@@ -37,7 +39,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Interrupt
-from portopt_db.models import AgentRun
+from portopt_db.models import AgentRun, Exchange, Instrument, PriceHistory
 from portopt_db.repositories.market_data.market_journal_repository import (
     MarketJournalRepository,
 )
@@ -1321,3 +1323,85 @@ def test_daily_brief_is_public_and_reachable():
     assert "daily_brief" in observe.__all__
     assert "DailyBrief" in observe.__all__
     assert callable(observe.daily_brief)
+
+
+# --- default_decision_bar ---------------------------------------------------
+
+_TODAY = date(2026, 10, 24)  # Saturday; the panel below ends Friday 10-23
+_FRI = date(2026, 10, 23)
+
+
+def _seed_bars(session, last_bar: date, *, n_bars: int = 5, n: int = 1) -> None:
+    """Seed ``n`` instruments with ``n_bars`` consecutive daily closes ending at
+    ``last_bar``; each call adds fresh instruments."""
+    exchange = Exchange(name=f"EX-{uuid.uuid4().hex[:8]}")
+    session.add(exchange)
+    session.flush()
+    for _ in range(n):
+        inst = Instrument(
+            ticker=uuid.uuid4().hex[:8],
+            short_name="X",
+            exchange_id=exchange.id,
+            instrument_type="EQUITY",
+            asset_class="equity",
+        )
+        session.add(inst)
+        session.flush()
+        for i in range(n_bars):
+            session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=last_bar - timedelta(days=n_bars - 1 - i),
+                    close=100.0 + i,
+                )
+            )
+    session.flush()
+
+
+def test_default_decision_bar_is_the_day_before_the_latest_stored_bar(db_session):
+    _seed_bars(db_session, _FRI, n=3)
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=1)  # the Friday close is the fill bar
+
+
+def test_default_decision_bar_ignores_a_bar_only_one_instrument_has(db_session):
+    _seed_bars(db_session, _FRI, n=9)
+    _seed_bars(db_session, _TODAY, n_bars=1, n=1)  # a lone weekend (e.g. crypto) bar
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=1)  # the other 9 would have no later bar
+
+
+def test_default_decision_bar_tolerates_a_small_lagging_share(db_session):
+    _seed_bars(db_session, _FRI, n=9)
+    _seed_bars(db_session, _FRI - timedelta(days=1), n=1)  # one market on holiday
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=1)
+
+
+def test_default_decision_bar_waits_for_a_large_lagging_share(db_session):
+    _seed_bars(db_session, _FRI, n=5)
+    _seed_bars(db_session, _FRI - timedelta(days=1), n=5)  # half not yet ingested
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=2)  # every ticker has a bar after it
+
+
+def test_default_decision_bar_ignores_dormant_and_future_bars(db_session):
+    _seed_bars(db_session, _FRI, n=3)
+    _seed_bars(db_session, _FRI - timedelta(days=60), n=5)  # delisted: no recent bar
+    _seed_bars(db_session, _TODAY + timedelta(days=3), n_bars=1, n=10)  # after today
+
+    bar = observe.default_decision_bar(db_session, today=_TODAY)
+
+    assert bar == _FRI - timedelta(days=1)
+
+
+def test_default_decision_bar_falls_back_to_today_without_recent_prices(db_session):
+    assert observe.default_decision_bar(db_session, today=_TODAY) == _TODAY

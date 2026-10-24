@@ -148,7 +148,8 @@ def apply_action(
             (``mandate_edit`` / ``new_portfolio``) or run (``run``).
         questionnaire: Free-text/typed MiFID answers the profiler normalises
             (``profile`` only).
-        asof: Decision bar for a ``profile`` / ``run`` drive; defaults to today.
+        asof: Decision bar for a ``profile`` / ``run`` drive; a ``run`` defaults to
+            the newest bar with a stored close after it (``default_decision_bar``).
         base_currency: Reporting currency override for the ``profile`` drive.
         target: The field or guardrail the action touched (edit/override).
         prev_value: Prior value recorded on the audit row (edit/override).
@@ -953,13 +954,14 @@ def _apply_run(
         raise ValueError("'run' requires a portfolio_id")
     if mandate is None:
         raise ValueError("'run' requires a mandate")
+    from fund import observe
     from fund.agents.graph import run_fund
 
     run = run_fund(
         model,
         mandate,
         portfolio_id=portfolio_id,
-        asof=asof if asof is not None else dt.date.today(),
+        asof=asof if asof is not None else observe.default_decision_bar(session),
         session=session,
         checkpointer=checkpointer,
         store=store,

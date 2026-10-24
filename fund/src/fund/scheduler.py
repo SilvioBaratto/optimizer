@@ -279,8 +279,20 @@ def _drive_rebalance(
 
 
 def _resolved_asof(asof: dt.date | None) -> dt.date:
-    """The decision bar for a scheduled run: the caller's date, else today (UTC)."""
+    """The caller's date, else today (UTC) — the upper bound a NAV mark runs to."""
     return asof if asof is not None else datetime.now(UTC).date()
+
+
+def _decision_asof(session: Session, asof: dt.date | None) -> dt.date:
+    """The decision bar for a rebalance run: the caller's date, else a fillable bar.
+
+    Today's date is no decision bar — ``place_orders`` needs a stored close strictly
+    after it, which only a later ingest provides — so an unset ``asof`` resolves to
+    :func:`fund.observe.default_decision_bar` instead.
+    """
+    if asof is not None:
+        return asof
+    return observe.default_decision_bar(session, today=_resolved_asof(None))
 
 
 def _runtime_parts(
@@ -312,7 +324,6 @@ def run_rebalance_sweep(
 
     factory = _resolve_factory(session_factory)
     resolved_runtime = _resolve_runtime(runtime)
-    asof_date = _resolved_asof(asof)
     with factory() as session:
         job_repo = FundJobRepository(session)
         job_id = job_repo.claim_or_create(JOB_REBALANCE_SWEEP)
@@ -326,7 +337,9 @@ def run_rebalance_sweep(
                 cadence=config.fund_heartbeat_cadence_seconds,
                 session_factory=factory,
             ):
-                _sweep_cron_mandates(session, resolved_runtime, asof_date)
+                _sweep_cron_mandates(
+                    session, resolved_runtime, _decision_asof(session, asof)
+                )
         except Exception as exc:
             logger.exception("rebalance sweep: aborted")
             job_repo.mark_done(job_id, status="failed", error=str(exc))
@@ -382,7 +395,6 @@ def run_drift_monitor(
 
     factory = _resolve_factory(session_factory)
     resolved_runtime = _resolve_runtime(runtime)
-    asof_date = _resolved_asof(asof)
     with factory() as session:
         job_repo = FundJobRepository(session)
         job_id = job_repo.claim_or_create(JOB_DRIFT_MONITOR)
@@ -396,7 +408,9 @@ def run_drift_monitor(
                 cadence=config.fund_heartbeat_cadence_seconds,
                 session_factory=factory,
             ):
-                _monitor_drift_mandates(session, resolved_runtime, asof_date, config)
+                _monitor_drift_mandates(
+                    session, resolved_runtime, _decision_asof(session, asof), config
+                )
         except Exception as exc:
             logger.exception("drift monitor: aborted")
             job_repo.mark_done(job_id, status="failed", error=str(exc))

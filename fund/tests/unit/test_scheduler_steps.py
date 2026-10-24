@@ -34,7 +34,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from _fund_fakes import ASOF, make_constraint_set
+from _fund_fakes import ASOF, make_constraint_set, seed_panel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import BackgroundJob, Base
@@ -57,6 +57,7 @@ from fund.scheduler import (
     run_rebalance_sweep,
 )
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
+from fund.tools.orders import place_orders
 
 # Letter-bearing UUIDs (SQLite numeric-affinity trap) in a<b<c order so the
 # deterministic ``list_active`` sweep is easy to assert.
@@ -250,6 +251,61 @@ def test_sweep_claims_slot_and_heartbeats(session_factory, monkeypatch):
 
     assert ok is True
     assert len(pulses) >= 1  # the heartbeat thread pulsed while the step ran
+
+
+class _SaturdayClock(datetime):
+    """``datetime`` frozen to the Saturday after the panel's last stored bar."""
+
+    @classmethod
+    def now(cls, tz=None):  # type: ignore[override]
+        return datetime(2024, 2, 10, 3, 0, tzinfo=tz)  # panel's last bar: Fri 02-09
+
+
+def _ticket_at_default_bar(session_factory, monkeypatch, run_step) -> dict:
+    """Run a step with no ``asof`` and try to place a ticket at the bar it drove."""
+    with session_factory() as session:
+        seed_panel(session)
+        session.commit()
+    monkeypatch.setattr("fund.scheduler.datetime", _SaturdayClock)
+    driven: list[object] = []
+    monkeypatch.setattr(
+        "fund.scheduler._drive_rebalance", lambda pid, asof, **_kw: driven.append(asof)
+    )
+
+    assert run_step() is True
+
+    with session_factory() as session:
+        return place_orders(session, driven[0], {"AAA": 1.0}, PID_A)
+
+
+def test_sweep_default_decision_bar_leaves_a_fill_bar_for_place_orders(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=True, drift=False)
+
+    result = _ticket_at_default_bar(
+        session_factory,
+        monkeypatch,
+        lambda: run_rebalance_sweep(session_factory=session_factory),
+    )
+
+    assert result["ok"] is True, result  # asof=today left no bar to fill at
+
+
+def test_drift_monitor_default_decision_bar_leaves_a_fill_bar_for_place_orders(
+    session_factory, monkeypatch
+):
+    _seed_mandate(session_factory, PID_A, cron=False, drift=True, threshold=0.1)
+    monkeypatch.setattr(observe, "portfolio_state", lambda s, pid: _state(pid, 0.9))
+    monkeypatch.setattr(observe, "reprofile_status", _not_due)
+
+    result = _ticket_at_default_bar(
+        session_factory,
+        monkeypatch,
+        lambda: run_drift_monitor(session_factory=session_factory),
+    )
+
+    assert result["ok"] is True, result
 
 
 # --- run_drift_monitor ------------------------------------------------------

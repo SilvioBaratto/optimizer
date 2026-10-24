@@ -18,7 +18,7 @@ import subprocess
 import sys
 import uuid
 from contextlib import contextmanager, suppress
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -2197,6 +2197,155 @@ async def test_run_routes_stream_on_deliberation_blocking_on_posture(tui_env) ->
         app.action_run_portfolio(asof=ASOF)
         await pilot.pause()
         assert calls[-1] == "stream"  # Deliberation → live _stream_worker
+
+
+@pytest.mark.asyncio
+async def test_run_key_leaves_the_decision_bar_for_the_run_to_resolve(tui_env) -> None:
+    """``u`` passes no bar: no close is stored after today, so nothing could fill."""
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    bars: list[object] = []
+    app._run_worker = lambda _pid, asof: bars.append(asof)  # type: ignore[method-assign]
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        app.action_run_portfolio()
+        await pilot.pause()
+
+    assert bars == [None]
+
+
+def _pin_wall_clock_to_asof(monkeypatch) -> None:
+    """Make the unparameterised resolver read the seeded panel as of ``ASOF + 1d``.
+
+    The real ``default_decision_bar`` runs over the seeded prices (daily bars through
+    ``ASOF + 9d``); bounding it at ``ASOF + 1d`` makes it answer ``ASOF`` -- a date
+    that differs from ``dt.date.today()``, so a path that skipped the resolver and
+    fell back to the wall clock cannot pass for it.
+    """
+    real = observe.default_decision_bar
+    monkeypatch.setattr(
+        observe,
+        "default_decision_bar",
+        lambda session: real(session, today=ASOF + timedelta(days=1)),
+    )
+
+
+def _spy_decision_bar(monkeypatch, name: str) -> list[date]:
+    """Record the ``asof`` each call to ``fund.agents.graph.<name>`` receives."""
+    from fund.agents import graph
+
+    real = getattr(graph, name)
+    seen: list[date] = []
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs["asof"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(graph, name, spy)
+    return seen
+
+
+def _persist_mandate(env) -> None:
+    with env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_deliberation_u_resolves_the_stream_bar_from_stored_prices(
+    tui_env, monkeypatch
+) -> None:
+    """``u`` on Deliberation streams at the stored fillable bar, not today's date."""
+    _persist_mandate(tui_env)
+    _pin_wall_clock_to_asof(monkeypatch)
+    seen = _spy_decision_bar(monkeypatch, "stream_fund")
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        assert worker.group == "stream"
+        await worker.wait()
+        await pilot.pause()
+
+    assert seen == [ASOF]
+
+
+@pytest.mark.asyncio
+async def test_deliberation_explicit_bar_bypasses_the_resolver(
+    tui_env, monkeypatch
+) -> None:
+    """A caller-supplied bar is streamed as given; the resolver is never consulted."""
+    _persist_mandate(tui_env)
+    consulted: list[object] = []
+
+    def _resolver(session):
+        consulted.append(session)
+        return date(2031, 1, 2)
+
+    monkeypatch.setattr(observe, "default_decision_bar", _resolver)
+    seen = _spy_decision_bar(monkeypatch, "stream_fund")
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        assert app.last_worker is not None
+        await app.last_worker.wait()
+        await pilot.pause()
+
+    assert seen == [ASOF]
+    assert consulted == []
+
+
+@pytest.mark.asyncio
+async def test_posture_u_runs_at_the_stored_fillable_bar(tui_env, monkeypatch) -> None:
+    """``u`` on Posture hands ``run_fund`` the resolved bar via the real worker."""
+    _persist_mandate(tui_env)
+    _pin_wall_clock_to_asof(monkeypatch)
+    seen = _spy_decision_bar(monkeypatch, "run_fund")
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        app.action_run_portfolio()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        assert worker.group == "drive"
+        await worker.wait()
+        await pilot.pause()
+        assert "awaiting approval" in app.last_status
+
+    assert seen == [ASOF]
+
+
+@pytest.mark.asyncio
+async def test_ask_run_runs_at_the_stored_fillable_bar(tui_env, monkeypatch) -> None:
+    """A confirmed Ask 'run' reaches ``run_fund`` with the resolved bar, not today."""
+    _persist_mandate(tui_env)
+    _pin_wall_clock_to_asof(monkeypatch)
+    seen = _spy_decision_bar(monkeypatch, "run_fund")
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("run a rebalance")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        assert worker.group == "drive"
+        await worker.wait()
+        await pilot.pause()
+        assert "awaiting approval" in app.last_status
+
+    assert seen == [ASOF]
 
 
 @pytest.mark.asyncio

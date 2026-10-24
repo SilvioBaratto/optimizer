@@ -1333,8 +1333,9 @@ class ShellApp(App[None]):
         Routes on the active view: from **Deliberation** the adviser watches the
         agents think, so ``u`` launches the **live-streamed** run (``_stream_worker``);
         from **Posture** it keeps the existing **blocking** run (``_run_worker``). The
-        ``u`` key passes today's bar; callers may pass an explicit decision bar. A
-        no-op with a hint off both launchpads or without a focused portfolio.
+        ``u`` key leaves the bar unset so the run resolves the newest fillable one;
+        callers may pass an explicit decision bar. A no-op with a hint off both
+        launchpads or without a focused portfolio.
         """
         deliberation = self._deliberation_active()
         if not (deliberation or self._posture_active()):
@@ -1344,15 +1345,14 @@ class ShellApp(App[None]):
         if pid is None:
             self._set_status("focus a portfolio to run")
             return
-        bar = asof or dt.date.today()
         if deliberation:
             view = self._deliberation_view()
             if view is None:
                 self._set_status("open Deliberation to run a portfolio")
                 return
-            self.last_worker = self._stream_worker(pid, bar, view)
+            self.last_worker = self._stream_worker(pid, asof, view)
         else:
-            self.last_worker = self._run_worker(pid, bar)
+            self.last_worker = self._run_worker(pid, asof)
 
     def _posture_active(self) -> bool:
         """Whether the Posture view is the active content pane (the drive launchpad)."""
@@ -1545,7 +1545,7 @@ class ShellApp(App[None]):
         self.call_from_thread(self._after_onboard, result.message)
 
     @work(thread=True, exclusive=True, group="drive")
-    def _run_worker(self, portfolio_id: uuid.UUID, asof: dt.date) -> None:
+    def _run_worker(self, portfolio_id: uuid.UUID, asof: dt.date | None) -> None:
         """Drive one paper rebalance for ``portfolio_id`` to its gate — off the loop."""
         from fund.actions import apply_action
 
@@ -1580,7 +1580,7 @@ class ShellApp(App[None]):
 
     @work(thread=True, exclusive=True, group="stream")
     def _stream_worker(
-        self, portfolio_id: uuid.UUID, asof: dt.date, view: DeliberationView
+        self, portfolio_id: uuid.UUID, asof: dt.date | None, view: DeliberationView
     ) -> None:
         """Stream one paper rebalance into the live Deliberation timeline.
 
@@ -1616,7 +1616,11 @@ class ShellApp(App[None]):
                     model,
                     mandate,
                     portfolio_id=portfolio_id,
-                    asof=asof,
+                    asof=(
+                        asof
+                        if asof is not None
+                        else observe.default_decision_bar(session)
+                    ),
                     session=session,
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
@@ -1902,7 +1906,7 @@ class ShellApp(App[None]):
         if verb == "rearm" and action.scope is not None:
             return self._rearm_worker(action.scope, action.portfolio_id, None)
         if verb == "run" and action.portfolio_id is not None:
-            return self._run_worker(action.portfolio_id, dt.date.today())
+            return self._run_worker(action.portfolio_id, None)
         return None
 
     def _ask_fund_rearm(self, view: AskView) -> None:

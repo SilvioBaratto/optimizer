@@ -12,6 +12,7 @@ cockpit tests use: an isolated in-memory SQLite engine + ``MemorySaver`` +
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -42,6 +43,10 @@ from fund.audit import (
     PositionRepository,
 )
 from fund.tools.orders import _weights_hash
+
+
+class _StopRunError(Exception):
+    """Raised by a stubbed ``run_fund`` once it has recorded the decision bar."""
 
 
 @pytest.fixture
@@ -581,6 +586,31 @@ def test_run_requires_a_portfolio_id_and_a_mandate(db_session) -> None:
         apply_action("run", session=db_session, mandate=make_mandate())
     with pytest.raises(ValueError, match="requires a mandate"):
         apply_action("run", session=db_session, portfolio_id=PORTFOLIO_ID)
+
+
+def test_run_without_asof_drives_at_the_default_decision_bar(
+    db_session, monkeypatch
+) -> None:
+    """An unset ``asof`` resolves to a bar with a stored close after it, not today."""
+    fillable_bar = dt.date(2024, 2, 8)
+    monkeypatch.setattr(observe, "default_decision_bar", lambda session: fillable_bar)
+    driven: list[dt.date] = []
+
+    def _record_then_stop(*_args, asof, **_kwargs):
+        driven.append(asof)
+        raise _StopRunError
+
+    monkeypatch.setattr("fund.agents.graph.run_fund", _record_then_stop)
+
+    with pytest.raises(_StopRunError):
+        apply_action(
+            "run",
+            session=db_session,
+            portfolio_id=PORTFOLIO_ID,
+            mandate=make_mandate(),
+        )
+
+    assert driven == [fillable_bar]
 
 
 def test_is_within_suitability_band_treats_the_assessment_band_as_a_ceiling() -> None:
