@@ -182,6 +182,22 @@ SHARED_EMPTY_FETCHES = EmptyFetchMemory()
 # Longest per-category error text kept in logs and the job's error rows.
 _MAX_ERROR_CHARS = 300
 
+# Staleness marker -> the categories gated on it. An empty answer settles a
+# marker only when every one of its categories came back empty.
+_EVENT_MARKER_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "dividends_updated_at": ("dividends",),
+    "splits_updated_at": ("splits",),
+    "recommendations_updated_at": ("recommendations", "analyst_actions"),
+    "price_targets_updated_at": ("price_targets",),
+    "institutional_holders_updated_at": ("institutional_holders", "major_holders"),
+    "mutualfund_holders_updated_at": ("mutualfund_holders",),
+    "insider_transactions_updated_at": (
+        "insider_transactions",
+        "insider_purchases",
+        "insider_roster",
+    ),
+}
+
 # Sentinel: distinguishes "caller did not supply staleness" (query it) from
 # "caller supplied None" (no data yet → treat as stale) on fetch_and_store.
 _UNSET: Any = object()
@@ -668,23 +684,37 @@ class YFinanceDataService:
 
         now = datetime.now(timezone.utc)
 
-        # A fundamentals gate is settled when its marker is inside the
-        # fundamentals window, or when the last fetch came back empty recently:
-        # an empty answer writes no row, so without the second clause a category
-        # Yahoo has nothing for would be requested on every run.
-        def _settled(marker_key: str) -> bool:
+        # A gate is settled when its marker is inside its freshness window (the
+        # fundamentals window unless given), or when the last fetch came back
+        # empty recently: an empty answer writes no row, so without the second
+        # clause a category Yahoo has nothing for would be requested on every run.
+        def _settled(marker_key: str, fresh_hours: int | None = None) -> bool:
+            window = thresholds.financials_hours if fresh_hours is None else fresh_hours
             return (
                 mode == "incremental"
                 and staleness is not None
                 and (
-                    _is_fresh(
-                        staleness.get(marker_key), thresholds.financials_hours, now
-                    )
+                    _is_fresh(staleness.get(marker_key), window, now)
                     or self._empty_fetches.is_recent(
                         instrument_id, marker_key, thresholds.no_data_hours, now
                     )
                 )
             )
+
+        event_windows = {
+            "dividends_updated_at": thresholds.dividends_hours,
+            "splits_updated_at": thresholds.splits_hours,
+            "recommendations_updated_at": thresholds.recommendations_hours,
+            "price_targets_updated_at": thresholds.price_targets_hours,
+            "institutional_holders_updated_at": thresholds.institutional_holders_hours,
+            "mutualfund_holders_updated_at": thresholds.mutualfund_holders_hours,
+            "insider_transactions_updated_at": thresholds.insider_transactions_hours,
+        }
+
+        # Corporate-action, analyst and holder categories refresh on their own,
+        # shorter windows than the fundamentals.
+        def _event_fresh(marker_key: str) -> bool:
+            return _settled(marker_key, event_windows[marker_key])
 
         # Gated per category on the marker of the category's own table: a
         # category whose fetch failed while the statements were stored must not
@@ -726,39 +756,13 @@ class YFinanceDataService:
                 and all(
                     _fundamentals_fresh(category) for category in FUNDAMENTAL_CATEGORIES
                 )
-                and _is_fresh(
-                    staleness.get("dividends_updated_at"),
-                    thresholds.dividends_hours,
-                    now,
-                )
-                and _is_fresh(
-                    staleness.get("splits_updated_at"), thresholds.splits_hours, now
-                )
-                and _is_fresh(
-                    staleness.get("recommendations_updated_at"),
-                    thresholds.recommendations_hours,
-                    now,
-                )
-                and _is_fresh(
-                    staleness.get("price_targets_updated_at"),
-                    thresholds.price_targets_hours,
-                    now,
-                )
-                and _is_fresh(
-                    staleness.get("institutional_holders_updated_at"),
-                    thresholds.institutional_holders_hours,
-                    now,
-                )
-                and _is_fresh(
-                    staleness.get("mutualfund_holders_updated_at"),
-                    thresholds.mutualfund_holders_hours,
-                    now,
-                )
-                and _is_fresh(
-                    staleness.get("insider_transactions_updated_at"),
-                    thresholds.insider_transactions_hours,
-                    now,
-                )
+                and _event_fresh("dividends_updated_at")
+                and _event_fresh("splits_updated_at")
+                and _event_fresh("recommendations_updated_at")
+                and _event_fresh("price_targets_updated_at")
+                and _event_fresh("institutional_holders_updated_at")
+                and _event_fresh("mutualfund_holders_updated_at")
+                and _event_fresh("insider_transactions_updated_at")
                 and _prices_are_current(
                     staleness.get("price_max_date"), exchange_name, now.date()
                 )
@@ -1259,11 +1263,7 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("recommendations_updated_at"),
-                thresholds.recommendations_hours,
-                now,
-            )
+            and _event_fresh("recommendations_updated_at")
         ):
             skipped.append("analyst_actions")
         else:
@@ -1332,9 +1332,7 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("dividends_updated_at"), thresholds.dividends_hours, now
-            )
+            and _event_fresh("dividends_updated_at")
         ):
             skipped.append("dividends")
         else:
@@ -1361,9 +1359,7 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("splits_updated_at"), thresholds.splits_hours, now
-            )
+            and _event_fresh("splits_updated_at")
         ):
             skipped.append("splits")
         else:
@@ -1387,11 +1383,7 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("recommendations_updated_at"),
-                thresholds.recommendations_hours,
-                now,
-            )
+            and _event_fresh("recommendations_updated_at")
         ):
             skipped.append("recommendations")
         else:
@@ -1415,11 +1407,7 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("price_targets_updated_at"),
-                thresholds.price_targets_hours,
-                now,
-            )
+            and _event_fresh("price_targets_updated_at")
         ):
             skipped.append("price_targets")
         else:
@@ -1443,11 +1431,7 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("institutional_holders_updated_at"),
-                thresholds.institutional_holders_hours,
-                now,
-            )
+            and _event_fresh("institutional_holders_updated_at")
         ):
             skipped.append("institutional_holders")
         else:
@@ -1473,11 +1457,7 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("mutualfund_holders_updated_at"),
-                thresholds.mutualfund_holders_hours,
-                now,
-            )
+            and _event_fresh("mutualfund_holders_updated_at")
         ):
             skipped.append("mutualfund_holders")
         else:
@@ -1503,11 +1483,7 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("insider_transactions_updated_at"),
-                thresholds.insider_transactions_hours,
-                now,
-            )
+            and _event_fresh("insider_transactions_updated_at")
         ):
             skipped.append("insider_transactions")
         else:
@@ -1535,11 +1511,7 @@ class YFinanceDataService:
         if (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("institutional_holders_updated_at"),
-                thresholds.institutional_holders_hours,
-                now,
-            )
+            and _event_fresh("institutional_holders_updated_at")
         ):
             skipped.append("major_holders")
         else:
@@ -1560,11 +1532,7 @@ class YFinanceDataService:
         insider_fresh = (
             mode == "incremental"
             and staleness is not None
-            and _is_fresh(
-                staleness.get("insider_transactions_updated_at"),
-                thresholds.insider_transactions_hours,
-                now,
-            )
+            and _event_fresh("insider_transactions_updated_at")
         )
         if insider_fresh:
             skipped.append("insider_purchases")
@@ -1605,6 +1573,15 @@ class YFinanceDataService:
             except Exception as e:
                 errors.append(f"insider_roster: {e}")
                 logger.warning("Failed insider_roster for %s: %s", yfinance_ticker, e)
+
+        # A marker whose categories were all fetched without raising and stored
+        # nothing is one Yahoo holds no rows for; remember it so the next run does
+        # not ask again.
+        for marker_key, categories in _EVENT_MARKER_CATEGORIES.items():
+            if all(category in counts for category in categories):
+                _record_fetch(
+                    marker_key, int(any(counts[category] for category in categories))
+                )
 
         # 11. News (always fetched; article bodies scraped once)
         try:

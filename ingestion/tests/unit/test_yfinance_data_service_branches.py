@@ -537,6 +537,124 @@ class TestEmptyAnswerMemory:
         assert second["skipped"] == ["all:fresh"]
         yf.get_ticker.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("marker", "requests"),
+        [
+            ("dividends", ("corporate_actions.fetch_dividends",)),
+            ("splits", ("corporate_actions.fetch_splits",)),
+            (
+                "recommendations",
+                (
+                    "analysis.fetch_recommendations_summary",
+                    "analysis.fetch_upgrades_downgrades",
+                ),
+            ),
+            ("price_targets", ("analysis.fetch_analyst_price_targets",)),
+            (
+                "institutional_holders",
+                ("holders.fetch_institutional_holders", "holders.fetch_major_holders"),
+            ),
+            ("mutualfund_holders", ("holders.fetch_mutualfund_holders",)),
+            (
+                "insider_transactions",
+                (
+                    "holders.fetch_insider_transactions",
+                    "holders.fetch_insider_purchases",
+                    "holders.fetch_insider_roster_holders",
+                ),
+            ),
+        ],
+    )
+    def test_event_category_without_rows_is_not_requested_on_the_next_run(
+        self, marker: str, requests: tuple[str, ...]
+    ) -> None:
+        """Remember an empty answer for the categories gated on a 24h marker.
+
+        A ticker that never split, pays no dividend or has no analyst coverage
+        has no row to stamp, so its marker stays unset and the request repeats
+        on every run.
+        """
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(now)
+        staleness[f"{marker}_updated_at"] = None
+
+        self._fetch(staleness, self._calm_client(), memory)
+        yf = self._calm_client()
+        self._fetch(staleness, yf, memory)
+
+        for path in requests:
+            target: Any = yf
+            for part in path.split("."):
+                target = getattr(target, part)
+            target.assert_not_called()
+
+    def test_ticker_with_only_empty_event_categories_skips_the_network(self) -> None:
+        """Short-circuit a ticker whose only gaps are categories Yahoo has no rows for."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(now)
+        for marker in (
+            "dividends",
+            "splits",
+            "recommendations",
+            "price_targets",
+            "institutional_holders",
+            "mutualfund_holders",
+            "insider_transactions",
+        ):
+            staleness[f"{marker}_updated_at"] = None
+
+        first = self._fetch(staleness, self._calm_client(), memory)
+        yf = self._calm_client()
+        second = self._fetch(staleness, yf, memory)
+
+        assert "all:fresh" not in first["skipped"]
+        assert second["skipped"] == ["all:fresh"]
+        yf.get_ticker.assert_not_called()
+
+    def test_marker_is_not_settled_while_a_gated_category_has_rows(self) -> None:
+        """Keep requesting a marker's categories while any of them returns data."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(now)
+        staleness["recommendations_updated_at"] = None
+
+        def _client_with_actions() -> MagicMock:
+            yf = self._calm_client()
+            yf.analysis.fetch_upgrades_downgrades.return_value = pd.DataFrame(
+                {"Action": ["up"]}
+            )
+            return yf
+
+        repo = _make_repo(staleness=staleness)
+        repo.upsert_analyst_actions.return_value = 1
+        YFinanceDataService(
+            repo=repo, yf_client=_client_with_actions(), empty_fetches=memory
+        ).fetch_and_store(
+            instrument_id=self._INSTRUMENT, yfinance_ticker="AAPL", mode="incremental"
+        )
+        yf = _client_with_actions()
+        self._fetch(staleness, yf, memory)
+
+        yf.analysis.fetch_recommendations_summary.assert_called_once()
+        yf.analysis.fetch_upgrades_downgrades.assert_called_once()
+
+    def test_failed_event_category_is_requested_again_on_the_next_run(self) -> None:
+        """Never remember an exception on a 24h-marker category as empty."""
+        now = datetime.now(timezone.utc)
+        memory = EmptyFetchMemory()
+        staleness = _fully_fresh(now)
+        staleness["splits_updated_at"] = None
+        failing = self._calm_client()
+        failing.corporate_actions.fetch_splits.side_effect = TimeoutError("hung")
+
+        self._fetch(staleness, failing, memory)
+        yf = self._calm_client()
+        self._fetch(staleness, yf, memory)
+
+        yf.corporate_actions.fetch_splits.assert_called_once()
+
     def test_services_do_not_share_memory_unless_it_is_injected(self) -> None:
         """Keep the default memory private to one service instance."""
         now = datetime.now(timezone.utc)
