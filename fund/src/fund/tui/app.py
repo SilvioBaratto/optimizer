@@ -2272,11 +2272,11 @@ class ShellApp(App[None]):
         view.pending_action = None
         if pending is None:
             return
-        with self._session_factory() as session:
-            resolution = ask.resolve_pending(
+        resolution = self._read_resolution(
+            lambda session: ask.resolve_pending(
                 pending, turn, session, self._persistence.saver, self._portfolio_id
             )
-            session.rollback()
+        )
         if resolution.status == "resolved" and resolution.action is not None:
             self._confirm_ask_action(view, resolution.action)
         elif ask.classify(turn) == "query":
@@ -2363,11 +2363,31 @@ class ShellApp(App[None]):
 
     def _resolve_ask(self, turn: str) -> ask.TargetResolution:
         """Resolve an action turn's target over a short read session (no execution)."""
-        with self._session_factory() as session:
-            resolution = ask.resolve_target(
+        return self._read_resolution(
+            lambda session: ask.resolve_target(
                 turn, session, self._persistence.saver, self._portfolio_id
             )
-            session.rollback()
+        )
+
+    def _read_resolution(
+        self, resolve: Callable[[Session], ask.TargetResolution]
+    ) -> ask.TargetResolution:
+        """Run ``resolve`` over a short read session; a read error is a dead end.
+
+        Resolution runs on the event loop inside the ``Input.Submitted`` handler, where
+        an escaped exception exits the whole App. A failed gate read therefore comes
+        back as an ``unresolved`` resolution (and a status line) instead, so the
+        adviser sees why nothing happened and nothing is confirmed on an unread gate
+        list.
+        """
+        try:
+            with self._session_factory() as session:
+                resolution = resolve(session)
+                session.rollback()
+        except Exception as exc:  # a read error must never exit the shell
+            message = f"could not read gates: {exc}"
+            self._set_status(message)
+            return ask.TargetResolution("unresolved", None, (), message)
         return resolution
 
     def action_export_ask(self) -> None:

@@ -5913,6 +5913,54 @@ async def test_ask_pending_gate_answered_with_new_verb_runs_that_verb(tui_env) -
         assert HumanAuditLogRepository(session).list_recent(action="approve") == []
 
 
+def _fail_gate_read(*_args, **_kwargs):
+    raise RuntimeError("transient db error")
+
+
+@pytest.mark.asyncio
+async def test_ask_action_survives_a_gate_read_error(tui_env, monkeypatch) -> None:
+    """A read failure while resolving an action turn reports on the shell, never exits.
+
+    The resolve runs on the event loop inside the ``Input.Submitted`` handler, so an
+    escaped exception would tear the whole cockpit down mid-decision.
+    """
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        monkeypatch.setattr(observe, "pending_hitl", _fail_gate_read)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert app.is_running
+        assert "could not read gates" in app.last_status
+        assert "could not read gates" in _rendered(view.query_one("#ask-log", Static))
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert app.last_worker is None  # nothing dispatched on an unread gate list
+
+
+@pytest.mark.asyncio
+async def test_ask_pending_follow_up_survives_a_gate_read_error(
+    tui_env, monkeypatch
+) -> None:
+    """A read failure resolving a disambiguation follow-up reports, never exits."""
+    _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
+    short = str(tui_env.run_id).split("-", 1)[0]
+
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert view.pending_action is not None  # ambiguous: two gates
+
+        monkeypatch.setattr(observe, "pending_hitl", _fail_gate_read)
+        view.submit_turn(f"approve #{short}")
+        await pilot.pause()
+        assert app.is_running
+        assert view.pending_action is None  # a pending action stays single-shot
+        assert "could not read gates" in _rendered(view.query_one("#ask-log", Static))
+        assert not isinstance(app.screen, ConfirmScreen)
+
+
 # --- Agent-originated text is data, never Textual markup ---------------------
 
 # Bracketed key=value runs and a stray closing tag all raise ``MarkupError`` when a
