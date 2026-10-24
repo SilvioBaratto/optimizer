@@ -23,7 +23,9 @@ if config.config_file_name is not None:
 # real database, so the fallback is harmless there.
 _db_url = os.getenv("DATABASE_URL")
 if _db_url:
-    config.set_main_option("sqlalchemy.url", _db_url)
+    # Alembic keeps option values in a ConfigParser that treats '%' as an
+    # interpolation marker; a percent-encoded password would otherwise raise.
+    config.set_main_option("sqlalchemy.url", _db_url.replace("%", "%%"))
 elif not context.is_offline_mode():
     raise RuntimeError(
         "DATABASE_URL is not set — refusing to run online migrations against "
