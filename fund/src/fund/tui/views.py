@@ -2020,6 +2020,8 @@ class DailyBriefView(ShellView):
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
         self.asof: dt.date | None = None
+        # The portfolio ``asof`` was chosen for; see _drop_day_pinned_for_another.
+        self._asof_pid: uuid.UUID | None = None
         self.brief: DailyBrief | None = None
         self.detail_text = ""
 
@@ -2042,6 +2044,7 @@ class DailyBriefView(ShellView):
     def refresh_view(self) -> None:
         """Repaint the recap for the viewed day from a fresh assembler read."""
         self.render_count += 1
+        self._drop_day_pinned_for_another()
         self._paint(self._read())
 
     def poll_task(self) -> tuple[Callable[[], Any], Callable[[Any], None]] | None:
@@ -2051,6 +2054,7 @@ class DailyBriefView(ShellView):
         while the read was in flight, so a slow poll never clobbers a day the adviser
         stepped to meanwhile.
         """
+        self._drop_day_pinned_for_another()
         pid = self.shell._portfolio_id
         if pid is None:
             return None
@@ -2121,6 +2125,18 @@ class DailyBriefView(ShellView):
     def action_next_day(self) -> None:
         """Step to the next NAV-marked day; a no-op at the latest mark."""
         self._step_day(self.brief.next_day if self.brief else None)
+
+    def _drop_day_pinned_for_another(self) -> None:
+        """Reopen on the latest NAV mark when the focused portfolio changed.
+
+        A day stepped to for one portfolio need not be on another's NAV grid, so
+        carrying it over would show the new portfolio's older mark under that date
+        (or no data at all) instead of its own latest day.
+        """
+        pid = self.shell._portfolio_id
+        if pid != self._asof_pid:
+            self.asof = None
+            self._asof_pid = pid
 
     def _step_day(self, target: dt.date | None) -> None:
         """Re-read the recap for ``target``; a None target (a grid end) is a no-op."""

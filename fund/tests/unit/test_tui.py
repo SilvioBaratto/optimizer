@@ -6944,6 +6944,76 @@ async def test_daily_brief_poll_read_failure_is_painted_off_the_loop(
         assert "no portfolio focused" not in view.detail_text
 
 
+def _two_portfolio_marks(monkeypatch) -> list[tuple[uuid.UUID, date | None]]:
+    """Patch the assembler over two NAV grids; return the ``(pid, asof)`` asked for.
+
+    ``_PID_A`` is marked 10-04..10-06 and ``_PID_B`` 10-05..10-07, so a day pinned
+    for one portfolio can fall off the other's grid.
+    """
+    first = {_PID_A: date(2026, 10, 4), _PID_B: date(2026, 10, 5)}
+    latest = {_PID_A: date(2026, 10, 6), _PID_B: date(2026, 10, 7)}
+    asked: list[tuple[uuid.UUID, date | None]] = []
+
+    def assemble(_session, _saver, pid, asof=None):
+        asked.append((pid, asof))
+        day = asof or latest[pid]
+        return _full_brief(
+            pid,
+            asof=day,
+            prev_day=day - timedelta(days=1) if day > first[pid] else None,
+            next_day=day + timedelta(days=1) if day < latest[pid] else None,
+        )
+
+    monkeypatch.setattr(observe, "daily_brief", assemble)
+    return asked
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_opens_on_latest_day_after_a_portfolio_switch(
+    shell_env, monkeypatch
+) -> None:
+    """A day stepped back to for one portfolio is not carried over to the next."""
+    asked = _two_portfolio_marks(monkeypatch)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        view.action_prev_day()
+        view.action_prev_day()
+        assert view.asof == date(2026, 10, 4)  # before B's first mark
+
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert asked[-1] == (_PID_B, None)  # B is read at its own latest day
+        assert view.asof is None
+        assert view.brief is not None and view.brief.portfolio_id == _PID_B
+        assert "Daily brief · 2026-10-07" in view.detail_text
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_reopened_on_another_portfolio_shows_its_latest_day(
+    shell_env, monkeypatch
+) -> None:
+    """Switching portfolio on another pane, then opening the brief, resets the day."""
+    asked = _two_portfolio_marks(monkeypatch)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_brief(app, pilot)
+        view.action_prev_day()
+        assert view.asof == date(2026, 10, 5)
+
+        app.query_one(ContentSwitcher).current = "view-posture"
+        app.focus_portfolio(_PID_B)
+        app.action_open_brief()  # the Posture 'd' jump
+        await pilot.pause()
+
+        assert asked[-1] == (_PID_B, None)
+        assert view.asof is None
+        assert "Daily brief · 2026-10-07" in view.detail_text
+
+
 @pytest.mark.asyncio
 async def test_daily_brief_escape_returns_focus_to_the_sidebar(
     shell_env, monkeypatch
