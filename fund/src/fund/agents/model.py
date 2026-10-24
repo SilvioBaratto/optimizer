@@ -557,6 +557,56 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
         raise hint from exc
 
 
+# FundConfig's built-in model ids are Ollama Cloud DeepSeek names. A value still
+# equal to them means the operator never chose a model for the selected provider.
+_BUILT_IN_DEFAULTS = FundConfig()
+
+
+def _serves_built_in_models(config: FundConfig) -> bool:
+    """Return whether the built-in Ollama model ids are valid for the provider.
+
+    An unregistered provider counts as yes so that ``build_chat_model`` reports it
+    as unknown instead of this check blaming the model id.
+    """
+    return config.llm_provider == "ollama" or config.llm_provider not in _BUILDERS
+
+
+def _primary_model_id(config: FundConfig) -> str:
+    """Return the primary model id, refusing an unchosen one on a non-Ollama provider.
+
+    Raises:
+        RuntimeError: ``FUND_PRIMARY_MODEL`` is still the built-in Ollama id while
+            the provider is another one, which would 404 on the first request.
+    """
+    if (
+        not _serves_built_in_models(config)
+        and config.primary_model == _BUILT_IN_DEFAULTS.primary_model
+    ):
+        raise RuntimeError(
+            f"FUND_PRIMARY_MODEL is required for the {config.llm_provider!r} "
+            "provider; the built-in default is an Ollama model id it cannot serve."
+        )
+    return config.primary_model
+
+
+def _fallback_model_id(config: FundConfig) -> str:
+    """Return the fallback model id, defaulting to the primary off Ollama.
+
+    An unchosen fallback on a non-Ollama provider reuses the primary's id: the
+    built-in one is an Ollama name, and a fallback that only fails once the primary
+    has already failed would replace the real error with a model-not-found one. This
+    holds on Azure too: its fallback deployment is chosen separately (see
+    :func:`_fallback_config`), and the label still has to be a real model name
+    because it decides whether a temperature is sent.
+    """
+    if (
+        _serves_built_in_models(config)
+        or config.fallback_model != _BUILT_IN_DEFAULTS.fallback_model
+    ):
+        return config.fallback_model
+    return _primary_model_id(config)
+
+
 def _fallback_config(config: FundConfig) -> FundConfig:
     """Return the config the fallback model is built from.
 
@@ -578,14 +628,29 @@ def _fallback_config(config: FundConfig) -> FundConfig:
 
 
 def build_primary(config: FundConfig = settings) -> BaseChatModel:
-    """Build the primary model (``config.primary_model``)."""
-    return build_chat_model(config, model_name=config.primary_model)
+    """Build the primary model (``config.primary_model``).
+
+    Raises:
+        RuntimeError: A non-Ollama provider is selected without an explicit
+            ``FUND_PRIMARY_MODEL``, or the provider's own build-time checks fail.
+    """
+    return build_chat_model(config, model_name=_primary_model_id(config))
 
 
 def build_fallback(config: FundConfig = settings) -> BaseChatModel:
     """Build the fallback model (``config.fallback_model``).
 
+    On a non-Ollama provider with no explicit ``FUND_FALLBACK_MODEL`` the fallback
+    reuses the primary model id, so a transient primary failure gets a plain retry
+    (on Azure, set ``FUND_FALLBACK_MODEL`` when the fallback deployment serves a
+    different model, e.g. an o-series one, so the temperature is handled for it).
     On Azure a configured ``AZURE_OPENAI_FALLBACK_DEPLOYMENT_NAME`` replaces the
     primary deployment for this model, whatever the two model ids are.
+
+    Raises:
+        RuntimeError: As :func:`build_primary`, when the fallback has to reuse an
+            unchosen primary model id.
     """
-    return build_chat_model(_fallback_config(config), model_name=config.fallback_model)
+    return build_chat_model(
+        _fallback_config(config), model_name=_fallback_model_id(config)
+    )

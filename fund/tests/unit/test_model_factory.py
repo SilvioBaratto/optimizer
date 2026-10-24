@@ -199,6 +199,98 @@ def test_import_needs_no_env_and_defers_key_validation_to_build_time():
         model.build_primary(FundConfig(ollama_api_key=None))
 
 
+# --- model ids on non-Ollama providers ---------------------------------------
+# FundConfig's built-in primary/fallback ids are Ollama Cloud DeepSeek names. A
+# provider that cannot serve them must not silently inherit them: the fallback
+# would 404 only after the primary had already failed.
+
+_NON_OLLAMA_PROVIDERS = sorted(set(model._BUILDERS) - {"ollama"})
+
+
+@pytest.mark.parametrize("provider", _NON_OLLAMA_PROVIDERS)
+def test_non_ollama_provider_without_an_explicit_primary_model_fails_at_build(
+    provider,
+):
+    cfg = FundConfig(llm_provider=provider)
+
+    with pytest.raises(RuntimeError, match="FUND_PRIMARY_MODEL"):
+        model.build_primary(cfg)
+
+
+def test_non_ollama_fallback_defaults_to_the_primary_model(monkeypatch):
+    _install_fake_chat_class(monkeypatch, "langchain_openai")
+    cfg = FundConfig(llm_provider="openai", openai_api_key="sk", primary_model="gpt-4o")
+
+    assert model.build_primary(cfg).kwargs["model"] == "gpt-4o"
+    assert model.build_fallback(cfg).kwargs["model"] == "gpt-4o"
+
+
+def test_non_ollama_explicit_fallback_model_is_kept(monkeypatch):
+    _install_fake_chat_class(monkeypatch, "langchain_openai")
+    cfg = FundConfig(
+        llm_provider="openai",
+        openai_api_key="sk",
+        primary_model="gpt-4o",
+        fallback_model="gpt-4o-mini",
+    )
+
+    assert model.build_fallback(cfg).kwargs["model"] == "gpt-4o-mini"
+
+
+def test_non_ollama_fallback_without_any_explicit_model_fails_at_build():
+    cfg = FundConfig(llm_provider="openai", openai_api_key="sk")
+
+    with pytest.raises(RuntimeError, match="FUND_PRIMARY_MODEL"):
+        model.build_fallback(cfg)
+
+
+def test_unknown_provider_is_reported_before_the_model_id_check():
+    cfg = FundConfig(llm_provider="bogus")
+
+    with pytest.raises(RuntimeError, match="Unknown LLM provider"):
+        model.build_primary(cfg)
+
+
+def test_ollama_keeps_its_built_in_model_ids():
+    assert model.build_primary(_CFG).model == "deepseek-v4.1-flash:cloud"
+    assert model.build_fallback(_CFG).model == "deepseek-v4-pro:cloud"
+
+
+def test_azure_fallback_deployment_still_applies_when_only_the_primary_is_set(
+    monkeypatch,
+):
+    # Azure routes by deployment: a configured fallback deployment already says what
+    # serves the fallback, so leaving FUND_FALLBACK_MODEL unset must not collapse it
+    # onto the primary's deployment.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_openai", class_name="AzureChatOpenAI"
+    )
+    cfg = _azure_cfg(
+        primary_model="gpt-4o",
+        azure_openai_deployment_name="dep-primary",
+        azure_openai_fallback_deployment_name="dep-fallback",
+    )
+
+    assert model.build_primary(cfg).kwargs["azure_deployment"] == "dep-primary"
+    assert model.build_fallback(cfg).kwargs["azure_deployment"] == "dep-fallback"
+
+
+def test_azure_fallback_deployment_without_a_fallback_model_is_not_given_an_ollama_id(
+    monkeypatch,
+):
+    # The built-in fallback id is an Ollama name. The label is metadata on Azure, but
+    # it still drives the temperature handling, so it must be a name Azure knows.
+    _install_fake_chat_class(
+        monkeypatch, "langchain_openai", class_name="AzureChatOpenAI"
+    )
+    cfg = _azure_cfg(
+        primary_model="gpt-4o",
+        azure_openai_fallback_deployment_name="dep-fallback",
+    )
+
+    assert model.build_fallback(cfg).kwargs["model"] == "gpt-4o"
+
+
 # --- provider registry / dispatch -------------------------------------------
 
 
@@ -1309,6 +1401,20 @@ def test_azure_reasoning_model_is_built_without_a_temperature():
     llm = model.build_chat_model(_azure_cfg(), model_name="o3-mini")
 
     assert _sent_temperature(llm) in (None, 1)
+
+
+def test_azure_o_series_fallback_deployment_is_built_without_a_temperature():
+    # No FUND_FALLBACK_MODEL: the fallback deployment inherits the primary's label,
+    # and an o-series label must still switch the temperature off for it.
+    cfg = _azure_cfg(
+        primary_model="o3-mini",
+        azure_openai_fallback_deployment_name="dep-fallback",
+    )
+
+    fallback = model.build_fallback(cfg)
+
+    assert fallback.deployment_name == "dep-fallback"
+    assert _sent_temperature(fallback) in (None, 1)
 
 
 # --- completion budget is not left at a provider's tiny default --------------
