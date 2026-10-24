@@ -510,3 +510,95 @@ def test_holding_marks_value_only_the_invested_part_of_a_half_cash_book(db_sessi
     assert marks[0].value == pytest.approx(65_000.0)
     assert marks[0].shares == pytest.approx(500.0)  # 65,000 / 130
     assert marks[0].unrealized_pnl == pytest.approx(0.0, abs=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("bars", "priced"),
+    [
+        (9, True),  # latest bar is the fifth past the last live rate: still usable
+        (10, False),  # the sixth: the rate has expired
+    ],
+)
+def test_holding_marks_degrades_a_holding_whose_fx_rate_is_stale(
+    db_session, bars, priced
+):
+    """A holding is valued on a carried rate for five bars, then degrades to ``None``.
+
+    The USD rate stops after bar 4 while the stock keeps climbing. The stale-rate
+    bars used to be filled with the last converted price without limit, so the mark
+    showed a value from many bars ago. The EUR holding is unaffected either way.
+    """
+    # Weekdays only: the FX staleness horizon is counted in business days.
+    days = [
+        day
+        for day in (
+            dt.date(2026, 10, 5) + dt.timedelta(days=i) for i in range(2 * bars)
+        )
+        if day.weekday() < 5
+    ][:bars]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    for ticker, unit, prices in (
+        ("EU1", "EUR", [100.0] * bars),
+        ("US1", "USD", [100.0 * 1.01**i for i in range(bars)]),
+    ):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=day,
+                close=Decimal(str(px)),
+                price_unit=unit,
+            )
+            for day, px in zip(days, prices, strict=True)
+        )
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {
+                "base_currency": "EUR",
+                "quote_currency": "USD",
+                "date": day,
+                "rate": 0.90,
+            }
+            for day in days[:4]
+        ]
+    )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=days[0] - dt.timedelta(days=1),
+            weights_hash="h1",
+            weights={"EU1": 0.5, "US1": 0.5},
+            fill_date=days[0],
+            lines=[
+                {"ticker": "EU1", "notional": 5000.0, "fill_date": days[0].isoformat()},
+                {"ticker": "US1", "notional": 5000.0, "fill_date": days[0].isoformat()},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    marks = {
+        m.ticker: m
+        for m in holding_marks(_PID, session=db_session, base_currency="EUR")
+    }
+
+    assert marks["EU1"].value == pytest.approx(5000.0)
+    if priced:
+        # The rate is constant, so the mark tracks the stock exactly.
+        assert marks["US1"].value == pytest.approx(5000.0 * 1.01 ** (bars - 1))
+    else:
+        assert marks["US1"].value is None
+        assert marks["US1"].shares is None

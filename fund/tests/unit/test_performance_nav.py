@@ -1047,6 +1047,82 @@ def test_nav_series_bridges_a_minor_unit_holding_over_a_missing_fx_bar(db_sessio
     assert points[0].nav == pytest.approx(100_000.0)
 
 
+def _weekdays(start: dt.date, count: int) -> list[dt.date]:
+    """``count`` consecutive weekdays from ``start`` (FX horizon: business days)."""
+    days: list[dt.date] = []
+    day = start
+    while len(days) < count:
+        if day.weekday() < 5:
+            days.append(day)
+        day += dt.timedelta(days=1)
+    return days
+
+
+_STALE_DAYS = _weekdays(dt.date(2026, 10, 5), 16)
+_FX_LIVE_DAYS = _STALE_DAYS[:4]  # the feed stops here and never resumes
+_FX_HORIZON = 5  # bars a rate may be carried past its last live row
+# The last bar still priced: the horizon counts from the last live rate, once. A
+# second forward-fill stacked on an already-filled frame would double it.
+_LAST_PRICED_DAYS = _STALE_DAYS[: len(_FX_LIVE_DAYS) + _FX_HORIZON]
+
+
+def test_nav_series_does_not_freeze_a_holding_once_its_fx_rate_is_stale(db_session):
+    """A USD holding is marked while its rate is fresh, then left unpriced.
+
+    The rate feed stops after bar 4. The last converted price used to be carried
+    forward without limit, so NAV sat flat at its last value while the stock kept
+    climbing. The rate is carried for exactly five more bars, then the bar is
+    unpriced instead.
+    """
+    prices = {day: 100.0 * 1.01**i for i, day in enumerate(_STALE_DAYS)}
+    _seed_usd_floats(db_session, {"US1": prices})
+    _seed_eur_fx(db_session, "USD", dict.fromkeys(_FX_LIVE_DAYS, 0.90))
+    _add_flat_ticket(db_session, fill=_STALE_DAYS[0], notionals={"US1": 100_000.0})
+
+    points = build_nav_series(_PID, session=db_session, base_currency="EUR")
+
+    navs = {p.date: p.nav for p in points}
+    assert navs.keys() == set(_LAST_PRICED_DAYS)
+    for i, day in enumerate(_STALE_DAYS):
+        if day in navs:  # the rate is constant, so NAV tracks the stock exactly
+            assert navs[day] == pytest.approx(100_000.0 * 1.01**i)
+
+
+def test_nav_series_skips_a_bar_where_a_held_line_has_no_fresh_rate(db_session):
+    """A stale line blanks the bar; it is not dropped from a half-priced NAV.
+
+    The EUR line needs no rate. Marking only it once the USD rate expires would read
+    as a 50% drawdown, and the benchmark would freeze with the stale rate too.
+    """
+    prices = {day: 100.0 * 1.01**i for i, day in enumerate(_STALE_DAYS)}
+    _seed_usd_floats(
+        db_session,
+        {
+            "EU1": dict.fromkeys(_STALE_DAYS, 100.0),
+            "US1": prices,
+            "SPX": prices,
+        },
+        units={"EU1": "EUR"},
+    )
+    _seed_eur_fx(db_session, "USD", dict.fromkeys(_FX_LIVE_DAYS, 0.90))
+    _add_flat_ticket(
+        db_session,
+        fill=_STALE_DAYS[0],
+        notionals={"EU1": 50_000.0, "US1": 50_000.0},
+    )
+
+    points = build_nav_series(
+        _PID, session=db_session, base_currency="EUR", benchmark="SPX"
+    )
+
+    by_day = {p.date: p for p in points}
+    assert by_day.keys() == set(_LAST_PRICED_DAYS)
+    for i, day in enumerate(_STALE_DAYS):
+        if day in by_day:
+            assert by_day[day].nav == pytest.approx(50_000.0 * (1 + 1.01**i))
+            assert by_day[day].benchmark == pytest.approx(100.0 * 1.01**i * 0.90)
+
+
 def test_nav_series_warns_when_a_ticket_line_cannot_be_priced(db_session, caplog):
     """A line with no usable price is reported, not silently dropped from the book."""
     _seed_usd_floats(db_session, {"A": dict.fromkeys(_DAYS, 100.0)})

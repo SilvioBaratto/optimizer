@@ -177,6 +177,46 @@ def _to_base_prices(
     return converter.fit_transform(prices)
 
 
+def _carried_base_prices(
+    prices: pd.DataFrame,
+    *,
+    base_currency: str,
+    currency_map: dict[str, str],
+    fx_rates: pd.DataFrame,
+) -> pd.DataFrame:
+    """Per-bar base-currency marks: the last local close, FX-converted bar by bar.
+
+    A closed market's last close is carried over the bar *before* conversion, so a
+    holding keeps moving with its currency. Carrying the converted price instead
+    would also fill the bars where the rate is older than the converter's staleness
+    horizon, freezing the holding at a price and rate from before the gap while its
+    market kept trading. Those bars stay NaN (unpriced) here.
+
+    The conversion runs on the union of the price and rate calendars, so rates dated
+    before the first bar seed the window, and the converter's single forward-fill is
+    the only staleness horizon. Pre-filling the rates and handing them to the
+    converter would stack a second fill on the first and double the horizon.
+
+    Args:
+        prices: Wide listing-currency close frame, NaN on a market's closed bars.
+        base_currency: ISO-4217 code to express all prices in.
+        currency_map: ``{ticker: raw price_unit}`` (see :func:`_to_base_prices`).
+        fx_rates: Rates as loaded, including any dated before ``prices.index[0]``.
+
+    Returns:
+        The base-currency frame on ``prices.index``; NaN before a ticker's first
+        close and wherever its rate is stale.
+    """
+    calendar = prices.index if fx_rates.empty else fx_rates.index.union(prices.index)
+    converted = _to_base_prices(
+        prices.reindex(calendar).ffill(),
+        base_currency=base_currency,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+    )
+    return converted.reindex(prices.index)
+
+
 def _load_price_frame(
     session: Any,
     tickers: list[str],
@@ -316,31 +356,6 @@ def convert_prices_to_base(
         currency_map=currency_map,
         fx_rates=fx_rates,
     )
-
-
-def _carry_fx_into_window(
-    fx_rates: pd.DataFrame, price_index: pd.Index, fill_limit: int = 5
-) -> pd.DataFrame:
-    """Align FX rates to the price calendar, seeding from rates dated before it.
-
-    ``optimizer.fx`` aligns by reindexing onto the price calendar and only then
-    forward-filling, which discards every rate dated before the first bar — so a bar
-    with no rate of its own at the window's start has nothing to carry in. Filling on
-    the union calendar first keeps the last earlier rate available.
-
-    Args:
-        fx_rates: Rate frame (``DatetimeIndex`` rows, major-currency columns), loaded
-            from before the first price bar.
-        price_index: The price frame's calendar to align to.
-        fill_limit: Maximum consecutive calendar rows to forward-fill.
-
-    Returns:
-        The rates on ``price_index``; ``fx_rates`` unchanged when it is empty.
-    """
-    if fx_rates.empty:
-        return fx_rates
-    union = fx_rates.index.union(price_index)
-    return fx_rates.reindex(union).ffill(limit=fill_limit).reindex(price_index)
 
 
 def _finite(value: float) -> float | None:
@@ -541,7 +556,9 @@ def _book_value(
     A line that has not yet filled on the bar is carried at its book notional rather
     than marked early at a price it was never bought at (look-ahead) or dropped, which
     would read the undeployed capital as a drawdown and recover it as a fake gain. A
-    filled line with no price on the bar contributes nothing.
+    filled line with no usable price (its FX rate is stale) makes the whole bar
+    unmarkable for the same reason: summing only the priced lines would read as a
+    drawdown.
     """
     day = ts.date()
     value = 0.0
@@ -554,9 +571,10 @@ def _book_value(
         if ticker not in base_prices.columns:
             continue
         price = base_prices.at[ts, ticker]
-        if pd.notna(price):
-            value += qty * float(price)
-            marked = True
+        if pd.isna(price):
+            return None
+        value += qty * float(price)
+        marked = True
     return value if marked else None
 
 
@@ -614,7 +632,8 @@ def _chain_links(
     Args:
         ticket_books: Priced tickets ``(fill date, book)``, ascending, non-empty books.
         grosses: Each ticket's gross notional, aligned with ``ticket_books``.
-        base_prices: Forward-filled base-currency close frame the books are marked on.
+        base_prices: Base-currency mark frame the books are marked on (see
+            :func:`_carried_base_prices`); a bar that leaves a line unpriced is skipped.
         capital: Mandate capital the first ticket is denominated in; ``None`` keeps the
             ticket's own notional.
     """
@@ -669,7 +688,9 @@ def build_nav_series(
     fill counts from its ``fill_date``) as ``notional_base / price_base@fill``,
     with ``price_base`` FX-converted from listing currency via ``optimizer.fx``.
     Each trading day at or after the first fill is marked with that day's
-    base-currency close (carried forward over gaps). The benchmark level, when
+    base-currency close (a closed market's last close is carried forward over gaps).
+    A bar whose FX rate is more than five bars old leaves that line unpriced and is
+    not emitted, rather than being carried at an old price. The benchmark level, when
     given, is pulled from ``price_history``, FX-normalized to base, and date-aligned.
 
     Rebalances conserve NAV: each ticket after the first applies its weights to the
@@ -745,7 +766,6 @@ def build_nav_series(
         start=first_fill - dt.timedelta(days=_FX_LOOKBACK_DAYS),
         end=asof,
     )
-    fx_rates = _carry_fx_into_window(fx_rates, raw_prices.index)
     # Guard on the HOLDINGS' currencies only: a foreign benchmark that lacks a rate
     # degrades gracefully (it is a reference line, not part of NAV) and must not
     # block marking of an otherwise all-base-currency book.
@@ -755,12 +775,12 @@ def build_nav_series(
         if ticker in holding_tickers
     }
     _require_fx_coverage(base_currency, holding_currency_map, fx_rates)
-    base_prices = _to_base_prices(
+    base_prices = _carried_base_prices(
         raw_prices,
         base_currency=base_currency,
         currency_map=currency_map,
         fx_rates=fx_rates,
-    ).ffill()
+    )
 
     # A benchmark whose currency could not be converted is dropped, not emitted raw:
     # a local-currency index level beside a base-currency NAV would make excess,
@@ -1062,6 +1082,8 @@ def _series_returns(
     series: pd.Series,
 ) -> tuple[float | None, float | None, float | None]:
     """Trailing (1D, 1M, 1Y) returns of a base-price series (ascending, non-NaN)."""
+    if series.empty:
+        return None, None, None
     current = float(series.iloc[-1])
     last_ts = series.index[-1]
 
@@ -1144,28 +1166,34 @@ def _book_base_prices(
     fx_rates = _load_fx_rates_frame(
         session, base_currency, quotes, start=start, end=end
     )
-    fx_rates = _carry_fx_into_window(fx_rates, raw_prices.index)
     _require_fx_coverage(base_currency, currency_map, fx_rates)
-    base_raw = _to_base_prices(
+    base_prices = _carried_base_prices(
         raw_prices,
         base_currency=base_currency,
         currency_map=currency_map,
         fx_rates=fx_rates,
     )
-    return base_raw, base_raw.ffill()
+    # ``raw`` keeps only each holding's own trading days, so returns never run over a
+    # carried-forward bar.
+    return base_prices.where(raw_prices.notna()), base_prices
 
 
 def _marked_value(
     ticker: str, shares: dict[str, float], base_prices: pd.DataFrame
 ) -> tuple[float, float] | None:
-    """``(shares, value)`` at the holding's latest base close; ``None`` if unpriced."""
+    """``(shares, value)`` at the holding's latest base close; ``None`` if unpriced.
+
+    The latest bar itself is read, not the last non-NaN one: a holding whose FX rate is
+    too stale to convert on the last bar has no current mark, and an old price would
+    present a frozen value as today's.
+    """
     qty = shares.get(ticker)
-    if qty is None or ticker not in base_prices.columns:
+    if qty is None or ticker not in base_prices.columns or base_prices.empty:
         return None
-    marked = base_prices[ticker].dropna()
-    if marked.empty:
+    latest = base_prices[ticker].iloc[-1]
+    if pd.isna(latest):
         return None
-    return qty, qty * float(marked.iloc[-1])
+    return qty, qty * float(latest)
 
 
 def holding_marks(
@@ -1259,7 +1287,7 @@ def holding_marks(
         if marked is None:
             continue
         qty, value = marked
-        # Value marks on the ffilled (asof) close; returns run on the holding's own
+        # Value marks on the carried (asof) close; returns run on the holding's own
         # real closes so a carry-forward over a non-trading day cannot fake a move.
         computed[ticker] = (qty, value, base_raw[ticker].dropna())
 
