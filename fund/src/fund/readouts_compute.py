@@ -14,6 +14,7 @@ the tools never raise across their envelope, so a failure degrades to an error s
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeGuard
 
@@ -33,6 +34,11 @@ if TYPE_CHECKING:
 
     from sqlalchemy.orm import Session
 
+# The frozen tools report per-observation (daily) metrics from skfolio ``Portfolio``
+# objects built with its default ``annualization_factor``; ``fund.performance``
+# annualises with the same 252, so the Deliberation and Performance views agree.
+_PERIODS_PER_YEAR = 252.0
+
 
 @dataclass(frozen=True)
 class FrontierPoint:
@@ -42,9 +48,9 @@ class FrontierPoint:
     ``optimize_portfolio`` applied to the recorded weights.
 
     Attributes:
-        mean: Expected return of the solved portfolio.
-        standard_deviation: Its volatility.
-        sharpe_ratio: Its reward-to-risk ratio.
+        mean: Annualised expected return of the solved portfolio (fraction per year).
+        standard_deviation: Its annualised volatility (fraction per year).
+        sharpe_ratio: Its annualised reward-to-risk ratio.
         n_observations: Return rows the solve consumed.
     """
 
@@ -59,10 +65,10 @@ class BacktestResult:
     """Walk-forward (or degraded in-sample) backtest of the held weights.
 
     Attributes:
-        mean: Mean return over the evaluated window.
-        standard_deviation: Its volatility.
-        sharpe_ratio: Its reward-to-risk ratio.
-        max_drawdown: Worst peak-to-trough loss over the window.
+        mean: Annualised mean return over the evaluated window (fraction per year).
+        standard_deviation: Its annualised volatility (fraction per year).
+        sharpe_ratio: Its annualised reward-to-risk ratio.
+        max_drawdown: Worst peak-to-trough loss over the window (not annualised).
         n_observations: Return rows evaluated.
         n_folds: Walk-forward folds; ``0`` when the panel was too short for one.
         out_of_sample: Whether folds were out-of-sample (``False`` = in-sample).
@@ -366,16 +372,31 @@ def _cardinality_cap(constraint_set: Mapping[str, Any]) -> str | None:
     return f"cardinality (at most {cap} names)"
 
 
+def _annualised(metrics: Mapping[str, Any]) -> tuple[float, float, float]:
+    """Scale a tool's per-observation mean, volatility and Sharpe to per-year.
+
+    The mean scales linearly with the period count, volatility and the Sharpe ratio
+    (a mean over a volatility) with its square root.
+    """
+    root = math.sqrt(_PERIODS_PER_YEAR)
+    return (
+        float(metrics.get("mean", 0.0)) * _PERIODS_PER_YEAR,
+        float(metrics.get("standard_deviation", 0.0)) * root,
+        float(metrics.get("sharpe_ratio", 0.0)) * root,
+    )
+
+
 def _frontier(envelope: Mapping[str, Any]) -> tuple[FrontierPoint | None, str | None]:
     """Map an ``optimize_portfolio`` envelope to a frontier point or error."""
     if not envelope.get("ok"):
         return None, str(envelope.get("error") or "optimize failed")
     data = envelope.get("data") or {}
     metrics = data.get("metrics") or {}
+    mean, volatility, sharpe = _annualised(metrics)
     point = FrontierPoint(
-        mean=float(metrics.get("mean", 0.0)),
-        standard_deviation=float(metrics.get("standard_deviation", 0.0)),
-        sharpe_ratio=float(metrics.get("sharpe_ratio", 0.0)),
+        mean=mean,
+        standard_deviation=volatility,
+        sharpe_ratio=sharpe,
         n_observations=int(data.get("n_observations", 0)),
     )
     return point, None
@@ -387,10 +408,11 @@ def _backtest(envelope: Mapping[str, Any]) -> tuple[BacktestResult | None, str |
         return None, str(envelope.get("error") or "backtest failed")
     data = envelope.get("data") or {}
     metrics = data.get("metrics") or {}
+    mean, volatility, sharpe = _annualised(metrics)
     result = BacktestResult(
-        mean=float(metrics.get("mean", 0.0)),
-        standard_deviation=float(metrics.get("standard_deviation", 0.0)),
-        sharpe_ratio=float(metrics.get("sharpe_ratio", 0.0)),
+        mean=mean,
+        standard_deviation=volatility,
+        sharpe_ratio=sharpe,
         max_drawdown=float(metrics.get("max_drawdown", 0.0)),
         n_observations=int(data.get("n_observations", 0)),
         n_folds=int(data.get("n_folds", 0)),

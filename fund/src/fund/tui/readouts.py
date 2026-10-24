@@ -37,6 +37,10 @@ _MAX_NAMES = 8
 # the adviser expands the step and the recompute worker fills them in (T6).
 _PENDING_LABEL = "compute to view"
 
+# Mean / vol / Sharpe come from the recompute already scaled to per-year (the same 252
+# convention as the Performance view); say so, or a reader assumes per-bar figures.
+_ANNUALISED_LABEL = "(annualised)"
+
 # Risk verdict tiers as (dot, label) — the word always travels with the glyph so status
 # never rides on colour/shape alone (mirrors views._HEALTH_*). The live ok/warn/breach
 # tiers derive from risk_check violations in T6; it is pending until expanded.
@@ -112,9 +116,9 @@ def _frontier_lines(compute: Any) -> list[str]:
         return [f"frontier point · unavailable ({compute.frontier_error})"]
     point = compute.frontier
     return [
-        f"frontier point · mean {_num(point.mean)}"
-        f" · vol {_num(point.standard_deviation)}"
-        f" · sharpe {_num(point.sharpe_ratio)}"
+        f"frontier point · mean {_pct(point.mean)}"
+        f" · vol {_pct(point.standard_deviation)}"
+        f" · sharpe {_num(point.sharpe_ratio)} {_ANNUALISED_LABEL}"
     ]
 
 
@@ -127,7 +131,7 @@ def _backtest_lines(compute: Any) -> list[str]:
     result = compute.backtest
     mode = "out-of-sample" if result.out_of_sample else "in-sample"
     return [
-        f"backtest · sharpe {_num(result.sharpe_ratio)}"
+        f"backtest · sharpe {_num(result.sharpe_ratio)} {_ANNUALISED_LABEL}"
         f" · maxDD {_num(result.max_drawdown)}",
         f"  {result.n_observations} obs · {result.n_folds} folds · {mode}"
         f" · {result.window_start} → {result.window_end}",

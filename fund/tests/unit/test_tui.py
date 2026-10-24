@@ -4234,6 +4234,38 @@ def test_readout_allocator_renders_compute_without_payload() -> None:
     assert "weights · none recorded" in text  # empty payload rendered, not crashed
 
 
+def test_readout_frontier_labels_annualised_units_with_readable_precision() -> None:
+    """Annualised mean and vol render as percentages, never rounded to 0.00."""
+    from fund import readouts_compute
+    from fund.tui.readouts import render_readout
+
+    compute = readouts_compute.ResultsCompute(
+        frontier=readouts_compute.FrontierPoint(
+            mean=0.1008,
+            standard_deviation=0.1111,
+            sharpe_ratio=0.9,
+            n_observations=500,
+        ),
+        frontier_error=None,
+        backtest=readouts_compute.BacktestResult(
+            mean=0.08,
+            standard_deviation=0.12,
+            sharpe_ratio=0.67,
+            max_drawdown=-0.08,
+            n_observations=300,
+            n_folds=0,
+            out_of_sample=False,
+            window_start="2024-01-01",
+            window_end="2024-12-31",
+        ),
+        backtest_error=None,
+    )
+    text = render_readout("allocator", "optimize_portfolio", None, compute)
+    assert text is not None
+    assert "mean 10.1% · vol 11.1% · sharpe 0.90 (annualised)" in text
+    assert "sharpe 0.67 (annualised)" in text
+
+
 def test_readout_risk_lists_limits_the_verdict_did_not_evaluate() -> None:
     """An ok verdict still names the limits no check covered, so ok is not read as
     "inside every limit"."""

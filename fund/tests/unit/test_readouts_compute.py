@@ -10,6 +10,7 @@ imported only inside the Deliberation worker thread (the import-light guard cove
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections.abc import Iterator
 from typing import Any
 
@@ -34,6 +35,8 @@ from fund.agents.toolsets import _optimizer_constraints
 from fund.readouts_compute import compute_results
 from fund.schemas import ConstraintSet
 from fund.tools.optimize import optimize_portfolio
+
+_PERIODS_PER_YEAR = 252.0
 
 # Default walk-forward needs train 252 + purge 5 + test 63 = 320 return rows.
 _LONG_PANEL_DAYS = 400
@@ -139,6 +142,63 @@ def test_compute_results_backtest_uses_the_run_lookback_window(
     )
     assert narrow.backtest is not None
     assert narrow.backtest.n_folds >= 1
+
+
+def test_compute_results_annualises_frontier_and_backtest_metrics(
+    priced_session: Session,
+) -> None:
+    """Mean, vol and Sharpe are per-year, matching the Performance view's convention.
+
+    The tools return per-observation (daily) metrics; shown raw next to the annualised
+    Performance figures they read about 16x too small for Sharpe and round to zero.
+    """
+    import numpy as np
+    from optimizer.preprocessing import prices_to_returns
+    from skfolio import Portfolio
+
+    from fund.tools.optimize import optimize_portfolio
+    from fund.tools.prices import load_price_frame
+    from fund.tools.risk import backtest
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    weights = {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}
+    result = compute_results(
+        priced_session, ASOF, list(UNIVERSE), constraint_set, weights
+    )
+
+    solved = optimize_portfolio(
+        priced_session,
+        ASOF,
+        list(UNIVERSE),
+        constraints=_optimizer_constraints(
+            ConstraintSet.model_validate(constraint_set)
+        ),
+    )["data"]
+    frame, _ = load_price_frame(priced_session, ASOF, list(UNIVERSE))
+    returns = prices_to_returns(frame)
+    portfolio = Portfolio(
+        returns, np.array([solved["weights"][c] for c in returns.columns])
+    )
+    assert result.frontier is not None
+    assert result.frontier.mean == pytest.approx(portfolio.annualized_mean)
+    assert result.frontier.standard_deviation == pytest.approx(
+        portfolio.annualized_standard_deviation
+    )
+    assert result.frontier.sharpe_ratio == pytest.approx(
+        portfolio.annualized_sharpe_ratio
+    )
+
+    raw = backtest(priced_session, ASOF, weights, window={"train_size": 756})
+    raw_metrics = raw["data"]["metrics"]
+    assert result.backtest is not None
+    assert result.backtest.mean == pytest.approx(raw_metrics["mean"] * 252)
+    assert result.backtest.standard_deviation == pytest.approx(
+        raw_metrics["standard_deviation"] * np.sqrt(252)
+    )
+    assert result.backtest.sharpe_ratio == pytest.approx(
+        raw_metrics["sharpe_ratio"] * np.sqrt(252)
+    )
+    assert result.backtest.max_drawdown == pytest.approx(raw_metrics["max_drawdown"])
 
 
 def test_compute_results_degrades_on_empty_inputs(priced_session: Session) -> None:
@@ -321,7 +381,9 @@ def test_compute_results_replays_the_allocator_in_the_base_currency(
 
     assert local.backtest is not None
     assert in_eur.backtest is not None
-    assert in_eur.backtest.mean - local.backtest.mean == pytest.approx(0.01, abs=2e-3)
+    # The 1%-per-bar FX drift lifts the per-bar mean by ~0.01; the read-out is per-year.
+    per_bar_lift = (in_eur.backtest.mean - local.backtest.mean) / _PERIODS_PER_YEAR
+    assert per_bar_lift == pytest.approx(0.01, abs=2e-3)
 
 
 def _capped(cap: float) -> dict[str, Any]:
@@ -380,10 +442,11 @@ def test_compute_results_frontier_replays_the_recorded_optimizer_config(
     )
 
     assert result.frontier is not None
+    metrics = expected["data"]["metrics"]
     assert result.frontier.sharpe_ratio == pytest.approx(
-        expected["data"]["metrics"]["sharpe_ratio"]
+        metrics["sharpe_ratio"] * math.sqrt(_PERIODS_PER_YEAR)
     )
-    assert result.frontier.mean == pytest.approx(expected["data"]["metrics"]["mean"])
+    assert result.frontier.mean == pytest.approx(metrics["mean"] * _PERIODS_PER_YEAR)
 
 
 def test_unreadable_recorded_constraint_set_degrades_to_an_error(
