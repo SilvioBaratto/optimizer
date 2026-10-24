@@ -253,7 +253,7 @@ def _load_price_frame(
         if instrument is None:
             continue
         rows = repo.get_price_history(
-            instrument.id, start_date=start, end_date=end, ascending=True
+            instrument.id, start_date=start, end_date=end, limit=None, ascending=True
         )
         closes = {r.date: float(r.close) for r in rows if r.close is not None}
         if not closes:

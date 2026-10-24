@@ -454,6 +454,20 @@ class TestGetPriceHistory:
 
         assert len(result) == 3
 
+    def test_limit_none_returns_every_bar(self, db_session: Session) -> None:
+        ex = _exchange(db_session)
+        inst = _instrument(db_session, ex)
+        self._seed_prices(
+            db_session,
+            inst,
+            [date(2024, 1, i) for i in range(1, 11)],
+        )
+
+        repo = _repo(db_session)
+        result = repo.get_price_history(inst.id, limit=None, ascending=True)
+
+        assert [r.date for r in result] == [date(2024, 1, i) for i in range(1, 11)]
+
     def test_ascending_limit_returns_earliest_bars(self, db_session: Session) -> None:
         ex = _exchange(db_session)
         inst = _instrument(db_session, ex)

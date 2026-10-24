@@ -602,3 +602,55 @@ def test_holding_marks_degrades_a_holding_whose_fx_rate_is_stale(
     else:
         assert marks["US1"].value is None
         assert marks["US1"].shares is None
+
+
+def test_holding_marks_price_the_latest_bar_of_a_history_past_the_row_cap(db_session):
+    """A long backfill is marked at today's close, not at its 5,000th-oldest bar.
+
+    The price read caps rows at 5,000 and, ordered oldest-first, kept the *earliest*
+    ones — so a ``--period max`` instrument was valued at a years-old price and its
+    fill bar fell outside the loaded frame, pinning unrealized P&L to exactly zero.
+    """
+    n = 5_010
+    last = dt.date(2026, 10, 3)
+    days = [last - dt.timedelta(days=n - 1 - i) for i in range(n)]
+    ex = Exchange(name="X")
+    db_session.add(ex)
+    db_session.flush()
+    inst = Instrument(ticker="A", short_name="A", exchange=ex, yfinance_ticker="A")
+    db_session.add(inst)
+    db_session.flush()
+    db_session.add_all(
+        PriceHistory(
+            instrument_id=inst.id,
+            date=day,
+            close=Decimal(str(round(100.0 + 0.01 * i, 2))),
+            price_unit="USD",
+        )
+        for i, day in enumerate(days)
+    )
+    fill = days[-3]
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=fill - dt.timedelta(days=1),
+            weights_hash="h1",
+            weights={"A": 1.0},
+            fill_date=fill,
+            lines=[
+                {"ticker": "A", "notional": 10_000.0, "fill_date": fill.isoformat()}
+            ],
+            notional=10_000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    db_session.flush()
+
+    (mark,) = holding_marks(_PID, session=db_session, base_currency="USD")
+
+    fill_price, latest_price = 100.0 + 0.01 * (n - 3), 100.0 + 0.01 * (n - 1)
+    assert mark.value == pytest.approx(10_000.0 * latest_price / fill_price)
+    assert mark.unrealized_pnl == pytest.approx(
+        10_000.0 * (latest_price / fill_price - 1.0)
+    )
