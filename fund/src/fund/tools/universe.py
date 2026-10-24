@@ -59,6 +59,12 @@ _APPLIED_CRITERIA: frozenset[str] = _CONFIG_FIELDS | {_EXCLUSIONS_KEY}
 
 _UNCLASSIFIED = "unclassified"
 
+# Longest run of missing bars carried forward as a stale price. It covers a venue
+# closed for a holiday week (Golden Week, Lunar New Year) so a live ticker is not
+# mistaken for a delisted one; a longer silence leaves trailing NaNs for
+# ``SelectComplete`` to screen out.
+_MAX_STALE_BARS = 5
+
 # ``TickerProfile.sector`` carries Yahoo's sector labels (normalised to snake case);
 # the ones that differ from GICS are mapped here. GICS-named labels pass through.
 _YAHOO_SECTOR_TO_GICS: dict[str, GicsSector] = {
@@ -200,8 +206,15 @@ def universe_filter(
 
     # Keep the leading NaNs of a young listing: the default would drop those rows
     # for every asset, so SelectComplete would never see the short history it exists
-    # to screen out and the other statistics would run on the truncated sample.
-    returns = prices_to_returns(frame, drop_inceptions_nan=False)
+    # to screen out and the other statistics would run on the truncated sample. The
+    # unbounded forward fill would likewise turn a stopped asset's last quote into
+    # zero returns up to ``asof``, so the fill is capped instead of left to
+    # ``prices_to_returns``.
+    returns = prices_to_returns(
+        frame.ffill(limit=_MAX_STALE_BARS),
+        drop_inceptions_nan=False,
+        fill_nan=False,
+    )
     pipeline = build_preselection_pipeline(config=config, sector_mapping=sector_mapping)
     selected = pipeline.fit_transform(returns)
 

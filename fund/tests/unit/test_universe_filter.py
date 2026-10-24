@@ -267,21 +267,37 @@ class TestShortHistory:
     _LONG_DAYS = 120
     _YOUNG_DAYS = 6
 
-    def _seed_with_young_listing(self, db_session) -> dt.date:
-        """Three long histories plus NEW, quoted only for the last few bars."""
-        _seed_panel(db_session, tickers=_THREE, n_days=self._LONG_DAYS)
-        young = _seed_instrument(db_session, "NEW")
-        for i in range(self._LONG_DAYS - self._YOUNG_DAYS, self._LONG_DAYS):
-            close = 40.0 * (1.0 + 0.001 * i + 0.025 * math.sin(i / 3.0 + 0.5))
+    def _seed_quotes(
+        self,
+        db_session,
+        ticker: str,
+        days: range,
+        *,
+        freq: float = 3.0,
+        phase: float = 0.5,
+    ) -> None:
+        """Quote ``ticker`` only on the given bar offsets from ``_START``."""
+        inst = _seed_instrument(db_session, ticker)
+        for i in days:
+            close = 40.0 * (1.0 + 0.001 * i + 0.025 * math.sin(i / freq + phase))
             db_session.add(
                 PriceHistory(
-                    instrument_id=young.id,
+                    instrument_id=inst.id,
                     date=_START + dt.timedelta(days=i),
                     close=round(close, 6),
                     volume=1000,
                 )
             )
         db_session.flush()
+
+    def _seed_with_young_listing(self, db_session) -> dt.date:
+        """Three long histories plus NEW, quoted only for the last few bars."""
+        _seed_panel(db_session, tickers=_THREE, n_days=self._LONG_DAYS)
+        self._seed_quotes(
+            db_session,
+            "NEW",
+            range(self._LONG_DAYS - self._YOUNG_DAYS, self._LONG_DAYS),
+        )
         return _START + dt.timedelta(days=self._LONG_DAYS - 1)
 
     def test_short_history_listing_is_dropped_not_kept_by_a_truncated_sample(
@@ -295,3 +311,32 @@ class TestShortHistory:
 
         assert result["ok"] is True
         assert result["data"] == _THREE
+
+    def test_asset_that_stopped_quoting_is_dropped_not_kept_by_a_stale_price(
+        self, db_session
+    ) -> None:
+        # Forward-filling STOP's last price gives it zero returns for the 60 bars it
+        # was not quoted, so SelectComplete would see a complete history.
+        _seed_panel(db_session, tickers=_THREE, n_days=self._LONG_DAYS)
+        self._seed_quotes(db_session, "STOP", range(60), freq=4.0, phase=1.5)
+        asof = _START + dt.timedelta(days=self._LONG_DAYS - 1)
+
+        result = universe_filter(db_session, asof, [*_THREE, "STOP"])
+
+        assert result["ok"] is True
+        assert result["data"] == _THREE
+
+    def test_asset_missing_only_the_last_bars_to_a_closure_is_kept(
+        self, db_session
+    ) -> None:
+        # A venue shut for a couple of sessions (holiday) is stale, not delisted.
+        _seed_panel(db_session, tickers=_THREE, n_days=self._LONG_DAYS)
+        self._seed_quotes(
+            db_session, "HOLI", range(self._LONG_DAYS - 2), freq=4.0, phase=1.5
+        )
+        asof = _START + dt.timedelta(days=self._LONG_DAYS - 1)
+
+        result = universe_filter(db_session, asof, [*_THREE, "HOLI"])
+
+        assert result["ok"] is True
+        assert result["data"] == [*_THREE, "HOLI"]
