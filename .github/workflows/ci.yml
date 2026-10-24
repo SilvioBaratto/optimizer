@@ -183,7 +183,7 @@ jobs:
           version: "0.11.19"
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --all-packages --all-extras
+      - run: uv sync --locked --all-packages --all-extras
       - run: cd packages/portopt-db && uv run alembic upgrade head
       - run: cd fund && uv run pytest tests/integration -m integration -v --tb=short
 
