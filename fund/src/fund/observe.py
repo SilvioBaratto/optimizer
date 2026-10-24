@@ -235,16 +235,24 @@ def list_portfolios(session: Any) -> list[uuid.UUID]:
     return sorted(ids)
 
 
-def list_portfolio_runs(session: Any, portfolio_id: uuid.UUID) -> list[RunSummary]:
-    """All runs for a portfolio, newest first, as :class:`RunSummary` rows.
+def list_portfolio_runs(
+    session: Any, portfolio_id: uuid.UUID, *, limit: int | None = None
+) -> list[RunSummary]:
+    """Runs for a portfolio, newest first, as :class:`RunSummary` rows.
 
     ``awaiting_hitl`` here is the plain ``status == "paused"`` flag (the history
     panel); the HITL queue uses :func:`pending_hitl`, which additionally checks the
     checkpoint for a live interrupt.
+
+    ``limit`` caps the rows read; callers that only need the latest run (the poll
+    path's status badges) pass ``1`` so a long history is not loaded every tick.
+    ``None`` returns the full history.
     """
     from fund.audit.repository import AgentRunRepository
 
-    runs = AgentRunRepository(session).list_runs_for_portfolio(portfolio_id)
+    runs = AgentRunRepository(session).list_runs_for_portfolio(
+        portfolio_id, limit=limit
+    )
     return [_run_summary(run, awaiting_hitl=run.status == "paused") for run in runs]
 
 
@@ -309,14 +317,13 @@ def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
     holdings = PositionRepository(session).get_holdings(portfolio_id)
     current = {p.ticker: p.weight for p in holdings}
     run_repo = AgentRunRepository(session)
-    runs = run_repo.list_runs_for_portfolio(portfolio_id)
-    target = _target_weights(run_repo, runs)
+    target = _target_weights(run_repo, portfolio_id)
     return PortfolioState(
         portfolio_id=portfolio_id,
         current=current,
         target=target,
         drift_l1=drift_l1(current, target),
-        metrics=_metrics_from_runs(runs),
+        metrics=_latest_optimizer_metrics(run_repo, portfolio_id),
     )
 
 
@@ -991,32 +998,41 @@ def _decision_entry(decision: Any) -> TranscriptEntry:
     )
 
 
-def _target_weights(run_repo: Any, runs: list[Any]) -> dict[str, float]:
-    """Latest completed run's weights, else the latest allocator proposal, else {}."""
-    for run in runs:
-        if run.status == "completed" and run.weights:
+def _target_weights(run_repo: Any, portfolio_id: uuid.UUID) -> dict[str, float]:
+    """Latest completed run's weights, else the latest allocator proposal, else {}.
+
+    Both reads stream newest-first and stop at the first hit, so a portfolio with a
+    long history costs a handful of rows rather than the whole trail.
+    """
+    for run in run_repo.iter_runs_for_portfolio(portfolio_id, status="completed"):
+        if run.weights:
             return {str(k): float(v) for k, v in run.weights.items()}
-    for run in runs:
-        weights: dict[str, float] = run_repo.latest_optimizer_weights(run.id)
+    seen_runs: set[uuid.UUID] = set()
+    for decision in run_repo.iter_optimizer_decisions(portfolio_id):
+        # Only a run's newest proposal counts, matching latest_optimizer_weights.
+        if decision.run_id in seen_runs:
+            continue
+        seen_runs.add(decision.run_id)
+        weights: dict[str, float] = run_repo.decode_weights(decision)
         if weights:
             return weights
     return {}
 
 
-def _metrics_from_runs(runs: list[Any]) -> dict[str, float]:
+def _latest_optimizer_metrics(
+    run_repo: Any, portfolio_id: uuid.UUID
+) -> dict[str, float]:
     """Best-effort metrics from the newest allocator ``optimize_portfolio`` decision.
 
-    ``run.decisions`` is ordered ``decision_index`` ASC, so iterate it reversed to
-    take the *newest* allocator proposal within a run — aligning the metrics source
-    with ``AgentRunRepository.latest_optimizer_weights`` (which feeds ``target``) so
-    the state panel never shows fresh weights beside a stale run's metrics.
+    Walks proposals newest run first and newest decision first within a run, aligning
+    the metrics source with :meth:`AgentRunRepository.latest_optimizer_weights` (which
+    feeds ``target``) so the state panel never shows fresh weights beside a stale
+    run's metrics.
     """
-    for run in runs:
-        for decision in reversed(run.decisions):
-            if decision.agent == "allocator" and decision.step == "optimize_portfolio":
-                metrics = _metrics_from_response(decision.llm_response)
-                if metrics:
-                    return metrics
+    for decision in run_repo.iter_optimizer_decisions(portfolio_id):
+        metrics = _metrics_from_response(decision.llm_response)
+        if metrics:
+            return metrics
     return {}
 
 

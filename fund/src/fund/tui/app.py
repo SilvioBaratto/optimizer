@@ -1477,7 +1477,7 @@ class ShellApp(App[None]):
                     # Risk evaluates the run's authoritative allocation; pair its bounds
                     # with the SAME newest allocator proposal those weights came from
                     # (decisions are decision_index ASC, so scan reversed — mirrors
-                    # ``observe._metrics_from_runs``).
+                    # ``observe._latest_optimizer_metrics``).
                     constraint_set = next(
                         (
                             d.constraint_set
@@ -2086,7 +2086,7 @@ class ShellApp(App[None]):
             return "✓ idle"
         try:
             with self._session_factory() as session:
-                runs = observe.list_portfolio_runs(session, self._portfolio_id)
+                runs = observe.list_portfolio_runs(session, self._portfolio_id, limit=1)
                 session.rollback()
         except Exception:
             return "✓ idle"

@@ -11,13 +11,19 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from portopt_db.models import AgentDecision, AgentRun
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
+
+_T = TypeVar("_T")
+
+# Rows fetched per round trip when a caller streams a history and usually stops
+# after the first few.
+_STREAM_BATCH = 20
 
 
 class AgentRunRepository(RepositoryBase):
@@ -232,14 +238,83 @@ class AgentRunRepository(RepositoryBase):
         """Return the run by id, or ``None``."""
         return self.session.get(AgentRun, run_id)
 
-    def list_runs_for_portfolio(self, portfolio_id: uuid.UUID) -> list[AgentRun]:
-        """All runs for a portfolio, newest first."""
-        stmt = (
-            select(AgentRun)
-            .where(AgentRun.portfolio_id == portfolio_id)
-            .order_by(AgentRun.created_at.desc())
-        )
+    def list_runs_for_portfolio(
+        self,
+        portfolio_id: uuid.UUID,
+        *,
+        since: date | None = None,
+        limit: int | None = None,
+    ) -> list[AgentRun]:
+        """Runs for a portfolio, newest first.
+
+        Args:
+            portfolio_id: Owning portfolio.
+            since: Keep only runs whose ``asof`` is on or after this date.
+            limit: Maximum rows to return; ``None`` returns the full history.
+
+        Returns:
+            The matching runs, ordered by ``created_at`` descending. Decisions are
+            not loaded; read them per run when a caller needs them.
+        """
+        stmt = select(AgentRun).where(AgentRun.portfolio_id == portfolio_id)
+        if since is not None:
+            stmt = stmt.where(AgentRun.asof >= since)
+        stmt = stmt.order_by(AgentRun.created_at.desc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
         return list(self.session.execute(stmt).scalars().all())
+
+    def iter_runs_for_portfolio(
+        self, portfolio_id: uuid.UUID, *, status: str | None = None
+    ) -> Iterator[AgentRun]:
+        """Stream a portfolio's runs newest first so a caller can stop early.
+
+        Args:
+            portfolio_id: Owning portfolio.
+            status: Keep only runs in this status (e.g. ``"completed"``).
+
+        Yields:
+            Runs ordered by ``created_at`` descending, fetched in batches. Closing
+            the iterator early releases the cursor without reading the tail.
+        """
+        stmt = select(AgentRun).where(AgentRun.portfolio_id == portfolio_id)
+        if status is not None:
+            stmt = stmt.where(AgentRun.status == status)
+        yield from self._stream(stmt.order_by(AgentRun.created_at.desc()))
+
+    def iter_optimizer_decisions(
+        self, portfolio_id: uuid.UUID
+    ) -> Iterator[AgentDecision]:
+        """Stream the allocator ``optimize_portfolio`` decisions, newest first.
+
+        Spans every run of the portfolio in one query, so the observers can find the
+        latest proposal without a per-run lookup.
+
+        Args:
+            portfolio_id: Owning portfolio.
+
+        Yields:
+            Decisions ordered newest run first, then ``decision_index`` descending
+            within a run, fetched in batches.
+        """
+        stmt = (
+            select(AgentDecision)
+            .join(AgentRun, AgentDecision.run_id == AgentRun.id)
+            .where(
+                AgentRun.portfolio_id == portfolio_id,
+                AgentDecision.agent == "allocator",
+                AgentDecision.step == "optimize_portfolio",
+            )
+            .order_by(AgentRun.created_at.desc(), AgentDecision.decision_index.desc())
+        )
+        yield from self._stream(stmt)
+
+    def _stream(self, stmt: Select[tuple[_T]]) -> Iterator[_T]:
+        result = self.session.execute(stmt.execution_options(yield_per=_STREAM_BATCH))
+        try:
+            yield from result.scalars()
+        finally:
+            result.close()
 
     def list_portfolio_ids(self) -> list[uuid.UUID]:
         """Distinct non-null portfolio ids that have at least one run.

@@ -1101,6 +1101,35 @@ async def test_posture_empty_portfolio_shows_profile_hint(shell_env) -> None:
 
 
 @pytest.mark.asyncio
+async def test_posture_poll_reads_only_the_latest_run(shell_env, monkeypatch) -> None:
+    # The roster, the focused detail and the header glyph each need only the newest
+    # run's status, so a 2s tick must not load a portfolio's whole run history.
+    with shell_env.get_session() as session:
+        for seed in range(3):
+            _seed_run(session, _PID_A, seed=seed)
+        session.commit()
+
+    rows_read: list[int] = []
+    real = observe.list_portfolio_runs
+
+    def spy(session, portfolio_id, **kwargs):
+        runs = real(session, portfolio_id, **kwargs)
+        rows_read.append(len(runs))
+        return runs
+
+    monkeypatch.setattr(observe, "list_portfolio_runs", spy)
+
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_posture(app, pilot)
+        assert "ACTIVE RUN" in view.detail_text
+        assert app._run_state_glyph() == "▶ running"
+
+    assert rows_read
+    assert max(rows_read) == 1
+
+
+@pytest.mark.asyncio
 async def test_posture_roster_selection_focuses_and_reveals_detail(shell_env) -> None:
     # Selecting a roster row sets the header context (focuses that portfolio) and
     # reveals its detail — proving the launchpad wiring through the shell seam.

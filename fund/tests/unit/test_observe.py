@@ -44,6 +44,7 @@ from portopt_db.repositories.market_data.market_journal_repository import (
 from portopt_db.repositories.orders.portfolio_journal_repository import (
     PortfolioJournalRepository,
 )
+from sqlalchemy import event
 
 from fund import observe
 from fund.audit.mandate_repository import MandateRepository
@@ -170,6 +171,27 @@ def test_drift_l1_handles_empty_sides():
     assert observe.drift_l1({"AAA": 0.3}, {}) == 0.3
 
 
+def _capture_sql(session: Any):
+    """Context manager collecting every SQL statement the session's connection runs."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _cm():
+        statements: list[str] = []
+
+        def _record(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        bind = session.get_bind()
+        event.listen(bind, "before_cursor_execute", _record)
+        try:
+            yield statements
+        finally:
+            event.remove(bind, "before_cursor_execute", _record)
+
+    return _cm()
+
+
 # --- list_portfolio_runs ----------------------------------------------------
 
 
@@ -199,6 +221,45 @@ def test_list_portfolio_runs_newest_first_with_awaiting_hitl(db_session):
     assert completed.awaiting_hitl is False
     assert completed.n_weights == 1
     assert completed.finished_at == older.finished_at
+
+
+def test_list_portfolio_runs_does_not_load_agent_decisions(db_session):
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+    AgentRunRepository(db_session).append_decision(
+        run.id, agent="allocator", step="optimize_portfolio", llm_response="{}"
+    )
+    db_session.expunge_all()
+
+    with _capture_sql(db_session) as statements:
+        summaries = observe.list_portfolio_runs(db_session, _PID)
+
+    assert len(summaries) == 1
+    assert not [s for s in statements if "agent_decisions" in s]
+
+
+def test_list_portfolio_runs_limit_keeps_only_the_newest(db_session):
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 1, 10, tzinfo=UTC),
+    )
+    newest = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="paused",
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+
+    summaries = observe.list_portfolio_runs(db_session, _PID, limit=1)
+
+    assert [s.run_id for s in summaries] == [newest.id]
 
 
 def test_list_portfolio_runs_empty_for_unknown_portfolio(db_session):
@@ -506,6 +567,33 @@ def test_portfolio_state_reads_best_effort_metrics_when_present(db_session):
     state = observe.portfolio_state(db_session, _PID)
 
     assert state.metrics == {"sharpe": 1.2, "vol": 0.18}
+
+
+def _portfolio_state_statement_count(db_session, n_runs: int) -> int:
+    """SQL statements ``portfolio_state`` issues over ``n_runs`` proposal-less runs."""
+    pid = uuid.uuid4()
+    for i in range(n_runs):
+        run = _make_run(
+            db_session,
+            portfolio_id=pid,
+            status="paused",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=i),
+        )
+        AgentRunRepository(db_session).append_decision(
+            run.id, agent="pm", step="note", llm_response="x"
+        )
+    db_session.expunge_all()
+
+    with _capture_sql(db_session) as statements:
+        observe.portfolio_state(db_session, pid)
+    return len(statements)
+
+
+def test_portfolio_state_query_count_does_not_grow_with_run_history(db_session):
+    few = _portfolio_state_statement_count(db_session, 3)
+    many = _portfolio_state_statement_count(db_session, 12)
+
+    assert many == few
 
 
 def test_portfolio_state_empty_portfolio(db_session):

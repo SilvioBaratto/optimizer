@@ -81,8 +81,7 @@ def get_portfolio_history(
 
     runs = [
         {"asof": run.asof.isoformat(), "status": run.status, "weights": run.weights}
-        for run in AgentRunRepository(session).list_runs_for_portfolio(pid)
-        if run.asof >= since
+        for run in AgentRunRepository(session).list_runs_for_portfolio(pid, since=since)
     ]
 
     orders = [

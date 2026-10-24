@@ -14,6 +14,7 @@ import uuid
 from portopt_db.repositories.orders.portfolio_journal_repository import (
     PortfolioJournalRepository,
 )
+from sqlalchemy import event
 
 from fund.audit import AgentRunRepository, OrderRepository, PositionRepository
 from fund.tools.history import get_portfolio_history
@@ -104,3 +105,32 @@ class TestGetPortfolioHistory:
 
         assert result["ok"] is True
         assert result["data"]["portfolio_id"] == str(_PID)
+
+    def test_lookback_is_pushed_into_the_runs_query(self, db_session) -> None:
+        """Stale runs are excluded by the SQL ``asof`` predicate, not after loading."""
+        runs = AgentRunRepository(db_session)
+        for asof in (dt.date(2022, 1, 3), dt.date(2024, 1, 20)):
+            run = runs.create_run(
+                portfolio_id=_PID,
+                asof=asof,
+                seed=1,
+                universe=["AAA"],
+                optimizer_config={},
+            )
+            runs.finalize_run(run.id, weights={"AAA": 1.0})
+        statements: list[str] = []
+
+        def _record(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        bind = db_session.get_bind()
+        event.listen(bind, "before_cursor_execute", _record)
+        try:
+            result = get_portfolio_history(db_session, _PID, _ASOF, lookback=90)
+        finally:
+            event.remove(bind, "before_cursor_execute", _record)
+
+        assert [r["asof"] for r in result["data"]["runs"]] == ["2024-01-20"]
+        run_selects = [s for s in statements if "FROM agent_runs" in s]
+        assert run_selects
+        assert all("agent_runs.asof >=" in s for s in run_selects)

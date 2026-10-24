@@ -9,7 +9,8 @@ own — the caller injects one (sync).
 
 from __future__ import annotations
 
-from datetime import date
+import uuid
+from datetime import UTC, date, datetime
 
 from portopt_db.models import AgentDecision, AgentRun
 
@@ -270,3 +271,78 @@ def test_list_paused_runs_includes_responded_but_not_terminal(db_session):
     assert paused.id in ids
     assert responded.id in ids
     assert done.id not in ids
+
+
+# --- bounded / streamed reads (the polled observe path) ----------------------
+
+_PID = uuid.UUID("aaaa2222-0000-4000-8000-000000000002")
+
+
+def _run_at(session, created_at, *, asof=date(2026, 1, 2), status="pending", pid=_PID):
+    """Insert a run with an explicit ``created_at`` so newest-first is deterministic."""
+    run = AgentRun(
+        portfolio_id=pid,
+        asof=asof,
+        universe=["AAA"],
+        optimizer_config={},
+        status=status,
+        created_at=created_at,
+    )
+    session.add(run)
+    session.flush()
+    return run
+
+
+def test_list_runs_for_portfolio_since_filters_on_asof_in_sql(db_session):
+    repo = AgentRunRepository(db_session)
+    _run_at(db_session, datetime(2026, 1, 3, tzinfo=UTC), asof=date(2026, 1, 2))
+    recent = _run_at(
+        db_session, datetime(2026, 2, 3, tzinfo=UTC), asof=date(2026, 2, 2)
+    )
+
+    runs = repo.list_runs_for_portfolio(_PID, since=date(2026, 2, 1))
+
+    assert [r.id for r in runs] == [recent.id]
+
+
+def test_list_runs_for_portfolio_limit_keeps_the_newest(db_session):
+    repo = AgentRunRepository(db_session)
+    _run_at(db_session, datetime(2026, 1, 3, tzinfo=UTC))
+    newest = _run_at(db_session, datetime(2026, 2, 3, tzinfo=UTC))
+
+    runs = repo.list_runs_for_portfolio(_PID, limit=1)
+
+    assert [r.id for r in runs] == [newest.id]
+
+
+def test_iter_runs_for_portfolio_streams_newest_first_and_filters_status(db_session):
+    repo = AgentRunRepository(db_session)
+    _run_at(db_session, datetime(2026, 1, 3, tzinfo=UTC), status="completed")
+    paused = _run_at(db_session, datetime(2026, 2, 3, tzinfo=UTC), status="paused")
+    newest_done = _run_at(
+        db_session, datetime(2026, 3, 3, tzinfo=UTC), status="completed"
+    )
+
+    everything = [r.id for r in repo.iter_runs_for_portfolio(_PID)]
+    completed = [r.id for r in repo.iter_runs_for_portfolio(_PID, status="completed")]
+
+    assert everything[:2] == [newest_done.id, paused.id]
+    assert len(everything) == 3
+    assert completed[0] == newest_done.id
+    assert paused.id not in completed
+
+
+def test_iter_optimizer_decisions_is_newest_run_then_newest_decision_first(db_session):
+    repo = AgentRunRepository(db_session)
+    older = _run_at(db_session, datetime(2026, 1, 3, tzinfo=UTC))
+    newer = _run_at(db_session, datetime(2026, 2, 3, tzinfo=UTC))
+    other = _run_at(db_session, datetime(2026, 3, 3, tzinfo=UTC), pid=uuid.uuid4())
+    repo.append_decision(older.id, agent="allocator", step="optimize_portfolio")
+    repo.append_decision(newer.id, agent="allocator", step="optimize_portfolio")
+    repo.append_decision(newer.id, agent="risk", step="risk_check")
+    repo.append_decision(newer.id, agent="allocator", step="optimize_portfolio")
+    repo.append_decision(other.id, agent="allocator", step="optimize_portfolio")
+
+    got = [(d.run_id, d.decision_index) for d in repo.iter_optimizer_decisions(_PID)]
+
+    assert got == [(newer.id, 2), (newer.id, 0), (older.id, 0)]

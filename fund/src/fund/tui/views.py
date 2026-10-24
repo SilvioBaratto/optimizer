@@ -737,7 +737,7 @@ class PostureView(ShellView):
         return "❄ FROZEN" if posture == AutonomyState.FROZEN.value else "● ARMED"
 
     def _roster_row(self, session: Session, pid: uuid.UUID) -> _RosterRow:
-        runs = observe.list_portfolio_runs(session, pid)
+        runs = observe.list_portfolio_runs(session, pid, limit=1)
         status = runs[0].status if runs else None
         mandate = observe.get_mandate(session, pid)
         threshold = mandate.drift_l1_threshold if mandate is not None else None
@@ -796,7 +796,7 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
     from ``observe.performance_summary``; a run-but-unmarked portfolio degrades to a
     ``no marks yet`` line rather than a fabricated figure.
     """
-    runs = observe.list_portfolio_runs(session, pid)
+    runs = observe.list_portfolio_runs(session, pid, limit=1)
     if not runs:
         return f"portfolio {_short(pid)}\nno runs yet · p profile to start"
     latest = runs[0]

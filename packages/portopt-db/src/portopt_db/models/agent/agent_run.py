@@ -73,10 +73,12 @@ class AgentRun(BaseModel):
     # LangGraph checkpointer thread id; defaults to ``str(run_id)``. Nullable — legacy rows predate per-run threading.
     thread_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Lazy on purpose: every run query on the TUI's 2s poll path would otherwise
+    # drag each run's full decision trail (JSONB + LLM text) along with it.
     decisions: Mapped[list[AgentDecision]] = relationship(
         back_populates="run",
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="select",
         order_by="AgentDecision.decision_index",
     )
 
