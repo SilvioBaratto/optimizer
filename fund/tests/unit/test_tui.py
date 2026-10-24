@@ -6808,6 +6808,61 @@ async def test_daily_brief_export_reports_oserror(
         assert not list(tmp_path.glob("daily-brief-*.md"))
 
 
+_MULTI_PARAGRAPH_READ = (
+    "Risk-on into CPI; the tech tilt helped.\n"
+    "\n"
+    "# Outlook\n"
+    "- equities up\n"
+    "- duration short"
+)
+
+
+def _section(text: str, start: str, end: str) -> list[str]:
+    """The lines strictly between the heading lines that begin ``start`` and ``end``."""
+    lines = text.splitlines()
+    first = next(i for i, line in enumerate(lines) if line.startswith(start))
+    last = next(i for i, line in enumerate(lines) if line.startswith(end))
+    return lines[first + 1 : last]
+
+
+def test_daily_brief_markdown_quotes_every_line_of_a_multi_paragraph_read() -> None:
+    """Each line of the economist read stays inside the blockquote, blanks included."""
+    from fund.tui.views import _render_brief_markdown
+
+    brief = dataclasses.replace(
+        _full_brief(_PID_A), economist_read=_MULTI_PARAGRAPH_READ
+    )
+    quote = [
+        line
+        for line in _section(
+            _render_brief_markdown(brief), "## Economist read", "## Fund did"
+        )
+        if line  # the single blank line that ends the section
+    ]
+
+    assert all(line.startswith(">") for line in quote)  # none escapes to a heading
+    assert "> # Outlook" in quote and "> - equities up" in quote
+    assert quote[-1] == "> (from 10-03)"  # the carried-forward date tags the whole read
+
+
+def test_daily_brief_pane_indents_every_line_of_a_multi_paragraph_read() -> None:
+    """The on-screen read is indented as a block, not just on its first line."""
+    from fund.tui.views import _render_brief_detail
+
+    brief = dataclasses.replace(
+        _full_brief(_PID_A), economist_read=_MULTI_PARAGRAPH_READ
+    )
+    rows = [
+        row
+        for row in _section(_render_brief_detail(brief), "ECONOMIST READ", "FUND DID")
+        if row
+    ]
+
+    assert all(row.startswith("  ") for row in rows)
+    assert rows[0] == '  "Risk-on into CPI; the tech tilt helped.'
+    assert rows[-1] == '  - duration short" (from 10-03)'
+
+
 def test_daily_brief_status_tiers_carry_labels() -> None:
     """Every P&L tier is (dot, label) with a word, so direction never rides on colour.
 

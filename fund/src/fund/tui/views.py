@@ -2281,7 +2281,11 @@ def _brief_economist_lines(brief: DailyBrief) -> list[str]:
     """Render the economist read, dated ``(from MM-DD)`` when carried forward."""
     if brief.economist_read is None:
         return [_NO_DATA]
-    return [f'  "{brief.economist_read.strip()}"{_carried_suffix(brief)}']
+    # The read is multi-paragraph LLM prose: indent every row so it stays one block.
+    rows = brief.economist_read.strip().splitlines() or [""]
+    rows[0] = f'"{rows[0]}'
+    rows[-1] = f'{rows[-1]}"{_carried_suffix(brief)}'
+    return [f"  {row}" if row else "" for row in rows]
 
 
 def _render_brief_markdown(brief: DailyBrief) -> str:
@@ -2334,7 +2338,14 @@ def _brief_markdown_economist(brief: DailyBrief) -> list[str]:
     """Render the economist read as a dated markdown blockquote."""
     if brief.economist_read is None:
         return ["_no data_"]
-    return [f"> {brief.economist_read.strip()}{_carried_suffix(brief)}"]
+    # Quote every line, blanks included: a bare line would end the blockquote and let
+    # a later "#" or "-" in the prose become a real heading or bullet of the export.
+    rows = brief.economist_read.strip().splitlines() or [""]
+    quote = [f"> {row}" if row else ">" for row in rows]
+    carried = _carried_suffix(brief).strip()
+    if carried:
+        quote.append(f"> {carried}")
+    return quote
 
 
 # Performance P&L direction as (dot, label) — the word travels with the glyph so a
