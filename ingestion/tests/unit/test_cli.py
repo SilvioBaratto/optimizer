@@ -15,17 +15,24 @@ database. What is asserted is the contract the shell drivers depend on:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 from datetime import date
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import typer.main
 from typer.testing import CliRunner
 
 from app.cli import app
 
 runner = CliRunner()
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_LIFECYCLE_COMMANDS = frozenset({"setup", "start", "stop", "status"})
 
 SCHED = "app.services.jobs.scheduler"
 
@@ -746,3 +753,83 @@ class TestCredentialRedactionInLogs:
 
         assert "api_key=***" in caplog.text
         assert leaked not in caplog.text
+
+
+def _registered_commands() -> set[str]:
+    return set(typer.main.get_command(app).commands)  # type: ignore[attr-defined]
+
+
+_INVOCATION = re.compile(r"app\.cli ([a-z][a-z-]*)")
+_COMMAND_TOKEN = re.compile(r"[a-z][a-z-]*")
+
+
+def _documented_commands(doc: Path) -> set[str]:
+    """Collect the CLI commands a doc advertises, in any of the forms it uses.
+
+    Covers ``python -m app.cli <cmd>`` invocations, ``# also: a | b`` summary
+    comments, and the backticked list under "Full CLI surface". A trailing
+    parenthetical (``(there is NO ...)``) is prose, not a command list.
+    """
+    text = doc.read_text(encoding="utf-8")
+    found = set(_INVOCATION.findall(text))
+    for line in text.splitlines():
+        match = re.match(r"#\s*(?:also|lifecycle):\s*(.+)", line)
+        if match:
+            summary = match.group(1).split("(", 1)[0]
+            found |= {
+                token.strip()
+                for token in summary.split("|")
+                if _COMMAND_TOKEN.fullmatch(token.strip())
+            }
+    surface = re.search(r"Full CLI surface.*?\n\n", text, flags=re.DOTALL)
+    if surface:
+        found |= {
+            token
+            for token in re.findall(r"`([^`]+)`", surface.group(0))
+            if _COMMAND_TOKEN.fullmatch(token)
+        }
+    return found
+
+
+_DOCS = [
+    pytest.param(_REPO_ROOT / "README.md", id="README.md"),
+    pytest.param(_REPO_ROOT / "CLAUDE.md", id="CLAUDE.md"),
+    pytest.param(_REPO_ROOT / "ingestion" / "README.md", id="ingestion-README.md"),
+]
+
+
+class TestCliSurfaceMatchesTooling:
+    """Launch configs and docs name only commands the Typer app registers."""
+
+    def test_vscode_launch_configs_run_only_registered_commands(self) -> None:
+        raw = (_REPO_ROOT / ".vscode" / "launch.json").read_text(encoding="utf-8")
+        configs = json.loads(re.sub(r"(?m)^\s*//.*$", "", raw))["configurations"]
+        registered = _registered_commands()
+
+        launched = {
+            cfg["name"]: cfg["args"][0]
+            for cfg in configs
+            if cfg.get("module") == "app.cli"
+        }
+
+        assert launched, "launch.json no longer has any app.cli configuration"
+        dead = {name: cmd for name, cmd in launched.items() if cmd not in registered}
+        assert not dead, f"launch configs run unregistered CLI commands: {dead}"
+
+    @pytest.mark.parametrize("doc", _DOCS)
+    def test_docs_advertise_only_registered_commands(self, doc: Path) -> None:
+        dead = _documented_commands(doc) - _registered_commands()
+
+        assert not dead, f"{doc.name} advertises unregistered commands: {dead}"
+
+    @pytest.mark.parametrize("doc", _DOCS)
+    def test_docs_mention_every_registered_command(self, doc: Path) -> None:
+        required = _registered_commands()
+        if doc.parent.name == "ingestion":
+            # The manual-run list drives `docker compose exec scheduler`; the
+            # lifecycle commands run on the host, not inside that container.
+            required -= _LIFECYCLE_COMMANDS
+
+        missing = required - _documented_commands(doc)
+
+        assert not missing, f"{doc.name} never mentions CLI commands: {missing}"

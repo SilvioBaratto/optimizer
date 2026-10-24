@@ -64,7 +64,7 @@ uv run --package portopt-fund python -m fund.worker # Drift-monitor daemon (fund
 docker compose exec scheduler python -m app.cli daily
 docker compose exec scheduler python -m app.cli refetch-all
 docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
-# also: universe | macro | fred | news | market-structure | calendars | market-summary | options
+# also: universe | macro | fx | fred | news | market-structure | calendars | market-summary | options | daily-events (--backfill START:END)
 # lifecycle: setup | start | stop | status   (there is NO `reference-indices` command)
 
 # Fund CLI (package portopt-fund)

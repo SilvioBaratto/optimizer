@@ -57,12 +57,15 @@ docker compose exec scheduler python -m app.cli refetch-all
 docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
 docker compose exec scheduler python -m app.cli universe
 docker compose exec scheduler python -m app.cli macro
+docker compose exec scheduler python -m app.cli fx
 docker compose exec scheduler python -m app.cli fred
 docker compose exec scheduler python -m app.cli news
 docker compose exec scheduler python -m app.cli market-structure
 docker compose exec scheduler python -m app.cli calendars
 docker compose exec scheduler python -m app.cli market-summary
 docker compose exec scheduler python -m app.cli options
+docker compose exec scheduler python -m app.cli daily-events
+docker compose exec scheduler python -m app.cli daily-events --backfill 2026-01-01:2026-09-30
 ```
 
 Single-step commands exit non-zero when the step did not complete, so shell drivers can gate
