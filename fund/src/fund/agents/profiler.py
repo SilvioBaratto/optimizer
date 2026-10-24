@@ -787,6 +787,20 @@ def _persist_profile(
     }
 
 
+def _profiler_run_config(base_currency: str | None) -> dict[str, Any]:
+    """The ``agent_runs.optimizer_config`` of a profiler run.
+
+    ``step`` lets the resume dispatcher tell a profiler run from a fund run. The
+    ``base_currency`` override is recorded because the mapping is re-derived at
+    approval time in a fresh process, which must reproduce the ConstraintSet the
+    adviser reviewed rather than fall back to the extracted currency.
+    """
+    config: dict[str, Any] = {"step": "profiler"}
+    if base_currency is not None:
+        config["base_currency"] = base_currency
+    return config
+
+
 def _make_save_profile(
     *,
     session: Session,
@@ -979,7 +993,7 @@ def run_profiler(
         asof=run_asof,
         seed=None,
         universe=[],
-        optimizer_config={"step": "profiler"},
+        optimizer_config=_profiler_run_config(base_currency),
     )
     # Scoped to the run (not the portfolio) so the rebuild-to-resume path can
     # recover the exact transcript for a specific profiling attempt. Persisted on
@@ -1105,7 +1119,8 @@ def resume_profiler(
     audit trail: the ``normalize_answers`` decision carries the typed
     ``MiFIDAnswers`` as JSON, and :func:`run_mapping` is a *pure* function of those
     answers, so the ``ConstraintSet`` + ``SuitabilityAssessment`` are re-derived
-    deterministically (they are never persisted before the gate). On approve the
+    deterministically (they are never persisted before the gate), applying the
+    ``base_currency`` override recorded on the run. On approve the
     gated ``save_profile`` executes inside the graph — writing the ``mifid_profiles``
     row, caching the active ``ConstraintSet`` in the Store, and finalising the run
     ``completed``; on reject nothing is written and the run is finalised ``rejected``
@@ -1151,7 +1166,11 @@ def resume_profiler(
         )
     answers = MiFIDAnswers.model_validate_json(answers_json)
     pid_str = str(run.portfolio_id)
-    constraint_set, suitability = run_mapping(answers, portfolio_id=pid_str)
+    constraint_set, suitability = run_mapping(
+        answers,
+        portfolio_id=pid_str,
+        base_currency=(run.optimizer_config or {}).get("base_currency"),
+    )
 
     save_profile = _make_save_profile(
         session=session,

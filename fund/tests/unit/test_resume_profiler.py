@@ -190,6 +190,41 @@ def test_resume_profiler_reconstructs_constraint_set_from_audit(db_session) -> N
     assert active.constraint_set == original_cs
 
 
+def test_resume_profiler_keeps_the_base_currency_override_the_adviser_reviewed(
+    db_session,
+) -> None:
+    pid = uuid.uuid4()
+    saver, store = MemorySaver(), InMemoryStore()
+
+    run = run_profiler(
+        make_model(make_answers(currency="EUR"), portfolio_id=str(pid)),
+        _MESSAGES,
+        portfolio_id=pid,
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        base_currency="USD",
+    )
+    assert run.constraint_set.base_currency == "USD"
+    # The gate names the overridden currency, so approving it is a reviewed choice.
+    assert "base currency USD" in run.interrupt["action_requests"][0]["description"]
+
+    resume_profiler(
+        run.run_id,
+        "approve",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=_resume_model(),
+    )
+
+    db_session.commit()  # the Store cache follows the row's commit
+    active = MifidProfileRepository(db_session).get_active(pid)
+    assert active.constraint_set["base_currency"] == "USD"
+    cached = store.get((str(pid),), settings.constraint_set_store_key)
+    assert cached.value["base_currency"] == "USD"
+
+
 # --- parity: ProfilerRun.resume and resume_profiler leave identical state ----
 
 
