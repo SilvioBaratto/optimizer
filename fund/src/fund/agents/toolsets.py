@@ -483,6 +483,21 @@ def _risk_check_impl(ctx: RunContext) -> ToolResult:
     return result
 
 
+def mandate_bounds(ctx: RunContext) -> dict[str, Any] | None:
+    """The long-only bounds ``risk_check`` enforces for the run's portfolio.
+
+    The same box (budget, per-asset floor and the cap tightened by the K&E position
+    limit) the risk gate applies, for a caller outside the agent loop that has to
+    reason about headroom against it.
+
+    Returns:
+        ``min_weights`` / ``max_weights`` / ``budget``, or ``None`` when the portfolio
+        has no active ``ConstraintSet`` (the default 0..1 box then applies).
+    """
+    cs = _resolve_constraint_set(ctx)
+    return _bounds_args(cs) if cs is not None else None
+
+
 def check_weights_against_mandate(
     ctx: RunContext, weights: dict[str, float]
 ) -> ToolResult:

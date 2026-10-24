@@ -1615,6 +1615,103 @@ def test_edit_applies_the_portfolio_constraint_set_bounds(paused_env) -> None:
         assert HumanAuditLogRepository(session).list_recent(action="edit") == []
 
 
+def test_edit_absorbs_the_rounding_of_a_four_decimal_weight_set(paused_env) -> None:
+    """The shell edits weights at 4 decimals, so a book that is economically fully
+    invested (a third each) sums to 0.9999. That rounding must not bounce the edit;
+    the book that is ticketed and audited is the one rescaled to the budget."""
+    env = paused_env
+    with env.get_session() as session:
+        _edit(env, session, {"AAA": 0.3333, "BBB": 0.3333, "CCC": 0.3333})
+        session.commit()
+
+    with env.get_session() as session:
+        order = session.query(PaperOrder).one()
+        assert sum(order.weights.values()) == pytest.approx(1.0, abs=1e-12)
+        assert order.weights == pytest.approx(
+            {"AAA": 1 / 3, "BBB": 1 / 3, "CCC": 1 / 3}
+        )
+        row = HumanAuditLogRepository(session).list_recent(action="edit")[0]
+        assert row.new_value == order.weights
+
+
+def test_edit_absorbs_rounding_without_pushing_a_capped_name_over_its_cap(
+    paused_env,
+) -> None:
+    """A name sitting exactly at the ConstraintSet cap cannot take its share of the
+    rounding shortfall: the residual goes to the names with headroom instead of
+    scaling the capped one past its bound and bouncing an economically valid book."""
+    env = paused_env
+    capped = make_constraint_set().model_copy(
+        update={"bounds": Bounds(max_weights=0.5)}
+    )
+    put_constraint_set(env.store, capped, store_key=settings.constraint_set_store_key)
+
+    typed = {"AAA": 0.5, "BBB": 0.25, "CCC": 0.2499}
+    with env.get_session() as session:
+        _edit(env, session, typed)
+        session.commit()
+
+    with env.get_session() as session:
+        order = session.query(PaperOrder).one()
+        assert order.weights["AAA"] == 0.5
+        assert sum(order.weights.values()) == pytest.approx(1.0, abs=1e-12)
+        for ticker, weight in typed.items():
+            assert abs(order.weights[ticker] - weight) <= 5e-5 + 1e-12
+
+
+def test_edit_absorbs_rounding_by_at_most_half_a_display_step_per_name(
+    paused_env,
+) -> None:
+    """A big name must not drift by more than the 4-dp rounding the adviser could not
+    see: proportional rescaling would move a 0.9 holding by 9e-5."""
+    env = paused_env
+    typed = {"AAA": 0.9, "BBB": 0.0999, "CCC": 0.0}
+    with env.get_session() as session:
+        _edit(env, session, typed)
+        session.commit()
+
+    with env.get_session() as session:
+        order = session.query(PaperOrder).one()
+        assert sum(order.weights.values()) == pytest.approx(1.0, abs=1e-12)
+        assert order.weights["CCC"] == 0.0
+        for ticker, weight in typed.items():
+            assert abs(order.weights[ticker] - weight) <= 5e-5 + 1e-12
+
+
+def test_edit_refuses_a_shortfall_the_bounds_leave_no_headroom_to_absorb(
+    paused_env,
+) -> None:
+    """With the capped name unable to move and one name left to absorb, the shortfall
+    exceeds what rounding can explain; the real book is refused, not silently bent."""
+    env = paused_env
+    capped = make_constraint_set().model_copy(
+        update={"bounds": Bounds(max_weights=0.5)}
+    )
+    put_constraint_set(env.store, capped, store_key=settings.constraint_set_store_key)
+
+    with env.get_session() as session:
+        with pytest.raises(ValueError, match="budget"):
+            _edit(env, session, {"AAA": 0.5, "BBB": 0.4999})
+        session.rollback()
+
+    with env.get_session() as session:
+        assert session.query(PaperOrder).count() == 0
+
+
+def test_edit_still_rejects_a_budget_shortfall_beyond_display_rounding(
+    paused_env,
+) -> None:
+    """Rounding slack is bounded by the 4-dp resolution; a real 0.3% hole is not it."""
+    env = paused_env
+    with env.get_session() as session:
+        with pytest.raises(ValueError, match="budget"):
+            _edit(env, session, {"AAA": 0.333, "BBB": 0.333, "CCC": 0.333})
+        session.rollback()
+
+    with env.get_session() as session:
+        assert session.query(PaperOrder).count() == 0
+
+
 # --- the idempotency key is claimed before the resume's side effects ---------------
 
 

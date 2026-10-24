@@ -59,6 +59,11 @@ MODEL_FREE_ACTIONS = frozenset({"reject", "killswitch"})
 # a terminal outcome (mirrors the guard in ``resume_fund``).
 _FINAL_STATUSES = ("completed", "rejected", "incomplete", "blocked", "failed")
 
+# Resolution of the weights the shell shows and the adviser edits (4 decimals).
+_EDIT_RESOLUTION = 1e-4
+# Float noise on the headroom comparison, so a residual exactly at capacity is absorbed.
+_ROUNDING_EPS = 1e-12
+
 # Past-tense verb per action, for the status line the shell reports.
 _PAST = {
     "approve": "approved",
@@ -484,14 +489,16 @@ def _apply_edit(
     ``{ticker: weight}`` the adviser typed) onto the tickers the run's allocator
     proposed (case/whitespace-insensitive; anything else is refused), validates it
     against the same gate the risk agent's ``risk_check`` applies (long-only /
-    fully-invested bounds, the K&E position cap, the ESG and instrument screen),
-    confirms every line can fill, then appends a fresh **allocator /
-    optimize_portfolio** decision carrying the edited weights and resumes through the
-    existing approve path. ``_place_orders_impl`` re-reads ``latest_optimizer_weights``
-    on resume, so that appended row is the single source every downstream record (the
-    paper ticket + ``weights_hash``, ``agent_runs.weights``, and the positions
-    snapshot) derives from — no graph change, no divergence. The audit row is stamped
-    ⚑ ``override_flag`` since the human overrode the optimizer's allocation.
+    fully-invested bounds, the K&E position cap, the ESG and instrument screen; a book
+    that misses the budget only by display rounding is nudged onto it first, see
+    :func:`_absorb_rounding`), confirms every line can fill, then appends a fresh
+    **allocator / optimize_portfolio** decision carrying the edited weights and resumes
+    through the existing approve path.
+    ``_place_orders_impl`` re-reads ``latest_optimizer_weights`` on resume, so that
+    appended row is the single source every downstream record (the paper ticket +
+    ``weights_hash``, ``agent_runs.weights``, and the positions snapshot) derives
+    from — no graph change, no divergence. The audit row is stamped ⚑
+    ``override_flag`` since the human overrode the optimizer's allocation.
 
     Raises:
         ValueError: ``run_id`` or ``new_value`` is missing, a ticker is outside the
@@ -501,7 +508,11 @@ def _apply_edit(
         LookupError: ``run_id`` names no run.
     """
     from fund.agents.graph import resume_run
-    from fund.agents.toolsets import RunContext, check_weights_against_mandate
+    from fund.agents.toolsets import (
+        RunContext,
+        check_weights_against_mandate,
+        mandate_bounds,
+    )
     from fund.audit.repository import AgentRunRepository
     from fund.tools.orders import fill_shortfalls
 
@@ -534,6 +545,7 @@ def _apply_edit(
         run_id=rid,
         portfolio_id=run.portfolio_id,
     )
+    edited = _absorb_rounding(edited, mandate_bounds(ctx))
     check = check_weights_against_mandate(ctx, edited)
     if not check.get("ok"):
         raise ValueError(f"'edit' rejected: {check.get('error')}")
@@ -592,6 +604,42 @@ def _apply_edit(
         message=resume_message(session, rid, "edit", result),
         detail=result,
     )
+
+
+def _absorb_rounding(
+    weights: dict[str, float], bounds: dict[str, float] | None
+) -> dict[str, float]:
+    """Spread a display-rounding residual over ``weights`` without breaching ``bounds``.
+
+    The shell shows and parses weights at :data:`_EDIT_RESOLUTION`, so a book that is
+    economically fully invested (a third each) comes back summing to 0.9999, which the
+    risk gate's 1e-6 budget tolerance would bounce. Each name is only known to within
+    half a step, so the residual is shared out in proportion to how far each held name
+    can move in the needed direction: at most half a step, never past its min/max
+    bound, and a name the adviser dropped stays dropped. A residual that headroom
+    cannot cover is a real hole in the book and is left for ``risk_check`` to refuse.
+    """
+    limits = bounds or {}
+    residual = limits.get("budget", 1.0) - sum(weights.values())
+    half_step = _EDIT_RESOLUTION / 2
+    if residual > 0:
+        ceiling = limits.get("max_weights", 1.0)
+        room = {
+            ticker: min(half_step, max(ceiling - weight, 0.0)) if weight > 0 else 0.0
+            for ticker, weight in weights.items()
+        }
+    else:
+        floor = limits.get("min_weights", 0.0)
+        room = {
+            ticker: min(half_step, max(weight - floor, 0.0))
+            for ticker, weight in weights.items()
+        }
+    capacity = sum(room.values())
+    # ``not 0 < ...`` also turns a NaN residual (a non-finite weight) away.
+    if capacity <= 0 or not 0 < abs(residual) <= capacity + _ROUNDING_EPS:
+        return weights
+    share = max(-1.0, min(1.0, residual / capacity))
+    return {ticker: weight + share * room[ticker] for ticker, weight in weights.items()}
 
 
 def _canonical_weights(new_value: Any, universe: set[str]) -> dict[str, float]:
