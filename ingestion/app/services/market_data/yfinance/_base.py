@@ -70,8 +70,8 @@ def fetch_with_resilience(
     request. yfinance already turns a 404 for a data module the symbol lacks
     into an empty result, so an empty result is Yahoo's answer rather than a
     lost request. That holds only while *action* raises transient faults;
-    sub-clients make yfinance's swallowed ones raise again (see
-    :meth:`BaseClient._fetch_with_resilience`).
+    callers make yfinance's swallowed ones raise again (see
+    :func:`fetch_with_fault_retry`).
 
     ``None`` is also what a request returns when every attempt failed, so the
     outcome is additionally recorded in the active
@@ -164,6 +164,90 @@ def fetch_with_resilience(
     return result
 
 
+def _drop_tainted(cache: CacheProtocol, watch: FaultWatch) -> None:
+    """Forget the tickers and cached responses a faulted call touched."""
+    for symbol in watch.symbols:
+        cache.delete(symbol)
+    forget_cached_responses()
+
+
+def fetch_with_fault_retry(
+    action: Callable[[], T],
+    retries: int,
+    *,
+    cache: CacheProtocol,
+    circuit_breaker: CircuitBreakerProtocol,
+    rate_limit_predicate: Callable[[Exception], bool] = is_rate_limit_error,
+    is_valid: Callable[[T], bool] | None = None,
+    raise_on_lost: bool = False,
+    on_attempt_failed: Callable[[], None] | None = None,
+) -> T | None:
+    """Run :func:`fetch_with_resilience`, retrying faults yfinance swallowed.
+
+    yfinance's default mode swallows rate limits and server errors into an
+    empty result and caches it on the ``yf.Ticker``. When *action* ends with a
+    result *is_valid* rejects after such a fault was seen, the fault is raised
+    again so the attempt is retried and rate limits trip the circuit breaker;
+    the tainted tickers are dropped from *cache* first. A usable result is kept
+    even if a side request failed on the way.
+
+    Callers must have called :func:`~.infrastructure.install_fault_witness` and
+    must report the symbols they touch through
+    :func:`~.infrastructure.note_ticker`.
+
+    Args:
+        action: Zero-argument callable performing one yfinance request.
+        retries: Attempt budget, including the first attempt.
+        cache: Ticker cache that holds the ``yf.Ticker`` objects *action* used.
+        circuit_breaker: Breaker checked before each attempt and tripped by
+            rate limits.
+        rate_limit_predicate: Recognises rate-limit errors that should trip
+            the breaker.
+        is_valid: Predicate a usable result must satisfy; a result it rejects
+            (typically an empty frame) is returned as ``None``.
+        raise_on_lost: Raise :class:`RequestLostError` when every attempt
+            failed instead of returning ``None``.
+        on_attempt_failed: Called after each failed attempt except Yahoo's
+            final no-data answers.
+
+    Returns:
+        The result of *action*, or ``None`` when Yahoo has no usable data or
+        every attempt failed (the latter only without *raise_on_lost*).
+
+    Raises:
+        RequestLostError: *raise_on_lost* is set and the last attempt failed.
+    """
+
+    def _watched() -> T:
+        with watch_for_faults() as watch:
+            try:
+                result = action()
+            except Exception as exc:
+                # yfinance flags a scraper as fetched before it requests, so
+                # a ticker reused after a failed attempt would answer the
+                # retry from empty state without asking Yahoo again. A no-data
+                # answer is final and costs nothing to remember, so only
+                # failures evict.
+                if watch.fault is not None or not is_no_data_error(exc):
+                    _drop_tainted(cache, watch)
+                raise
+        usable = result is not None and (is_valid is None or is_valid(result))
+        if watch.fault is not None and not usable:
+            _drop_tainted(cache, watch)
+            raise watch.fault
+        return result
+
+    return fetch_with_resilience(
+        _watched,
+        retries,
+        circuit_breaker=circuit_breaker,
+        rate_limit_predicate=rate_limit_predicate,
+        is_valid=is_valid,
+        raise_on_lost=raise_on_lost,
+        on_attempt_failed=on_attempt_failed,
+    )
+
+
 class BaseClient:
     """Shared infrastructure for ticker-based sub-clients."""
 
@@ -242,40 +326,15 @@ class BaseClient:
         Raises:
             RequestLostError: *raise_on_lost* is set and the last attempt failed.
         """
-
-        def _watched() -> T:
-            with watch_for_faults() as watch:
-                try:
-                    result = action()
-                except Exception as exc:
-                    # yfinance flags a scraper as fetched before it requests, so
-                    # a ticker reused after a failed attempt would answer the
-                    # retry from empty state without asking Yahoo again. A no-data
-                    # answer is final and costs nothing to remember, so only
-                    # failures evict.
-                    if watch.fault is not None or not is_no_data_error(exc):
-                        self._drop_tainted(watch)
-                    raise
-            usable = result is not None and (is_valid is None or is_valid(result))
-            if watch.fault is not None and not usable:
-                self._drop_tainted(watch)
-                raise watch.fault
-            return result
-
-        return fetch_with_resilience(
-            _watched,
+        return fetch_with_fault_retry(
+            action,
             max_retries if max_retries is not None else self.default_max_retries,
+            cache=self.cache,
             circuit_breaker=self.circuit_breaker,
             rate_limit_predicate=self._is_rate_limit_error,
             is_valid=is_valid,
             raise_on_lost=raise_on_lost,
         )
-
-    def _drop_tainted(self, watch: FaultWatch) -> None:
-        """Forget the tickers and cached responses a faulted call touched."""
-        for symbol in watch.symbols:
-            self.cache.delete(symbol)
-        forget_cached_responses()
 
     @staticmethod
     def _is_rate_limit_error(error: Exception) -> bool:

@@ -12,6 +12,7 @@ Tickers are mocks; ``yf.Ticker`` is never constructed against the network.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import threading
@@ -642,6 +643,81 @@ class TestFacadeHistory:
 
         assert out is not None and len(out) == 20
         assert ticker.history.call_count == 2
+
+
+class TestFacadeSwallowedFaults:
+    """The facade's own history and info calls retry faults yfinance swallows.
+
+    The scrapers catch a throttle or server error, return an empty result and
+    keep it on the ``Ticker``; only the witnessed request tells it from a 404.
+    """
+
+    _PROBE = "https://query2.finance.yahoo.com/v8/finance/chart/AAPL"
+    _ROWS = pd.DataFrame(
+        {"Close": range(1, 21)}, index=pd.date_range("2024-01-01", periods=20)
+    )
+
+    @staticmethod
+    def _swallowing(outcomes: list[Any], probe: str) -> Callable[..., Any]:
+        """Return a scraper stand-in that requests, swallows any error, then answers."""
+
+        def scraper(*_args: object, **_kwargs: object) -> Any:
+            with contextlib.suppress(YFRateLimitError):
+                YfData().get(probe)
+            return outcomes.pop(0)
+
+        return scraper
+
+    def test_empty_history_after_a_swallowed_server_error_is_retried(
+        self, client: YFinanceClient, yahoo: _FakeYahoo
+    ) -> None:
+        yahoo.handler = lambda: _Response(503)
+        ticker = MagicMock()
+        ticker.history.side_effect = self._swallowing(
+            [pd.DataFrame(), self._ROWS], self._PROBE
+        )
+
+        with patch.object(client, "get_ticker", return_value=ticker):
+            out = client.fetch_history("AAPL")
+
+        assert out is not None and len(out) == 20
+        assert ticker.history.call_count == 2
+
+    def test_empty_history_after_a_swallowed_rate_limit_trips_the_breaker(
+        self, client: YFinanceClient, yahoo: _FakeYahoo
+    ) -> None:
+        yahoo.handler = lambda: _Response(429)
+        ticker = MagicMock()
+        ticker.history.side_effect = self._swallowing([pd.DataFrame()] * 3, self._PROBE)
+
+        with patch.object(client, "get_ticker", return_value=ticker):
+            assert client.fetch_history("AAPL") is None
+
+        assert client.circuit_breaker.trigger.call_count == 3
+
+    def test_stub_info_after_a_swallowed_server_error_is_retried(
+        self, client: YFinanceClient, yahoo: _FakeYahoo
+    ) -> None:
+        yahoo.handler = lambda: _Response(503)
+        full = {f"field{n}": n for n in range(12)}
+        info = PropertyMock(side_effect=self._swallowing([{}, full], self._PROBE))
+
+        with patch.object(client, "get_ticker", return_value=_ticker_with(info=info)):
+            assert client.fetch_info("AAPL") == full
+
+        assert info.call_count == 2
+
+    def test_genuine_empty_history_is_still_final_when_requests_succeeded(
+        self, client: YFinanceClient, yahoo: _FakeYahoo
+    ) -> None:
+        yahoo.handler = lambda: _Response(200, {})
+        ticker = MagicMock()
+        ticker.history.side_effect = self._swallowing([pd.DataFrame()] * 3, self._PROBE)
+
+        with patch.object(client, "get_ticker", return_value=ticker):
+            assert client.fetch_history("AAPL") is None
+
+        assert ticker.history.call_count == 1
 
 
 class TestSettingsAndBoot:

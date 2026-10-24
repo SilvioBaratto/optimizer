@@ -10,14 +10,16 @@ import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
 
-from ._base import TICKER_REQUEST_KEY, fetch_with_resilience
+from ._base import TICKER_REQUEST_KEY, fetch_with_fault_retry
 from ._config import reapply_yfinance_log_level
 from .funds import FundsClient
 from .infrastructure import (
     CircuitBreaker,
     LRUCache,
     RateLimiter,
+    install_fault_witness,
     is_rate_limit_error,
+    note_ticker,
     retry_with_backoff,
 )
 from .market import CalendarsClient, MarketClient, SearchClient, SectorsClient
@@ -187,6 +189,7 @@ class YFinanceClient:
         self.rate_limiter = rate_limiter
         self.circuit_breaker = circuit_breaker
         self.default_max_retries = default_max_retries
+        install_fault_witness()
 
     def get_ticker(self, symbol: str) -> yf.Ticker:
         """Return a cached ``yf.Ticker``, creating one on cache miss.
@@ -197,6 +200,8 @@ class YFinanceClient:
         Args:
             symbol: The ticker symbol to look up (e.g. ``"AAPL"``).
         """
+        note_ticker(symbol)
+
         # Constructing a Ticker sends nothing, so pacing only the cache misses
         # would never space the requests that reuse a cached Ticker.
         self.rate_limiter.acquire(TICKER_REQUEST_KEY)
@@ -237,9 +242,10 @@ class YFinanceClient:
         def _action() -> dict[str, Any] | None:
             return self.get_ticker(symbol).info
 
-        result = fetch_with_resilience(
+        result = fetch_with_fault_retry(
             _action,
             max_retries,
+            cache=self.cache,
             circuit_breaker=self.circuit_breaker,
             rate_limit_predicate=self._is_rate_limit_error,
             is_valid=lambda info: info is not None and len(info) >= min_fields,
@@ -331,9 +337,10 @@ class YFinanceClient:
             finally:
                 reapply_yfinance_log_level()
 
-        result = fetch_with_resilience(
+        result = fetch_with_fault_retry(
             _action,
             max_retries,
+            cache=self.cache,
             circuit_breaker=self.circuit_breaker,
             rate_limit_predicate=self._is_rate_limit_error,
             is_valid=lambda hist: (
