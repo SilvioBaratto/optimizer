@@ -72,6 +72,22 @@ def _seed_panel(db_session) -> None:
     db_session.flush()
 
 
+def _seed_closes(db_session, ticker: str, closes: dict[dt.date, float]) -> None:
+    """Seed ``ticker`` with exactly the given ``{date: close}`` bars."""
+    inst = _seed_instrument(db_session, ticker)
+    for day, close in closes.items():
+        db_session.add(
+            PriceHistory(instrument_id=inst.id, date=day, close=close, volume=1000)
+        )
+    db_session.flush()
+
+
+def _crash_then_climb(i: int) -> float:
+    """A 36% crash over the first 10 bars, then a steady climb (never a new low)."""
+    level = 100.0 * (1.0 - 0.04 * i) if i < 10 else 64.0 * (1.0 + 0.003 * (i - 9))
+    return round(level * (1.0 + 0.0005 * math.sin(i)), 6)
+
+
 def _seed_single_day(db_session) -> None:
     """Seed one close per ticker — a panel too short to derive returns (<2 obs)."""
     for ticker, params in _SERIES.items():
@@ -179,6 +195,40 @@ class TestBacktest:
         assert data["n_observations"] == _N_DAYS - 1
         # Fall-back metrics are in-sample, not walk-forward — flagged truthfully.
         assert data["out_of_sample"] is False
+
+    def test_full_sample_drawdown_covers_history_before_the_first_test_block(
+        self, db_session
+    ) -> None:
+        # A crash inside the initial training block is excluded from the walk-forward
+        # test blocks, yet the fixed weights lived through it: the full-sample figure
+        # is the worst drawdown the weights would have suffered, which a drawdown
+        # ceiling must be judged against.
+        days = [_START + dt.timedelta(days=i) for i in range(_N_DAYS)]
+        _seed_closes(
+            db_session, "AAA", {d: _crash_then_climb(i) for i, d in enumerate(days)}
+        )
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 1.0},
+            window={"train_size": 20, "test_size": 10, "purged_size": 0},
+        )
+
+        data = result["data"]
+        assert data["n_folds"] >= 1
+        assert data["metrics"]["max_drawdown"] < 0.1
+        assert data["full_sample_max_drawdown"] > 0.3
+
+    def test_full_sample_drawdown_equals_the_window_drawdown_without_folds(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        data = backtest(db_session, _ASOF, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})["data"]
+
+        assert data["n_folds"] == 0
+        assert data["full_sample_max_drawdown"] == data["metrics"]["max_drawdown"]
 
     def test_max_drawdown_is_the_compounded_nav_decline(self, db_session) -> None:
         # One asset held at weight 1: the backtest NAV is the price path itself. A

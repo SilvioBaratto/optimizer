@@ -27,7 +27,9 @@ the ConstraintSet limits and decides pass/block. It never edits weights itself.
    nu1/nu2/nu3 — `backtest` in step 2 does.
 2. Call `backtest()` (also no arguments) walk-forward (`shuffle=False`). It returns
    `drawdown_tiers`: the client's ceilings nu1 (soft warning), nu2 (hard ceiling) and
-   nu3 (absolute stop), the backtest `max_drawdown`, and the `breached` tiers — a
+   nu3 (absolute stop), the worst drawdown over the whole history
+   (`full_sample_max_drawdown`, not the walk-forward window's `max_drawdown`, which
+   skips the first lookback), and the `breached` tiers — a
    breach of nu2 or nu3 is a BLOCK, nu1 is a warning to report. Check
    `out_of_sample`: when it is `False` the metrics are in-sample — the panel was too
    short for a walk-forward fold, or the weights were fitted on the same bars the

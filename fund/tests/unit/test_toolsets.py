@@ -650,7 +650,7 @@ def test_bound_backtest_reports_which_drawdown_tiers_are_breached(db_session) ->
     assert result["ok"] is True
     tiers = result["data"]["drawdown_tiers"]
     assert tiers["breached"] == ["nu1", "nu2", "nu3"]
-    assert tiers["max_drawdown"] == result["data"]["metrics"]["max_drawdown"]
+    assert tiers["max_drawdown"] == result["data"]["full_sample_max_drawdown"]
     assert (tiers["nu1"], tiers["nu2"], tiers["nu3"]) == (0.0001, 0.0002, 0.0003)
 
 
@@ -664,6 +664,48 @@ def test_bound_backtest_reports_no_breach_inside_every_ceiling(db_session) -> No
     result = backtest.invoke({})
 
     assert result["data"]["drawdown_tiers"]["breached"] == []
+
+
+def test_bound_backtest_judges_drawdown_tiers_over_the_full_history(db_session) -> None:
+    # The crash sits inside the first lookback window, which the walk-forward test
+    # blocks skip. The tier verdict must still see it: the weights lived through it.
+    exchange = Exchange(name="EX-AAA")
+    db_session.add(exchange)
+    db_session.flush()
+    inst = Instrument(
+        ticker="AAA",
+        short_name="AAA",
+        exchange_id=exchange.id,
+        instrument_type="EQUITY",
+        asset_class="equity",
+        yfinance_ticker="AAA",
+    )
+    db_session.add(inst)
+    db_session.flush()
+    n_days = 120
+    for i in range(n_days):
+        level = 100.0 * (1.0 - 0.04 * i) if i < 10 else 64.0 * (1.0 + 0.003 * (i - 9))
+        close = round(level * (1.0 + 0.0005 * math.sin(i)), 6)
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=_ASOF - dt.timedelta(days=n_days - 1 - i),
+                close=close,
+                volume=1000,
+            )
+        )
+    db_session.flush()
+    ctx = dataclasses.replace(
+        _make_context(db_session, store=_store_with_cs(_constraint_set())),
+        lookback_days=10,
+    )
+    _audit_proposal(ctx, {"AAA": 1.0})
+    backtest = _find(bind_toolset("risk", ctx), "backtest")
+
+    tiers = backtest.invoke({})["data"]["drawdown_tiers"]
+
+    assert "nu3" in tiers["breached"]
+    assert tiers["max_drawdown"] > 0.3
 
 
 def test_bound_backtest_without_a_constraint_set_has_no_tier_verdict(

@@ -162,7 +162,10 @@ def backtest(
 
     Returns:
         ``ok`` with ``metrics`` (``mean`` / ``standard_deviation`` /
-        ``sharpe_ratio`` / ``max_drawdown``), ``drawdown_basis``, ``n_observations``
+        ``sharpe_ratio`` / ``max_drawdown``, over the evaluated window),
+        ``full_sample_max_drawdown`` (the same drawdown over every aligned return row,
+        including the initial training block the walk-forward blocks skip; the figure
+        to compare with a drawdown ceiling), ``drawdown_basis``, ``n_observations``
         (evaluated rows), ``n_folds``, ``out_of_sample`` (``True`` iff at least one
         walk-forward fold was produced and every test bar falls after ``fit_end``;
         ``False`` when the panel was too short and the full IN-SAMPLE series was
@@ -219,6 +222,11 @@ def backtest(
     # Compounded so max_drawdown is the wealth-path peak-to-trough decline, not the
     # additive-return one the optimizer's ceilings use; ``drawdown_basis`` says so.
     portfolio = Portfolio(oos, weight_vector, compounded=True)
+    full_sample_max_drawdown = (
+        float(Portfolio(returns, weight_vector, compounded=True).max_drawdown)
+        if splits
+        else float(portfolio.max_drawdown)
+    )
     metrics = {
         "mean": float(portfolio.mean),
         "standard_deviation": float(portfolio.standard_deviation),
@@ -229,6 +237,7 @@ def backtest(
     return ok(
         {
             "metrics": metrics,
+            "full_sample_max_drawdown": full_sample_max_drawdown,
             "drawdown_basis": "compounded",
             "n_observations": int(oos.shape[0]),
             "n_folds": len(splits),

@@ -490,9 +490,11 @@ def _backtest_impl(ctx: RunContext) -> ToolResult:
     if cs is None or not result.get("ok"):
         return result
     # The drawdown ceilings are compared to the optimizer's number here, in code,
-    # so the risk agent reads a verdict instead of recalling the client's limits.
+    # so the risk agent reads a verdict instead of recalling the client's limits. The
+    # figure is the worst loss over the whole history, not the walk-forward window's:
+    # that skips the first lookback and would hide a loss inside it from the ceilings.
     # A non-finite drawdown compares False against every ceiling, i.e. breaches all.
-    max_drawdown = result["data"]["metrics"]["max_drawdown"]
+    max_drawdown = result["data"]["full_sample_max_drawdown"]
     ceilings = {"nu1": cs.nu1, "nu2": cs.nu2, "nu3": cs.nu3}
     result["data"]["drawdown_tiers"] = {
         **ceilings,
@@ -690,7 +692,8 @@ def _bind_backtest(ctx: RunContext) -> BaseTool:
         consistency check, not independent validation. Takes no weights. Returns the
         ``{ok, data}`` envelope with ``metrics`` and ``drawdown_tiers``: the client's
         ``nu1`` (soft warning), ``nu2`` (hard ceiling) and ``nu3`` (absolute stop)
-        drawdown ceilings, the backtest ``max_drawdown``, and the ``breached`` tiers."""
+        drawdown ceilings, the full-history ``max_drawdown``, and the ``breached``
+        tiers."""
         return _backtest_impl(ctx)
 
     return backtest
