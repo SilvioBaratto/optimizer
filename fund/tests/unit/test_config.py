@@ -107,6 +107,8 @@ def test_daemon_fields_default_to_the_phase9_contract():
     assert cfg.fund_heartbeat_cadence_seconds == 30
     assert cfg.fund_orphan_timeout_seconds == 300
     assert cfg.fund_shutdown_drain_timeout_seconds == 30
+    # Hours, not APScheduler's 1s: a job queued behind a long round must still run.
+    assert cfg.fund_misfire_grace_time_seconds == 21600
     # Daily NAV mark at 08:00 UTC — after the 07:00 ingestion pipeline.
     assert cfg.fund_nav_mark_cron == "0 8 * * *"
     assert cfg.reprofile_interval_days == 365
@@ -125,6 +127,7 @@ def test_daemon_fields_parse_from_fund_env_aliases():
             "FUND_HEARTBEAT_CADENCE_SECONDS": "45",
             "FUND_ORPHAN_TIMEOUT_SECONDS": "600",
             "FUND_SHUTDOWN_DRAIN_TIMEOUT_SECONDS": "60",
+            "FUND_MISFIRE_GRACE_TIME_SECONDS": "7200",
             "FUND_NAV_MARK_CRON": "0 9 * * *",
             "FUND_REPROFILE_INTERVAL_DAYS": "180",
             "FUND_SUMMARY_TOKEN_THRESHOLD": "120000",
@@ -138,6 +141,7 @@ def test_daemon_fields_parse_from_fund_env_aliases():
     assert cfg.fund_heartbeat_cadence_seconds == 45
     assert cfg.fund_orphan_timeout_seconds == 600
     assert cfg.fund_shutdown_drain_timeout_seconds == 60
+    assert cfg.fund_misfire_grace_time_seconds == 7200
     assert cfg.fund_nav_mark_cron == "0 9 * * *"
     assert cfg.reprofile_interval_days == 180
     assert cfg.summary_token_threshold == 120000

@@ -873,7 +873,8 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
     exists. Registers four jobs — the cron rebalance sweep, the interval drift
     monitor, the daily cron NAV mark, and the interval orphan reaper — on a
     **distinct** jobstore table (``fund_apscheduler_jobs``) with a single-worker
-    executor (D1 sequential) and UTC timezone.
+    executor (D1 sequential) and UTC timezone. Every job carries
+    ``fund_misfire_grace_time_seconds`` so one queued behind a long step still runs.
     """
     engine = database_manager.engine
     if engine is None:
@@ -892,6 +893,7 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
         executors=executors,
         timezone="UTC",
     )
+    grace = config.fund_misfire_grace_time_seconds
 
     scheduler.add_job(
         run_rebalance_sweep,
@@ -900,6 +902,7 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
         name="Weekly fund rebalance sweep",
         replace_existing=True,
         coalesce=True,
+        misfire_grace_time=grace,
     )
     scheduler.add_job(
         run_drift_monitor,
@@ -908,6 +911,7 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
         name="Portfolio drift monitor",
         replace_existing=True,
         coalesce=True,
+        misfire_grace_time=grace,
     )
     scheduler.add_job(
         run_nav_mark,
@@ -916,6 +920,7 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
         name="Daily NAV mark",
         replace_existing=True,
         coalesce=True,
+        misfire_grace_time=grace,
     )
     scheduler.add_job(
         run_orphan_reaper,
@@ -924,6 +929,7 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
         name="Fund orphan job reaper",
         replace_existing=True,
         coalesce=True,
+        misfire_grace_time=grace,
     )
     return scheduler
 

@@ -127,6 +127,10 @@ class FundConfig:
     fund_heartbeat_cadence_seconds: int = 30
     fund_orphan_timeout_seconds: int = 300
     fund_shutdown_drain_timeout_seconds: int = 30
+    # How late a job may start and still run. The executor has one worker, so a job
+    # queued behind a multi-minute LLM round starts late; APScheduler's default 1s
+    # would silently drop it (a weekly sweep lost for 7 days). Hours, not seconds.
+    fund_misfire_grace_time_seconds: int = 21600
     # Daily NAV mark at 08:00 UTC — after the 07:00 ingestion pipeline (prices + FX
     # fresh). Pure compute, agent-stack-free; backfills + idempotent upsert.
     fund_nav_mark_cron: str = "0 8 * * *"
@@ -276,6 +280,12 @@ def load_config(
         ),
         fund_orphan_timeout_seconds=int(
             env.get("FUND_ORPHAN_TIMEOUT_SECONDS", defaults.fund_orphan_timeout_seconds)
+        ),
+        fund_misfire_grace_time_seconds=int(
+            env.get(
+                "FUND_MISFIRE_GRACE_TIME_SECONDS",
+                defaults.fund_misfire_grace_time_seconds,
+            )
         ),
         fund_nav_mark_cron=env.get("FUND_NAV_MARK_CRON", defaults.fund_nav_mark_cron),
         fund_shutdown_drain_timeout_seconds=int(
