@@ -72,6 +72,33 @@ def long_priced_session() -> Iterator[Session]:
     yield from _priced_session(_LONG_PANEL_DAYS)
 
 
+@pytest.mark.parametrize("lookback_days", [100, None])
+def test_compute_results_never_labels_a_held_weights_backtest_out_of_sample(
+    bare_session: Session, lookback_days: int | None
+) -> None:
+    """Weights fitted on the full panel cannot be validated on windows inside it.
+
+    The allocator's weights come from a fit on every return up to ``asof``, so each
+    walk-forward test block (and the in-sample fallback) lies within the optimizer's
+    own training sample. Reporting folds as out-of-sample overstates the evidence.
+    """
+    asof = _seed_long_panel(bare_session, 400)
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    weights = {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}
+    result = compute_results(
+        bare_session,
+        asof,
+        list(UNIVERSE),
+        constraint_set,
+        weights,
+        lookback_days=lookback_days,
+    )
+    assert result.backtest is not None
+    if lookback_days is not None:
+        assert result.backtest.n_folds >= 1  # the walk-forward path is exercised
+    assert result.backtest.out_of_sample is False
+
+
 def test_compute_results_returns_frontier_and_backtest_numbers(
     priced_session: Session,
 ) -> None:

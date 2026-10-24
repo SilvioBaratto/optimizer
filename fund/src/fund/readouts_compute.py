@@ -62,7 +62,11 @@ class FrontierPoint:
 
 @dataclass(frozen=True)
 class BacktestResult:
-    """Walk-forward (or degraded in-sample) backtest of the held weights.
+    """Backtest of the held weights over walk-forward test windows (or the full sample).
+
+    The weights were fitted on every return up to ``asof``, so the evaluated windows
+    always lie inside the optimizer's own training sample: this is a historical
+    read-out of the held book, never a clean holdout test.
 
     Attributes:
         mean: Annualised mean return over the evaluated window (fraction per year).
@@ -71,7 +75,8 @@ class BacktestResult:
         max_drawdown: Worst peak-to-trough loss over the window (not annualised).
         n_observations: Return rows evaluated.
         n_folds: Walk-forward folds; ``0`` when the panel was too short for one.
-        out_of_sample: Whether folds were out-of-sample (``False`` = in-sample).
+        out_of_sample: Whether the evaluated windows were unseen by the weight fit;
+            always ``False`` for a replay of the allocator's weights.
         window_start: ISO date of the evaluated window's first row.
         window_end: ISO date of its last row.
     """
@@ -152,7 +157,7 @@ def compute_results(
         constraint_set: The recorded ``ConstraintSet.model_dump``; its mapped objective,
             risk measure, beta, bounds and position cap reach ``optimize_portfolio``
             exactly as in a live run. ``None`` solves under the tool defaults.
-        weights: The held allocation whose forward performance the backtest evaluates.
+        weights: The held allocation whose historical performance the backtest shows.
         base_currency: The mandate's reporting currency. Prices are FX-converted to it
             exactly as the agent's allocator tools did, so the replay reproduces the
             numbers the run was decided on; ``None`` keeps listing currency.
@@ -416,7 +421,9 @@ def _backtest(envelope: Mapping[str, Any]) -> tuple[BacktestResult | None, str |
         max_drawdown=float(metrics.get("max_drawdown", 0.0)),
         n_observations=int(data.get("n_observations", 0)),
         n_folds=int(data.get("n_folds", 0)),
-        out_of_sample=bool(data.get("out_of_sample", False)),
+        # The tool's own flag only reports fold structure. The weights it evaluates
+        # were fitted on this same panel, so no test window is a true holdout.
+        out_of_sample=False,
         window_start=str(data.get("window_start", "")),
         window_end=str(data.get("window_end", "")),
     )
