@@ -76,7 +76,7 @@ class _Fill:
     unit: str | None
 
 
-def _held(weights: dict[str, float]) -> dict[str, float]:
+def _held(weights: Mapping[str, float]) -> dict[str, float]:
     """The weights that carry an order: everything above ``_DUST_WEIGHT``.
 
     Written as ``not <=`` rather than ``>`` so a NaN weight stays held and fails

@@ -28,12 +28,12 @@ def _delisting_timestamp(
     unparseable dates raise instead of degrading to that inference.
     """
     try:
-        when = pd.Timestamp(raw)
+        when = pd.Timestamp(raw) if raw is not None else pd.NaT
     except (TypeError, ValueError) as exc:
         raise DataError(
             f"Delisting date {raw!r} for {ticker!r} cannot be parsed as a date"
         ) from exc
-    if pd.isna(when):
+    if not isinstance(when, pd.Timestamp) or pd.isna(when):
         raise DataError(
             f"Delisting date for {ticker!r} is {raw!r}; resolve a NULL delisted_at "
             "or drop the ticker from delisted_at before calling."

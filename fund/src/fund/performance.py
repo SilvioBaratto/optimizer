@@ -23,7 +23,7 @@ import logging
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -1287,7 +1287,7 @@ def _book_base_prices(
     )
     spans: list[tuple[dt.date | None, dt.date | None]] = [(start, end)]
     if newest is not None and not raw_prices.empty:
-        window_start = raw_prices.index.min().date()
+        window_start = cast("pd.Timestamp", raw_prices.index.min()).date()
         spans = [(window_start - dt.timedelta(days=_FX_MARGIN_DAYS), end)]
         older = _fill_spans(window_start, fill_days)
         if older:
@@ -1295,7 +1295,7 @@ def _book_base_prices(
                 _load_price_frame(session, order, start=a, end=b)[0] for a, b in older
             ]
             raw_prices = pd.concat([raw_prices, *extra]).sort_index()
-            raw_prices = raw_prices[~raw_prices.index.duplicated(keep="first")]
+            raw_prices = raw_prices.loc[~raw_prices.index.duplicated(keep="first")]
             spans.extend(older)
     raw_prices = _require_known_currencies(
         raw_prices, currency_map, holdings=set(order)
@@ -1310,7 +1310,7 @@ def _book_base_prices(
     fx_frames = [frame for frame in fx_frames if not frame.empty]
     fx_rates = pd.concat(fx_frames).sort_index() if fx_frames else pd.DataFrame()
     if not fx_rates.empty:
-        fx_rates = fx_rates[~fx_rates.index.duplicated(keep="first")]
+        fx_rates = fx_rates.loc[~fx_rates.index.duplicated(keep="first")]
     _require_fx_coverage(base_currency, currency_map, fx_rates)
     base_prices = _carried_base_prices(
         raw_prices,

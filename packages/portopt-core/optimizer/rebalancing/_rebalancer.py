@@ -393,7 +393,7 @@ class _CalendarWalkForward(WalkForward):
         """
         # Reuses skfolio's validation of the window sizes and the datetime index.
         super().get_n_splits(X, y, groups)
-        ts_index = cast("pd.DataFrame", X).index
+        ts_index = cast("pd.DatetimeIndex", cast("pd.DataFrame", X).index)
         n_samples = len(ts_index)
         train_size = int(cast("int", self.train_size))
         test_size = int(self.test_size)
