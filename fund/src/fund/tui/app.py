@@ -647,6 +647,9 @@ class ShellApp(App[None]):
         self._poll_interval = poll_interval
         self.last_status: str = ""
         self.last_worker: Worker[None] | None = None
+        # The run/stream worker launched most recently; a new launch is refused while
+        # it is alive (see ``_launch_run``).
+        self._run_in_flight: Worker[None] | None = None
         # ``_portfolio_ids`` / ``_runstate`` are headless-test hooks mirroring the
         # views' ``render_count``.
         self._portfolio_ids: list[uuid.UUID] = []
@@ -1595,14 +1598,43 @@ class ShellApp(App[None]):
         if pid is None:
             self._set_status("focus a portfolio to run")
             return
+        view = None
         if deliberation:
             view = self._deliberation_view()
             if view is None:
                 self._set_status("open Deliberation to run a portfolio")
                 return
-            self.last_worker = self._stream_worker(pid, asof, view)
+        worker = self._launch_run(pid, asof, view)
+        if worker is not None:
+            self.last_worker = worker
+
+    def _launch_run(
+        self,
+        portfolio_id: uuid.UUID,
+        asof: dt.date | None,
+        view: DeliberationView | None = None,
+    ) -> Worker[None] | None:
+        """Start one rebalance — streamed into ``view``, else blocking — single-flight.
+
+        A round is minutes of LLM work that draws nothing until its first step
+        reports, so a repeat ``u`` (or an Ask "run") is easy to fire, and a second
+        concurrent round would double the spend, open a competing gate and interleave
+        both streams into one timeline. A launch while the previous run worker is still
+        alive is refused with a status line instead. ``asof=None`` leaves the bar to
+        the run, which resolves the newest fillable one. Returns the new worker, or
+        ``None`` when refused.
+        """
+        current = self._run_in_flight
+        if current is not None and not current.is_finished:
+            self._set_status("a run is already in progress — wait for it to finish")
+            return None
+        self._set_status(f"run started for portfolio {self._short_label(portfolio_id)}")
+        if view is not None:
+            worker = self._stream_worker(portfolio_id, asof, view)
         else:
-            self.last_worker = self._run_worker(pid, asof)
+            worker = self._run_worker(portfolio_id, asof)
+        self._run_in_flight = worker
+        return worker
 
     def _posture_active(self) -> bool:
         """Whether the Posture view is the active content pane (the drive launchpad)."""
@@ -2169,7 +2201,7 @@ class ShellApp(App[None]):
         if verb == "rearm" and action.scope is not None:
             return self._rearm_worker(action.scope, action.portfolio_id, None)
         if verb == "run" and action.portfolio_id is not None:
-            return self._run_worker(action.portfolio_id, None)
+            return self._launch_run(action.portfolio_id, None)
         return None
 
     def _ask_fund_rearm(self, view: AskView) -> None:

@@ -78,6 +78,7 @@ from fund.tui.app import (
     ScopePickScreen,
     ShellApp,
 )
+from fund.tui.ask import ResolvedAction
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
 from fund.tui.stream import StepStatus, StreamEvent
@@ -3236,6 +3237,117 @@ async def test_deliberation_u_streams_live_round_to_gate(tui_env) -> None:
     with tui_env.get_session() as session:
         run = AgentRunRepository(session).get_run(streamed_run_id)
         assert run.status == "paused"  # the run reached its HITL pause
+
+
+# --- Run launch is single-flight ---------------------------------------------
+
+
+class _HeldRound:
+    """A rebalance stand-in that records each launch and blocks until released."""
+
+    def __init__(self) -> None:
+        self.launches: list[str] = []
+        self.release = threading.Event()
+
+    def enter(self, label: str) -> None:
+        self.launches.append(label)
+        self.release.wait(timeout=10)
+
+    async def until_launched(self, pilot, count: int = 1) -> None:
+        for _ in range(200):
+            if len(self.launches) >= count:
+                return
+            await pilot.pause(0.05)
+        raise AssertionError(f"expected {count} launches, saw {self.launches}")
+
+
+def _hold_rounds(monkeypatch) -> _HeldRound:
+    """Replace the stream and the blocking-run entry points with held stand-ins."""
+    held = _HeldRound()
+
+    def fake_stream_fund(*_args, **_kwargs):
+        held.enter("stream")
+        return
+        yield  # a generator that ends without a step
+
+    def fake_apply_action(action, **_kwargs):
+        held.enter(action)
+        return SimpleNamespace(message="run done")
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", fake_stream_fund)
+    monkeypatch.setattr("fund.actions.apply_action", fake_apply_action)
+    return held
+
+
+def _seed_mandate(env) -> None:
+    with env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+
+
+@pytest.mark.asyncio
+async def test_second_u_is_refused_while_a_stream_is_in_flight(
+    tui_env, monkeypatch
+) -> None:
+    """The live timeline stays empty until the first agent reports, so ``u`` is easy
+    to press twice; a second concurrent round would double the LLM spend and open a
+    competing gate."""
+    _seed_mandate(tui_env)
+    held = _hold_rounds(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await held.until_launched(pilot)
+        first = app.last_worker
+
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause(0.2)
+        assert "already in progress" in app.last_status
+        assert app.last_worker is first
+        assert held.launches == ["stream"]
+
+        held.release.set()
+        await first.wait()
+        await pilot.pause()
+
+        app.action_run_portfolio(asof=ASOF)  # the guard clears once the round ends
+        await app.last_worker.wait()
+        assert held.launches == ["stream", "stream"]
+
+
+@pytest.mark.asyncio
+async def test_run_in_flight_from_posture_refuses_deliberation_and_ask_runs(
+    tui_env, monkeypatch
+) -> None:
+    """The blocking and streamed runs sit in different worker groups, so only a
+    shared guard stops one from starting while the other still runs."""
+    _seed_mandate(tui_env)
+    held = _hold_rounds(monkeypatch)
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        await _open_posture(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await held.until_launched(pilot)
+        first = app.last_worker
+
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause(0.2)
+        assert "already in progress" in app.last_status
+
+        ask_view = SimpleNamespace(append_log=lambda *_a, **_k: None)
+        ask_run = ResolvedAction("run", None, PORTFOLIO_ID, None)
+        assert app._dispatch_ask_action(ask_view, ask_run) is None
+        await pilot.pause(0.2)
+        assert held.launches == ["run"]
+
+        held.release.set()
+        await first.wait()
 
 
 # --- Barge-in: PM directive overlay + `b` hotkey (T8) -------------------------
