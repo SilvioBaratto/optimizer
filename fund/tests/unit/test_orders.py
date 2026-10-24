@@ -512,3 +512,113 @@ class TestFillShortfalls:
         fill_shortfalls(db_session, _ASOF, _WEIGHTS)
 
         assert db_session.execute(select(PaperOrder)).scalars().all() == []
+
+
+_EUR_PER_GBP = 1.17
+_EUR_PER_USD = 0.9
+
+
+def _seed_listing(db_session, ticker: str, *, unit: str, close: float) -> None:
+    """Seed one instrument whose bars after ``_ASOF`` are quoted in ``unit``."""
+    ex = Exchange(name=f"EX-{ticker}")
+    db_session.add(ex)
+    db_session.flush()
+    inst = Instrument(
+        ticker=ticker,
+        short_name=ticker,
+        exchange_id=ex.id,
+        instrument_type="EQUITY",
+        asset_class="equity",
+        yfinance_ticker=ticker,
+    )
+    db_session.add(inst)
+    db_session.flush()
+    for i in range(_N_DAYS):
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=_START + dt.timedelta(days=i),
+                close=close,
+                price_unit=unit,
+                volume=1000,
+            )
+        )
+    db_session.flush()
+
+
+def _seed_eur_rates(db_session) -> None:
+    """EUR-per-foreign rates on the decision bar and the fill bar."""
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {
+                "base_currency": "EUR",
+                "quote_currency": quote,
+                "date": day,
+                "rate": rate,
+            }
+            for quote, rate in (("GBP", _EUR_PER_GBP), ("USD", _EUR_PER_USD))
+            for day in (_ASOF, _FILL_DATE)
+        ]
+    )
+    db_session.flush()
+
+
+class TestShareCurrency:
+    def test_pence_listing_shares_use_the_base_currency_price(self, db_session) -> None:
+        _seed_listing(db_session, "LON", unit="GBp", close=2500.0)
+        _seed_eur_rates(db_session)
+
+        ticket = place_orders(
+            db_session, _ASOF, {"LON": 0.10}, _PORTFOLIO_ID, base_currency="EUR"
+        )["data"]
+
+        line = ticket["lines"][0]
+        price_eur = 2500.0 / 100 * _EUR_PER_GBP
+        assert line["shares"] == pytest.approx(
+            10_000.0 / (price_eur * (1 + 5e-4)), rel=1e-9
+        )
+
+    def test_foreign_major_currency_shares_apply_the_fx_rate(self, db_session) -> None:
+        _seed_listing(db_session, "NYS", unit="USD", close=200.0)
+        _seed_eur_rates(db_session)
+
+        ticket = place_orders(
+            db_session, _ASOF, {"NYS": 0.5}, _PORTFOLIO_ID, base_currency="EUR"
+        )["data"]
+
+        line = ticket["lines"][0]
+        assert line["shares"] == pytest.approx(
+            50_000.0 / (200.0 * _EUR_PER_USD * (1 + 5e-4)), rel=1e-9
+        )
+        assert line["currency"] == "USD"
+
+    def test_foreign_listing_without_an_fx_rate_rejects_the_ticket(
+        self, db_session
+    ) -> None:
+        _seed_listing(db_session, "NYS", unit="USD", close=200.0)
+
+        result = place_orders(
+            db_session, _ASOF, {"NYS": 1.0}, _PORTFOLIO_ID, base_currency="EUR"
+        )
+
+        assert result["ok"] is False
+        assert "FX" in result["error"]
+        count = db_session.execute(
+            select(func.count()).select_from(PaperOrder)
+        ).scalar_one()
+        assert count == 0
+
+    def test_base_currency_listing_needs_no_fx_rate(self, db_session) -> None:
+        _seed_listing(db_session, "EUX", unit="EUR", close=80.0)
+
+        ticket = place_orders(
+            db_session, _ASOF, {"EUX": 1.0}, _PORTFOLIO_ID, base_currency="EUR"
+        )["data"]
+
+        assert ticket["lines"][0]["shares"] == pytest.approx(
+            100_000.0 / (80.0 * (1 + 5e-4)), rel=1e-9
+        )

@@ -625,7 +625,12 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
             )
     sizing = {} if ctx.notional is None else {"notional": ctx.notional}
     result = _tools.place_orders(
-        ctx.session, ctx.asof, audited, ctx.portfolio_id, **sizing
+        ctx.session,
+        ctx.asof,
+        audited,
+        ctx.portfolio_id,
+        base_currency=ctx.base_currency,
+        **sizing,
     )
     data = result.get("data") if result.get("ok") else None
     # Log once, on the real placement; the idempotent HITL re-run does not

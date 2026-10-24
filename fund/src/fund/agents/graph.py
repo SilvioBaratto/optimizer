@@ -1401,7 +1401,9 @@ def _require_fill_bars(ctx: Any, weights: dict[str, float]) -> None:
         return
     from fund.tools.orders import fill_shortfalls
 
-    shortfalls = fill_shortfalls(ctx.session, ctx.asof, weights)
+    shortfalls = fill_shortfalls(
+        ctx.session, ctx.asof, weights, base_currency=ctx.base_currency
+    )
     if shortfalls:
         raise RuntimeError(
             f"approve would leave no paper ticket ({'; '.join(shortfalls)}); the gate "
