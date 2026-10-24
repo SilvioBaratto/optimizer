@@ -510,6 +510,26 @@ async def test_shell_blank_pick_returns_fund_wide_without_crashing(shell_env) ->
         assert "idle" in app._runstate  # fund-wide reads as idle
 
 
+def _screen_lines(app: ShellApp) -> list[str]:
+    """The text the compositor actually paints, one string per terminal row."""
+    return [strip.text for strip in app.screen._compositor.render_strips()]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(120, 30), (80, 24)])
+async def test_status_message_is_painted_above_the_footer(shell_env, size) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        app._set_status("ACTION FAILED: boom")
+        await pilot.pause()
+        rows = _screen_lines(app)
+        assert any("ACTION FAILED: boom" in row for row in rows)
+        status_row = next(i for i, row in enumerate(rows) if "ACTION FAILED" in row)
+        footer = app.query_one("Footer")
+        assert status_row < footer.region.y  # never painted under the key hints
+
+
 @pytest.mark.asyncio
 async def test_shell_collapses_sidebar_to_rail_when_narrow(shell_env) -> None:
     app = _make_shell(shell_env)

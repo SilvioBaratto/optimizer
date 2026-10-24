@@ -431,7 +431,8 @@ class ShellApp(App[None]):
     .content { width: 1fr; padding: 0 1; }
     .view-title { text-style: bold; color: $accent; }
     .view-subtitle { color: $accent; }
-    .status-bar { dock: bottom; height: 1; background: $panel; padding: 0 1; }
+    /* Not docked: the Footer owns the bottom dock edge and would paint over it. */
+    .status-bar { height: 1; background: $panel; padding: 0 1; }
     .posture-body { height: 1fr; }
     .posture-roster { width: 45%; }
     .posture-detail { width: 1fr; padding: 0 1; color: $warning; }
