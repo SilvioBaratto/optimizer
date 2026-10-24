@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from scipy import stats as sp_stats
 from sklearn.decomposition import PCA
@@ -410,7 +412,7 @@ def orthogonalize_factors(
     n_keep = int(np.searchsorted(cumvar, min_variance_explained)) + 1
     n_keep = min(n_keep, len(cumvar))
 
-    projected = X @ pca.components_[:n_keep].T
+    projected = X @ cast("npt.NDArray[np.float64]", pca.components_)[:n_keep].T
     col_names = [f"PC{i + 1}" for i in range(n_keep)]
 
     result = pd.DataFrame(

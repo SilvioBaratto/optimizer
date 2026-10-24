@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import warnings
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import numpy.typing as npt
@@ -86,7 +87,7 @@ def compute_factor_pca(
 
     # loadings: shape (n_factors, n_components) — transpose of components_
     loadings = pd.DataFrame(
-        pca.components_.T,
+        cast("npt.NDArray[np.float64]", pca.components_).T,
         index=clean.columns,
         columns=col_names,
         dtype=float,

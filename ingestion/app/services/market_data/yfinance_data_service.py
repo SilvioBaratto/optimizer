@@ -832,16 +832,16 @@ class YFinanceDataService:
                 logger.warning("Failed to fetch profile for %s: %s", yfinance_ticker, e)
 
         try:
-            incremental_window = (
-                mode == "incremental"
-                and staleness is not None
-                and staleness.get("price_max_date") is not None
+            max_date = (
+                staleness.get("price_max_date")
+                if mode == "incremental" and staleness is not None
+                else None
             )
+            incremental_window = max_date is not None
             # Set only when a re-base fetch replaced the incremental window, so
             # the window can still be stored if the full history is unusable.
             window_history: pd.DataFrame | None = None
-            if incremental_window:
-                max_date = staleness["price_max_date"]
+            if max_date is not None:
                 start_date = max_date - timedelta(days=thresholds.price_overlap_days)
                 history = self.yf_client.fetch_history(
                     yfinance_ticker,
