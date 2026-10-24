@@ -211,7 +211,7 @@ class TestFetchCountryEmptySubSets:
 class TestFetchCountryBondFailureIsReported:
     def test_when_bond_fetch_failed_then_error_is_recorded(self) -> None:
         service, mock_repo = _build_service(
-            ilsole_forecasts=None,
+            ilsole_forecasts={"gdp_growth_6m": 2.0},
             te_response={
                 "status": "success",
                 "indicators": {"inflation_rate": 3.1},
@@ -230,7 +230,7 @@ class TestFetchCountryBondFailureIsReported:
 
     def test_when_bond_fetch_failed_then_bulk_totals_carry_the_error(self) -> None:
         service, _ = _build_service(
-            ilsole_forecasts=None,
+            ilsole_forecasts={"gdp_growth_6m": 2.0},
             te_response={
                 "status": "success",
                 "indicators": {"inflation_rate": 3.1},

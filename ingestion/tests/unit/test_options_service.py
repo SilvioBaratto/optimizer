@@ -299,7 +299,7 @@ class TestBulkFetch:
         progress = MagicMock()
         with (
             patch(f"{M}.YFinanceRepository", return_value=repo),
-            patch(f"{M}.call_with_timeout", lambda fn, _t: fn()),
+            patch(f"{M}.call_with_timeout", lambda fn, _t, **_: fn()),
             patch(f"{M}.datetime", clock.datetime_cls),
             patch("app.database.database_manager", _session_ctx()),
         ):
