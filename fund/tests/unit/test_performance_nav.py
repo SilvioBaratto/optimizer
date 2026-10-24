@@ -1169,6 +1169,44 @@ def test_nav_series_drops_a_benchmark_with_no_resolvable_currency(db_session, ca
     assert any("IDX" in record.getMessage() for record in caplog.records)
 
 
+def test_nav_series_warns_when_the_benchmark_has_no_price_history(db_session, caplog):
+    """A benchmark that is no instrument leaves every point bare, so say so."""
+    _seed_usd_floats(
+        db_session, {"EU1": dict.fromkeys(_DAYS, 100.0)}, units={"EU1": "EUR"}
+    )
+    _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"EU1": 100_000.0})
+
+    with caplog.at_level("WARNING", logger="fund.performance"):
+        points = build_nav_series(
+            _PID, session=db_session, base_currency="EUR", benchmark="SPY"
+        )
+
+    assert points
+    assert all(p.benchmark is None for p in points)
+    assert any("SPY" in record.getMessage() for record in caplog.records)
+
+
+def test_nav_series_warns_when_the_benchmark_cannot_be_converted(db_session, caplog):
+    """A USD benchmark with no EUR/USD rate is dropped, and the drop is reported."""
+    _seed_eur_book_with_usd_benchmark(db_session)
+
+    with caplog.at_level("WARNING", logger="fund.performance"):
+        points = build_nav_series(
+            _PID, session=db_session, base_currency="EUR", benchmark="SPX"
+        )
+
+    assert all(p.benchmark is None for p in points)
+    assert any("SPX" in record.getMessage() for record in caplog.records)
+
+
+def test_resolve_benchmark_matches_a_stored_ticker_ignoring_case(db_session):
+    _seed_usd_floats(db_session, {"SPY": dict.fromkeys(_DAYS, 500.0)})
+
+    assert performance.resolve_benchmark(db_session, "SPY") == "SPY"
+    assert performance.resolve_benchmark(db_session, "spy") == "SPY"
+    assert performance.resolve_benchmark(db_session, "QQQ") is None
+
+
 def test_nav_series_warns_when_a_ticket_line_cannot_be_priced(db_session, caplog):
     """A line with no usable price is reported, not silently dropped from the book."""
     _seed_usd_floats(db_session, {"A": dict.fromkeys(_DAYS, 100.0)})

@@ -34,6 +34,7 @@ from _fund_fakes import (
     make_constraint_set,
     make_energy_exclusion_constraint_set,
     make_mandate,
+    seed_panel,
     seed_paused_fund_run,
 )
 from _profiler_fakes import (
@@ -777,6 +778,42 @@ def test_mandate_edit_persists_via_upsert_and_logs(clean_db) -> None:
     assert rows[0].override_flag is False
     assert rows[0].suitability_flag is False
     assert rows[0].new_value["drift_l1_threshold"] == 0.25
+
+
+def test_mandate_edit_canonicalises_the_case_of_a_known_benchmark(clean_db) -> None:
+    seed_panel(clean_db)
+    proposed = make_mandate().model_copy(update={"benchmark": "aaa"})
+
+    result = apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+    clean_db.commit()
+
+    stored = observe.get_mandate(clean_db, PORTFOLIO_ID)
+    assert stored is not None
+    assert stored.benchmark == "AAA"
+    assert not (result.detail or {}).get("warnings")
+
+
+@pytest.mark.parametrize("action", ["mandate_edit", "new_portfolio"])
+def test_a_benchmark_with_no_price_history_is_saved_with_a_warning(
+    clean_db, action
+) -> None:
+    """Saving it silently would leave every NAV point without a benchmark."""
+    seed_panel(clean_db)
+    proposed = make_mandate().model_copy(update={"benchmark": "SPY"})
+
+    result = apply_action(
+        action, session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+    clean_db.commit()
+
+    assert result.detail is not None
+    assert any("SPY" in w for w in result.detail["warnings"])
+    assert "SPY" in result.message
+    stored = observe.get_mandate(clean_db, PORTFOLIO_ID)
+    assert stored is not None
+    assert stored.benchmark == "SPY"
 
 
 def test_mandate_edit_rejects_a_base_currency_change_once_nav_exists(clean_db) -> None:

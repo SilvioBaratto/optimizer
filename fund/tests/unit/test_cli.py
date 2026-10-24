@@ -1092,6 +1092,45 @@ def test_mandate_set_drift_help_states_the_upper_bound() -> None:
     assert "(0, 2)" in drift.help  # the bound is open: 2 can never be breached
 
 
+def _mandate_set_args(benchmark: str) -> list[str]:
+    return [
+        "mandate",
+        "set",
+        str(PORTFOLIO_ID),
+        "--capital",
+        "1000",
+        "--benchmark",
+        benchmark,
+    ]
+
+
+def test_mandate_set_warns_about_a_benchmark_it_cannot_price(harness) -> None:
+    _seed(harness)
+
+    res = harness.runner.invoke(
+        cli.app,
+        _mandate_set_args("SPY"),
+    )
+
+    assert res.exit_code == 0, res.output
+    assert "warning" in res.output.lower()
+    assert "SPY" in res.output
+    assert _stored_mandate(harness).benchmark == "SPY"
+
+
+def test_mandate_set_stores_a_known_benchmark_in_its_canonical_case(harness) -> None:
+    _seed(harness)
+
+    res = harness.runner.invoke(
+        cli.app,
+        _mandate_set_args("aaa"),
+    )
+
+    assert res.exit_code == 0, res.output
+    assert "warning" not in res.output.lower()
+    assert _stored_mandate(harness).benchmark == "AAA"
+
+
 # --- profile answers: keep client data out of argv ---------------------------
 
 

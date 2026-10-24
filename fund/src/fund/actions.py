@@ -26,11 +26,14 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from fund.config import FundConfig, settings
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from portopt_db.models import HumanAuditLog
@@ -88,8 +91,9 @@ class ActionResult:
         message: A one-line summary for the status bar.
         detail: The underlying driver's return value (e.g. ``resume_run``'s result;
             ``{"status": ...}`` for ``run``), a ``{"blocked": True, "reason": ...}``
-            marker for a ``profile`` stopped by a suitability breach, or ``None`` when
-            the action produces none.
+            marker for a ``profile`` stopped by a suitability breach,
+            ``{"warnings": [...]}`` for a mandate saved with a benchmark that cannot
+            be priced, or ``None`` when the action produces none.
     """
 
     action: str
@@ -1027,6 +1031,39 @@ def _append_audit(
     )
 
 
+def _check_benchmark(session: Session, mandate: Any) -> tuple[Any, list[str]]:
+    """Canonicalise the mandate's benchmark to the stored ticker, or warn about it.
+
+    A benchmark that names no instrument with price history is saved anyway (the
+    adviser may be about to add it), but every NAV point would then carry no
+    benchmark, so the caller reports the warning instead of staying silent.
+
+    Returns:
+        The mandate (with the benchmark's case fixed when it differs from the stored
+        ticker) and the warnings to surface.
+    """
+    benchmark = mandate.benchmark
+    if not benchmark:
+        return mandate, []
+    from fund.performance import resolve_benchmark
+
+    resolved = resolve_benchmark(session, benchmark)
+    if resolved is None:
+        warning = (
+            f"benchmark {benchmark!r} matches no instrument with price history, "
+            "so NAV points will carry no benchmark"
+        )
+        logger.warning("actions: %s", warning)
+        return mandate, [warning]
+    if resolved != benchmark:
+        mandate = mandate.model_copy(update={"benchmark": resolved})
+    return mandate, []
+
+
+def _with_warnings(message: str, warnings: list[str]) -> str:
+    return "; ".join([message, *(f"warning: {w}" for w in warnings)])
+
+
 def _apply_mandate_edit(
     *,
     session: Session,
@@ -1048,8 +1085,9 @@ def _apply_mandate_edit(
         raise ValueError("'mandate_edit' requires a mandate")
     from fund.audit.mandate_repository import MandateRepository
 
-    MandateRepository(session).upsert(mandate)
-    pid = portfolio_id if portfolio_id is not None else uuid.UUID(mandate.portfolio_id)
+    checked, warnings = _check_benchmark(session, mandate)
+    MandateRepository(session).upsert(checked)
+    pid = portfolio_id if portfolio_id is not None else uuid.UUID(checked.portfolio_id)
     row = _append_audit(
         session,
         action="mandate_edit",
@@ -1058,7 +1096,7 @@ def _apply_mandate_edit(
         actor=actor,
         target="run_policy",
         prev_value=prev_value,
-        new_value=mandate.model_dump(mode="json"),
+        new_value=checked.model_dump(mode="json"),
         source=source,
         override_flag=False,
         suitability_flag=False,
@@ -1070,7 +1108,8 @@ def _apply_mandate_edit(
         run_id=None,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"mandate updated for {pid}",
+        message=_with_warnings(f"mandate updated for {pid}", warnings),
+        detail={"warnings": warnings} if warnings else None,
     )
 
 
@@ -1140,8 +1179,9 @@ def _apply_new_portfolio(
         raise ValueError("'new_portfolio' requires a mandate")
     from fund.audit.mandate_repository import MandateRepository
 
-    MandateRepository(session).upsert(mandate)
-    pid = portfolio_id if portfolio_id is not None else uuid.UUID(mandate.portfolio_id)
+    checked, warnings = _check_benchmark(session, mandate)
+    MandateRepository(session).upsert(checked)
+    pid = portfolio_id if portfolio_id is not None else uuid.UUID(checked.portfolio_id)
     row = _append_audit(
         session,
         action="new_portfolio",
@@ -1149,7 +1189,7 @@ def _apply_new_portfolio(
         portfolio_id=pid,
         actor=actor,
         target="portfolio",
-        new_value=mandate.model_dump(mode="json"),
+        new_value=checked.model_dump(mode="json"),
         source=source,
         override_flag=False,
         suitability_flag=False,
@@ -1161,7 +1201,8 @@ def _apply_new_portfolio(
         run_id=None,
         portfolio_id=pid,
         audit_id=row.id,
-        message=f"portfolio {pid} created",
+        message=_with_warnings(f"portfolio {pid} created", warnings),
+        detail={"warnings": warnings} if warnings else None,
     )
 
 

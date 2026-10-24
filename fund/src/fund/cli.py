@@ -53,7 +53,7 @@ import typer
 from portopt_db.models import AgentRun, PaperOrder
 
 from fund import observe
-from fund.actions import apply_action
+from fund.actions import ActionResult, apply_action
 from fund.agents.model import build_fallback, build_primary
 from fund.audit import (
     AgentRunRepository,
@@ -226,14 +226,20 @@ def _build_mandate(
     )
 
 
+def _echo_warnings(result: ActionResult) -> None:
+    """Print the warnings an action attached to its result, if any."""
+    for warning in (result.detail or {}).get("warnings", ()):
+        typer.echo(f"warning: {warning}", err=True)
+
+
 def _save_mandate(
     session: Any,
     portfolio_id: uuid.UUID,
     existing: PortfolioMandate | None,
     mandate: PortfolioMandate,
-) -> None:
+) -> ActionResult:
     """Persist ``mandate`` through the audited action path (no commit)."""
-    apply_action(
+    return apply_action(
         "mandate_edit" if existing is not None else "new_portfolio",
         session=session,
         portfolio_id=portfolio_id,
@@ -286,11 +292,12 @@ def mandate_set(
                 benchmark=benchmark,
                 interrupt_on=interrupt_on,
             )
-            _save_mandate(session, pid, existing, mandate)
+            saved = _save_mandate(session, pid, existing, mandate)
             session.commit()
     except ValueError as exc:  # e.g. the base currency is locked by ledger history
         _fail(str(exc))
     typer.echo(f"mandate saved for portfolio {pid}")
+    _echo_warnings(saved)
     _exit(True)
 
 
@@ -469,7 +476,8 @@ def run(
                     benchmark=benchmark,
                     interrupt_on=interrupt_on,
                 )
-                _save_mandate(session, pid, existing, mandate)
+                saved = _save_mandate(session, pid, existing, mandate)
+                _echo_warnings(saved)
             result = apply_action(
                 "run",
                 session=session,

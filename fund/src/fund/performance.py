@@ -310,6 +310,29 @@ def _load_price_frame(
     return prices, currency_map
 
 
+def resolve_benchmark(session: Any, benchmark: str) -> str | None:
+    """The stored ticker a mandate benchmark names, matched ignoring case.
+
+    A benchmark only produces a level when an instrument carries that exact
+    ``yfinance_ticker`` and has price rows; anything else leaves every NAV point
+    without one. Yahoo symbols are upper case, so a lower-case entry is retried as
+    upper case.
+
+    Args:
+        session: Open SQLAlchemy session.
+        benchmark: The ticker as the adviser typed it.
+
+    Returns:
+        The ticker as stored, or ``None`` when no instrument with price history
+        matches.
+    """
+    for candidate in dict.fromkeys((benchmark, benchmark.upper())):
+        prices, _ = _load_price_frame(session, [candidate], newest=1)
+        if not prices.empty:
+            return candidate
+    return None
+
+
 def _load_fx_rates_frame(
     session: Any,
     base: str,
@@ -892,6 +915,18 @@ def build_nav_series(
         and benchmark in base_prices.columns
         and _expressed_in_base(benchmark, base_currency, currency_map, fx_rates)
     )
+
+    if benchmark is not None and not bench_in_base:
+        reason = (
+            "its currency has no FX rate to the base currency"
+            if benchmark in base_prices.columns
+            else "no instrument with price history and a known currency matches it"
+        )
+        logger.warning(
+            "performance: benchmark %r left out of the NAV series: %s",
+            benchmark,
+            reason,
+        )
 
     priced = [
         (
@@ -1666,4 +1701,5 @@ __all__ = [
     "marked_weights",
     "nav_return_series",
     "portfolio_metrics",
+    "resolve_benchmark",
 ]
