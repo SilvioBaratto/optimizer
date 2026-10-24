@@ -10,7 +10,9 @@ contract as a pure function of a seeded SQLite DB:
 * identical inputs on identical data give identical output (determinism);
 * with a ``base_currency`` the allocator panel is FX-converted (minor units
   rescaled) before any return is derived, so the optimiser sees the same
-  base-currency series the NAV tracker marks.
+  base-currency series the NAV tracker marks;
+* a delisted or stale ticker is excluded and flagged ``missing`` instead of being
+  forward-filled into a flat, zero-variance tail the optimiser would favour.
 """
 
 from __future__ import annotations
@@ -31,7 +33,9 @@ from fund.tools.risk import backtest
 _ASOF = dt.date(2024, 1, 5)
 
 
-def _seed_instrument(db_session, ticker: str) -> Instrument:
+def _seed_instrument(
+    db_session, ticker: str, *, delisted_at: dt.date | None = None
+) -> Instrument:
     ex = Exchange(name=f"EX-{ticker}")
     db_session.add(ex)
     db_session.flush()
@@ -42,6 +46,7 @@ def _seed_instrument(db_session, ticker: str) -> Instrument:
         instrument_type="EQUITY",
         asset_class="equity",
         yfinance_ticker=ticker,
+        delisted_at=delisted_at,
     )
     db_session.add(inst)
     db_session.flush()
@@ -404,3 +409,144 @@ class TestAllocatorToolsSeeBaseCurrencyReturns:
         universe_mod.universe_filter(db_session, _ASOF, ["AAA"], base_currency="EUR")
 
         assert seen["base_currency"] == "EUR"
+
+
+_LIVE_START = dt.date(2023, 11, 1)
+_LIVE_DAYS = 60
+_LIVE_ASOF = _LIVE_START + dt.timedelta(days=_LIVE_DAYS - 1)
+
+
+def _wavy_closes(phase: float, days: int) -> dict[dt.date, float]:
+    """A deterministic oscillating close series starting at ``_LIVE_START``."""
+    import math
+
+    return {
+        _LIVE_START + dt.timedelta(days=i): 100.0
+        * (1.0 + 0.03 * math.sin(i / 2 + phase))
+        for i in range(days)
+    }
+
+
+def _seed_live_pair_and_dead_ticker(db_session, *, dead_bars: int) -> None:
+    """Two tickers trading through ``_LIVE_ASOF`` plus ``DEAD`` that stops early."""
+    _seed_prices(
+        db_session, _seed_instrument(db_session, "LIVA"), _wavy_closes(0.0, 60)
+    )
+    _seed_prices(
+        db_session, _seed_instrument(db_session, "LIVB"), _wavy_closes(1.3, 60)
+    )
+    _seed_prices(
+        db_session,
+        _seed_instrument(db_session, "DEAD"),
+        _wavy_closes(2.6, dead_bars),
+    )
+
+
+class TestDeadAndStaleTickersAreNotInvestable:
+    def test_stale_ticker_is_excluded_and_flagged_missing(self, db_session) -> None:
+        _seed_live_pair_and_dead_ticker(db_session, dead_bars=10)
+
+        frame, missing = load_price_frame(
+            db_session, _LIVE_ASOF, ["LIVA", "LIVB", "DEAD"]
+        )
+
+        assert list(frame.columns) == ["LIVA", "LIVB"]
+        assert missing == ["DEAD"]
+
+    def test_optimizer_never_weights_a_ticker_that_stopped_trading(
+        self, db_session
+    ) -> None:
+        _seed_live_pair_and_dead_ticker(db_session, dead_bars=10)
+
+        result = optimize_portfolio(db_session, _LIVE_ASOF, ["LIVA", "LIVB", "DEAD"])
+
+        assert result["ok"] is True
+        assert set(result["data"]["weights"]) == {"LIVA", "LIVB"}
+        assert result["data"]["missing"] == ["DEAD"]
+
+    def test_delisted_ticker_is_excluded_even_with_recent_bars(
+        self, db_session
+    ) -> None:
+        _seed_prices(
+            db_session, _seed_instrument(db_session, "LIVA"), _wavy_closes(0.0, 60)
+        )
+        gone = _seed_instrument(
+            db_session, "GONE", delisted_at=_LIVE_ASOF - dt.timedelta(days=3)
+        )
+        _seed_prices(db_session, gone, _wavy_closes(1.3, 60))
+
+        frame, missing = load_price_frame(db_session, _LIVE_ASOF, ["LIVA", "GONE"])
+
+        assert list(frame.columns) == ["LIVA"]
+        assert missing == ["GONE"]
+
+    def test_ticker_delisted_after_asof_is_still_investable_at_asof(
+        self, db_session
+    ) -> None:
+        later = _seed_instrument(
+            db_session, "LATER", delisted_at=_LIVE_ASOF + dt.timedelta(days=30)
+        )
+        _seed_prices(db_session, later, _wavy_closes(0.0, 60))
+
+        frame, missing = load_price_frame(db_session, _LIVE_ASOF, ["LATER"])
+
+        assert list(frame.columns) == ["LATER"]
+        assert missing == []
+
+    def test_short_holiday_gap_does_not_exclude_a_ticker(self, db_session) -> None:
+        _seed_prices(
+            db_session, _seed_instrument(db_session, "LIVA"), _wavy_closes(0.0, 60)
+        )
+        _seed_prices(
+            db_session, _seed_instrument(db_session, "HOLI"), _wavy_closes(1.3, 56)
+        )
+
+        frame, missing = load_price_frame(db_session, _LIVE_ASOF, ["LIVA", "HOLI"])
+
+        assert list(frame.columns) == ["LIVA", "HOLI"]
+        assert missing == []
+
+    def test_recent_null_closes_do_not_hide_a_stale_last_real_close(
+        self, db_session
+    ) -> None:
+        _seed_prices(
+            db_session, _seed_instrument(db_session, "LIVA"), _wavy_closes(0.0, 60)
+        )
+        inst = _seed_instrument(db_session, "NULC")
+        for i, day in enumerate(_wavy_closes(1.3, 60)):
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=100.0 + i if i < 40 else None,
+                    volume=100,
+                )
+            )
+        db_session.flush()
+
+        frame, missing = load_price_frame(db_session, _LIVE_ASOF, ["LIVA", "NULC"])
+
+        assert list(frame.columns) == ["LIVA"]
+        assert missing == ["NULC"]
+
+    def test_sparse_field_does_not_make_a_trading_ticker_stale(
+        self, db_session
+    ) -> None:
+        inst = _seed_instrument(db_session, "DIVS")
+        for day in _wavy_closes(0.0, 60):
+            db_session.add(
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=day,
+                    close=100.0,
+                    dividends=0.5 if day == _LIVE_START else None,
+                )
+            )
+        db_session.flush()
+
+        frame, missing = load_price_frame(
+            db_session, _LIVE_ASOF, ["DIVS"], field="dividends"
+        )
+
+        assert list(frame.columns) == ["DIVS"]
+        assert missing == []

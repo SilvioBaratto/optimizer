@@ -18,6 +18,7 @@ Contract (via ``tool_envelope``):
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
@@ -36,6 +37,8 @@ from fund.tools._base import (
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 # OHLCV-and-actions columns that live on ``PriceHistory`` and can be pulled as a
 # numeric series. A request for anything else is a caller error, not a crash.
@@ -57,6 +60,12 @@ _PRICE_FIELDS: frozenset[str] = frozenset(
 # split ratios are unit-free, and an FX rate would corrupt them.
 _PRICE_LEVEL_FIELDS: frozenset[str] = frozenset({"open", "high", "low", "close"})
 
+# A series whose latest bar lags ``asof`` by more than this many calendar days is
+# not tradable data: it covers the longest exchange closures (Golden Week, ~8 days)
+# but not a halted, delisted or un-ingested name, whose forward-filled tail would
+# read as a zero-variance asset to the optimiser.
+_MAX_STALE_DAYS = 10
+
 
 def load_price_frame(
     session: Session,
@@ -71,8 +80,13 @@ def load_price_frame(
     Shared loader behind ``get_prices`` and the moment/optimize tools, so every
     allocator node re-derives the same panel from the same DB state. The
     frame carries one column per *priced* ticker (in requested order) on a sorted
-    ``DatetimeIndex``; ``missing`` lists requested tickers with no instrument row
-    or no priced days. The caller validates ``field`` and non-empty ``tickers``.
+    ``DatetimeIndex``. ``missing`` lists requested tickers with no instrument row
+    or no priced days, plus those that are not investable at ``asof``: delisted on
+    or before it, or stale (latest value more than ``_MAX_STALE_DAYS`` calendar days
+    behind it; for a sparse non-price column, the latest bar of any column). Such a
+    name is excluded rather than forward-filled into a flat, zero-variance tail
+    that a minimum-variance optimiser would over-weight. The caller validates
+    ``field`` and non-empty ``tickers``.
 
     Args:
         session: A sync ``portopt_db`` session; the loader does not own it.
@@ -88,7 +102,8 @@ def load_price_frame(
             only sound for a single-currency universe.
 
     Returns:
-        ``(frame, missing)`` — the wide price frame and the absent tickers.
+        ``(frame, missing)`` — the wide price frame and the absent, delisted or
+        stale tickers.
 
     Raises:
         FxCoverageError: ``base_currency`` is set, the panel holds foreign tickers
@@ -99,9 +114,13 @@ def load_price_frame(
 
     series_by_ticker: dict[str, pd.Series] = {}
     currency_map: dict[str, str] = {}
+    excluded: list[str] = []
     for ticker in tickers:
         instrument = repo.get_instrument_by_yfinance_ticker(ticker)
         if instrument is None:
+            continue
+        if instrument.delisted_at is not None and instrument.delisted_at <= end_date:
+            excluded.append(ticker)
             continue
         rows = repo.get_price_history(instrument.id, end_date=end_date)
         values = {
@@ -110,11 +129,30 @@ def load_price_frame(
             if getattr(row, field) is not None
         }
         if values:
+            # A price level is dense, so its own last value is the freshness test: a
+            # recent row whose close is NULL must not hide a weeks-old last close.
+            # A sparse column (dividends) is legitimately NULL on most days, so it
+            # is judged on the latest bar of any column instead.
+            last_bar = (
+                max(values)
+                if field in _PRICE_LEVEL_FIELDS
+                else max(row.date for row in rows)
+            )
+            if (end_date - last_bar).days > _MAX_STALE_DAYS:
+                excluded.append(ticker)
+                continue
             series_by_ticker[ticker] = pd.Series(values)
             unit = next((r.price_unit for r in rows if r.price_unit), None)
             unit = unit or instrument.currency_code
             if unit:
                 currency_map[ticker] = unit
+
+    if excluded:
+        logger.warning(
+            "price panel as of %s excludes delisted/stale tickers: %s",
+            end_date,
+            excluded,
+        )
 
     frame = pd.DataFrame(series_by_ticker)
     if not frame.empty:
