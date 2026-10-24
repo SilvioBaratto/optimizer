@@ -40,7 +40,13 @@ def align_to_pit(
 
     For each ticker, the most recent record satisfying the availability
     constraint is returned so that callers receive a cross-sectional view
-    as of ``as_of_date``.
+    as of ``as_of_date``.  ``PublicationLagConfig`` holds the conventional
+    per-source values for ``lag_days``.
+
+    Because only one record per ticker survives, this suits sources with one
+    record per reporting period, such as fundamentals.  It cannot be applied
+    to a multi-row ledger (insider transactions would collapse to a single
+    trade) nor to analyst snapshots (no period end date to filter on).
 
     Args:
         data: Time-series data containing ``period_date_col`` and optionally
@@ -561,6 +567,19 @@ def compute_all_factors(
     fx_converter: FxPriceConverter | None = None,
 ) -> pd.DataFrame:
     """Compute all configured factors.
+
+    No as-of filtering or publication lag is applied: every row of every
+    input is used, so a backtest must hand in data that was already knowable
+    on the decision date.
+
+    - Fundamentals: one record per reporting period, so slice them upstream
+      with `align_to_pit` and the lags in `PublicationLagConfig`.
+    - Insider ledger: several rows per ticker, which `align_to_pit` would
+      collapse to one.  Filter it by its transaction date column yourself,
+      keeping rows dated on or before the decision date less the lag.
+    - Analyst snapshots: dated only by the relative ``period`` label, so there
+      is no column to filter on.  Pass the snapshots as they stood on the
+      decision date.
 
     Args:
         fundamentals: Cross-sectional data indexed by ticker.

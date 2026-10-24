@@ -268,6 +268,22 @@ class TestFactorConstructionConfig:
         with pytest.raises(TypeError):
             FactorConstructionConfig(publication_lag=120)  # type: ignore[call-arg]
 
+    @pytest.mark.parametrize("lag", [90, PublicationLagConfig(annual_days=60)])
+    def test_publication_lag_is_rejected_because_construction_cannot_apply_it(
+        self, lag: object
+    ) -> None:
+        """Construction never filters by date, so a lag knob would be silent.
+
+        A caller who sets it would believe look-ahead is handled while the
+        factors consume every row they are given.  Lags belong to
+        ``align_to_pit`` upstream; the config must fail loudly instead.
+        """
+        assert "publication_lag" not in {
+            f.name for f in dataclasses.fields(FactorConstructionConfig)
+        }
+        with pytest.raises(TypeError):
+            FactorConstructionConfig(publication_lag=lag)  # type: ignore[call-arg]
+
     @pytest.mark.parametrize(
         "field_name",
         [
