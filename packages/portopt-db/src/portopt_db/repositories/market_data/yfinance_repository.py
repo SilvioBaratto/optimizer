@@ -1289,10 +1289,37 @@ class YFinanceRepository(RepositoryBase):
     # Institutional Holders
     # ------------------------------------------------------------------
 
+    def _drop_departed(
+        self,
+        model: Any,
+        name_column: str,
+        instrument_id: UUID,
+        current: Sequence[str],
+    ) -> None:
+        """Delete an instrument's rows whose name is not in ``current``.
+
+        The holder and roster tables mirror Yahoo's current list and keep no
+        history, so a name that left it must not linger with stale figures. An
+        empty ``current`` is ignored: an empty fetch says nothing about who left.
+        """
+        if not current:
+            return
+        with self.session.begin_nested():
+            self.session.execute(
+                delete(model).where(
+                    model.instrument_id == instrument_id,
+                    getattr(model, name_column).not_in(current),
+                )
+            )
+
     def upsert_institutional_holders(
         self, instrument_id: UUID, holders_df: pd.DataFrame
     ) -> int:
-        """Upsert institutional holders from DataFrame."""
+        """Upsert institutional holders from DataFrame.
+
+        The table mirrors Yahoo's current list: after a non-empty frame, stored
+        holders it no longer names are deleted.
+        """
         rows = []
         for _, row_data in holders_df.iterrows():
             name = _safe_str(row_data.get("Holder"), 500)
@@ -1309,11 +1336,19 @@ class YFinanceRepository(RepositoryBase):
                 }
             )
 
-        return self._upsert(
+        current = _latest_reported_per_holder(rows)
+        written = self._upsert(
             InstitutionalHolder,
-            _latest_reported_per_holder(rows),
+            current,
             constraint_name="uq_inst_holder_instrument_name",
         )
+        self._drop_departed(
+            InstitutionalHolder,
+            "holder_name",
+            instrument_id,
+            [r["holder_name"] for r in current],
+        )
+        return written
 
     def get_institutional_holders(
         self, instrument_id: UUID
@@ -1333,7 +1368,11 @@ class YFinanceRepository(RepositoryBase):
     def upsert_mutualfund_holders(
         self, instrument_id: UUID, holders_df: pd.DataFrame
     ) -> int:
-        """Upsert mutual fund holders from DataFrame."""
+        """Upsert mutual fund holders from DataFrame.
+
+        The table mirrors Yahoo's current list: after a non-empty frame, stored
+        holders it no longer names are deleted.
+        """
         rows = []
         for _, row_data in holders_df.iterrows():
             name = _safe_str(row_data.get("Holder"), 500)
@@ -1350,11 +1389,19 @@ class YFinanceRepository(RepositoryBase):
                 }
             )
 
-        return self._upsert(
+        current = _latest_reported_per_holder(rows)
+        written = self._upsert(
             MutualFundHolder,
-            _latest_reported_per_holder(rows),
+            current,
             constraint_name="uq_mutual_fund_holder_instrument_name",
         )
+        self._drop_departed(
+            MutualFundHolder,
+            "holder_name",
+            instrument_id,
+            [r["holder_name"] for r in current],
+        )
+        return written
 
     def get_mutualfund_holders(self, instrument_id: UUID) -> Sequence[MutualFundHolder]:
         """Return mutual fund holder rows for an instrument, ordered by holder name."""
@@ -1523,7 +1570,11 @@ class YFinanceRepository(RepositoryBase):
         )
 
     def upsert_insider_roster(self, instrument_id: UUID, df: pd.DataFrame) -> int:
-        """Upsert individual insiders from ``insider_roster_holders``."""
+        """Upsert individual insiders from ``insider_roster_holders``.
+
+        The table mirrors Yahoo's current roster: after a non-empty frame, stored
+        insiders it no longer names are deleted.
+        """
 
         def _col(r: Any, *names: str) -> Any:
             for name in names:
@@ -1554,11 +1605,18 @@ class YFinanceRepository(RepositoryBase):
                     ),
                 }
             )
-        return self._upsert(
+        written = self._upsert(
             InsiderRosterHolder,
             rows,
             constraint_name="uq_insider_roster_instrument_name",
         )
+        self._drop_departed(
+            InsiderRosterHolder,
+            "insider_name",
+            instrument_id,
+            [r["insider_name"] for r in rows],
+        )
+        return written
 
     # ------------------------------------------------------------------
     # Ticker News

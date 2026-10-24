@@ -34,6 +34,7 @@ from portopt_db.models.market_data.yfinance_data import (
     EpsTrend,
     FinancialStatement,
     GrowthEstimate,
+    InsiderRosterHolder,
     InsiderTransaction,
     InstitutionalHolder,
     MutualFundHolder,
@@ -2770,6 +2771,96 @@ class TestUpsertEarningsDatesDropsMovedProjection:
         )
 
         assert self._stored_dates(db_session, other.id) == {upcoming}
+
+
+# ---------------------------------------------------------------------------
+# upsert_news — all format/branch variants (mocked _upsert)
+# ---------------------------------------------------------------------------
+
+
+class TestHolderSnapshotsDropDepartedNames:
+    """The holder and insider-roster tables mirror Yahoo's current list and keep
+    no history. A name that left the list must not stay behind with stale
+    figures, or sums over the table mix current and former holders."""
+
+    @staticmethod
+    def _holders(*names: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "Holder": list(names),
+                "Date Reported": pd.to_datetime(["2024-06-30"] * len(names)),
+                "Shares": [100] * len(names),
+                "Value": [1000] * len(names),
+                "pctHeld": [0.01] * len(names),
+            }
+        )
+
+    @staticmethod
+    def _roster(*names: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "Name": list(names),
+                "Position": ["Director"] * len(names),
+                "Shares Owned Directly": [500] * len(names),
+            }
+        )
+
+    def _seed(self, db_session: Session, name: str) -> Instrument:
+        ex = _exchange(db_session, name=name)
+        return _instrument(db_session, ex, ticker=name, yfinance_ticker=name)
+
+    @staticmethod
+    def _names(db_session: Session, model: Any, column: str, iid: uuid.UUID) -> set:
+        db_session.expire_all()
+        rows = db_session.query(model).filter_by(instrument_id=iid).all()
+        return {getattr(r, column) for r in rows}
+
+    @pytest.mark.parametrize(
+        ("method", "model", "column", "build"),
+        [
+            (
+                "upsert_institutional_holders",
+                InstitutionalHolder,
+                "holder_name",
+                _holders,
+            ),
+            ("upsert_mutualfund_holders", MutualFundHolder, "holder_name", _holders),
+            ("upsert_insider_roster", InsiderRosterHolder, "insider_name", _roster),
+        ],
+    )
+    def test_name_missing_from_the_new_list_is_removed(
+        self, db_session: Session, method, model, column, build
+    ) -> None:
+        inst = self._seed(db_session, f"Snap-{method}")
+        repo = _repo(db_session)
+        getattr(repo, method)(inst.id, build("X", "Y"))
+
+        getattr(repo, method)(inst.id, build("Y", "Z"))
+
+        assert self._names(db_session, model, column, inst.id) == {"Y", "Z"}
+
+    def test_empty_list_does_not_wipe_stored_holders(self, db_session: Session) -> None:
+        inst = self._seed(db_session, "SnapEmpty")
+        repo = _repo(db_session)
+        repo.upsert_institutional_holders(inst.id, self._holders("X"))
+
+        repo.upsert_institutional_holders(inst.id, self._holders())
+
+        assert self._names(db_session, InstitutionalHolder, "holder_name", inst.id) == {
+            "X"
+        }
+
+    def test_other_instruments_holders_are_untouched(self, db_session: Session) -> None:
+        mine = self._seed(db_session, "SnapMine")
+        other = self._seed(db_session, "SnapOther")
+        repo = _repo(db_session)
+        repo.upsert_institutional_holders(other.id, self._holders("X"))
+
+        repo.upsert_institutional_holders(mine.id, self._holders("Y"))
+
+        assert self._names(
+            db_session, InstitutionalHolder, "holder_name", other.id
+        ) == {"X"}
 
 
 # ---------------------------------------------------------------------------
