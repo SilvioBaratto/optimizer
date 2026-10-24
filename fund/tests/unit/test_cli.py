@@ -721,6 +721,26 @@ def test_status_without_portfolio_lists_paused(harness, monkeypatch) -> None:
     assert str(run_id) in res.output
 
 
+def test_status_labels_responded_run_in_both_views(harness, monkeypatch) -> None:
+    # A barge-in re-gate leaves the run "responded" yet still awaiting approval; the
+    # global queue must name that status and the per-portfolio view must flag hitl.
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    with harness.read() as session:
+        AgentRunRepository(session).mark_responded(run_id)
+        session.commit()
+
+    global_res = harness.runner.invoke(cli.app, ["status"])
+    scoped_res = harness.runner.invoke(cli.app, ["status", str(PORTFOLIO_ID)])
+
+    assert global_res.exit_code == 0, global_res.output
+    (global_line,) = [ln for ln in global_res.output.splitlines() if str(run_id) in ln]
+    assert global_line.split("\t")[1] == "responded"
+    assert scoped_res.exit_code == 0, scoped_res.output
+    (scoped_line,) = [ln for ln in scoped_res.output.splitlines() if str(run_id) in ln]
+    assert scoped_line.split("\t")[1] == "responded"
+    assert scoped_line.endswith("hitl=True")
+
+
 def test_report_renders_after_approve(harness, monkeypatch) -> None:
     run_id, expected, _res = _seed_and_run(harness, monkeypatch)
     harness.runner.invoke(cli.app, ["approve", str(run_id)])

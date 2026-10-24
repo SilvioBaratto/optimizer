@@ -516,7 +516,7 @@ def status(
         if portfolio_id is None:
             for r in AgentRunRepository(session).list_paused_runs():
                 lines.append(
-                    f"{r.id}\tpaused\tportfolio={r.portfolio_id}\tasof={r.asof}"
+                    f"{r.id}\t{r.status}\tportfolio={r.portfolio_id}\tasof={r.asof}"
                 )
         else:
             pid = _uuid(portfolio_id, label="portfolio id")
