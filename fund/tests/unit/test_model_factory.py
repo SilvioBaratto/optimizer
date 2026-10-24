@@ -93,6 +93,63 @@ def fake_ollama(monkeypatch):
         thread.join(timeout=5)
 
 
+@pytest.fixture
+def fake_nvidia(monkeypatch):
+    """A localhost OpenAI-style ``/v1/chat/completions`` stub for ChatNVIDIA.
+
+    Yields ``(base_url, auth_headers)`` where ``auth_headers`` collects the
+    ``Authorization`` header of every request, so a test can assert which
+    credential actually crossed the wire. The ambient ``NVIDIA_API_KEY`` is cleared
+    first; a test that wants one sets it afterwards.
+    """
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    auth_headers: list[str | None] = []
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            auth_headers.append(self.headers.get("Authorization"))
+            body = json.dumps(
+                {
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "m",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "ok"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/v1", auth_headers
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_build_chat_model_threads_config_onto_chatollama():
     llm = model.build_chat_model(_CFG, model_name="deepseek-v4.1-flash:cloud")
 
@@ -819,6 +876,21 @@ def test_nvidia_self_host_base_url_builds_without_a_key(monkeypatch):
     assert llm.kwargs["base_url"] == "http://localhost:8000/v1"
     assert "api_key" not in llm.kwargs  # self-hosted NIM needs no key
     assert llm.kwargs["temperature"] == cfg.model_temperature
+
+
+def test_nvidia_configured_key_is_sent_to_an_explicit_base_url(fake_nvidia):
+    # A key supplied for a keyed gateway or the explicit hosted URL must not be
+    # dropped just because NVIDIA_BASE_URL is set.
+    base_url, auth_headers = fake_nvidia
+    cfg = FundConfig(
+        llm_provider="nvidia",
+        nvidia_api_key="nvapi-configured",
+        nvidia_base_url=base_url,
+    )
+
+    model.build_chat_model(cfg, model_name="meta/llama-3.1-8b-instruct").invoke("hi")
+
+    assert auth_headers == ["Bearer nvapi-configured"]
 
 
 def test_nvidia_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):

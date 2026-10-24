@@ -356,7 +356,9 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
 
     * **hosted** (``build.nvidia.com`` — no base_url) *requires* ``NVIDIA_API_KEY``;
     * **self-hosted NIM** (``NVIDIA_BASE_URL`` set, e.g. ``http://host:8000/v1``)
-      routes by ``base_url`` and needs **no** key.
+      routes by ``base_url`` and needs **no** key — but a key that *is* configured
+      is still sent, so a keyed gateway (or the explicit hosted URL) authenticates.
+      Leave ``NVIDIA_API_KEY`` unset for a keyless NIM.
 
     ``temperature=0`` threads the D4 contract and ``max_completion_tokens`` is set
     explicitly because ``ChatNVIDIA`` otherwise caps every completion at 1024 tokens;
@@ -369,10 +371,13 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
         "temperature": config.model_temperature,
         "max_completion_tokens": _MAX_COMPLETION_TOKENS,
     }
+    api_key = config.nvidia_api_key
     if config.nvidia_base_url:
         kwargs["base_url"] = config.nvidia_base_url
     else:
-        kwargs["api_key"] = _require(config.nvidia_api_key, "NVIDIA_API_KEY")
+        api_key = _require(api_key, "NVIDIA_API_KEY")
+    if api_key:
+        kwargs["api_key"] = api_key
     return ChatNVIDIA(**kwargs)
 
 
