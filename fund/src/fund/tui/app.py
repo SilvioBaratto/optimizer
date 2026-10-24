@@ -637,6 +637,7 @@ class ShellApp(App[None]):
         session_factory: Callable[[], AbstractContextManager[Session]],
         persistence: Any,
         model_factory: Callable[[], Any],
+        fallback_factory: Callable[[], Any] | None = None,
         config: FundConfig = settings,
         poll_interval: float = 2.0,
     ) -> None:
@@ -651,6 +652,8 @@ class ShellApp(App[None]):
                 ``.store`` (used by the data-bearing views in later phases).
             model_factory: Called lazily when the adviser acts; unused by the
                 Phase-0 placeholder views.
+            fallback_factory: Called lazily alongside ``model_factory`` to build
+                the model the subagents retry on; ``None`` runs without one.
             config: Application settings; defaults to the process singleton.
             poll_interval: Refresh timer cadence in seconds.
         """
@@ -659,6 +662,7 @@ class ShellApp(App[None]):
         self._session_factory = session_factory
         self._persistence = persistence
         self._model_factory = model_factory
+        self._fallback_factory = fallback_factory
         self._config = config
         self._poll_interval = poll_interval
         self.last_status: str = ""
@@ -1377,6 +1381,7 @@ class ShellApp(App[None]):
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                     model=model,
+                    fallback=self._build_fallback() if model is not None else None,
                     # Resolving a run is terminal: key on (run, decision) so a repeat
                     # replays the first outcome instead of re-resuming.
                     idempotency_key=f"{run_id}:{decision}",
@@ -1418,6 +1423,7 @@ class ShellApp(App[None]):
                     portfolio_id=portfolio_id,
                     new_value=weights,
                     model=model,
+                    fallback=self._build_fallback(),
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                     idempotency_key=f"{run_id}:edit",
@@ -1492,6 +1498,20 @@ class ShellApp(App[None]):
             self.call_from_thread(self._set_status, f"action failed: {exc}")
             return
         self.call_from_thread(self._after_action, result.message)
+
+    def _build_fallback(self) -> Any | None:
+        """Build the retry model, or ``None`` when none is configured or it fails.
+
+        The fallback only adds resilience, so a provider problem with it must not
+        stop an action whose primary model built fine.
+        """
+        if self._fallback_factory is None:
+            return None
+        try:
+            return self._fallback_factory()
+        except Exception as exc:
+            logger.warning("no fallback model for this action: %s", exc)
+            return None
 
     def _after_action(self, message: str) -> None:
         """On the main thread once a worker committed: report + repaint view/header."""
@@ -1985,6 +2005,7 @@ class ShellApp(App[None]):
                     portfolio_id=portfolio_id,
                     questionnaire=questionnaire_json,
                     model=model,
+                    fallback=self._build_fallback(),
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                     base_currency=base_currency,
@@ -2020,6 +2041,7 @@ class ShellApp(App[None]):
                     mandate=mandate,
                     asof=asof,
                     model=model,
+                    fallback=self._build_fallback(),
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                 )
@@ -2080,6 +2102,7 @@ class ShellApp(App[None]):
                     session=session,
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
+                    fallback=self._build_fallback(),
                 ):
                     if last_kind is None:
                         self.call_from_thread(
@@ -2185,6 +2208,7 @@ class ShellApp(App[None]):
                     portfolio_id=portfolio_id,
                     pm_directive=directive,
                     model=model,
+                    fallback=self._build_fallback(),
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                 )
@@ -2807,7 +2831,7 @@ def main() -> None:
     import typer
 
     def _launch(portfolio_id: str | None = typer.Argument(default=None)) -> None:
-        from fund.agents.model import build_primary
+        from fund.agents.model import build_fallback, build_primary
         from fund.audit import setup_langgraph
         from fund.database import get_session
 
@@ -2819,6 +2843,7 @@ def main() -> None:
                 session_factory=get_session,
                 persistence=persistence,
                 model_factory=lambda: build_primary(settings),
+                fallback_factory=lambda: build_fallback(settings),
             )
             app.run()
         finally:

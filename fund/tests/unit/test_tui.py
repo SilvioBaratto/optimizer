@@ -346,9 +346,11 @@ def _make_shell(
     portfolio_id=None,
     poll_interval: float = 30.0,
     model_factory=None,
+    fallback_factory=None,
     config=settings,
 ) -> ShellApp:
     """Build the shell wired onto ``env`` (a big poll interval keeps ticks away)."""
+    extra = {} if fallback_factory is None else {"fallback_factory": fallback_factory}
     return ShellApp(
         portfolio_id,
         session_factory=env.get_session,
@@ -356,6 +358,7 @@ def _make_shell(
         model_factory=model_factory or env.model_factory,
         config=config,
         poll_interval=poll_interval,
+        **extra,
     )
 
 
@@ -10876,3 +10879,92 @@ def test_readout_risk_skips_pending_markers_where_recompute_is_unavailable() -> 
     text = render_readout("risk", "risk_check", None, compute, expandable=False)
     assert text is not None
     assert "● ok" in text
+
+
+# -- fallback model: the human-driven drives retry on it like the scheduler ------
+
+
+_FALLBACK_MODEL = object()
+
+
+@pytest.mark.asyncio
+async def test_approve_hands_the_fallback_model_to_apply_action(
+    tui_env, monkeypatch
+) -> None:
+    import fund.actions as actions_mod
+
+    seen: dict[str, object] = {}
+
+    def _apply(_decision, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(message="approve done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(tui_env, fallback_factory=lambda: _FALLBACK_MODEL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await app.last_worker.wait()
+
+    assert seen["fallback"] is _FALLBACK_MODEL
+
+
+@pytest.mark.asyncio
+async def test_run_hands_the_fallback_model_to_apply_action(
+    tui_env, monkeypatch
+) -> None:
+    import fund.actions as actions_mod
+
+    _seed_mandate(tui_env)
+    seen: dict[str, object] = {}
+
+    def _apply(_action, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(message="run done")
+
+    monkeypatch.setattr(actions_mod, "apply_action", _apply)
+
+    app = _make_shell(
+        tui_env,
+        portfolio_id=PORTFOLIO_ID,
+        fallback_factory=lambda: _FALLBACK_MODEL,
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        worker = app._run_worker(PORTFOLIO_ID, ASOF)
+        await worker.wait()
+
+    assert seen["fallback"] is _FALLBACK_MODEL
+
+
+@pytest.mark.asyncio
+async def test_stream_hands_the_fallback_model_to_stream_fund(
+    tui_env, monkeypatch
+) -> None:
+    _seed_mandate(tui_env)
+    seen: dict[str, object] = {}
+
+    def fake_stream_fund(*_args, **kwargs):
+        seen.update(kwargs)
+        return
+        yield  # a generator that ends without a step
+
+    monkeypatch.setattr("fund.agents.graph.stream_fund", fake_stream_fund)
+
+    app = _make_shell(
+        tui_env,
+        portfolio_id=PORTFOLIO_ID,
+        fallback_factory=lambda: _FALLBACK_MODEL,
+    )
+    async with app.run_test(size=_SIZE) as pilot:
+        app.query_one(ContentSwitcher).current = "view-deliberation"
+        app._refresh()
+        await pilot.pause()
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+
+    assert seen["fallback"] is _FALLBACK_MODEL

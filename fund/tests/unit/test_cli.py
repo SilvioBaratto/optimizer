@@ -1090,3 +1090,58 @@ def test_mandate_set_drift_help_states_the_upper_bound() -> None:
     drift = next(p for p in set_cmd.params if p.name == "drift")
 
     assert "(0, 2)" in drift.help  # the bound is open: 2 can never be breached
+
+
+# --- fallback model ---------------------------------------------------------
+
+
+def _spy_apply_action(monkeypatch) -> dict[str, Any]:
+    """Record the ``fallback`` each ``apply_action`` call receives, then delegate."""
+    seen: dict[str, Any] = {}
+    real = cli.apply_action
+
+    def spy(action, **kwargs):
+        seen[action] = kwargs.get("fallback")
+        return real(action, **kwargs)
+
+    monkeypatch.setattr(cli, "apply_action", spy)
+    return seen
+
+
+def test_run_builds_the_fallback_model_and_hands_it_to_the_round(
+    harness, monkeypatch
+) -> None:
+    fallback = ScriptedFundModel(universe=UNIVERSE)
+    monkeypatch.setattr(cli, "build_fallback", lambda *_a, **_k: fallback)
+    seen = _spy_apply_action(monkeypatch)
+
+    _seed_and_run(harness, monkeypatch)
+
+    assert seen["run"] is fallback
+
+
+def test_approve_builds_the_fallback_model_and_hands_it_to_the_resume(
+    harness, monkeypatch
+) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    fallback = ScriptedFundModel(universe=UNIVERSE)
+    monkeypatch.setattr(cli, "build_fallback", lambda *_a, **_k: fallback)
+    seen = _spy_apply_action(monkeypatch)
+
+    harness.runner.invoke(cli.app, ["approve", str(run_id)])
+
+    assert seen["approve"] is fallback
+
+
+def test_a_fallback_that_cannot_be_built_does_not_block_the_command(
+    harness, monkeypatch
+) -> None:
+    def unbuildable(*_a, **_k):
+        raise RuntimeError("no fallback key")
+
+    monkeypatch.setattr(cli, "build_fallback", unbuildable)
+    seen = _spy_apply_action(monkeypatch)
+
+    _seed_and_run(harness, monkeypatch)
+
+    assert seen["run"] is None

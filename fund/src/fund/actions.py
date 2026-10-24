@@ -109,6 +109,7 @@ def apply_action(
     checkpointer: Any | None = None,
     store: Any | None = None,
     model: Any | None = None,
+    fallback: Any | None = None,
     mandate: Any | None = None,
     questionnaire: Any | None = None,
     asof: dt.date | None = None,
@@ -166,6 +167,9 @@ def apply_action(
         checkpointer: LangGraph checkpointer for the resume / drive flows.
         store: LangGraph store for the resume / drive flows.
         model: Chat model the resumed or driven run uses.
+        fallback: Chat model its subagents retry on when the primary raises, or
+            ``None`` for no retry. The scheduler always supplies one; a human-driven
+            drive should too.
         mandate: The ``fund.schemas.mandate.PortfolioMandate`` to upsert
             (``mandate_edit`` / ``new_portfolio``) or run (``run``).
         questionnaire: MiFID answers for the profiler (``profile`` only): free text it
@@ -219,6 +223,7 @@ def apply_action(
             checkpointer=checkpointer,
             store=store,
             model=model,
+            fallback=fallback,
             pm_directive=pm_directive,
             actor=actor,
             source=source,
@@ -236,6 +241,7 @@ def apply_action(
             checkpointer=checkpointer,
             store=store,
             model=model,
+            fallback=fallback,
             new_value=new_value,
             actor=actor,
             source=source,
@@ -305,6 +311,7 @@ def apply_action(
             portfolio_id=portfolio_id,
             questionnaire=questionnaire,
             model=model,
+            fallback=fallback,
             checkpointer=checkpointer,
             store=store,
             base_currency=base_currency,
@@ -321,6 +328,7 @@ def apply_action(
             portfolio_id=portfolio_id,
             mandate=mandate,
             model=model,
+            fallback=fallback,
             checkpointer=checkpointer,
             store=store,
             asof=asof,
@@ -343,6 +351,7 @@ def _apply_resume(
     checkpointer: Any | None,
     store: Any | None,
     model: Any | None,
+    fallback: Any | None,
     pm_directive: str | None,
     actor: str,
     source: str | None,
@@ -397,6 +406,7 @@ def _apply_resume(
             checkpointer=checkpointer,
             store=store,
             model=model,
+            fallback=fallback,
             pm_directive=pm_directive,
             config=config,
         )
@@ -478,6 +488,7 @@ def _apply_edit(
     checkpointer: Any | None,
     store: Any | None,
     model: Any | None,
+    fallback: Any | None,
     new_value: Any | None,
     actor: str,
     source: str | None,
@@ -596,6 +607,7 @@ def _apply_edit(
         checkpointer=checkpointer,
         store=store,
         model=model,
+        fallback=fallback,
         config=config,
     )
     return ActionResult(
@@ -1159,6 +1171,7 @@ def _apply_profile(
     portfolio_id: uuid.UUID | None,
     questionnaire: Any | None,
     model: Any | None,
+    fallback: Any | None,
     checkpointer: Any | None,
     store: Any | None,
     base_currency: str | None,
@@ -1200,6 +1213,7 @@ def _apply_profile(
             store=store,
             base_currency=base_currency,
             asof=asof,
+            fallback=fallback,
             config=config,
         )
     except SuitabilityBreachError as exc:
@@ -1305,6 +1319,7 @@ def _apply_run(
     portfolio_id: uuid.UUID | None,
     mandate: Any | None,
     model: Any | None,
+    fallback: Any | None,
     checkpointer: Any | None,
     store: Any | None,
     asof: dt.date | None,
@@ -1338,6 +1353,7 @@ def _apply_run(
         session=session,
         checkpointer=checkpointer,
         store=store,
+        fallback=fallback,
         config=config,
     )
     # ``run_fund`` itself rejects a round whose scope froze before the gate opened; a

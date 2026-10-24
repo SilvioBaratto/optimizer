@@ -2251,3 +2251,68 @@ def test_freeze_does_not_rewrite_a_run_an_approve_already_completed(
     assert stored[approved] == "completed"
     assert stored[live] == "rejected"
     assert AutonomyRepository(clean_db).fund_posture() == "frozen"
+
+
+# -- fallback model: human-driven drives must retry on it like the scheduler ----
+
+
+_FALLBACK = object()
+
+
+def test_run_action_hands_the_fallback_model_to_run_fund(db_session) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_run_fund(*_args, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(run_id=uuid.uuid4(), status="paused")
+
+    with mock.patch("fund.agents.graph.run_fund", fake_run_fund):
+        apply_action(
+            "run",
+            session=db_session,
+            portfolio_id=PORTFOLIO_ID,
+            mandate=make_mandate(),
+            asof=dt.date(2026, 1, 2),
+            fallback=_FALLBACK,
+        )
+
+    assert seen["fallback"] is _FALLBACK
+
+
+def test_approve_action_hands_the_fallback_model_to_resume_run(db_session) -> None:
+    run = AgentRunRepository(db_session).create_run(
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        seed=1,
+        universe=[],
+        optimizer_config={"step": "fund"},
+    )
+    seen: dict[str, object] = {}
+
+    def fake_resume(_rid, _decision, **kwargs):
+        seen.update(kwargs)
+        return {}
+
+    with mock.patch("fund.agents.graph.resume_run", fake_resume):
+        apply_action("approve", session=db_session, run_id=run.id, fallback=_FALLBACK)
+
+    assert seen["fallback"] is _FALLBACK
+
+
+def test_profile_action_hands_the_fallback_model_to_run_profiler(db_session) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_run_profiler(*_args, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(run_id=uuid.uuid4(), interrupt=object())
+
+    with mock.patch("fund.agents.profiler.run_profiler", fake_run_profiler):
+        apply_action(
+            "profile",
+            session=db_session,
+            portfolio_id=PORTFOLIO_ID,
+            questionnaire="answers",
+            fallback=_FALLBACK,
+        )
+
+    assert seen["fallback"] is _FALLBACK

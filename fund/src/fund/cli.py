@@ -52,7 +52,7 @@ from portopt_db.models import AgentRun, PaperOrder
 
 from fund import observe
 from fund.actions import apply_action
-from fund.agents.model import build_primary
+from fund.agents.model import build_fallback, build_primary
 from fund.audit import (
     AgentRunRepository,
     OrderRepository,
@@ -128,6 +128,19 @@ def _build_model() -> Any:
         return build_primary(settings)
     except RuntimeError as exc:
         _fail(str(exc))
+
+
+def _build_fallback() -> Any | None:
+    """Build the model the subagents retry on, or ``None`` when it cannot be built.
+
+    The retry model is a resilience extra: a command that already has its primary
+    model must still run when only the fallback is unconfigured.
+    """
+    try:
+        return build_fallback(settings)
+    except RuntimeError as exc:
+        logger.warning("no fallback model for this command: %s", exc)
+        return None
 
 
 def _actor() -> str:
@@ -327,6 +340,7 @@ def profile(
     pid = _uuid(portfolio_id, label="portfolio id")
     run_asof = _parse_date(asof) if asof else None
     model = _build_model()
+    fallback = _build_fallback()
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
@@ -336,6 +350,7 @@ def profile(
                 portfolio_id=pid,
                 questionnaire=answers,
                 model=model,
+                fallback=fallback,
                 checkpointer=persistence.saver,
                 store=persistence.store,
                 base_currency=base_currency,
@@ -386,6 +401,7 @@ def run(
         or bool(interrupt_on)
     )
     model = _build_model()
+    fallback = _build_fallback()
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
@@ -426,6 +442,7 @@ def run(
                 mandate=mandate,
                 asof=run_asof,
                 model=model,
+                fallback=fallback,
                 checkpointer=persistence.saver,
                 store=persistence.store,
                 actor=_actor(),
@@ -458,6 +475,7 @@ def _resume(run_id: str, decision: str) -> None:
     _boot()
     rid = _uuid(run_id, label="run id")
     model = _build_model()
+    fallback = _build_fallback()
     persistence = setup_langgraph(settings)
     try:
         with get_session() as session:
@@ -468,6 +486,7 @@ def _resume(run_id: str, decision: str) -> None:
                 checkpointer=persistence.saver,
                 store=persistence.store,
                 model=model,
+                fallback=fallback,
                 actor=_actor(),
                 source=_SOURCE,
                 # Resolving a run is terminal: keying on (run, decision), as the TUI
