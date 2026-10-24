@@ -110,6 +110,49 @@ def test_factor_series_ffills_level_from_pre_grid_observation(db_session):
     assert out.returns["rates"].tolist() == pytest.approx([0.20, 0.10, 0.05])
 
 
+def test_factor_series_stale_tail_is_unobserved_not_a_zero_move(db_session):
+    """Grid days after a series' last observation are NaN, never a flat 0.0 return."""
+    _seed_fred(
+        db_session,
+        "DGS10",
+        {
+            dt.date(2026, 1, 5): 4.00,
+            dt.date(2026, 1, 6): 4.10,  # last stored print; 01-07 and 01-08 are stale
+        },
+    )
+    config = MacroAttributionConfig(
+        factors=(FactorSpec("rates", "DGS10", FactorTransform.DIFF),)
+    )
+
+    out = build_macro_factor_returns(
+        session=db_session, dates=_GRID, benchmark_returns=None, config=config
+    )
+
+    rates = out.returns["rates"]
+    assert rates.iloc[0] == pytest.approx(0.10)
+    assert rates.iloc[1:].isna().all()
+    assert out.missing == []
+
+
+def test_factor_series_entirely_stale_over_the_grid_is_missing(db_session):
+    """A series whose last print predates the whole grid has no usable data."""
+    _seed_fred(
+        db_session,
+        "DGS10",
+        {dt.date(2025, 12, 30): 3.90, dt.date(2025, 12, 31): 3.95},
+    )
+    config = MacroAttributionConfig(
+        factors=(FactorSpec("rates", "DGS10", FactorTransform.DIFF),)
+    )
+
+    out = build_macro_factor_returns(
+        session=db_session, dates=_GRID, benchmark_returns=None, config=config
+    )
+
+    assert "rates" not in out.returns.columns
+    assert out.missing == ["rates"]
+
+
 def test_factor_series_absent_series_flagged_missing(db_session):
     """A factor whose FRED series has no rows is flagged, not built — no crash."""
     _seed_fred(

@@ -437,15 +437,16 @@ def build_macro_factor_returns(
 ) -> FactorSeries:
     """Build macro factor returns on the NAV grid, FRED-first, degrading honestly.
 
-    Applies the canonical alignment recipe to each FRED factor: fetch the full level
+    Applies the canonical alignment recipe to each FRED factor: fetch the level
     history up to the grid's last date (via :func:`fund.tools.macro.load_macro_frame`,
     lazy-imported), reindex it onto the NAV grid filling each day from the most recent
     prior observation, transform to a return (``diff`` or ``pct_change`` per the
     factor's spec), then drop the first (NaN) row so the result sits on the NAV return
-    grid (``dates[1:]``). The non-FRED ``equity`` factor is the benchmark return series
-    reindexed onto that grid. A FRED series with no rows, an all-NaN transformed column,
-    or a missing benchmark for ``equity`` is dropped into ``missing`` rather than
-    fabricated.
+    grid (``dates[1:]``). Grid days after a series' last stored observation stay NaN
+    rather than forward-filled into zero returns. The non-FRED ``equity`` factor is the
+    benchmark return series reindexed onto that grid. A FRED series with no rows, an
+    all-NaN transformed column, or a missing benchmark for ``equity`` is dropped into
+    ``missing`` rather than fabricated.
 
     Args:
         session: Open SQLAlchemy session (reader; no commit).
@@ -513,6 +514,14 @@ def _fred_factor(
     # day one series lacks is an internal NaN, which reindex(method="ffill") won't fill.
     level_full = frame[series_id].ffill()
     level_on_grid = level_full.reindex(grid, method="ffill")
+    # Past the series' last stored print nothing is known: a frozen level would diff to
+    # an exact 0.0 and enter the regression as an observed no-move, so leave those days
+    # NaN for _aligned_finite to drop. FRED is ingested monthly, so the tail can span
+    # weeks.
+    observed = frame[series_id].dropna()
+    if observed.empty:
+        return None
+    level_on_grid = level_on_grid.where(level_on_grid.index <= observed.index.max())
     column = _level_to_return(level_on_grid, spec.transform).reindex(target)
     if column.notna().sum() == 0:
         return None
