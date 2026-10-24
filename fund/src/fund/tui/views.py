@@ -1311,11 +1311,14 @@ class DeliberationView(ShellView):
     def ingest_event(self, event: StreamEvent) -> None:
         """Append one streamed step, flipping the prior LIVE marker to DONE.
 
-        A no-op unless a stream is live. The prior row's ● becomes ✓ before the new
-        row lands, so markers need no second producer pass; the viewport snaps to the
-        tail while :attr:`following`, and the detail pane mirrors the newest step.
+        A no-op unless a stream is live, and for an event of any run other than the
+        live one (a superseded stream still draining its thread must not interleave
+        its rows, whose indexes collide, into the current timeline). The prior row's ●
+        becomes ✓ before the new row lands, so markers need no second producer pass;
+        the viewport snaps to the tail while :attr:`following`, and the detail pane
+        mirrors the newest step.
         """
-        if self.live_run_id is None:
+        if self.live_run_id is None or event.run_id != self.live_run_id:
             return
         table = self.query_one("#delib-live", DataTable)
         if self._live_events and self._live_events[-1].status is StepStatus.LIVE:

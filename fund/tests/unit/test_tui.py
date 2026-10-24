@@ -3033,6 +3033,28 @@ async def test_deliberation_live_ends_back_to_replay(shell_env) -> None:
         assert view.query_one("#delib-runs", DataTable).row_count == 1
 
 
+@pytest.mark.asyncio
+async def test_deliberation_live_drops_events_of_another_run(shell_env) -> None:
+    """A superseded stream still draining its thread tags its events with its own
+    run id and reuses the live run's step indexes; they must not enter the live
+    timeline (a colliding row key aborts the stream that owns it)."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid, stale = uuid.uuid4(), uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        events = _scripted_stream(rid)
+        view.ingest_event(events[0])
+        for event in _scripted_stream(stale)[:2]:
+            view.ingest_event(event)
+        view.ingest_event(events[1])
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert live.row_count == 2
+        assert live.get_cell_at(Coordinate(1, 2)) == "report"
+        assert view.live_run_id == rid
+
+
 def test_deliberation_binds_follow_live() -> None:
     """``f`` is view-scoped to Deliberation (follow-live), not the global filter."""
     actions = {binding[1] for binding in DeliberationView.BINDINGS}
