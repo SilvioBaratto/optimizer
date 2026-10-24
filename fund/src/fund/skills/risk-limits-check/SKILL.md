@@ -29,9 +29,11 @@ the ConstraintSet limits and decides pass/block. It never edits weights itself.
    `drawdown_tiers`: the client's ceilings nu1 (soft warning), nu2 (hard ceiling) and
    nu3 (absolute stop), the backtest `max_drawdown`, and the `breached` tiers — a
    breach of nu2 or nu3 is a BLOCK, nu1 is a warning to report. Check
-   `out_of_sample`: when it is `False` the panel was too short for a walk-forward fold
-   and the metrics are in-sample — do NOT count them as walk-forward validation of
-   robustness.
+   `out_of_sample`: when it is `False` the metrics are in-sample — the panel was too
+   short for a walk-forward fold, or the weights were fitted on the same bars the
+   test blocks cover (always the case for the allocator's optimizer weights) — so do
+   NOT count them as walk-forward validation of robustness; treat them as a
+   consistency check only.
 3. Confirm the ESG hard gate: any excluded GICS name present → immediate BLOCK.
 4. For prudent profiles, confirm the robust uncertainty set was applied.
 5. Emit pass, or block with the specific violations for the allocator to fix.

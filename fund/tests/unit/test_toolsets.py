@@ -70,8 +70,8 @@ def _close_on(start: float, phase: float, i: int) -> float:
     return round(start * (1.0 + 0.02 * math.sin(0.5 * i + phase)), 6)
 
 
-def _seed_panel(db_session) -> None:
-    """Seed an ``_N_DAYS`` x 3 close panel extending past ``_ASOF``."""
+def _seed_panel(db_session, n_days: int = _N_DAYS) -> None:
+    """Seed an ``n_days`` x 3 close panel (default extends past ``_ASOF``)."""
     for ticker, (start, phase) in _SERIES.items():
         ex = Exchange(name=f"EX-{ticker}")
         db_session.add(ex)
@@ -86,7 +86,7 @@ def _seed_panel(db_session) -> None:
         )
         db_session.add(inst)
         db_session.flush()
-        for i in range(_N_DAYS):
+        for i in range(n_days):
             db_session.add(
                 PriceHistory(
                     instrument_id=inst.id,
@@ -533,6 +533,37 @@ def test_bound_backtest_returns_metrics(db_session) -> None:
 
     assert result["ok"] is True
     assert "sharpe_ratio" in result["data"]["metrics"]
+
+
+def test_bound_backtest_flags_optimizer_weights_as_in_sample(db_session) -> None:
+    """The optimizer fits on every bar up to ``asof``, so the walk-forward test
+    blocks lie inside the weights' own estimation sample: not out-of-sample."""
+    n_days = 130
+    _seed_panel(db_session, n_days=n_days)
+    ctx = dataclasses.replace(
+        _make_context(db_session),
+        asof=_START + dt.timedelta(days=n_days - 1),
+        lookback_days=20,
+    )
+    _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
+        {"universe": _UNIVERSE}
+    )
+    backtest = _find(bind_toolset("risk", ctx), "backtest")
+
+    result = backtest.invoke({})
+
+    assert result["ok"] is True
+    assert result["data"]["n_folds"] >= 1
+    assert result["data"]["out_of_sample"] is False
+
+
+def test_bound_backtest_description_does_not_claim_independent_validation(
+    db_session,
+) -> None:
+    backtest = _find(bind_toolset("risk", _make_context(db_session)), "backtest")
+
+    assert "no leakage" not in backtest.description
+    assert "in-sample" in backtest.description
 
 
 def test_backtest_errs_when_no_proposal_was_audited(db_session) -> None:

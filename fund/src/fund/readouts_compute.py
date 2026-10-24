@@ -165,8 +165,12 @@ def compute_results(
                 base_currency=base_currency,
             )
         )
+    # The held weights were optimised on every bar up to ``asof``, so the replayed
+    # test blocks are inside their estimation sample (reported in-sample).
     result, backtest_error = _backtest(
-        backtest(session, asof, dict(weights), base_currency=base_currency)
+        backtest(
+            session, asof, dict(weights), base_currency=base_currency, fit_end=asof
+        )
     )
     return ResultsCompute(
         frontier=frontier,

@@ -9,12 +9,15 @@ imported only inside the Deliberation worker thread (the import-light guard cove
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
 from _fund_fakes import (
     ASOF,
+    N_DAYS,
+    START,
     UNIVERSE,
     classify_instruments,
     make_constraint_set,
@@ -32,10 +35,11 @@ from fund.readouts_compute import compute_results
 from fund.schemas import ConstraintSet
 from fund.tools.optimize import optimize_portfolio
 
+# Default walk-forward needs train 252 + purge 5 + test 63 = 320 return rows.
+_LONG_PANEL_DAYS = 400
 
-@pytest.fixture
-def priced_session() -> Iterator[Session]:
-    """A SQLite session seeded with the 40-day AAA/BBB/CCC price panel."""
+
+def _priced_session(n_days: int) -> Iterator[Session]:
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -44,13 +48,25 @@ def priced_session() -> Iterator[Session]:
     Base.metadata.create_all(engine)
     local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     session = local()
-    seed_panel(session)
+    seed_panel(session, n_days=n_days)
     session.commit()
     try:
         yield session
     finally:
         session.close()
         engine.dispose()
+
+
+@pytest.fixture
+def priced_session() -> Iterator[Session]:
+    """A SQLite session seeded with the 40-day AAA/BBB/CCC price panel."""
+    yield from _priced_session(N_DAYS)
+
+
+@pytest.fixture
+def long_priced_session() -> Iterator[Session]:
+    """A SQLite session whose panel is long enough for a default walk-forward fold."""
+    yield from _priced_session(_LONG_PANEL_DAYS)
 
 
 def test_compute_results_returns_frontier_and_backtest_numbers(
@@ -69,6 +85,24 @@ def test_compute_results_returns_frontier_and_backtest_numbers(
     assert result.backtest is not None
     assert result.backtest_error is None
     assert isinstance(result.backtest.max_drawdown, float)
+
+
+def test_compute_results_labels_held_weights_in_sample_even_with_folds(
+    long_priced_session: Session,
+) -> None:
+    """The held weights were optimised on every bar up to ``asof``, so the replayed
+    backtest is in-sample however many walk-forward folds the panel yields."""
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    weights = {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}
+    asof = START + dt.timedelta(days=_LONG_PANEL_DAYS - 1)
+
+    result = compute_results(
+        long_priced_session, asof, list(UNIVERSE), constraint_set, weights
+    )
+
+    assert result.backtest is not None
+    assert result.backtest.n_folds >= 1
+    assert result.backtest.out_of_sample is False
 
 
 def test_compute_results_degrades_on_empty_inputs(priced_session: Session) -> None:

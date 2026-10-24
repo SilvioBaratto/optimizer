@@ -457,13 +457,17 @@ def _backtest_impl(ctx: RunContext) -> ToolResult:
         return err(_NO_PROPOSAL)
     # Bound the walk-forward training block to the run's 3y rolling lookback
     # (the one frozen tool that accepts a window). A panel shorter than the window
-    # falls back to the full sample inside ``backtest`` (no leakage either way).
+    # falls back to the full sample inside ``backtest``. The weights come from
+    # ``optimize_portfolio``, which fits on every bar up to ``asof``, so each test
+    # block is inside their estimation sample: ``fit_end`` makes the result report
+    # in-sample instead of passing the optimizer's own fit off as validation.
     result = _tools.backtest(
         ctx.session,
         ctx.asof,
         weights,
         window={"train_size": ctx.lookback_days},
         base_currency=ctx.base_currency,
+        fit_end=ctx.asof,
     )
     cs = _resolve_constraint_set(ctx)
     if cs is None or not result.get("ok"):
@@ -657,8 +661,10 @@ def _bind_backtest(ctx: RunContext) -> BaseTool:
 
     @tool
     def backtest() -> ToolResult:
-        """Backtest the allocator's latest audited proposal out-of-sample over prices
-        up to the run date (walk-forward, no leakage). Takes no weights. Returns the
+        """Backtest the allocator's latest audited proposal over walk-forward test
+        windows of prices up to the run date. The optimizer fitted these weights on that
+        same sample, so the metrics are in-sample (``out_of_sample`` is false): a
+        consistency check, not independent validation. Takes no weights. Returns the
         ``{ok, data}`` envelope with ``metrics`` and ``drawdown_tiers``: the client's
         ``nu1`` (soft warning), ``nu2`` (hard ceiling) and ``nu3`` (absolute stop)
         drawdown ceilings, the backtest ``max_drawdown``, and the ``breached`` tiers."""

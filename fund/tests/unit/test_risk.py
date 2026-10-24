@@ -208,6 +208,44 @@ class TestBacktest:
         assert data["n_folds"] >= 1
         assert data["out_of_sample"] is True
 
+    def test_weights_fit_inside_the_test_blocks_are_flagged_in_sample(
+        self, db_session
+    ) -> None:
+        # Weights estimated on every bar up to ``_ASOF`` have already seen each
+        # walk-forward test block, so scoring them there is not out-of-sample.
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+            window={"train_size": 20, "test_size": 10, "purged_size": 0},
+            fit_end=_ASOF,
+        )
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["n_folds"] >= 1
+        assert data["out_of_sample"] is False
+
+    def test_weights_fit_before_the_first_test_block_stay_out_of_sample(
+        self, db_session
+    ) -> None:
+        _seed_panel(db_session)
+
+        result = backtest(
+            db_session,
+            _ASOF,
+            {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+            window={"train_size": 20, "test_size": 10, "purged_size": 0},
+            fit_end=_START + dt.timedelta(days=15),
+        )
+
+        assert result["ok"] is True
+        data = result["data"]
+        assert data["n_folds"] >= 1
+        assert data["out_of_sample"] is True
+
     def test_walk_forward_out_of_sample_respects_temporal_order(
         self, db_session
     ) -> None:

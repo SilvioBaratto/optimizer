@@ -8,10 +8,12 @@ through:
   honours, SPEC D17). It is pure arithmetic on the weights: no DB, no RNG. In-norm
   weights return ``passed=True`` with an empty ``violations`` list; every breach
   adds a structured entry and flips ``passed`` to ``False``.
-* ``backtest`` holds the given weights fixed and evaluates them *out of sample*
-  with a walk-forward split from ``optimizer.validation``
-  (``shuffle=False`` — the test window strictly follows the training block, so no
-  future data leaks). Returns are computed **outside** any pipeline via
+* ``backtest`` holds the given weights fixed and scores them on the walk-forward
+  test blocks from ``optimizer.validation`` (``shuffle=False`` — each test block
+  strictly follows its training block). The weights are never re-estimated per
+  fold, so the metrics are out-of-sample only when the weights were fixed without
+  seeing those test blocks; the caller states how far the weights' own estimation
+  sample reaches (``fit_end``). Returns are computed **outside** any pipeline via
   ``optimizer.preprocessing.prices_to_returns`` (linear returns); metrics come
   from a skfolio ``Portfolio``. When the panel is too short for even one fold the
   tool falls back to the full IN-SAMPLE series (``n_folds == 0``); those metrics
@@ -35,7 +37,7 @@ from optimizer.preprocessing import prices_to_returns
 from optimizer.validation import WalkForwardConfig, build_walk_forward
 from skfolio import Portfolio
 
-from fund.tools._base import ToolResult, err, ok, tool_envelope
+from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
@@ -129,13 +131,16 @@ def backtest(
     *,
     window: dict[str, Any] | None = None,
     base_currency: str | None = None,
+    fit_end: dt.date | str | None = None,
 ) -> ToolResult:
-    """Backtest fixed ``weights`` out-of-sample over prices up to ``asof``.
+    """Backtest fixed ``weights`` over prices up to ``asof``.
 
     Holds ``weights`` constant and evaluates them on the walk-forward *test*
     windows only (``shuffle=False`` — each test block strictly follows its
-    training block, so no future data leaks). When the panel is too short for a
-    single fold the full sample is used instead (``n_folds == 0``).
+    training block). The weights are not re-estimated per fold, so the result is
+    out-of-sample only if they were fixed before the test blocks (see ``fit_end``).
+    When the panel is too short for a single fold the full sample is used instead
+    (``n_folds == 0``).
 
     Args:
         session: A sync ``portopt_db`` session (D1); the tool does not own it.
@@ -147,13 +152,19 @@ def backtest(
         base_currency: Mandate base currency prices are FX-converted to before
             returns are derived (``None`` keeps listing currency; see
             :func:`fund.tools.prices.load_price_frame`).
+        fit_end: Last bar whose returns the ``weights`` were estimated from, when
+            they were fitted on this same panel (accepts a ``date`` or an ISO
+            string). A walk-forward test block that reaches back to ``fit_end`` lies
+            inside the weights' own estimation sample, so its metrics are in-sample.
+            ``None`` asserts the weights were fixed independently of this panel.
 
     Returns:
         ``ok`` with ``metrics`` (``mean`` / ``standard_deviation`` /
         ``sharpe_ratio`` / ``max_drawdown``), ``n_observations`` (evaluated rows),
         ``n_folds``, ``out_of_sample`` (``True`` iff at least one walk-forward fold
-        was produced; ``False`` when the panel was too short and the full IN-SAMPLE
-        series was evaluated — the metrics are then in-sample, not walk-forward),
+        was produced and every test bar falls after ``fit_end``; ``False`` when the
+        panel was too short and the full IN-SAMPLE series was evaluated, or when the
+        weights were fitted on the test blocks — the metrics are then in-sample),
         ``sample_start`` / ``window_start`` / ``window_end`` (ISO dates), and
         ``missing`` (weighted tickers absent from the panel). ``err`` on empty
         ``weights``, no priced assets, too little history, or a bad ``window``.
@@ -176,10 +187,8 @@ def backtest(
     returns = cast("pd.DataFrame", prices_to_returns(frame))
     weight_vector = np.array([float(weights[col]) for col in returns.columns])
 
-    # A test block strictly follows its training block, so evaluating only on the
-    # concatenated test windows keeps the backtest out-of-sample. Fall back to the
-    # full IN-SAMPLE series when the panel cannot supply even one fold — those
-    # metrics are in-sample, surfaced truthfully via ``out_of_sample=bool(splits)``.
+    # Fall back to the full IN-SAMPLE series when the panel cannot supply even one
+    # fold; those metrics are in-sample, surfaced via ``out_of_sample``.
     min_needed = config.train_size + config.purged_size + config.test_size
     splits = (
         list(build_walk_forward(config).split(returns))
@@ -190,6 +199,12 @@ def backtest(
         oos = pd.concat([returns.iloc[test_idx] for _, test_idx in splits]).sort_index()
     else:
         oos = returns
+
+    # Fixed weights never see a test block only if they were estimated before it:
+    # a block that reaches back into the weights' own fit window is in-sample.
+    out_of_sample = bool(splits)
+    if splits and fit_end is not None:
+        out_of_sample = oos.index.min().date() > coerce_date(fit_end)
 
     portfolio = Portfolio(oos, weight_vector)
     metrics = {
@@ -204,7 +219,7 @@ def backtest(
             "metrics": metrics,
             "n_observations": int(oos.shape[0]),
             "n_folds": len(splits),
-            "out_of_sample": bool(splits),
+            "out_of_sample": out_of_sample,
             "sample_start": str(returns.index.min().date()),
             "window_start": str(oos.index.min().date()),
             "window_end": str(oos.index.max().date()),

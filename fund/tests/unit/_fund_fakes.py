@@ -259,8 +259,8 @@ def _close_on(start: float, phase: float, i: int) -> float:
     return round(start * (1.0 + 0.02 * math.sin(0.5 * i + phase)), 6)
 
 
-def seed_panel(session: Any) -> None:
-    """Seed an ``N_DAYS`` x 3 close panel extending past ``ASOF``."""
+def seed_panel(session: Any, n_days: int = N_DAYS) -> None:
+    """Seed an ``n_days`` x 3 close panel (default extends past ``ASOF``)."""
     for ticker, (start, phase) in _SERIES.items():
         ex = Exchange(name=f"EX-{ticker}")
         session.add(ex)
@@ -275,7 +275,7 @@ def seed_panel(session: Any) -> None:
         )
         session.add(inst)
         session.flush()
-        for i in range(N_DAYS):
+        for i in range(n_days):
             session.add(
                 PriceHistory(
                     instrument_id=inst.id,
