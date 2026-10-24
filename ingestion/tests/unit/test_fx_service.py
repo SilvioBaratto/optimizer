@@ -214,6 +214,52 @@ class TestRunFxFetch:
         assert fx_session.query(FxRate).count() == 0
         assert result["rows_total"] == 0
 
+    def test_no_session_is_held_while_fetching_from_yahoo(
+        self, fx_session, monkeypatch
+    ) -> None:
+        """Every Yahoo fetch runs with zero open DB sessions.
+
+        A session opened for the currency read would otherwise sit idle in
+        transaction on a pooled connection for the whole multi-minute fetch loop.
+        """
+        from contextlib import contextmanager
+
+        from app import database as db_module
+
+        real_get_session = db_module.database_manager.get_session
+        open_sessions = 0
+
+        @contextmanager
+        def _tracking():
+            nonlocal open_sessions
+            open_sessions += 1
+            try:
+                with real_get_session() as session:
+                    yield session
+            finally:
+                open_sessions -= 1
+
+        monkeypatch.setattr(db_module.database_manager, "get_session", _tracking)
+        _seed_eur_usd_gbp(fx_session)
+
+        open_during_fetch: list[int] = []
+        legs = {
+            "EURUSD=X": _close_frame([self._D1], [1.10]),
+            "GBPUSD=X": _close_frame([self._D1], [1.30]),
+        }
+
+        def _fetch(symbol, **kw):
+            open_during_fetch.append(open_sessions)
+            return legs.get(symbol)
+
+        yf = MagicMock()
+        yf.fetch_history.side_effect = _fetch
+
+        result = run_fx_fetch(yf, base="EUR")
+
+        assert open_during_fetch == [0, 0]
+        assert result["rows_total"] > 0
+
     def test_empty_universe_completes_without_rows(self, fx_session) -> None:
         """No instruments → no quotes → zero rows, no fetch, no raise."""
         yf = MagicMock()

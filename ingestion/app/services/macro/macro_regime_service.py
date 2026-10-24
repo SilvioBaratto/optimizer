@@ -369,7 +369,12 @@ class MacroRegimeService:
                         result.get("error"),
                     )
 
+                # Per series, so a forced exit mid-sweep keeps the series already
+                # fetched and the connection is not pinned for the whole run.
+                self.repo.session.commit()
+
             except Exception as exc:
+                self.repo.session.rollback()
                 counts[series_id] = 0
                 errors.append(f"{series_id}: {exc}")
                 logger.error("FRED fetch exception for %s: %s", series_id, exc)

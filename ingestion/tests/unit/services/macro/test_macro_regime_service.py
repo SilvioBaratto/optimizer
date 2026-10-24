@@ -364,6 +364,10 @@ class _PgLikeSession:
         self.pending.clear()
         self._aborted = False
 
+    def rollback(self) -> None:
+        self.pending.clear()
+        self._aborted = False
+
 
 class _PgLikeRepo:
     """Repository double whose every upsert is a write on a ``_PgLikeSession``."""

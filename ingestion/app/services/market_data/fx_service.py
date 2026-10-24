@@ -154,46 +154,49 @@ def run_fx_fetch(
     base = base.upper()
     errors: list[str] = []
 
+    # The read session is closed before the Yahoo loop: the fetches run for
+    # minutes and a held session would sit idle in transaction on a pooled
+    # connection the whole time.
     with database_manager.get_session() as session:
         quotes = _distinct_currencies(session, base)
-        if not quotes:
-            result = {"rows_total": 0, "error_count": 0}
-            logger.info("fx_fetch: no quote currencies in the universe; nothing to do")
-            on_progress(status="completed", finished_at=_utc_now_iso(), result=result)
-            return result
+    if not quotes:
+        result = {"rows_total": 0, "error_count": 0}
+        logger.info("fx_fetch: no quote currencies in the universe; nothing to do")
+        on_progress(status="completed", finished_at=_utc_now_iso(), result=result)
+        return result
 
-        # Every currency needs its USD leg except USD itself (leg == 1).
-        needed = ({base} | quotes) - {"USD"}
-        on_progress(total=len(needed))
-        usd_legs: dict[str, dict[dt.date, float]] = {}
-        for idx, ccy in enumerate(sorted(needed), 1):
-            on_progress(current=idx, current_currency=ccy)
-            symbol = f"{ccy}USD=X"
-            try:
-                series = _close_by_date(yf_client.fetch_history(symbol, period=period))
-            except Exception as exc:  # one pair must not sink the rest
-                logger.warning("fx_fetch: failed %s: %s", symbol, exc)
-                errors.append(f"{symbol}: {exc}")
-                continue
-            if series:
-                usd_legs[ccy] = series
-            else:
-                logger.warning("fx_fetch: no data for %s", symbol)
-                errors.append(f"{symbol}: empty")
+    # Every currency needs its USD leg except USD itself (leg == 1).
+    needed = ({base} | quotes) - {"USD"}
+    on_progress(total=len(needed))
+    usd_legs: dict[str, dict[dt.date, float]] = {}
+    for idx, ccy in enumerate(sorted(needed), 1):
+        on_progress(current=idx, current_currency=ccy)
+        symbol = f"{ccy}USD=X"
+        try:
+            series = _close_by_date(yf_client.fetch_history(symbol, period=period))
+        except Exception as exc:  # one pair must not sink the rest
+            logger.warning("fx_fetch: failed %s: %s", symbol, exc)
+            errors.append(f"{symbol}: {exc}")
+            continue
+        if series:
+            usd_legs[ccy] = series
+        else:
+            logger.warning("fx_fetch: no data for %s", symbol)
+            errors.append(f"{symbol}: empty")
 
-        base_leg = None if base == "USD" else usd_legs.get(base)
-        base_dates = set(base_leg) if base_leg is not None else None
-        if base != "USD" and base_leg is None:
-            result = {"rows_total": 0, "error_count": len(errors)}
-            logger.warning(
-                "fx_fetch: base USD leg (%sUSD=X) unavailable; wrote no rows", base
-            )
-            on_progress(status="completed", finished_at=_utc_now_iso(), result=result)
-            return result
+    base_leg = None if base == "USD" else usd_legs.get(base)
+    base_dates = set(base_leg) if base_leg is not None else None
+    if base != "USD" and base_leg is None:
+        result = {"rows_total": 0, "error_count": len(errors)}
+        logger.warning(
+            "fx_fetch: base USD leg (%sUSD=X) unavailable; wrote no rows", base
+        )
+        on_progress(status="completed", finished_at=_utc_now_iso(), result=result)
+        return result
 
-        rows = _build_rows(base, quotes, usd_legs, base_leg, base_dates)
-        repo = FxRatesRepository(session)
-        written = repo.upsert_rates(rows)
+    rows = _build_rows(base, quotes, usd_legs, base_leg, base_dates)
+    with database_manager.get_session() as session:
+        written = FxRatesRepository(session).upsert_rates(rows)
         session.commit()
 
     result = {"rows_total": written, "error_count": len(errors)}

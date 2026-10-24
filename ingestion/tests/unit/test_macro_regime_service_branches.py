@@ -379,6 +379,117 @@ class TestFetchFredSeries:
         assert any(kw.get("current_country") == "B" for kw in calls_kwargs)
 
 
+class TestFetchFredSeriesDurability:
+    """Each series is committed as it lands, not once after the whole sweep."""
+
+    @pytest.fixture
+    def fred_session(self):
+        from portopt_db.models import Base
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        session = sessionmaker(bind=engine)()
+        try:
+            yield session
+        finally:
+            session.close()
+            engine.dispose()
+
+    def test_finished_series_survive_a_crash_during_a_later_series(
+        self, fred_session
+    ) -> None:
+        """A forced exit mid-sweep keeps every series fetched before it.
+
+        The scraper rolls the session back while fetching the second series, which
+        is what a SIGTERM drain timeout does to uncommitted work.
+        """
+        import datetime
+
+        from portopt_db.models.macro.macro_regime import FredObservation
+        from portopt_db.repositories.macro.macro_regime_repository import (
+            MacroRegimeRepository,
+        )
+
+        day = datetime.date(2026, 10, 1)
+
+        def _observations(series_id, start_date=None):
+            if series_id == "SECOND":
+                fred_session.rollback()
+                return {"status": "error", "error": "process died"}
+            return {
+                "status": "success",
+                "observations": [{"date": day, "value": 1.5}],
+            }
+
+        scraper = MagicMock()
+        scraper.get_series_observations.side_effect = _observations
+        service = MacroRegimeService(
+            repo=MacroRegimeRepository(fred_session),
+            ilsole_scraper=MagicMock(),
+            te_scraper=MagicMock(),
+            fred_scraper=scraper,
+        )
+
+        service.fetch_fred_series(series_ids=["FIRST", "SECOND"], incremental=False)
+
+        stored = fred_session.query(FredObservation).filter_by(series_id="FIRST")
+        assert stored.count() == 1
+
+    def test_a_series_failing_mid_upsert_does_not_sink_the_later_series(
+        self, fred_session
+    ) -> None:
+        """A failed write is rolled back so the next series can still commit.
+
+        Postgres aborts the whole transaction on a failed statement and every
+        later statement fails until a rollback; a failed flush leaves the SQLite
+        session in the same rollback-only state. Without the per-series rollback
+        the third series dies on the second one's leftover transaction.
+        """
+        import datetime
+
+        from portopt_db.models.macro.macro_regime import FredObservation
+        from portopt_db.repositories.macro.macro_regime_repository import (
+            MacroRegimeRepository,
+        )
+
+        day = datetime.date(2026, 10, 1)
+
+        class _FailsOnSecond(MacroRegimeRepository):
+            def upsert_fred_observations(self, series_id, observations):
+                if series_id == "SECOND":
+                    self.session.add(FredObservation(series_id=None, date=day))
+                    self.session.flush()
+                return super().upsert_fred_observations(series_id, observations)
+
+        scraper = MagicMock()
+        scraper.get_series_observations.side_effect = lambda series_id, **kw: {
+            "status": "success",
+            "observations": [{"date": day, "value": 1.5}],
+        }
+        service = MacroRegimeService(
+            repo=_FailsOnSecond(fred_session),
+            ilsole_scraper=MagicMock(),
+            te_scraper=MagicMock(),
+            fred_scraper=scraper,
+        )
+
+        result = service.fetch_fred_series(
+            series_ids=["FIRST", "SECOND", "THIRD"], incremental=False
+        )
+
+        stored = {row.series_id for row in fred_session.query(FredObservation).all()}
+        assert stored == {"FIRST", "THIRD"}
+        assert [e.split(":")[0] for e in result["errors"]] == ["SECOND"]
+        assert result["counts"] == {"FIRST": 1, "SECOND": 0, "THIRD": 1}
+
+
 # ---------------------------------------------------------------------------
 # fetch_macro_news — various branches
 # ---------------------------------------------------------------------------
