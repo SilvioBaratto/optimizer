@@ -375,7 +375,7 @@ suite.
 
 **CI** (`.github/workflows/ci.yml`, push/PR to `main` and `development`, Ubuntu, Python 3.12 &
 3.13, uv-driven) runs nine jobs: `lint` (ruff check → ruff format --check on
-all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.398`), `test`
+all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.414`), `test`
 (`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
 `portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
 80%), `postgres-integration` (the Alembic upgrade to head on a real PostgreSQL plus
