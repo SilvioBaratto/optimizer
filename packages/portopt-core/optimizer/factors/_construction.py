@@ -77,13 +77,19 @@ def align_to_pit(
     return available
 
 
+def _market_cap(fundamentals: pd.DataFrame) -> pd.Series | None:
+    """Return the ``market_cap`` column, or ``None`` when it is absent."""
+    mcap = fundamentals.get("market_cap")
+    return None if mcap is None else cast(pd.Series, mcap)
+
+
 def _compute_book_to_price(fundamentals: pd.DataFrame) -> pd.Series:
     """Book value / market cap."""
     book = fundamentals.get("book_value", fundamentals.get("total_equity"))
-    if book is None:
+    mcap = _market_cap(fundamentals)
+    if book is None or mcap is None:
         return pd.Series(dtype=float)
     book_s = cast(pd.Series, book)
-    mcap = fundamentals["market_cap"]
     return (book_s / mcap).replace([np.inf, -np.inf], np.nan)
 
 
@@ -99,10 +105,10 @@ def _compute_earnings_yield(fundamentals: pd.DataFrame) -> pd.Series:
     other statement-based value calculators (roe, profit_margin, accruals).
     """
     earnings = fundamentals.get("net_income")
-    if earnings is None:
+    mcap = _market_cap(fundamentals)
+    if earnings is None or mcap is None:
         return pd.Series(dtype=float)
     earnings_s = cast(pd.Series, earnings)
-    mcap = fundamentals["market_cap"]
     return (earnings_s / mcap).replace([np.inf, -np.inf], np.nan)
 
 
@@ -111,20 +117,20 @@ def _compute_cash_flow_yield(fundamentals: pd.DataFrame) -> pd.Series:
     ocf = fundamentals.get(
         "operating_cashflow", fundamentals.get("operating_cash_flow")
     )
-    if ocf is None:
+    mcap = _market_cap(fundamentals)
+    if ocf is None or mcap is None:
         return pd.Series(dtype=float)
     ocf_s = cast(pd.Series, ocf)
-    mcap = fundamentals["market_cap"]
     return (ocf_s / mcap).replace([np.inf, -np.inf], np.nan)
 
 
 def _compute_sales_to_price(fundamentals: pd.DataFrame) -> pd.Series:
     """Total revenue / market cap (inverse P/S)."""
     revenue = fundamentals.get("total_revenue", fundamentals.get("revenue"))
-    if revenue is None:
+    mcap = _market_cap(fundamentals)
+    if revenue is None or mcap is None:
         return pd.Series(dtype=float)
     revenue_s = cast(pd.Series, revenue)
-    mcap = fundamentals["market_cap"]
     return (revenue_s / mcap).replace([np.inf, -np.inf], np.nan)
 
 

@@ -889,6 +889,58 @@ class TestFactorMissingInputGuards:
         assert result.empty
 
 
+class TestMissingMarketCapDegradesGracefully:
+    """Value factors need market_cap; its absence must not abort other factors."""
+
+    @pytest.fixture()
+    def _no_market_cap(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "book_value": [5.0e8, 7.0e8],
+                "net_income": [8.0e7, 1.0e8],
+                "total_equity": [4.0e8, 6.0e8],
+                "operating_cashflow": [9.0e7, 1.1e8],
+                "total_revenue": [1.0e9, 2.0e9],
+                "total_assets": [2.0e9, 3.0e9],
+            },
+            index=pd.Index(["A", "B"], name="ticker"),
+        )
+
+    @pytest.mark.parametrize(
+        "factor_type",
+        [
+            FactorType.BOOK_TO_PRICE,
+            FactorType.EARNINGS_YIELD,
+            FactorType.CASH_FLOW_YIELD,
+            FactorType.SALES_TO_PRICE,
+        ],
+    )
+    def test_market_cap_based_factor_returns_empty(
+        self,
+        factor_type: FactorType,
+        _no_market_cap: pd.DataFrame,
+        _tiny_prices: pd.DataFrame,
+    ) -> None:
+        result = compute_factor(factor_type, _no_market_cap, _tiny_prices)
+        assert isinstance(result, pd.Series)
+        assert result.empty
+
+    def test_compute_all_factors_still_returns_market_cap_free_factors(
+        self, _no_market_cap: pd.DataFrame, _tiny_prices: pd.DataFrame
+    ) -> None:
+        config = FactorConstructionConfig(
+            factors=(
+                FactorType.BOOK_TO_PRICE,
+                FactorType.ROE,
+                FactorType.ACCRUALS,
+            )
+        )
+        result = compute_all_factors(_no_market_cap, _tiny_prices, config=config)
+        assert "book_to_price" not in result.columns
+        assert result["roe"]["A"] == pytest.approx(0.2)
+        assert result["accruals"]["A"] == pytest.approx(-1.0e7 / 2.0e9)
+
+
 class TestEarningsYieldDimensionalContract:
     """earnings_yield requires total net_income, not per-share EPS.
 
