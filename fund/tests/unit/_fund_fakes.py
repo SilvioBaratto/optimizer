@@ -307,9 +307,7 @@ def _task_call(subagent: str, index: int) -> AIMessage:
 #
 # A deterministic ``N_DAYS`` x 3 close panel extending past ``ASOF`` so the real
 # bound ``optimize_portfolio`` computes stable weights over a seeded SQLite panel
-# (the optimizer output, never the LLM). ``PORTFOLIO_ID`` bears hex letters: an
-# all-digit UUID gets coerced to a float by SQLite's numeric affinity when a UUID
-# column round-trips through ``refresh`` (see fund-test-uuid-sqlite-affinity).
+# (the optimizer output, never the LLM).
 # ---------------------------------------------------------------------------
 
 START = dt.date(2023, 11, 1)

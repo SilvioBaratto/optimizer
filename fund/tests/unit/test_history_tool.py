@@ -3,7 +3,6 @@
 Drives the leaf tool against seeded overlay / run / order / holdings rows on the
 in-memory ``db_session``, asserting the ``{ok, data}`` envelope, the lookback
 summary, and that a bad ``asof`` degrades to ``{ok: false}`` rather than raising.
-Uses a letter-bearing portfolio UUID so SQLite does not REAL-coerce it.
 """
 
 from __future__ import annotations

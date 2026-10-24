@@ -69,8 +69,6 @@ _N_DAYS = 101
 _ASOF = dt.date(2024, 1, 30)
 _UNIVERSE = ["AAA", "BBB", "CCC"]
 _WEIGHTS = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
-# A UUID with hex letters: an all-digit UUID gets coerced to a float by SQLite's
-# numeric affinity when a UUID column round-trips through ``refresh``.
 _PORTFOLIO_ID = uuid.UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
 # (start, phase): distinct phases de-correlate the three return series so
 # pre-selection keeps them all (a pure linear drift would make identical returns
