@@ -283,7 +283,7 @@ def _category(a_gamma: float) -> RiskToleranceBand:
 
 
 def _nu_tiers(capacity: CapacityAnswers) -> tuple[float, float, float]:
-    """Escalating drawdown-ceiling tiers as fractions of capital (deep_agent ``20:75``).
+    """Escalating drawdown tiers as fractions of capital (``20:32``, ``20:136``).
 
     Anchored on the stated one-year loss tolerance: a soft warning at half the
     tolerance, the hard ceiling at the tolerance itself, and an absolute stop at

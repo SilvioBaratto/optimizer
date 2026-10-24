@@ -70,7 +70,8 @@ infeasible by `optimize_portfolio` rather than as an opaque solver failure.
 
 Anchored on the stated one-year loss tolerance `L = capacity.max_1yr_loss_pct`:
 `nu1 = 0.5·L` (soft warning), `nu2 = L` (hard ceiling), `nu3 = min(1.5·L, 1.0)`
-(absolute stop). See `20:75`. `risk_check` compares them with the max drawdown of
+(absolute stop). See `20:32` (max and average drawdown) and `20:136` (drawdown
+caps as constraints). `risk_check` compares them with the max drawdown of
 a backtest of the proposed weights: past `nu3` or `nu2` blocks, past `nu1` only
 adds a warning. When the backtest cannot run (too little history) the tiers are
 skipped and the report carries a `drawdown_unverified` warning.

@@ -641,3 +641,50 @@ def test_rebalancing_execution_does_not_claim_a_turnover_penalty():
     assert "full target book" in skill
     reference = re.sub(r"\s+", " ", _read("rebalancing-execution", "reference.md"))
     assert "no turnover term" in reference.lower()
+
+
+# --- risk-limits-check/reference.md: one nu semantics shared with the profiler ---
+
+
+def _theory_line(chapter: str, number: int) -> str:
+    docs = sorted(_THEORY_DOCS.glob(f"{chapter}_*.md"))
+    assert docs, f"no theory chapter {chapter}"
+    lines = docs[0].read_text(encoding="utf-8").splitlines()
+    return lines[number - 1] if 0 < number <= len(lines) else ""
+
+
+@pytest.mark.parametrize(
+    ("skill", "heading"),
+    [
+        ("risk-limits-check", "Drawdown ceilings (from loss capacity)"),
+        ("mifid-profiling", "Drawdown tiers"),
+    ],
+)
+def test_drawdown_citations_land_on_content(skill: str, heading: str):
+    text = _read(skill, "reference.md")
+    start = text.index(f"## {heading}")
+    end = text.find("\n## ", start + 1)
+    section = text[start : end if end != -1 else len(text)]
+    cites = [t for t in _inline_code_spans(section) if _CITATION_RE.match(t)]
+    assert cites, f"{skill}: the drawdown section must cite the theory"
+    for cite in cites:
+        chapter, _, span = cite.partition(":")
+        first = int(span.split("-")[0])
+        assert _theory_line(chapter, first).strip(), f"`{cite}` points at a blank line"
+
+
+def test_risk_reference_nu_tiers_agree_with_the_profiler():
+    # ``_nu_tiers`` emits escalating tiers on ONE loss tolerance L (0.5L / L / 1.5L).
+    from fund.agents.profiler import _nu_tiers
+    from fund.schemas.questionnaire import CapacityAnswers
+
+    for loss in (0.10, 0.80):  # 0.80 exercises the 1.0 clamp
+        tiers = _nu_tiers(CapacityAnswers(max_1yr_loss_pct=loss, buffer_months=6))
+        assert tiers == pytest.approx((0.5 * loss, loss, min(1.5 * loss, 1.0)))
+    reference = " ".join(_read("risk-limits-check", "reference.md").split())
+    mifid = " ".join(_read("mifid-profiling", "reference.md").split())
+    for text in (reference, mifid):
+        assert "nu1 = 0.5" in text.replace("·", "*") or "nu1 = 0.5·L" in text
+        assert "soft warning" in text and "hard ceiling" in text
+        assert "absolute stop" in text
+    assert "`C = 1`" in reference
