@@ -2,11 +2,22 @@
 # the checkout directory's name; the fixed container_names below already don't.
 name: optimizer
 
+# Docker's default json-file driver never rotates. The daemons log JSON, and a
+# stretch of tracebacks (database down, a systematic write failure) would fill the
+# VM disk the Postgres volume lives on. Five 10 MB files per container keeps the
+# recent history without growing past 50 MB.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   # PostgreSQL Database
   db:
     image: postgres:16-alpine
     container_name: optimizer_db
+    logging: *default-logging
     # Shared by every stack: `--profile fund`, `--profile ingestion` and
     # `--profile tools` each start db, so a bare `up` (no profile) starts nothing
     # and every depends_on: db holds (an undefined dependency fails the whole load).
@@ -39,6 +50,7 @@ services:
     # not swap the code behind it unannounced.
     image: adminer:6.1.2
     container_name: optimizer_adminer
+    logging: *default-logging
     profiles: ["ingestion", "tools"]
     environment:
       ADMINER_DEFAULT_SERVER: db
@@ -60,6 +72,7 @@ services:
       secrets:
         - ca_bundle
     container_name: optimizer_scheduler
+    logging: *default-logging
     profiles: ["ingestion"]
     command: ["python", "-m", "app.worker"]
     # Sized above SCHEDULER_SHUTDOWN_DRAIN_TIMEOUT_SECONDS (default 30s) so the
@@ -130,6 +143,7 @@ services:
       secrets:
         - ca_bundle
     container_name: optimizer_fund
+    logging: *default-logging
     profiles: ["fund"]
     command: ["python", "-m", "fund.worker"]
     # Sized above fund_shutdown_drain_timeout_seconds (default 30s) so the daemon
