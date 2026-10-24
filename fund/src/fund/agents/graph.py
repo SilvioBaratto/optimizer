@@ -1373,6 +1373,18 @@ def resume_fund(
             "(it completed, or was rejected/frozen/blocked since the gate opened)"
         )
 
+    # set_holdings replaces the whole snapshot, so approving a round that started before
+    # an already-completed one would silently roll the book back to older weights.
+    # Rejecting a stale run stays allowed: that is how an adviser clears it.
+    if decision == "approve":
+        newer = audit.newer_completed_rebalance_run(run)
+        if newer is not None:
+            raise ValueError(
+                f"agent_run {rid} is stale: newer run {newer.id} for portfolio "
+                f"{run.portfolio_id} already completed, and approving would overwrite "
+                "its holdings with older weights; reject this run instead"
+            )
+
     portfolio_id = run.portfolio_id
     pid_str = str(portfolio_id)
     resolved_thread_id = run.thread_id or str(rid)

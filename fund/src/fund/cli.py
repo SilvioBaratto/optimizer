@@ -380,6 +380,17 @@ def run(
                     f"no mandate for portfolio {pid}; run 'mandate set' first "
                     f"or pass --capital"
                 )
+            paused = AgentRunRepository(session).list_paused_runs(pid)
+            if paused:
+                # The scheduler skips such a portfolio too: a second round would
+                # leave two approvable runs, and the older one can later overwrite
+                # the newer holdings.
+                ids = ", ".join(str(r.id) for r in paused)
+                _fail(
+                    f"portfolio {pid} already has a paused run awaiting a decision "
+                    f"({ids}); 'fund approve' or 'fund reject' it before starting "
+                    f"another"
+                )
             if existing is not None and not flags_given:
                 mandate = existing
             else:

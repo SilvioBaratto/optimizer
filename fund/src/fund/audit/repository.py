@@ -351,6 +351,33 @@ class AgentRunRepository(RepositoryBase):
         stmt = stmt.order_by(AgentRun.created_at.desc())
         return list(self.session.execute(stmt).scalars().all())
 
+    def newer_completed_rebalance_run(self, run: AgentRun) -> AgentRun | None:
+        """The newest completed rebalance run of ``run``'s portfolio that began later.
+
+        "Newer" is ``started_at`` order, so a round opened later on fresher data wins
+        over one that merely finished later. Profiler runs are skipped: completing a
+        risk profile sets no holdings. A run with no portfolio has nothing to compare
+        against. A tie on ``started_at`` is not "newer".
+
+        Returns:
+            The most recently started such run, or ``None`` when ``run`` is current.
+        """
+        if run.portfolio_id is None:
+            return None
+        stmt = (
+            select(AgentRun)
+            .where(
+                AgentRun.portfolio_id == run.portfolio_id,
+                AgentRun.status == "completed",
+                AgentRun.started_at > run.started_at,
+            )
+            .order_by(AgentRun.started_at.desc())
+        )
+        for candidate in self.session.execute(stmt).scalars():
+            if (candidate.optimizer_config or {}).get("step") != "profiler":
+                return candidate
+        return None
+
     def get_run(self, run_id: uuid.UUID) -> AgentRun | None:
         """Return the run by id, or ``None``."""
         return self.session.get(AgentRun, run_id)

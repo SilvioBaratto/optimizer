@@ -16,6 +16,7 @@ Zero live LLM, zero network: ``ScriptedFundModel`` + ``MemorySaver`` +
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
@@ -303,6 +304,74 @@ def test_resume_fund_requires_active_constraint_set(db_session) -> None:
             store=InMemoryStore(),
             model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
         )
+
+
+# --- stale approval: an older paused run must not overwrite newer holdings -----
+
+
+def _two_paused_runs(db_session):
+    """Two rebalance rounds of one portfolio, both parked at the gate, older first."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    older = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    newer = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    audit = AgentRunRepository(db_session)
+    # SQLite's CURRENT_TIMESTAMP has one-second resolution, so pin the ordering.
+    audit.get_run(older.run_id).started_at = datetime(2026, 10, 24, 6, 0)
+    audit.get_run(newer.run_id).started_at = datetime(2026, 10, 26, 7, 0)
+    db_session.flush()
+    return older.run_id, newer.run_id, expected, saver, store
+
+
+def _resume(db_session, run_id, decision, expected, saver, store) -> None:
+    resume_fund(
+        run_id,
+        decision,
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+
+def test_resume_fund_approve_refuses_a_run_older_than_a_completed_one(
+    db_session,
+) -> None:
+    older, newer, expected, saver, store = _two_paused_runs(db_session)
+    _resume(db_session, newer, "approve", expected, saver, store)
+    assert len(_paper_orders(db_session)) == 1
+
+    with pytest.raises(ValueError, match="newer"):
+        _resume(db_session, older, "approve", expected, saver, store)
+
+    assert AgentRunRepository(db_session).get_run(older).status == "paused"
+    assert len(_paper_orders(db_session)) == 1  # no second ticket
+
+
+def test_resume_fund_reject_still_clears_a_stale_run(db_session) -> None:
+    older, newer, expected, saver, store = _two_paused_runs(db_session)
+    _resume(db_session, newer, "approve", expected, saver, store)
+
+    _resume(db_session, older, "reject", expected, saver, store)
+
+    assert AgentRunRepository(db_session).get_run(older).status == "rejected"
+
+
+def test_resume_fund_approves_paused_runs_oldest_first(db_session) -> None:
+    older, newer, expected, saver, store = _two_paused_runs(db_session)
+
+    _resume(db_session, older, "approve", expected, saver, store)
+    _resume(db_session, newer, "approve", expected, saver, store)
+
+    audit = AgentRunRepository(db_session)
+    assert audit.get_run(older).status == "completed"
+    assert audit.get_run(newer).status == "completed"
 
 
 # --- parity: FundRun.resume and resume_fund leave identical state ------------

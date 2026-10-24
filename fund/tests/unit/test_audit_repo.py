@@ -431,3 +431,60 @@ def test_risk_gate_labels_the_newest_verdict_against_the_weights(db_session):
     gate = repo.risk_gate(run.id, first)
     assert gate["status"] == "failed"
     assert gate["violations"] == [breach]
+
+
+def _portfolio_run(
+    repo: AgentRunRepository,
+    portfolio_id,
+    started_at: datetime,
+    *,
+    status: str,
+    step: str = "fund",
+) -> AgentRun:
+    run = repo.create_run(
+        portfolio_id=portfolio_id,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=[],
+        optimizer_config={"step": step},
+    )
+    run.started_at = started_at
+    run.status = status
+    repo.session.flush()
+    return run
+
+
+def test_newer_completed_rebalance_run_ignores_older_other_portfolios_and_profiler(
+    db_session,
+):
+    repo = AgentRunRepository(db_session)
+    pid, other = uuid.uuid4(), uuid.uuid4()
+    base = _portfolio_run(repo, pid, datetime(2026, 1, 5, 9), status="paused")
+    _portfolio_run(repo, pid, datetime(2026, 1, 4, 9), status="completed")  # older
+    _portfolio_run(repo, other, datetime(2026, 1, 6, 9), status="completed")
+    _portfolio_run(repo, pid, datetime(2026, 1, 6, 9), status="paused")  # not done
+    _portfolio_run(repo, pid, datetime(2026, 1, 6, 9), status="rejected")
+    _portfolio_run(
+        repo, pid, datetime(2026, 1, 6, 9), status="completed", step="profiler"
+    )
+    _portfolio_run(repo, pid, datetime(2026, 1, 5, 9), status="completed")  # tie
+
+    assert repo.newer_completed_rebalance_run(base) is None
+
+
+def test_newer_completed_rebalance_run_returns_the_latest_started(db_session):
+    repo = AgentRunRepository(db_session)
+    pid = uuid.uuid4()
+    base = _portfolio_run(repo, pid, datetime(2026, 1, 5, 9), status="paused")
+    _portfolio_run(repo, pid, datetime(2026, 1, 6, 9), status="completed")
+    latest = _portfolio_run(repo, pid, datetime(2026, 1, 7, 9), status="completed")
+
+    assert repo.newer_completed_rebalance_run(base).id == latest.id
+
+
+def test_newer_completed_rebalance_run_is_none_without_a_portfolio(db_session):
+    repo = AgentRunRepository(db_session)
+    base = _portfolio_run(repo, None, datetime(2026, 1, 5, 9), status="paused")
+    _portfolio_run(repo, None, datetime(2026, 1, 6, 9), status="completed")
+
+    assert repo.newer_completed_rebalance_run(base) is None

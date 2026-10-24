@@ -24,6 +24,7 @@ import getpass
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -385,6 +386,8 @@ def test_run_audits_the_run_and_any_mandate_override(
     assert run_row["source"] == "cli"
     assert _audit_rows(harness, "mandate_edit") == []  # no flags, no mandate change
 
+    resolved = harness.runner.invoke(cli.app, ["reject", str(run_id)])
+    assert resolved.exit_code == 0, resolved.output
     res = harness.runner.invoke(
         cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR, "--drift", "0.07"]
     )
@@ -405,6 +408,40 @@ def test_run_without_mandate_errors(harness, monkeypatch) -> None:
     )
     assert res.exit_code != 0
     assert "mandate" in res.output.lower()
+
+
+def test_run_refuses_while_a_paused_run_awaits_the_adviser(
+    harness, monkeypatch
+) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+
+    res = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR, "--drift", "0.07"]
+    )
+
+    assert res.exit_code == 1, res.output
+    assert str(run_id) in res.output
+    assert "approve" in res.output and "reject" in res.output
+    with harness.read() as session:
+        paused_ids = [
+            r.id for r in AgentRunRepository(session).list_paused_runs(PORTFOLIO_ID)
+        ]
+        session.rollback()
+    assert paused_ids == [run_id]  # no second run stacked
+    assert len(_audit_rows(harness, "run")) == 1
+    assert _stored_mandate(harness).drift_l1_threshold == 0.1  # flag not applied
+    assert harness.pool.closed >= 2
+
+
+def test_run_resumes_once_the_paused_run_is_resolved(harness, monkeypatch) -> None:
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    assert harness.runner.invoke(cli.app, ["reject", str(run_id)]).exit_code == 0
+
+    res = harness.runner.invoke(
+        cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR]
+    )
+
+    assert res.exit_code == 0, res.output
 
 
 def test_run_without_mandate_reports_the_error_exactly_once(
@@ -499,6 +536,33 @@ def test_repeated_approve_replays_instead_of_resuming_again(
     assert again.exit_code == 0, again.output
     assert "already applied" in again.output
     assert len(_audit_rows(harness, "approve")) == 1
+
+
+def test_approve_refuses_a_run_older_than_a_completed_one(harness, monkeypatch) -> None:
+    stale_id, expected, _res = _seed_and_run(harness, monkeypatch)
+    with harness.read() as session:
+        audit = AgentRunRepository(session)
+        newer = audit.create_run(
+            portfolio_id=PORTFOLIO_ID,
+            asof=ASOF,
+            seed=1,
+            universe=[],
+            optimizer_config={"step": "fund"},
+        )
+        audit.finalize_run(newer.id, weights=expected)
+        # SQLite's CURRENT_TIMESTAMP has one-second resolution, so pin the ordering.
+        audit.get_run(stale_id).started_at = datetime(2026, 10, 24, 6, 0)
+        audit.get_run(newer.id).started_at = datetime(2026, 10, 26, 7, 0)
+        session.commit()
+
+    res = harness.runner.invoke(cli.app, ["approve", str(stale_id)])
+
+    assert res.exit_code == 1, res.output
+    assert "newer" in res.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(stale_id).status == "paused"
+        session.rollback()
+    assert _audit_rows(harness, "approve") == []
 
 
 def test_reject_finalizes_run(harness, monkeypatch) -> None:
