@@ -17,6 +17,7 @@ from portopt_db.models.orders.paper_order import PaperOrder
 from portopt_db.models.universe.universe import Exchange, Instrument
 
 from fund.performance import (
+    _HOLDING_LOOKBACK_BARS,
     FxCoverageError,
     build_nav_series,
     holding_marks,
@@ -727,3 +728,182 @@ def test_same_bar_tickets_resolve_to_the_latest_created_for_nav_and_holdings(
     assert [m.ticker for m in marks] == [latest]
     expected_nav = 11000.0 if latest == "AAA" else 10000.0
     assert nav[-1].nav == pytest.approx(expected_nav, rel=1e-9)
+
+
+def _add_instrument(db_session, ticker):
+    ex = Exchange(name=f"X-{ticker}")
+    db_session.add(ex)
+    db_session.flush()
+    inst = Instrument(
+        ticker=ticker, short_name=ticker, exchange=ex, yfinance_ticker=ticker
+    )
+    db_session.add(inst)
+    db_session.flush()
+    return inst
+
+
+def _seed_daily_history(db_session, inst, last_day, n_bars):
+    """Seed ``n_bars`` consecutive daily USD closes ending on ``last_day``.
+
+    Closes climb by 1 per bar, so every bar is distinguishable and a return over any
+    lookback has a closed form.
+    """
+    closes: dict[dt.date, float] = {}
+    for i in range(n_bars):
+        day = last_day - dt.timedelta(days=n_bars - 1 - i)
+        closes[day] = 100.0 + i
+        db_session.add(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=day,
+                close=Decimal(str(100.0 + i)),
+                price_unit="USD",
+            )
+        )
+    db_session.flush()
+    return closes
+
+
+def _ticket(fill_day, ticker="AAA", notional=10000.0):
+    return PaperOrder(
+        portfolio_id=_PID,
+        asof=fill_day,
+        weights_hash="h1",
+        weights={ticker: 1.0},
+        fill_date=fill_day,
+        lines=[{"ticker": ticker, "notional": notional, "fill_price": 100.0}],
+        notional=notional,
+        total_commission=0.0,
+        total_slippage_cost=0.0,
+    )
+
+
+def _spy_loaded_rows(monkeypatch):
+    """Record every price and FX row ``holding_marks`` reads from the repositories."""
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+    from portopt_db.repositories.market_data.yfinance_repository import (
+        YFinanceRepository,
+    )
+
+    prices: list[dt.date] = []
+    fx: list[dt.date] = []
+    original_prices = YFinanceRepository.get_price_history
+    original_fx = FxRatesRepository.get_rates
+
+    def price_spy(self, *args, **kwargs):
+        rows = original_prices(self, *args, **kwargs)
+        prices.extend(row.date for row in rows)
+        return rows
+
+    def fx_spy(self, *args, **kwargs):
+        rows = original_fx(self, *args, **kwargs)
+        fx.extend(row.date for row in rows)
+        return rows
+
+    monkeypatch.setattr(YFinanceRepository, "get_price_history", price_spy)
+    monkeypatch.setattr(FxRatesRepository, "get_rates", fx_spy)
+    return prices, fx
+
+
+def test_holding_marks_loads_a_bounded_trailing_window_not_the_whole_history(
+    db_session, monkeypatch
+):
+    """Only the newest bars the returns need are read, however long the history is."""
+    inst = _add_instrument(db_session, "AAA")
+    closes = _seed_daily_history(db_session, inst, _D2, 700)
+    db_session.add(_ticket(_D1))
+    db_session.flush()
+    prices, _ = _spy_loaded_rows(monkeypatch)
+
+    mark = holding_marks(_PID, session=db_session, base_currency="USD")[0]
+
+    assert len(prices) <= _HOLDING_LOOKBACK_BARS
+    assert min(closes) not in prices
+    year_ago = closes[_D2 - dt.timedelta(days=365)]
+    assert mark.return_1y == pytest.approx(closes[_D2] / year_ago - 1.0, rel=1e-9)
+
+
+def test_holding_marks_for_a_book_older_than_the_window_stays_bounded(
+    db_session, monkeypatch
+):
+    """A years-old book prices its shares at the fill but loads no history in between.
+
+    The fill bar lies beyond the newest-bars window, so it is read through a narrow
+    lookup around the fill date; the price and FX loads must not grow with book age.
+    """
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    n_bars = 900
+    inst = _add_instrument(db_session, "AAA")
+    closes = _seed_daily_history(db_session, inst, _D2, n_bars)
+    rates = {
+        day: 0.90 + 0.0001 * i for i, day in enumerate(sorted(closes))
+    }  # base-per-USD
+    FxRatesRepository(db_session).upsert_rates(
+        [
+            {"base_currency": "EUR", "quote_currency": "USD", "date": d, "rate": r}
+            for d, r in rates.items()
+        ]
+    )
+    fill_day = _D2 - dt.timedelta(days=600)
+    db_session.add(_ticket(fill_day))
+    db_session.flush()
+    prices, fx = _spy_loaded_rows(monkeypatch)
+
+    mark = holding_marks(_PID, session=db_session, base_currency="EUR")[0]
+
+    slack = 60  # the fill-date lookup and the FX margin on both windows
+    assert len(prices) <= _HOLDING_LOOKBACK_BARS + slack
+    assert len(fx) <= _HOLDING_LOOKBACK_BARS + slack
+    shares = 10000.0 / (closes[fill_day] * rates[fill_day])
+    assert mark.shares == pytest.approx(shares, rel=1e-9)
+    assert mark.value == pytest.approx(shares * closes[_D2] * rates[_D2], rel=1e-9)
+    year_ago_day = _D2 - dt.timedelta(days=365)
+    expected_1y = (closes[_D2] * rates[_D2]) / (
+        closes[year_ago_day] * rates[year_ago_day]
+    )
+    assert mark.return_1y == pytest.approx(expected_1y - 1.0, rel=1e-9)
+
+
+def test_holding_marks_chain_link_an_old_rebalance_without_loading_the_gap(
+    db_session, monkeypatch
+):
+    """Two tickets filled long before the newest-bars window still chain-link.
+
+    The switch bar of the second ticket lies in a narrow lookup around its fill, so the
+    holdings total the full-history NAV although the years between are never read.
+    """
+    n_bars = 900
+    aaa = _add_instrument(db_session, "AAA")
+    bbb = _add_instrument(db_session, "BBB")
+    _seed_daily_history(db_session, aaa, _D2, n_bars)
+    for i in range(n_bars):
+        db_session.add(
+            PriceHistory(
+                instrument_id=bbb.id,
+                date=_D2 - dt.timedelta(days=n_bars - 1 - i),
+                close=Decimal(str(50.0 + 0.5 * i)),
+                price_unit="USD",
+            )
+        )
+    first_fill = _D2 - dt.timedelta(days=600)
+    second_fill = _D2 - dt.timedelta(days=560)
+    db_session.add(_ticket(first_fill, "AAA"))
+    second = _ticket(second_fill, "BBB")
+    second.weights_hash = "h2"
+    db_session.add(second)
+    db_session.flush()
+    prices, _ = _spy_loaded_rows(monkeypatch)
+
+    marks = holding_marks(_PID, session=db_session, base_currency="USD")
+    marks_rows = len(prices)
+    nav = build_nav_series(_PID, session=db_session, base_currency="USD")
+
+    assert [m.ticker for m in marks] == ["BBB"]
+    assert marks[0].value == pytest.approx(nav[-1].nav, rel=1e-9)
+    # Two tickers, each read for its newest bars plus the narrow fill lookups.
+    assert marks_rows <= 2 * (_HOLDING_LOOKBACK_BARS + 60)

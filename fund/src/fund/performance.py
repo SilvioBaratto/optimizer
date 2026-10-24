@@ -21,6 +21,7 @@ import datetime as dt
 import itertools
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,6 +40,22 @@ _MARK_LOOKBACK_DAYS = 30
 # carried in when that bar has no row of its own (the feed only writes dates present
 # on every USD leg, so single-day gaps happen).
 _FX_LOOKBACK_DAYS = 10
+
+# Holdings are marked from each ticker's newest bars, never its whole stored history:
+# the 1Y return baseline sits 365 days before the last close, and 450 bars reach that
+# far even for a listing that trades every calendar day. The count is per ticker (not
+# a date) so a holding that stopped trading long ago is still marked at its last close,
+# and it does not grow with the age of the book.
+_HOLDING_LOOKBACK_BARS = 450
+
+# A ticket filled before that window is priced through a narrow lookup this many days
+# either side of its fill (a fill bar can sit a few non-trading days after the last
+# close, and the chain-link reads both books on the switch bar).
+_FILL_LOOKUP_DAYS = 10
+
+# FX rates are read this many days before the first loaded bar so the forward-fill
+# (``fill_limit`` rows) still finds a rate for the earliest bar of a window.
+_FX_MARGIN_DAYS = 10
 
 
 @dataclass(frozen=True)
@@ -223,6 +240,7 @@ def _load_price_frame(
     *,
     start: dt.date | None = None,
     end: dt.date | None = None,
+    newest: int | None = None,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     """Load a wide close-price frame + raw currency map for the given tickers.
 
@@ -237,6 +255,9 @@ def _load_price_frame(
         tickers: yfinance tickers to load.
         start: Inclusive lower date bound; ``None`` leaves it open.
         end: Inclusive upper date bound; ``None`` leaves it open.
+        newest: When set, keep only each ticker's newest ``newest`` bars within the
+            bounds instead of every bar from ``start``, so the read stays the same size
+            however long the stored history is.
 
     Returns:
         ``(prices, currency_map)`` — the price frame (empty when nothing loads) and
@@ -253,9 +274,18 @@ def _load_price_frame(
         instrument = repo.get_instrument_by_yfinance_ticker(ticker)
         if instrument is None:
             continue
-        rows = repo.get_price_history(
-            instrument.id, start_date=start, end_date=end, limit=None, ascending=True
-        )
+        if newest is None:
+            rows = repo.get_price_history(
+                instrument.id,
+                start_date=start,
+                end_date=end,
+                limit=None,
+                ascending=True,
+            )
+        else:
+            rows = repo.get_price_history(
+                instrument.id, start_date=start, end_date=end, limit=newest
+            )
         closes = {r.date: float(r.close) for r in rows if r.close is not None}
         if not closes:
             continue
@@ -1207,6 +1237,17 @@ def _ticket_lines(ticket: Any) -> tuple[list[str], dict[str, dict[str, Any]]]:
     return order, line_by_ticker
 
 
+def _fill_spans(
+    window_start: dt.date, fill_days: Iterable[dt.date]
+) -> list[tuple[dt.date, dt.date]]:
+    """Narrow ``(start, end)`` spans around the fills that precede ``window_start``."""
+    margin = dt.timedelta(days=_FILL_LOOKUP_DAYS)
+    return [
+        (day - margin, day + margin)
+        for day in sorted({d for d in fill_days if d < window_start})
+    ]
+
+
 def _book_base_prices(
     session: Any,
     order: list[str],
@@ -1214,6 +1255,8 @@ def _book_base_prices(
     base_currency: str,
     start: dt.date | None,
     end: dt.date | None,
+    newest: int | None = None,
+    fill_days: Iterable[dt.date] = (),
 ) -> tuple[pd.DataFrame, pd.DataFrame] | None:
     """Base-currency closes for a book: ``(raw, forward-filled)``, or ``None``.
 
@@ -1221,19 +1264,44 @@ def _book_base_prices(
     own trading days (NaN elsewhere); the forward-filled copy is what values are
     marked on.
 
+    With ``newest`` the read is bounded to each ticker's newest bars (and the FX rates
+    to the span they cover) however long the stored history is. A fill older than that
+    window is read through a narrow span around its date (``fill_days``), so the
+    ticket's shares and the chain-link's switch bars can still be priced without
+    loading the years in between.
+
     Raises:
         FxCoverageError: See :func:`_require_fx_coverage`.
     """
-    raw_prices, currency_map = _load_price_frame(session, order, start=start, end=end)
+    raw_prices, currency_map = _load_price_frame(
+        session, order, start=start, end=end, newest=newest
+    )
+    spans: list[tuple[dt.date | None, dt.date | None]] = [(start, end)]
+    if newest is not None and not raw_prices.empty:
+        window_start = raw_prices.index.min().date()
+        spans = [(window_start - dt.timedelta(days=_FX_MARGIN_DAYS), end)]
+        older = _fill_spans(window_start, fill_days)
+        if older:
+            extra = [
+                _load_price_frame(session, order, start=a, end=b)[0] for a, b in older
+            ]
+            raw_prices = pd.concat([raw_prices, *extra]).sort_index()
+            raw_prices = raw_prices[~raw_prices.index.duplicated(keep="first")]
+            spans.extend(older)
     raw_prices = _require_known_currencies(
         raw_prices, currency_map, holdings=set(order)
     )
     if raw_prices.empty:
         return None
     quotes = sorted({_major_currency(code) for code in currency_map.values()})
-    fx_rates = _load_fx_rates_frame(
-        session, base_currency, quotes, start=start, end=end
-    )
+    fx_frames = [
+        _load_fx_rates_frame(session, base_currency, quotes, start=a, end=b)
+        for a, b in spans
+    ]
+    fx_frames = [frame for frame in fx_frames if not frame.empty]
+    fx_rates = pd.concat(fx_frames).sort_index() if fx_frames else pd.DataFrame()
+    if not fx_rates.empty:
+        fx_rates = fx_rates[~fx_rates.index.duplicated(keep="first")]
     _require_fx_coverage(base_currency, currency_map, fx_rates)
     base_prices = _carried_base_prices(
         raw_prices,
@@ -1324,8 +1392,21 @@ def holding_marks(
     chain_tickers = sorted(
         {line["ticker"] for t in tickets for line in t.lines if line.get("ticker")}
     )
+    fill_days = {t.fill_date for t in tickets}
+    fill_days.update(
+        day
+        for t in tickets
+        for line in t.lines
+        if (day := _as_date(line.get("fill_date"))) is not None
+    )
     book = _book_base_prices(
-        session, chain_tickers, base_currency=base_currency, start=None, end=asof
+        session,
+        chain_tickers,
+        base_currency=base_currency,
+        start=None,
+        end=asof,
+        newest=_HOLDING_LOOKBACK_BARS,
+        fill_days=fill_days,
     )
     if book is None:
         return [_degraded_mark(ticker) for ticker in order]
