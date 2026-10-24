@@ -10,6 +10,8 @@ dataclass defaults so a bare import yields the verified values; secrets
 
 from __future__ import annotations
 
+import ast
+import datetime as dt
 import os
 from pathlib import Path
 
@@ -114,6 +116,63 @@ def test_daemon_fields_default_to_the_phase9_contract():
     assert cfg.reprofile_interval_days == 365
     assert cfg.summary_token_threshold == 170000
     assert cfg.summary_messages_to_keep == 6
+
+
+_INGESTION_CONFIG = (
+    Path(__file__).resolve().parents[3] / "ingestion" / "app" / "config.py"
+)
+_SATURDAY = dt.datetime(2026, 1, 3, tzinfo=dt.timezone.utc)
+
+
+def _ingestion_cron_defaults() -> dict[str, str]:
+    """Read the ingestion daemon's ``scheduler_*_cron`` defaults without importing it.
+
+    ``fund`` must never import the ingestion ``app`` package, so the defaults are
+    pulled from the source text of its settings class.
+    """
+    crons: dict[str, str] = {}
+    for node in ast.walk(ast.parse(_INGESTION_CONFIG.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
+            continue
+        name = node.target.id
+        if not (name.startswith("scheduler_") and name.endswith("_cron")):
+            continue
+        if not isinstance(node.value, ast.Call):
+            continue
+        for keyword in node.value.keywords:
+            if keyword.arg == "default" and isinstance(keyword.value, ast.Constant):
+                crons[name] = keyword.value.value
+    return crons
+
+
+def _saturday_fire_time(cron: str) -> dt.datetime:
+    from apscheduler.triggers.cron import CronTrigger
+
+    trigger = CronTrigger.from_crontab(cron, timezone="UTC")
+    fire = trigger.get_next_fire_time(None, _SATURDAY)
+    assert fire is not None
+    return fire
+
+
+def test_default_rebalance_cron_fires_after_the_saturday_ingestion_jobs():
+    # The weekly decision reads the price panel; firing alongside (or before) the
+    # Saturday full refetch would size the portfolio on a stale, in-flux panel.
+    if not _INGESTION_CONFIG.exists():
+        pytest.skip("ingestion package not present in this checkout")
+    crons = _ingestion_cron_defaults()
+    ingestion_jobs = (
+        "scheduler_universe_build_cron",
+        "scheduler_weekly_refetch_cron",
+        "scheduler_market_wide_cron",
+        "scheduler_daily_pipeline_cron",
+    )
+    assert set(ingestion_jobs) <= crons.keys()
+
+    rebalance = _saturday_fire_time(load_config(env={}).fund_rebalance_cron)
+
+    for job in ingestion_jobs:
+        assert rebalance.date() == _SATURDAY.date()
+        assert rebalance > _saturday_fire_time(crons[job]), job
 
 
 def test_daemon_fields_parse_from_fund_env_aliases():
