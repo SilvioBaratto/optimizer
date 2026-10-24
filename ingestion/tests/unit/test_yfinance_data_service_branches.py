@@ -38,6 +38,7 @@ Branches covered:
     - news list non-empty, link from canonicalUrl dict
     - news list non-empty, link from previewUrl fallback
     - scraper returns success=False → full_content not injected
+    - article whose body is already stored → not scraped again
 
   _aggregate_outcome()
     - outcome is Exception → appended to errors, returns 0 skipped
@@ -54,6 +55,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -2250,6 +2252,37 @@ class TestNewsScraperBranches:
             _run(repo, yf_client, mode="full")
 
         scraper_instance.fetch.assert_not_called()
+
+    def test_article_with_a_stored_body_is_not_scraped_again(self) -> None:
+        repo = _make_repo()
+        repo.get_news.return_value = [
+            SimpleNamespace(news_uuid="stored", full_content="body from last run"),
+            SimpleNamespace(news_uuid="unscraped", full_content=None),
+        ]
+        yf_client = _make_yf_client_silent()
+        articles = [
+            {"id": "stored", "content": {"canonicalUrl": {"url": "https://x.test/1"}}},
+            {"id": "new", "content": {"canonicalUrl": {"url": "https://x.test/2"}}},
+            {
+                "id": "unscraped",
+                "content": {"canonicalUrl": {"url": "https://x.test/3"}},
+            },
+        ]
+        yf_client.get_ticker.return_value = MagicMock(news=articles)
+
+        with patch(
+            "app.services.market_data.yfinance.news.scraper.ArticleScraper"
+        ) as MockScraper:
+            scraper_instance = MagicMock()
+            scraper_instance.fetch.return_value = {"success": True, "content": "text"}
+            MockScraper.return_value = scraper_instance
+            result = _run(repo, yf_client, mode="full")
+
+        fetched = [call.args[0] for call in scraper_instance.fetch.call_args_list]
+        assert fetched == ["https://x.test/2", "https://x.test/3"]
+        assert "full_content" not in articles[0]
+        repo.upsert_news.assert_called_once()
+        assert result["counts"]["news"] == 3
 
     def test_when_news_list_empty_then_counts_news_is_zero(self) -> None:
         repo = _make_repo()

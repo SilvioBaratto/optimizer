@@ -1606,7 +1606,7 @@ class YFinanceDataService:
                 errors.append(f"insider_roster: {e}")
                 logger.warning("Failed insider_roster for %s: %s", yfinance_ticker, e)
 
-        # 11. News (always fetched with full article content scraped)
+        # 11. News (always fetched; article bodies scraped once)
         try:
             news_list = self._timed(lambda: _get_lazy_ticker().news)
             if news_list:
@@ -1614,8 +1614,19 @@ class YFinanceDataService:
                     ArticleScraper,
                 )
 
+                # The feed repeats the same articles for days. Re-scraping a body
+                # already stored costs a throttled page request per article per
+                # sweep; the upsert leaves a stored body alone when none is sent.
+                scraped_ids = {
+                    str(row.news_uuid)
+                    for row in self.repo.get_news(instrument_id)
+                    if row.full_content
+                }
                 scraper = ArticleScraper(delay=0.5)
                 for article in news_list:
+                    news_id = article.get("id") or article.get("uuid")
+                    if news_id is not None and str(news_id) in scraped_ids:
+                        continue
                     content = article.get("content", article)
                     canonical = content.get("canonicalUrl")
                     link = (
