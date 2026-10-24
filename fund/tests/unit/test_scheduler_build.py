@@ -1,6 +1,6 @@
 """``create_scheduler`` registration + the agent-stack-free import guard.
 
-Asserts ``create_scheduler()`` registers exactly the four fund jobs with the
+Asserts ``create_scheduler()`` registers exactly the five fund jobs with the
 right trigger types, on a single-worker executor, a **distinct** jobstore table
 (``fund_apscheduler_jobs``), UTC, and the Saturday cron (weekday name — a bare
 ``0`` would fire Monday) — **without starting** the scheduler; and that it raises
@@ -33,9 +33,11 @@ from fund.config import settings
 from fund.scheduler import (
     JOB_DRIFT_MONITOR,
     JOB_NAV_MARK,
+    JOB_NAV_MARK_FOLLOWUP,
     JOB_ORPHAN_REAPER,
     JOB_REBALANCE_SWEEP,
     create_scheduler,
+    run_scheduled_nav_mark,
 )
 
 _DM = "fund.scheduler.database_manager"
@@ -43,7 +45,7 @@ _JOBSTORE = "fund.scheduler.SQLAlchemyJobStore"
 _EXECUTOR = "fund.scheduler.ThreadPoolExecutor"
 
 _CRON_JOBS = {JOB_REBALANCE_SWEEP, JOB_NAV_MARK}
-_INTERVAL_JOBS = {JOB_DRIFT_MONITOR, JOB_ORPHAN_REAPER}
+_INTERVAL_JOBS = {JOB_DRIFT_MONITOR, JOB_ORPHAN_REAPER, JOB_NAV_MARK_FOLLOWUP}
 _ALL_JOBS = _CRON_JOBS | _INTERVAL_JOBS
 
 
@@ -60,10 +62,25 @@ def _build_scheduler(jobstore_calls: list[dict] | None = None, config=settings):
         return create_scheduler(config)
 
 
-def test_registers_exactly_the_four_fund_jobs():
+def test_registers_exactly_the_five_fund_jobs():
     scheduler = _build_scheduler()
     ids = {job.id for job in scheduler.get_jobs()}
     assert ids == _ALL_JOBS
+
+
+def test_nav_mark_waits_for_ingestion_by_default():
+    """The cron and a periodic re-check both go through the waiting policy."""
+    scheduler = _build_scheduler()
+    assert scheduler.get_job(JOB_NAV_MARK).func is run_scheduled_nav_mark
+    assert scheduler.get_job(JOB_NAV_MARK_FOLLOWUP).func is run_scheduled_nav_mark
+
+
+def test_the_nav_mark_recheck_is_registered_even_without_a_wait_budget():
+    """The jobstore persists jobs, so one registered only sometimes would outlive a
+    config change; with no budget the re-check still catches a late sweep."""
+    config = dataclasses.replace(settings, fund_nav_mark_wait_seconds=0)
+    scheduler = _build_scheduler(config=config)
+    assert scheduler.get_job(JOB_NAV_MARK_FOLLOWUP).func is run_scheduled_nav_mark
 
 
 def test_rebalance_sweep_uses_a_cron_trigger():

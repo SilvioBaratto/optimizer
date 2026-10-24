@@ -303,7 +303,9 @@ Two more entry points ship with it:
 
 - **`fund-worker`** — the daemon: a weekly rebalance sweep, an interval drift
   monitor, a daily NAV mark and an orphan-job reaper (a heartbeat lease, like the
-  ingestion reaper).
+  ingestion reaper). The NAV mark waits for the day's ingestion price sweep to
+  finish (up to `FUND_NAV_MARK_WAIT_SECONDS`, 4 h by default) so it values holdings
+  at fresh closes.
 - **`fund-tui`** — a Textual oversight cockpit with eight views (Posture,
   Deliberation, Decisions, Mandate, Audit, Performance, Ask, Daily brief). Every
   action it takes (approve, reject, freeze, mandate edits) goes through a confirm

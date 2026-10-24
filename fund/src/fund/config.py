@@ -156,9 +156,16 @@ class FundConfig:
     # queued behind a multi-minute LLM round starts late; APScheduler's default 1s
     # would silently drop it (a weekly sweep lost for 7 days). Hours, not seconds.
     fund_misfire_grace_time_seconds: int = 21600
-    # Daily NAV mark at 08:00 UTC — after the 07:00 ingestion pipeline (prices + FX
-    # fresh). Pure compute, agent-stack-free; backfills + idempotent upsert.
+    # Daily NAV mark, due at 08:00 UTC: an hour after the 07:00 ingestion pipeline
+    # starts. Pure compute, agent-stack-free; backfills + idempotent upsert.
     fund_nav_mark_cron: str = "0 8 * * *"
+    # The multi-thousand-ticker price sweep can outrun the due time, so the mark
+    # waits for today's sweep to settle; past this budget it marks on the closes
+    # stored so far. 0 marks at the due time without waiting; either way a sweep
+    # that settles after a mark earns a fresh one.
+    fund_nav_mark_wait_seconds: int = 14400
+    # How often a waiting mark re-checks the sweep. Each check is two small reads.
+    fund_nav_mark_poll_seconds: int = 900
 
     # --- HITL staleness: how long a paused gate may wait before an approve is refused.
     # A ticket fills at the first close after the run's ``asof``, so an approval that
@@ -380,6 +387,12 @@ def load_config(
             )
         ),
         fund_nav_mark_cron=env.get("FUND_NAV_MARK_CRON", defaults.fund_nav_mark_cron),
+        fund_nav_mark_wait_seconds=int(
+            env.get("FUND_NAV_MARK_WAIT_SECONDS", defaults.fund_nav_mark_wait_seconds)
+        ),
+        fund_nav_mark_poll_seconds=int(
+            env.get("FUND_NAV_MARK_POLL_SECONDS", defaults.fund_nav_mark_poll_seconds)
+        ),
         fund_shutdown_drain_timeout_seconds=int(
             env.get(
                 "FUND_SHUTDOWN_DRAIN_TIMEOUT_SECONDS",

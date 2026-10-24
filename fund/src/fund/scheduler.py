@@ -79,7 +79,13 @@ SessionFactory = Callable[[], AbstractContextManager["Session"]]
 JOB_REBALANCE_SWEEP = "fund_rebalance_sweep"
 JOB_DRIFT_MONITOR = "fund_drift_monitor"
 JOB_NAV_MARK = "fund_nav_mark"
+JOB_NAV_MARK_FOLLOWUP = "fund_nav_mark_followup"
 JOB_ORPHAN_REAPER = "fund_orphan_reaper"
+
+# The ingestion daemon's price-sweep slot in ``background_jobs``: it stores the
+# closes the NAV mark values holdings at. A failed sweep stored what it could.
+_INGESTION_PRICE_JOB = "yfinance_fetch"
+_SETTLED_STATUSES = frozenset({"completed", "failed"})
 
 
 @dataclass
@@ -763,6 +769,93 @@ def run_nav_mark(
         return True
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Read a stored timestamp as aware UTC; SQLite hands it back naive."""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
+
+
+def run_scheduled_nav_mark(
+    *,
+    session_factory: SessionFactory | None = None,
+    config: FundConfig = settings,
+    now: datetime | None = None,
+) -> bool:
+    """Run :func:`run_nav_mark` once today's ingestion price sweep has settled.
+
+    Fired by the daily NAV-mark cron and by a periodic re-check. From
+    ``background_jobs`` alone it marks when every ``yfinance_fetch`` sweep started
+    today has completed or failed and no NAV mark has completed since the last of
+    them finished. Past ``fund_nav_mark_wait_seconds`` after the cron's due time,
+    with the sweep still unsettled, it marks once on the closes stored so far and
+    logs a warning; a sweep that settles after that still earns a fresh mark. Any
+    other call returns at once, so the single-worker scheduler is never held up
+    while the sweep runs.
+
+    Args:
+        session_factory: Session source; the daemon's database when omitted.
+        config: Supplies the cron (today's due time) and the wait budget.
+        now: The moment to decide for; the wall clock when omitted.
+
+    Returns:
+        ``True`` when a mark ran and completed; ``False`` when none was due, or the
+        mark itself did not complete.
+    """
+    from portopt_db.models import BackgroundJob
+    from sqlalchemy import select
+
+    factory = _resolve_factory(session_factory)
+    moment = now if now is not None else datetime.now(UTC)
+    midnight = datetime.combine(moment.date(), dt.time.min, tzinfo=UTC)
+    trigger = CronTrigger.from_crontab(config.fund_nav_mark_cron, timezone="UTC")
+    due = trigger.get_next_fire_time(None, midnight)
+    if due is None or moment < due:
+        return False
+
+    with factory() as session:
+        rows = session.execute(
+            select(
+                BackgroundJob.job_type,
+                BackgroundJob.status,
+                BackgroundJob.finished_at,
+            ).where(
+                BackgroundJob.job_type.in_((_INGESTION_PRICE_JOB, JOB_NAV_MARK)),
+                BackgroundJob.started_at >= midnight,
+            )
+        ).all()
+    sweeps = [row for row in rows if row.job_type == _INGESTION_PRICE_JOB]
+    last_mark = max(
+        (
+            stamp
+            for row in rows
+            if row.job_type == JOB_NAV_MARK and row.status == "completed"
+            if (stamp := _as_utc(row.finished_at)) is not None
+        ),
+        default=None,
+    )
+
+    if sweeps and all(row.status in _SETTLED_STATUSES for row in sweeps):
+        # A slot the reaper failed may carry no finish time; treat it as just now.
+        settled_at = max(_as_utc(row.finished_at) or moment for row in sweeps)
+        if last_mark is not None and last_mark >= settled_at:
+            return False
+        return run_nav_mark(session_factory=factory, config=config)
+
+    wait = dt.timedelta(seconds=config.fund_nav_mark_wait_seconds)
+    if moment < due + wait or last_mark is not None:
+        return False
+    if config.fund_nav_mark_wait_seconds > 0:
+        logger.warning(
+            "nav mark: today's ingestion price sweep has not finished %ds after the "
+            "%s mark; marking on the closes stored so far (held tickers may carry "
+            "yesterday's close until the sweep lands)",
+            config.fund_nav_mark_wait_seconds,
+            due.strftime("%H:%M UTC"),
+        )
+    return run_nav_mark(session_factory=factory, config=config)
+
+
 # On an incremental run, re-mark this many calendar days before the last persisted
 # NAV so a late price revision / backfill inside the window is picked up, while the
 # bulk of the history is not rewritten every day.
@@ -965,8 +1058,9 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
     """Assemble the fund ``BackgroundScheduler`` (not started).
 
     Must be called **after** ``database_manager.initialize()`` so the engine
-    exists. Registers four jobs — the cron rebalance sweep, the interval drift
-    monitor, the daily cron NAV mark, and the interval orphan reaper — on a
+    exists. Registers five jobs — the cron rebalance sweep, the interval drift
+    monitor, the daily cron NAV mark and its interval re-check (both wait for the
+    day's ingestion price sweep), and the interval orphan reaper — on a
     **distinct** jobstore table (``fund_apscheduler_jobs``) with a single-worker
     executor (D1 sequential) and UTC timezone. Every job carries
     ``fund_misfire_grace_time_seconds`` so one queued behind a long step still runs.
@@ -1009,10 +1103,19 @@ def create_scheduler(config: FundConfig = settings) -> BackgroundScheduler:
         misfire_grace_time=grace,
     )
     scheduler.add_job(
-        run_nav_mark,
+        run_scheduled_nav_mark,
         trigger=CronTrigger.from_crontab(config.fund_nav_mark_cron, timezone="UTC"),
         id=JOB_NAV_MARK,
         name="Daily NAV mark",
+        replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=grace,
+    )
+    scheduler.add_job(
+        run_scheduled_nav_mark,
+        trigger=IntervalTrigger(seconds=config.fund_nav_mark_poll_seconds),
+        id=JOB_NAV_MARK_FOLLOWUP,
+        name="NAV mark re-check (waits for the ingestion price sweep)",
         replace_existing=True,
         coalesce=True,
         misfire_grace_time=grace,
