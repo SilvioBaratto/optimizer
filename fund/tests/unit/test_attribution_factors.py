@@ -153,6 +153,43 @@ def test_factor_series_entirely_stale_over_the_grid_is_missing(db_session):
     assert out.missing == ["rates"]
 
 
+def test_factor_series_reads_only_a_bounded_window_of_fred_history(
+    db_session, monkeypatch
+):
+    """Decades of stored history are not materialised for a few weeks of NAV grid."""
+    from portopt_db.repositories.macro.macro_regime_repository import (
+        MacroRegimeRepository,
+    )
+
+    first = dt.date(2024, 1, 1)
+    last = dt.date(2026, 1, 8)
+    span = (last - first).days
+    _seed_fred(
+        db_session,
+        "DGS10",
+        {first + dt.timedelta(days=i): 3.0 + 0.001 * i for i in range(span + 1)},
+    )
+    loaded: list[int] = []
+    real = MacroRegimeRepository.get_fred_observations
+
+    def counting(self, *args, **kwargs):
+        rows = real(self, *args, **kwargs)
+        loaded.append(len(rows))
+        return rows
+
+    monkeypatch.setattr(MacroRegimeRepository, "get_fred_observations", counting)
+    config = MacroAttributionConfig(
+        factors=(FactorSpec("rates", "DGS10", FactorTransform.DIFF),)
+    )
+
+    out = build_macro_factor_returns(
+        session=db_session, dates=_GRID, benchmark_returns=None, config=config
+    )
+
+    assert sum(loaded) < 100  # a back-pad before the grid, not ~740 stored rows
+    assert out.returns["rates"].tolist() == pytest.approx([0.001, 0.001, 0.001])
+
+
 def test_factor_series_absent_series_flagged_missing(db_session):
     """A factor whose FRED series has no rows is flagged, not built — no crash."""
     _seed_fred(

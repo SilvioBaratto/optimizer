@@ -112,6 +112,7 @@ def load_macro_frame(
     asof: dt.date | str,
     *,
     point_in_time: bool = True,
+    start: dt.date | str | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Build a wide macro-series frame for ``names`` as of ``asof``, plus missing.
 
@@ -134,16 +135,24 @@ def load_macro_frame(
             a result that depends only on ``(data, asof)``, never on the wall
             clock. Pass false to read history for a retrospective explanation
             that is not a decision.
+        start: Optional inclusive lower bound; earlier observations are neither read
+            nor materialised. ``None`` loads each series' whole stored history. The
+            publication-lag cadence is inferred from the rows inside the bounds, so
+            pair a narrow ``start`` with ``point_in_time=False``.
 
     Returns:
-        ``(frame, missing)`` — the wide macro frame and the absent series ids.
+        ``(frame, missing)`` — the wide macro frame and the absent series ids; a series
+        with no observation inside ``[start, asof]`` counts as absent.
     """
     end_date = coerce_date(asof)
+    start_date = coerce_date(start) if start is not None else None
     repo = MacroRegimeRepository(session)
 
     series_by_name: dict[str, pd.Series] = {}
     for name in names:
-        rows = repo.get_fred_observations(series_id=name, end_date=end_date)
+        rows = repo.get_fred_observations(
+            series_id=name, start_date=start_date, end_date=end_date
+        )
         if point_in_time and rows:
             lag = _publication_lag_days(name, [row.date for row in rows])
             published_by = end_date - dt.timedelta(days=lag)

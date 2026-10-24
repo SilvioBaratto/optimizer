@@ -2165,6 +2165,28 @@ def test_daily_brief_attribution_covers_only_the_briefed_day(db_session):
         assert recon == pytest.approx(brief.attribution.total_return, abs=1e-12)
 
 
+def test_daily_brief_repeat_poll_does_not_refit_the_exposures(db_session, monkeypatch):
+    """The cockpit polls the brief every tick; unchanged data must not refit."""
+    import optimizer.factors as factors_mod
+
+    saver = MemorySaver()
+    _seed_navs_and_fred(db_session)
+    real = factors_mod.fit_factor_prior
+    fits: list[int] = []
+
+    def counting(*args, **kwargs):
+        fits.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(factors_mod, "fit_factor_prior", counting)
+
+    first = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 1, 24))
+    second = observe.daily_brief(db_session, saver, _PID, asof=date(2026, 1, 24))
+
+    assert len(fits) == 1
+    assert second.attribution == first.attribution
+
+
 def test_daily_brief_unmarked_day_degrades_without_crash(db_session):
     """No NAV / journal / run → None performance, flagged attribution, empty tuples."""
     saver = MemorySaver()

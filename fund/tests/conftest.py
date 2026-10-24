@@ -45,6 +45,19 @@ def _isolate_agent_fs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(backend_mod, "_AGENT_FS_ROOT", tmp_path / "agent-fs")
 
 
+@pytest.fixture(autouse=True)
+def _fresh_exposure_cache() -> None:
+    """Start every test with an empty macro-exposure memo.
+
+    ``estimate_exposures`` memoises fits process-wide on their input content, so a
+    test that patches ``fit_factor_prior`` or counts its calls would otherwise be
+    short-circuited by an identical fit an earlier test left behind.
+    """
+    from fund.attribution import clear_exposure_cache
+
+    clear_exposure_cache()
+
+
 @pytest.fixture(scope="session")
 def test_engine() -> Generator[Engine, None, None]:
     engine = create_engine(

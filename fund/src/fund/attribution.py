@@ -21,9 +21,12 @@ whose source has no data over the NAV window is dropped, short history flags
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import logging
+import threading
 import uuid
-from dataclasses import dataclass, field
+from collections import OrderedDict
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -36,6 +39,18 @@ if TYPE_CHECKING:
     from fund.performance import NavPoint
 
 logger = logging.getLogger(__name__)
+
+# How far before the first NAV grid day FRED levels are read. The first grid level is
+# seeded from the latest earlier print, so the pad must outlast a holiday run on the
+# daily series and a monthly release cadence; the whole history would be tens of
+# thousands of ORM rows re-read on every cockpit poll.
+_FRED_SEED_PAD_DAYS = 60
+
+# Estimates kept by ``estimate_exposures``. The cockpit re-reads the daily brief on
+# every poll tick, on the UI thread, and the factor-prior fit is the heaviest compute
+# in that read; paging back through a few dozen days stays warm without holding much
+# (each entry is a few floats and one date index).
+_EXPOSURE_CACHE_SIZE = 64
 
 
 class RegressionMethod(str, Enum):
@@ -254,6 +269,41 @@ def _empty_exposure(n_obs: int, method_used: RegressionMethod) -> ExposureResult
     )
 
 
+_exposure_cache: OrderedDict[tuple[Any, ...], ExposureResult] = OrderedDict()
+_exposure_cache_lock = threading.Lock()
+
+
+def clear_exposure_cache() -> None:
+    """Forget every memoised exposure estimate (test isolation; the memo is exact)."""
+    with _exposure_cache_lock:
+        _exposure_cache.clear()
+
+
+def _copy_exposure(result: ExposureResult) -> ExposureResult:
+    """Copy ``result`` so a caller mutating ``exposures`` cannot corrupt the memo."""
+    return replace(result, exposures=dict(result.exposures))
+
+
+def _exposure_cache_key(
+    nav_returns: pd.Series,
+    factor_returns: pd.DataFrame,
+    config: MacroAttributionConfig,
+) -> tuple[Any, ...]:
+    """Key an estimate by its exact inputs and the config fields the fit reads."""
+    digest = hashlib.blake2b(digest_size=16)
+    for part in (nav_returns, factor_returns):
+        digest.update(pd.util.hash_pandas_object(part.index).to_numpy().tobytes())
+        digest.update(np.ascontiguousarray(part.to_numpy(dtype=float)).tobytes())
+    return (
+        digest.hexdigest(),
+        len(nav_returns),
+        factor_returns.shape,
+        tuple(str(col) for col in factor_returns.columns),
+        config.method,
+        config.min_observations,
+    )
+
+
 def estimate_exposures(
     nav_returns: pd.Series,
     factor_returns: pd.DataFrame,
@@ -276,6 +326,11 @@ def estimate_exposures(
     itself constant, or the fit fails on degenerate data, it returns an empty, flagged
     estimate rather than raising.
 
+    The estimate is a pure function of its inputs, so it is memoised on their exact
+    content (bounded LRU): the cockpit re-reads the daily brief every poll tick and an
+    unchanged series is not refit. Any new bar, revised value, factor set or regressor
+    is a different key.
+
     Args:
         nav_returns: Date-indexed portfolio simple returns (the regression target).
         factor_returns: Dates × factors simple-return frame (the regressors).
@@ -284,6 +339,30 @@ def estimate_exposures(
     Returns:
         An :class:`ExposureResult`; ``exposures`` empty on a degraded estimate.
     """
+    key = _exposure_cache_key(nav_returns, factor_returns, config)
+    with _exposure_cache_lock:
+        cached = _exposure_cache.get(key)
+        if cached is not None:
+            _exposure_cache.move_to_end(key)
+    if cached is not None:
+        return _copy_exposure(cached)
+
+    result = _estimate_exposures(nav_returns, factor_returns, config=config)
+    with _exposure_cache_lock:
+        _exposure_cache[key] = _copy_exposure(result)
+        _exposure_cache.move_to_end(key)
+        while len(_exposure_cache) > _EXPOSURE_CACHE_SIZE:
+            _exposure_cache.popitem(last=False)
+    return result
+
+
+def _estimate_exposures(
+    nav_returns: pd.Series,
+    factor_returns: pd.DataFrame,
+    *,
+    config: MacroAttributionConfig,
+) -> ExposureResult:
+    """Compute :func:`estimate_exposures` without the memo."""
     from optimizer.exceptions import DataError
     from optimizer.factors import FactorPriorConfig, fit_factor_prior
     from skfolio.exceptions import SkfolioError
@@ -438,15 +517,16 @@ def build_macro_factor_returns(
     """Build macro factor returns on the NAV grid, FRED-first, degrading honestly.
 
     Applies the canonical alignment recipe to each FRED factor: fetch the level
-    history up to the grid's last date (via :func:`fund.tools.macro.load_macro_frame`,
-    lazy-imported), reindex it onto the NAV grid filling each day from the most recent
-    prior observation, transform to a return (``diff`` or ``pct_change`` per the
-    factor's spec), then drop the first (NaN) row so the result sits on the NAV return
-    grid (``dates[1:]``). Grid days after a series' last stored observation stay NaN
-    rather than forward-filled into zero returns. The non-FRED ``equity`` factor is the
-    benchmark return series reindexed onto that grid. A FRED series with no rows, an
-    all-NaN transformed column, or a missing benchmark for ``equity`` is dropped into
-    ``missing`` rather than fabricated.
+    history from a short pad before the grid's first date up to its last date (via
+    :func:`fund.tools.macro.load_macro_frame`, lazy-imported), reindex it onto the NAV
+    grid filling each day from the most recent prior observation, transform to a
+    return (``diff`` or ``pct_change`` per the factor's spec), then drop the first
+    (NaN) row so the result sits on the NAV return grid (``dates[1:]``). Grid days
+    after a series' last stored observation stay NaN rather than forward-filled into
+    zero returns. The non-FRED ``equity`` factor is the benchmark return series
+    reindexed onto that grid. A FRED series with no rows, an all-NaN transformed
+    column, or a missing benchmark for ``equity`` is dropped into ``missing`` rather
+    than fabricated.
 
     Args:
         session: Open SQLAlchemy session (reader; no commit).
@@ -480,8 +560,13 @@ def build_macro_factor_returns(
         series_ids = [str(s.fred_series_id) for s in fred_specs]
         # Attribution explains realised returns after the fact, so it wants the
         # series as finally published rather than as known at each date.
+        seed_start = grid[0].date() - dt.timedelta(days=_FRED_SEED_PAD_DAYS)
         frame, _ = load_macro_frame(
-            session, series_ids, grid[-1].date(), point_in_time=False
+            session,
+            series_ids,
+            grid[-1].date(),
+            point_in_time=False,
+            start=seed_start,
         )
 
     for spec in config.factors:
@@ -656,6 +741,7 @@ __all__ = [
     "attribute",
     "attribution_from_nav_points",
     "build_macro_factor_returns",
+    "clear_exposure_cache",
     "estimate_exposures",
     "macro_attribution",
 ]

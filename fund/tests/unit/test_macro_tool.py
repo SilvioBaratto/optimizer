@@ -548,3 +548,28 @@ class TestGetMacroSeriesStatistics:
         data = get_macro_series(db_session, ["T10Y2Y", "NOPE"], _STATS_ASOF)["data"]
 
         assert set(data["stats"]) == {"T10Y2Y"}
+
+
+class TestLoadMacroFrameStartBound:
+    def test_start_excludes_earlier_observations(self, db_session) -> None:
+        _two_series_panel(db_session)
+
+        frame, missing = load_macro_frame(
+            db_session, ["T10Y2Y", "VIXCLS"], _ASOF, start=dt.date(2024, 1, 3)
+        )
+
+        assert frame.index.tolist() == [
+            pd.Timestamp("2024-01-03"),
+            pd.Timestamp("2024-01-04"),
+        ]
+        assert missing == []
+
+    def test_series_wholly_before_start_is_missing(self, db_session) -> None:
+        _two_series_panel(db_session)
+
+        frame, missing = load_macro_frame(
+            db_session, ["T10Y2Y"], _ASOF, start=dt.date(2024, 1, 5)
+        )
+
+        assert frame.empty
+        assert missing == ["T10Y2Y"]

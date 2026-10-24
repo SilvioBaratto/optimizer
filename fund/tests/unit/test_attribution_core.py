@@ -210,6 +210,66 @@ def test_attribution_unrelated_value_error_from_the_fit_propagates(monkeypatch):
         estimate_exposures(nav, factors, config=MacroAttributionConfig.for_default())
 
 
+@pytest.fixture
+def fit_calls(monkeypatch) -> list[int]:
+    """Count real ``fit_factor_prior`` runs without changing what they return."""
+    import optimizer.factors as factors_mod
+
+    real = factors_mod.fit_factor_prior
+    calls: list[int] = []
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(factors_mod, "fit_factor_prior", counting)
+    return calls
+
+
+def test_estimate_exposures_identical_inputs_fit_once(fit_calls):
+    """The cockpit re-reads the brief every poll; an unchanged series is not refit."""
+    nav, factors = _synthetic(n=60, betas={"rates": 0.5, "equity": 0.9})
+    config = MacroAttributionConfig.for_default()
+
+    first = estimate_exposures(nav, factors, config=config)
+    second = estimate_exposures(nav.copy(), factors.copy(), config=config)
+
+    assert len(fit_calls) == 1
+    assert second == first
+
+
+def test_estimate_exposures_cache_hands_out_independent_copies(fit_calls):
+    """A caller mutating its result must not corrupt what the next poll receives."""
+    nav, factors = _synthetic(n=60, betas={"rates": 0.5, "equity": 0.9})
+    config = MacroAttributionConfig.for_default()
+
+    first = estimate_exposures(nav, factors, config=config)
+    pristine = dict(first.exposures)
+    first.exposures["rates"] = 99.0
+    second = estimate_exposures(nav, factors, config=config)
+
+    assert second.exposures == pristine
+
+
+def test_estimate_exposures_refits_when_the_series_changes(fit_calls):
+    """A new bar, a revised return or another regressor each invalidate the memo."""
+    nav, factors = _synthetic(n=60, betas={"rates": 0.5, "equity": 0.9})
+    config = MacroAttributionConfig.for_default()
+    estimate_exposures(nav, factors, config=config)
+
+    estimate_exposures(nav.iloc[:-1], factors.iloc[:-1], config=config)
+    revised = nav.copy()
+    revised.iloc[10] += 1e-3
+    estimate_exposures(revised, factors, config=config)
+    estimate_exposures(
+        nav,
+        factors,
+        config=MacroAttributionConfig.for_default(method=RegressionMethod.OLS),
+    )
+
+    assert len(fit_calls) == 4
+
+
 def test_attribution_all_factors_missing_residual_equals_total():
     """With no exposures the whole period return is idiosyncratic residual."""
     nav, _ = _synthetic(n=30, betas={"rates": 0.5})
