@@ -688,3 +688,66 @@ def test_risk_reference_nu_tiers_agree_with_the_profiler():
         assert "soft warning" in text and "hard ceiling" in text
         assert "absolute stop" in text
     assert "`C = 1`" in reference
+
+
+# --- macro-regime-read: a `NN:line` citation must land in the section it names --
+
+_PROSE_CITE_RE = re.compile(r"`(\d{2}:\d+)`\s*\(([^)]*)\)")
+_UNCITED_COLUMNS = frozenset({"read as", "theory"})
+# Every chapter the skill cites is about regimes, so the word cannot tell two
+# sections of the same chapter apart.
+_GENERIC_WORDS = frozenset({"regime"})
+
+
+def _topic_words(text: str) -> set[str]:
+    words = {w.rstrip("s") for w in re.findall(r"[a-z]{4,}", text.lower())}
+    return words - _GENERIC_WORDS
+
+
+def _section_heading(cite: str) -> str:
+    """Title of the theory section that contains the cited ``NN:line``."""
+    chapter, line = cite.split(":")
+    (doc,) = _THEORY_DOCS.glob(f"{chapter}_*.md")
+    lines = doc.read_text(encoding="utf-8").splitlines()
+    assert 1 <= int(line) <= len(lines), f"`{cite}` is past the end of {doc.name}"
+    for text in reversed(lines[: int(line)]):
+        if re.match(r"#{1,6} ", text):
+            return text.lstrip("# ")
+    raise AssertionError(f"`{cite}` precedes every heading in {doc.name}")
+
+
+def _described_citations(reference: str) -> list[tuple[str, str]]:
+    """``(citation, topic)`` pairs from table rows and ``cite (topic)`` prose."""
+    pairs: list[tuple[str, str]] = []
+    prose: list[str] = []
+    header: list[str] = []
+    for raw in reference.splitlines():
+        if not raw.startswith("|"):
+            header = []
+            prose.append(raw)
+            continue
+        cells = [c.strip() for c in raw.strip("|").split("|")]
+        if not header:
+            header = [c.lower() for c in cells]
+            continue
+        if set(raw) <= set("|- "):
+            continue
+        topic = " ".join(
+            c for c, h in zip(cells, header, strict=True) if h not in _UNCITED_COLUMNS
+        )
+        row_cites = [m for c in cells for m in re.findall(r"`(\d{2}:\d+)`", c)]
+        pairs += [(cite, topic) for cite in row_cites]
+    pairs += _PROSE_CITE_RE.findall(" ".join(prose))
+    return pairs
+
+
+def test_macro_regime_read_citations_land_in_the_section_they_describe():
+    reference = _read("macro-regime-read", "reference.md")
+    pairs = _described_citations(reference)
+    assert len(pairs) >= 10, "citation parser found too few `NN:line` references"
+    wrong = [
+        f"`{cite}` is under '{_section_heading(cite)}', not '{topic}'"
+        for cite, topic in pairs
+        if not _topic_words(topic) & _topic_words(_section_heading(cite))
+    ]
+    assert not wrong, "\n".join(wrong)
