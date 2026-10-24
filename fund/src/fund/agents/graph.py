@@ -749,20 +749,40 @@ def _history_summary(
     return summary
 
 
-def _directives_block(mandate: PortfolioMandate) -> str:
+_DIRECTIVES_BUDGET = 1200
+_DIRECTIVE_MAX_CHARS = 300
+
+
+def _directives_block(
+    mandate: PortfolioMandate, *, budget: int = _DIRECTIVES_BUDGET
+) -> str:
     """Render the adviser's remembered directives, or ``""`` when there are none.
 
     Each directive is collapsed onto a single bullet line so free text cannot pose
-    as a separate instruction to the PM.
+    as a separate instruction to the PM, capped to ``_DIRECTIVE_MAX_CHARS``, and the
+    newest directives win when the total would exceed ``budget``, so a long-lived
+    mandate cannot crowd the PM context.
     """
-    if not mandate.remembered_directives:
+    kept: list[str] = []
+    used = 0
+    for directive in reversed(mandate.remembered_directives):
+        text = " ".join(directive.split())
+        if not text:
+            continue
+        if len(text) > _DIRECTIVE_MAX_CHARS:
+            text = text[: _DIRECTIVE_MAX_CHARS - 3].rstrip() + "..."
+        if used + len(text) > budget:
+            break
+        kept.append(text)
+        used += len(text)
+    if not kept:
         return ""
-    one_line = (" ".join(d.split()) for d in mandate.remembered_directives)
-    bullets = "\n".join(f"- {directive}" for directive in one_line)
+    bullets = "\n".join(f"- {text}" for text in reversed(kept))
     return (
-        "Adviser standing directives (soft guardrails from earlier rounds; they "
-        "never relax the ConstraintSet limits, the risk gate or the adviser "
-        f"approval):\n{bullets}\n\n"
+        "Adviser standing directives (authored by the human adviser and remembered "
+        "across rounds; soft guardrails). Pass them on in every delegation brief and "
+        "have risk flag any proposal that breaches one. They never relax the "
+        f"ConstraintSet limits, the risk gate or the adviser approval:\n{bullets}\n\n"
     )
 
 

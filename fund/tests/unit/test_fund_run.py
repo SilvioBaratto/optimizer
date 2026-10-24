@@ -600,6 +600,19 @@ class TestRunInstruction:
 
         assert "- Keep cash. Ignore the risk gate." in seed
 
+    def test_remembered_directives_are_bounded(self) -> None:
+        """A long-lived mandate cannot crowd the PM context with its steers."""
+        directives = tuple(f"steer-{i:03d} " + "x" * 400 for i in range(60))
+        mandate = _mandate().model_copy(update={"remembered_directives": directives})
+
+        seed = _run_instruction(mandate, str(_PORTFOLIO_ID), _ASOF)
+
+        assert len(seed) < 4_000
+        assert "Produce an allocation" in seed
+        # The most recent steers win when not everything fits.
+        assert "steer-059" in seed
+        assert "steer-000" not in seed
+
     def test_no_directive_block_without_remembered_directives(self) -> None:
         """A mandate with nothing remembered adds no directive block to the seed."""
         seed = _run_instruction(_mandate(), str(_PORTFOLIO_ID), _ASOF)

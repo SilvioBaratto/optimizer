@@ -652,6 +652,35 @@ def _prepare(db_session, mandate, monkeypatch) -> dict[str, Any]:
     return captured
 
 
+def test_prepare_fund_run_seeds_the_pm_with_the_mandates_remembered_directives(
+    db_session, monkeypatch
+):
+    """A steer the adviser chose to remember reaches every later round's PM turn."""
+    from _fund_fakes import ASOF, PORTFOLIO_ID, make_mandate
+
+    monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: None)
+    mandate = make_mandate().model_copy(
+        update={"remembered_directives": ("never add EM debt",)}
+    )
+
+    setup = graph._prepare_fund_run(
+        object(),
+        mandate,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer="CKPT",
+        store=_store_with_cs(),
+        config=settings,
+        fallback=None,
+        thread_id=None,
+        seed=1,
+    )
+
+    (message,) = setup.seed_input["messages"]
+    assert "never add EM debt" in message["content"]
+
+
 def test_first_round_forces_all_orchestrator_gates(db_session, monkeypatch):
     """A portfolio's first round forces the full ``_ALL_ORCHESTRATOR_GATES`` set,
     overriding the mandate, and flips ``first_round_gated`` off."""
