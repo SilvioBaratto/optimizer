@@ -8,11 +8,13 @@ each field is read defensively across the spellings Yahoo has used. Uses
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from collections.abc import Sequence
+from datetime import date, datetime, timezone
 from typing import Any, cast
 
 import pandas as pd
-from sqlalchemy import Table, delete, tuple_
+from sqlalchemy import Table, delete, select, tuple_
+from sqlalchemy.orm import DeclarativeBase
 
 from portopt_db.models.market_data.calendars import (
     EarningsCalendar,
@@ -23,8 +25,9 @@ from portopt_db.models.market_data.calendars import (
 from portopt_db.repositories.market_data._calendar_timezones import region_timezone
 from portopt_db.repository import RepositoryBase
 
-# Three bound variables per key (event, country, event_date); keeps the IN
-# list well under SQLite's bound-variable limit.
+# Keeps the IN list well under SQLite's bound-variable limit.
+_DELETE_CHUNK = 500
+# Three bound variables per key (event, country, event_date).
 _KEY_DELETE_CHUNK = 150
 
 
@@ -103,7 +106,10 @@ class CalendarsRepository(RepositoryBase):
 
     Each upsert method deduplicates on the natural key before writing,
     so callers may pass the raw yfinance payload repeatedly without
-    accumulating duplicates.
+    accumulating duplicates. The ticker-keyed calendars (earnings, IPOs,
+    splits) also drop a ticker's stale upcoming rows when the payload now
+    lists that ticker on other dates, so a rescheduled event does not leave
+    its old date behind.
     """
 
     def upsert_earnings(self, rows: list[dict[str, Any]]) -> int:
@@ -139,12 +145,16 @@ class CalendarsRepository(RepositoryBase):
                 "eps_actual": _num(_col(r, "Reported EPS", "epsactual")),
                 "eps_surprise_pct": _num(_col(r, "Surprise(%)", "epssurprisepct")),
             }
-        return self._commit(
+        written = self._commit(
             EarningsCalendar,
             list(out.values()),
             ["ticker", "event_date"],
             ["company_name", "eps_estimate", "eps_actual", "eps_surprise_pct"],
         )
+        self._drop_rescheduled(
+            EarningsCalendar, list(out.values()), "event_date", "eps_actual"
+        )
+        return written
 
     def upsert_ipos(self, rows: list[dict[str, Any]]) -> int:
         """Upsert IPO-calendar records and return the count written.
@@ -178,12 +188,14 @@ class CalendarsRepository(RepositoryBase):
                 "currency": _str(_col(r, "Currency", "Currency Name", "currency"), 10)
                 or None,
             }
-        return self._commit(
+        written = self._commit(
             IpoCalendar,
             list(out.values()),
             ["ticker", "ipo_date"],
             ["company_name", "exchange", "currency"],
         )
+        self._drop_rescheduled(IpoCalendar, list(out.values()), "ipo_date")
+        return written
 
     def upsert_splits(self, rows: list[dict[str, Any]]) -> int:
         """Upsert split-calendar records and return the count written.
@@ -221,12 +233,14 @@ class CalendarsRepository(RepositoryBase):
                 ),
                 "ratio": ratio,
             }
-        return self._commit(
+        written = self._commit(
             SplitCalendar,
             list(out.values()),
             ["ticker", "split_date"],
             ["company_name", "ratio"],
         )
+        self._drop_rescheduled(SplitCalendar, list(out.values()), "split_date")
+        return written
 
     def upsert_economic_events(self, rows: list[dict[str, Any]]) -> int:
         """Upsert economic-event calendar records and return the count written.
@@ -313,5 +327,54 @@ class CalendarsRepository(RepositoryBase):
                     tuple_(table.c.event, table.c.country, table.c.event_date).in_(
                         ordered[start : start + _KEY_DELETE_CHUNK]
                     )
+                )
+            )
+
+    def _drop_rescheduled(
+        self,
+        model: type[DeclarativeBase],
+        rows: Sequence[dict[str, Any]],
+        date_col: str,
+        realized_col: str | None = None,
+    ) -> None:
+        """Delete stale upcoming rows of tickers the payload now dates differently.
+
+        The natural keys embed the event date, so a rescheduled event is
+        inserted as a new row and its old row would stay behind as a phantom
+        upcoming event. Only a ticker with upcoming rows in the payload is
+        reconciled, and only its upcoming rows without a realized value are
+        removed: a ticker missing from the payload (Yahoo caps each fetch, so
+        absence proves nothing) and past or reported rows are history and stay.
+
+        Args:
+            model: Calendar model keyed on ``(ticker, <date_col>)``.
+            rows: The rows just upserted.
+            date_col: Name of the event-date column.
+            realized_col: Column that is non-NULL once the event has a result;
+                rows holding one are never removed.
+        """
+        today = datetime.now(timezone.utc).date()
+        current: dict[str, set[date]] = {}
+        for row in rows:
+            if row[date_col] >= today:
+                current.setdefault(row["ticker"], set()).add(row[date_col])
+        if not current:
+            return
+
+        table = cast(Table, model.__table__)
+        stmt = select(table.c.id, table.c.ticker, table.c[date_col]).where(
+            table.c[date_col] >= today
+        )
+        if realized_col is not None:
+            stmt = stmt.where(table.c[realized_col].is_(None))
+        stale = [
+            row_id
+            for row_id, ticker, event_date in self.session.execute(stmt)
+            if ticker in current and event_date not in current[ticker]
+        ]
+        for start in range(0, len(stale), _DELETE_CHUNK):
+            self.session.execute(
+                delete(table).where(
+                    table.c.id.in_(stale[start : start + _DELETE_CHUNK])
                 )
             )

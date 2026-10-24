@@ -190,6 +190,138 @@ def test_region_timezones_all_resolve_to_known_zones() -> None:
     assert region_timezone(None) is None
 
 
+def _utc_today() -> dt.date:
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+def _earnings_dates(db_session, ticker: str) -> list[dt.date]:
+    rows = db_session.query(EarningsCalendar).filter_by(ticker=ticker).all()
+    return sorted(r.event_date for r in rows)
+
+
+def test_rescheduled_earnings_replace_the_stale_upcoming_row(db_session) -> None:
+    repo = CalendarsRepository(db_session)
+    old = _utc_today() + dt.timedelta(days=3)
+    new = _utc_today() + dt.timedelta(days=5)
+    repo.upsert_earnings(
+        [{"Symbol": "AAPL", "Event Start Date": str(old), "EPS Estimate": 1.5}]
+    )
+    db_session.flush()
+
+    n = repo.upsert_earnings(
+        [{"Symbol": "AAPL", "Event Start Date": str(new), "EPS Estimate": 1.6}]
+    )
+    db_session.flush()
+
+    assert n == 1
+    assert _earnings_dates(db_session, "AAPL") == [new]
+
+
+def test_earnings_rerun_with_unchanged_dates_deletes_nothing(db_session) -> None:
+    repo = CalendarsRepository(db_session)
+    rows = [
+        {
+            "Symbol": "AAPL",
+            "Event Start Date": str(_utc_today() + dt.timedelta(days=3)),
+        },
+        {
+            "Symbol": "AAPL",
+            "Event Start Date": str(_utc_today() + dt.timedelta(days=80)),
+        },
+    ]
+    repo.upsert_earnings(rows)
+    repo.upsert_earnings(rows)
+    db_session.flush()
+
+    assert len(_earnings_dates(db_session, "AAPL")) == 2
+
+
+def test_earnings_reschedule_keeps_realized_history_and_other_tickers(
+    db_session,
+) -> None:
+    repo = CalendarsRepository(db_session)
+    today = _utc_today()
+    past_reported = today - dt.timedelta(days=20)
+    past_unreported = today - dt.timedelta(days=3)
+    repo.upsert_earnings(
+        [
+            {
+                "Symbol": "AAPL",
+                "Event Start Date": str(past_reported),
+                "Reported EPS": 1.2,
+            },
+            {"Symbol": "AAPL", "Event Start Date": str(past_unreported)},
+            {
+                "Symbol": "AAPL",
+                "Event Start Date": str(today + dt.timedelta(days=2)),
+                "Reported EPS": 1.4,
+            },
+            {"Symbol": "AAPL", "Event Start Date": str(today + dt.timedelta(days=3))},
+            # Not in the next payload (e.g. cut by the fetch's row cap): untouched.
+            {"Symbol": "MSFT", "Event Start Date": str(today + dt.timedelta(days=3))},
+        ]
+    )
+    db_session.flush()
+
+    new = today + dt.timedelta(days=5)
+    repo.upsert_earnings([{"Symbol": "AAPL", "Event Start Date": str(new)}])
+    db_session.flush()
+
+    assert _earnings_dates(db_session, "AAPL") == [
+        past_reported,
+        past_unreported,
+        today + dt.timedelta(days=2),
+        new,
+    ]
+    assert _earnings_dates(db_session, "MSFT") == [today + dt.timedelta(days=3)]
+
+
+def test_rescheduled_ipo_replaces_the_stale_upcoming_row(db_session) -> None:
+    repo = CalendarsRepository(db_session)
+    old = _utc_today() + dt.timedelta(days=10)
+    new = _utc_today() + dt.timedelta(days=17)
+    repo.upsert_ipos([{"Symbol": "NEWCO", "Date": str(old)}])
+    db_session.flush()
+
+    repo.upsert_ipos([{"Symbol": "NEWCO", "Date": str(new)}])
+    db_session.flush()
+
+    assert [r.ipo_date for r in db_session.query(IpoCalendar).all()] == [new]
+
+
+def test_rescheduled_split_replaces_the_stale_upcoming_row(db_session) -> None:
+    repo = CalendarsRepository(db_session)
+    old = _utc_today() + dt.timedelta(days=10)
+    new = _utc_today() + dt.timedelta(days=12)
+    repo.upsert_splits([{"Symbol": "SPLIT", "Payable On": str(old)}])
+    db_session.flush()
+
+    repo.upsert_splits([{"Symbol": "SPLIT", "Payable On": str(new)}])
+    db_session.flush()
+
+    assert [r.split_date for r in db_session.query(SplitCalendar).all()] == [new]
+
+
+def test_economic_events_of_one_series_are_never_treated_as_reschedules(
+    db_session,
+) -> None:
+    # The same (event, country) recurs inside the fetch window and the feed is
+    # capped newest-first, so a row missing from a payload says nothing about it.
+    repo = CalendarsRepository(db_session)
+    first = _utc_today() + dt.timedelta(days=10)
+    second = _utc_today() + dt.timedelta(days=40)
+    repo.upsert_economic_events(
+        [{"Event": "CPI", "Region": "US", "Event Time": str(first)}]
+    )
+    repo.upsert_economic_events(
+        [{"Event": "CPI", "Region": "US", "Event Time": str(second)}]
+    )
+    db_session.flush()
+
+    got = db_session.query(EconomicEventCalendar).all()
+    assert sorted(r.event_date for r in got) == [first, second]
+
+
 def _economic_payload(event: str, region: str, instant_utc: str) -> dict[str, object]:
     return {
         "Event": event,
