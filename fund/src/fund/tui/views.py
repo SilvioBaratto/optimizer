@@ -71,11 +71,13 @@ class _ShellContext(Protocol):
         _session_factory: Opens a context-managed sync session for a read tick.
         _persistence: LangGraph bundle (``.saver`` / ``.store``) the reads cross-check.
         _portfolio_id: The focused portfolio, or ``None`` for the fund-wide landing.
+        _streaming: Whether a live-streamed round is still pushing steps to the shell.
     """
 
     _session_factory: Callable[[], AbstractContextManager[Session]]
     _persistence: Any
     _portfolio_id: uuid.UUID | None
+    _streaming: bool
 
     def focus_portfolio(self, portfolio_id: uuid.UUID) -> None:
         """Focus the shell on ``portfolio_id`` (set the header context from a view)."""
@@ -1269,9 +1271,11 @@ class DeliberationView(ShellView):
 
         In live mode the timeline is push-driven by :meth:`ingest_event`, so a poll
         tick only refreshes the follow/inspect subtitle and must not overwrite the
-        streamed rows with the replay read.
+        streamed rows with the replay read. A finished stream's tail that no longer
+        has a gate to act on is retired first (:meth:`retire_spent_live_tail`).
         """
         self.render_count += 1
+        self.retire_spent_live_tail()
         if self.live_run_id is not None:
             self._paint_live_subtitle()
             return
@@ -1338,12 +1342,63 @@ class DeliberationView(ShellView):
 
     def end_live(self) -> None:
         """Leave live mode and fall back to the replay transcript (terminal event)."""
+        self._leave_live()
+        self.refresh_view()
+
+    def retire_spent_live_tail(self) -> bool:
+        """Leave live mode once a finished stream's tail has nothing left to act on.
+
+        A round that ends at its approval gate keeps its timeline standing, and only
+        the stream worker ends live mode. Once the gate is decided (or the header moves
+        to another portfolio) the tail would otherwise keep claiming ``LIVE`` over a
+        finalised run: the run picker stays hidden, read-out expansion is dead and
+        barge-in targets the closed run. The watched run is selected on the way out so
+        its final steps stay on screen in the replay transcript.
+
+        Returns:
+            ``True`` when live mode was left, ``False`` when the tail still applies.
+        """
+        watched = self.live_run_id
+        if watched is None or not self._live_tail_is_spent():
+            return False
+        if self.shell._portfolio_id == self.live_portfolio_id:
+            self.selected_run_id = watched
+            self.selected_step = None
+        self._leave_live()
+        return True
+
+    def _live_tail_is_spent(self) -> bool:
+        """Whether the live tail no longer matches a gate the adviser can act on.
+
+        Never spent while the stream is running. Afterwards the tail is spent when the
+        header moved to another portfolio, or when the watched run is readable and has
+        left both the live and the awaiting states (approved, rejected, failed...). A
+        run that is not readable keeps the tail rather than dropping it on a transient
+        read error, and a pending/running row (visible to a reader that shares the
+        stream's transaction) is still in flight, not decided.
+        """
+        shell = self.shell
+        if shell._streaming:
+            return False
+        pid = self.live_portfolio_id
+        if pid is None or shell._portfolio_id != pid:
+            return True
+        try:
+            with self.read_session() as session:
+                runs = observe.list_portfolio_runs(session, pid)
+        except Exception:  # a failed read must not drop a tail that may still apply
+            return False
+        watched = next((run for run in runs if run.run_id == self.live_run_id), None)
+        return watched is not None and watched.status not in (
+            _RUN_AWAITING | _RUN_RUNNING
+        )
+
+    def _leave_live(self) -> None:
         self.live_run_id = None
         self.live_portfolio_id = None
         self.query_one("#delib-live", DataTable).display = False
         self.query_one("#delib-runs", DataTable).display = True
         self.query_one("#delib-steps", DataTable).display = True
-        self.refresh_view()
 
     def action_follow_live(self) -> None:
         """Re-arm auto-follow and re-snap to the live tail (the view-scoped ``f``)."""

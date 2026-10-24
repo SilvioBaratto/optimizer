@@ -1695,6 +1695,8 @@ class ShellApp(App[None]):
         its gate, since only then is the run committed and awaiting an answer.
         """
         view = self._deliberation_view()
+        if view is not None:
+            view.retire_spent_live_tail()  # a gate decided since the last poll tick
         if (
             not self._deliberation_active()
             or view is None

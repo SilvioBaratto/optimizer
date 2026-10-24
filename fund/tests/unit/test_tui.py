@@ -3670,6 +3670,121 @@ async def test_quit_with_barge_in_open_releases_the_stream_thread(
         app._stream_resume.set()  # never leave the blocked thread to hang pytest
 
 
+@pytest.mark.asyncio
+async def test_deliberation_leaves_live_mode_once_the_gate_is_decided(tui_env) -> None:
+    """A streamed round's timeline stands at its gate, then yields to replay.
+
+    While the run still awaits approval the tail stays up (barge-in needs it); once the
+    adviser approves, the view must not keep claiming LIVE for a finalised run.
+    """
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        run_id = view.live_run_id
+        assert run_id is not None
+        app._refresh()  # a poll tick while the gate still stands keeps the tail
+        assert view.live_run_id == run_id
+
+        decisions = await _open_decisions(app, pilot)
+        decisions.select_run(run_id)
+        await pilot.pause()
+        app.action_decide_approve()
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert "approved" in app.last_status
+
+        await _open_deliberation(app, pilot)  # the adviser returns to Deliberation
+        assert view.live_run_id is None
+        assert view.live_portfolio_id is None  # barge-in has no finalised run to target
+        assert view.query_one("#delib-live", DataTable).display is False
+        assert view.query_one("#delib-runs", DataTable).display is True
+        assert view.selected_run_id == run_id  # the run just watched stays in view
+
+
+@pytest.mark.asyncio
+async def test_deliberation_drops_a_finished_tail_when_focus_moves_away(
+    tui_env,
+) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        assert view.live_run_id is not None  # standing at the gate for PORTFOLIO_ID
+
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert view.live_run_id is None  # another portfolio's tail must not linger
+        assert view.selected_run_id is None  # and its run is not carried over
+
+
+@pytest.mark.asyncio
+async def test_deliberation_keeps_the_tail_while_its_run_is_still_in_flight(
+    tui_env,
+) -> None:
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        with tui_env.get_session() as session:
+            run = AgentRunRepository(session).create_run(
+                portfolio_id=PORTFOLIO_ID,
+                asof=ASOF,
+                seed=1,
+                universe=[],
+                optimizer_config={},
+            )
+            session.commit()
+            run_id = run.id
+        assert app._streaming is False  # the window before the stream latches LIVE
+        view.start_live(run_id, PORTFOLIO_ID)
+
+        app._refresh()  # a poll tick lands while the run row reads as pending
+
+        assert view.live_run_id == run_id
+
+
+@pytest.mark.asyncio
+async def test_barge_in_is_inert_once_the_live_run_was_decided_elsewhere(
+    tui_env,
+) -> None:
+    with tui_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate())
+        session.commit()
+    app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        app.action_run_portfolio(asof=ASOF)
+        await pilot.pause()
+        await app.last_worker.wait()
+        await pilot.pause()
+        run_id = view.live_run_id
+        assert run_id is not None
+        with tui_env.get_session() as session:  # decided by another session
+            AgentRunRepository(session).get_run(run_id).status = "completed"
+            session.commit()
+
+        app.action_barge_in()  # before any poll tick repainted the view
+        await pilot.pause()
+
+        assert not isinstance(app.screen, BargeInScreen)
+        assert view.live_run_id is None
+        assert "live Deliberation" in app.last_status
+
+
 # --- Barge-in: PM directive overlay + `b` hotkey (T8) -------------------------
 
 
