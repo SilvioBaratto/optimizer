@@ -329,6 +329,122 @@ def test_a_looping_subagent_is_stopped_by_the_model_call_cap(
     assert result["messages"][-1].content == "delegation finished"
 
 
+class _FilesystemWriterModel(BaseChatModel):
+    """Drives one filesystem-mutating tool call, as the PM or as a subagent.
+
+    ``via`` is ``"pm"`` for a call made by the PM itself, else the ``task``
+    ``subagent_type`` the PM delegates to; the delegated subagent makes the call.
+    The tool's reply is recorded in ``results``.
+    """
+
+    via: str
+    tool: str
+    args: dict[str, Any]
+    results: list[str] = Field(default_factory=list)
+
+    @property
+    def _llm_type(self) -> str:
+        return "filesystem-writer"
+
+    def bind_tools(self, tools: Any, **_: Any) -> _FilesystemWriterModel:
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any | None = None,
+        **_: Any,
+    ) -> ChatResult:
+        first = next(m for m in messages if isinstance(m, HumanMessage))
+        replies = [m for m in messages if isinstance(m, ToolMessage)]
+        is_pm = first.content == _PM_SEED
+        if replies and not (is_pm and self.via != "pm"):
+            self.results.append(str(replies[-1].content))
+        if replies:
+            reply = AIMessage(content="done")
+        elif is_pm and self.via != "pm":
+            reply = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "task",
+                        "args": {
+                            "description": _SUB_SEED,
+                            "subagent_type": self.via,
+                        },
+                        "id": "call_task",
+                    }
+                ],
+            )
+        else:
+            reply = AIMessage(
+                content="",
+                tool_calls=[{"name": self.tool, "args": self.args, "id": "call_fs"}],
+            )
+        return ChatResult(generations=[ChatGeneration(message=reply)])
+
+
+_RISK_SKILL = "/skills/risk/risk-limits-check/SKILL.md"
+
+
+@pytest.mark.parametrize(
+    ("via", "tool", "args"),
+    [
+        ("pm", "write_file", {"file_path": _RISK_SKILL, "content": "poisoned"}),
+        (
+            "general-purpose",
+            "write_file",
+            {"file_path": "/optimizer-theory/docs/evil.md", "content": "poisoned"},
+        ),
+        (
+            "economist",
+            "edit_file",
+            {
+                "file_path": _RISK_SKILL,
+                "old_string": "name:",
+                "new_string": "poisoned:",
+                "replace_all": True,
+            },
+        ),
+        ("risk", "delete", {"file_path": _RISK_SKILL}),
+        ("pm", "write_file", {"file_path": "/stray-note.md", "content": "persists"}),
+    ],
+)
+def test_no_agent_can_mutate_the_shared_agent_filesystem(
+    via: str, tool: str, args: dict[str, Any]
+) -> None:
+    """The theory, the per-role skills and the shared workdir are reference
+    material every run reads; the prompt-only "never write" rule must be enforced
+    at the tool level, for the PM and for every delegated subagent."""
+    from fund.agents.backend import stage_theory
+
+    root = stage_theory(settings)
+    target = root / args["file_path"].lstrip("/")
+    before = target.read_bytes() if target.exists() else None
+    model = _FilesystemWriterModel(via=via, tool=tool, args=args)
+    agent = graph.build_fund_agent(
+        model, checkpointer=MemorySaver(), store=None, ctx=_ctx()
+    )
+
+    try:
+        agent.invoke(
+            {"messages": [{"role": "user", "content": _PM_SEED}]},
+            config={
+                "configurable": {"thread_id": f"fs-{via}-{tool}"},
+                "recursion_limit": settings.recursion_limit,
+            },
+        )
+        after = target.read_bytes() if target.exists() else None
+    finally:
+        if before is None and target.exists():
+            target.unlink()
+
+    assert model.results, "the scripted tool call never ran"
+    assert "permission denied" in model.results[-1].lower()
+    assert after == before
+
+
 # --- summarization override: FUND_SUMMARY_* bound the PM and every subagent ---
 
 

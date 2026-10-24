@@ -38,7 +38,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NotRequired, cast
 
-from fund.agents.backend import build_backend
+from fund.agents.backend import build_backend, read_only_permissions
 from fund.agents.prompts import (
     ALLOCATOR_SYSTEM_PROMPT,
     ECONOMIST_SYSTEM_PROMPT,
@@ -333,7 +333,8 @@ def build_fund_agent(
     ``fallback`` middleware when one is supplied, and every delegation target (the
     ``general-purpose`` one included) is bounded by the per-delegation model-call
     cap. Skills are the root-relative
-    staged sources (Risk R1) resolved through the ``virtual_mode`` ``backend``.
+    staged sources (Risk R1) resolved through the ``virtual_mode`` ``backend``, which
+    every role may read but none may write (:func:`read_only_permissions`).
     ``temperature=0`` / the DeepSeek route ride on ``model`` (built from
     ``FundConfig``), not passed here.
     """
@@ -361,6 +362,7 @@ def build_fund_agent(
         subagents=cast("list[Any]", subagents),
         skills=skill_sources("orchestrator"),
         backend=backend,
+        permissions=read_only_permissions(),
         interrupt_on=cast("dict[str, Any]", gates),
         middleware=[
             _pm_round_cap_middleware(config.max_pm_rounds),

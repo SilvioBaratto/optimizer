@@ -47,9 +47,10 @@ from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR, STAGED_SKILLS_ROOT
 from fund.config import FundConfig, settings
 
 if TYPE_CHECKING:
+    from deepagents import FilesystemPermission
     from deepagents.backends import FilesystemBackend
 
-__all__ = ["build_backend", "stage_theory"]
+__all__ = ["build_backend", "read_only_permissions", "stage_theory"]
 
 # ``…/fund/src/fund/agents/backend.py`` → parents[3] = ``fund/``, .parent = repo root.
 _FUND_DIR: Path = Path(__file__).resolve().parents[3]
@@ -272,3 +273,23 @@ def build_backend(config: FundConfig = settings) -> FilesystemBackend:
         root_dir=stage_theory(config),
         virtual_mode=config.agent_virtual_mode,
     )
+
+
+def read_only_permissions() -> list[FilesystemPermission]:
+    """Filesystem rules that make the whole agent workdir read-only for the roles.
+
+    The theory and the per-role skills are reference material every run (and every
+    role) reads as instructions, and the workdir root is shared across runs and
+    portfolios, so a write by any role (a prompt-injected economist, the
+    auto-added general-purpose subagent) would poison later reads or persist across
+    runs. A prompt asking agents not to write is not a control; these rules deny
+    ``write_file`` / ``edit_file`` / ``delete`` at the tool level. Passed as
+    ``create_deep_agent(permissions=…)``, which subagents inherit unless they set
+    their own. The roles have no legitimate write: they exchange data through tool
+    results and the audit trail, and deepagents' own offloading (summarised history,
+    large tool results) writes through the backend, which these tool-level rules do
+    not gate. ``deepagents`` is imported here to keep the module import light.
+    """
+    from deepagents import FilesystemPermission
+
+    return [FilesystemPermission(operations=["write"], paths=["/**"], mode="deny")]

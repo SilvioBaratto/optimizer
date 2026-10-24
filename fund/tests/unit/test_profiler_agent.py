@@ -554,6 +554,9 @@ def test_build_profiler_agent_wires_the_theory_backend_and_skill(tmp_path, monke
     assert captured["interrupt_on"] == {"save_profile": True}
     assert captured["checkpointer"] == "CKPT"
     assert captured["store"] == "STORE"
+    # The profiler reads the same shared theory and skills, so it may not write them.
+    (rule,) = captured["permissions"]
+    assert (rule.operations, rule.paths, rule.mode) == (["write"], ["/**"], "deny")
 
 
 def test_build_profiler_agent_applies_the_summary_override(tmp_path, monkeypatch):

@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
-from fund.agents.backend import build_backend
+from fund.agents.backend import build_backend, read_only_permissions
 from fund.agents.prompts import PROFILER_SYSTEM_PROMPT
 from fund.agents.skills import skill_sources
 from fund.agents.summarization import summarization_override
@@ -954,6 +954,7 @@ def build_profiler_agent(
         system_prompt=PROFILER_SYSTEM_PROMPT,
         skills=skill_sources("profiler"),
         backend=backend,
+        permissions=read_only_permissions(),
         interrupt_on={_SAVE_PROFILE_TOOL: gate},
         middleware=summarization_override(model, backend, config),
         checkpointer=checkpointer,
