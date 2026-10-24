@@ -35,7 +35,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Interrupt
@@ -139,6 +141,81 @@ def _seed_thread(
     if interrupt is not None:
         writes = [("__interrupt__", Interrupt(value=interrupt))]
         saver.put_writes(saved, writes, "task-1")
+
+
+class _DelegatingModel(BaseChatModel):
+    """Scripted chat model: the PM delegates once to ``economist``, then finishes.
+
+    The economist subagent (recognised by its system prompt) answers with
+    ``narrative``. No network, no tools beyond deepagents' built-in ``task``.
+    """
+
+    narrative: str = "economist read"
+    subagent: str = "economist"
+
+    @property
+    def _llm_type(self) -> str:
+        return "scripted-delegating"
+
+    def bind_tools(self, tools: Any, **_: Any) -> _DelegatingModel:
+        return self
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        system = next(
+            (str(m.content) for m in messages if isinstance(m, SystemMessage)), ""
+        )
+        if "SUBAGENT-PROMPT" in system:
+            reply = AIMessage(content=self.narrative)
+        elif any(isinstance(m, ToolMessage) for m in messages):
+            reply = AIMessage(content="allocation done")
+        else:
+            reply = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "task",
+                        "args": {
+                            "description": "Run the analysis.",
+                            "subagent_type": self.subagent,
+                        },
+                        "id": "call_delegate",
+                    }
+                ],
+            )
+        return ChatResult(generations=[ChatGeneration(message=reply)])
+
+
+def _run_real_deep_agent(
+    saver: MemorySaver,
+    thread_id: str,
+    *,
+    narrative: str = "economist read",
+    subagent: str = "economist",
+) -> None:
+    """Drive a real ``create_deep_agent`` graph so the checkpoint has production shape.
+
+    deepagents keeps ``messages`` in a ``DeltaChannel``: the saver stores only
+    per-step writes (no ``channel_values['messages']``), and a subagent's report
+    reaches the PM thread as ``ToolMessage(name='task')``. Hand-built checkpoints
+    cannot reproduce either, so the read-model tests that matter run against this.
+    """
+    from deepagents import create_deep_agent
+
+    agent = create_deep_agent(
+        model=_DelegatingModel(narrative=narrative, subagent=subagent),
+        subagents=[
+            {
+                "name": subagent,
+                "description": f"The fund's {subagent}.",
+                "system_prompt": "SUBAGENT-PROMPT",
+            }
+        ],
+        checkpointer=saver,
+    )
+    agent.invoke(
+        {"messages": [HumanMessage(content="Produce an allocation.")]},
+        {"configurable": {"thread_id": thread_id}},
+    )
 
 
 def _mandate(portfolio_id: str) -> PortfolioMandate:
@@ -497,6 +574,110 @@ def test_load_run_transcript_empty_when_thread_absent(db_session):
         thread_id="ghost",
     )
     assert observe.load_run_transcript(db_session, saver, run) == []
+
+
+def test_load_run_transcript_reads_messages_from_a_real_deep_agent_checkpoint(
+    db_session,
+):
+    saver = MemorySaver()
+    _run_real_deep_agent(saver, "real-thread", narrative="risk-on tilt")
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="real-thread",
+    )
+    db_session.expire(run, ["decisions"])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    texts = [e.text for e in entries if e.source == "message"]
+    assert texts == [
+        "Produce an allocation.",
+        "",  # the PM's task delegation
+        "risk-on tilt",  # the subagent report
+        "allocation done",
+    ]
+
+
+def test_load_run_transcript_unwraps_a_delta_snapshot_at_the_target_checkpoint(
+    db_session,
+):
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    saver = MemorySaver()
+    config = {"configurable": {"thread_id": "snap-thread", "checkpoint_ns": ""}}
+    checkpoint = empty_checkpoint()
+    checkpoint["channel_values"]["messages"] = _DeltaSnapshot(
+        [HumanMessage(content="first"), AIMessage(content="second")]
+    )
+    checkpoint["channel_versions"]["messages"] = _CHANNEL_VERSION
+    saver.put(
+        config,
+        checkpoint,
+        {"source": "loop", "step": 1},
+        {"messages": _CHANNEL_VERSION},
+    )
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="snap-thread",
+    )
+    db_session.expire(run, ["decisions"])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert [(e.agent, e.text) for e in entries] == [
+        ("human", "first"),
+        ("ai", "second"),
+    ]
+
+
+def test_load_run_transcript_folds_writes_onto_the_nearest_delta_snapshot(db_session):
+    from langgraph.checkpoint.serde.types import _DeltaSnapshot
+
+    saver = MemorySaver()
+    config = {"configurable": {"thread_id": "chain-thread", "checkpoint_ns": ""}}
+    first = empty_checkpoint()
+    first["channel_values"]["messages"] = _DeltaSnapshot(
+        [HumanMessage(content="first", id="m1")]
+    )
+    first["channel_versions"]["messages"] = _CHANNEL_VERSION
+    saved = saver.put(
+        config,
+        first,
+        {"source": "loop", "step": 1},
+        {"messages": _CHANNEL_VERSION},
+    )
+    # The step run from checkpoint 1 wrote an AI turn; checkpoint 2 omits the channel,
+    # exactly as langgraph stores a DeltaChannel between snapshots.
+    saver.put_writes(saved, [("messages", [AIMessage(content="second", id="m2")])], "t")
+    second = empty_checkpoint()
+    second["channel_versions"]["messages"] = "00000000000000000000000000000002.0.1"
+    saver.put(
+        saved,
+        second,
+        {"source": "loop", "step": 2},
+        {"messages": "00000000000000000000000000000002.0.1"},
+    )
+    run = _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        created_at=datetime(2026, 3, 10, tzinfo=UTC),
+        thread_id="chain-thread",
+    )
+    db_session.expire(run, ["decisions"])
+
+    entries = observe.load_run_transcript(db_session, saver, run)
+
+    assert [(e.agent, e.text) for e in entries] == [
+        ("human", "first"),
+        ("ai", "second"),
+    ]
 
 
 # --- portfolio_state --------------------------------------------------------

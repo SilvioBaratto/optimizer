@@ -12,14 +12,15 @@ import stays clean, the call path still routes through the single-source repos.
 Every function takes an injected sync ``Session`` (the caller — CLI/TUI — owns the
 transaction; these read paths never ``commit``). Where a run's transcript or a
 pending-HITL cross-check is needed, an already-bootstrapped LangGraph ``saver`` is
-passed in and typed ``Any`` (no ``langgraph`` import here).
+passed in and typed ``Any`` (no ``langgraph`` import at module load; the transcript
+fold imports ``add_messages`` lazily).
 
 Two sources feed the transcript (SPEC §4a): the verbatim PM/subagent turns live in
-the checkpoint (``saver.get_tuple(...).checkpoint["channel_values"]["messages"]`` —
-read-only, no compiled graph, no model), and the load-bearing structured facts live
-in ``agent_decisions``. :func:`load_run_transcript` interleaves them; economist/risk
-narrative exists only in ``messages`` (they log no decision row), so the merge never
-assumes every agent has one.
+the checkpoint's ``messages`` channel (rebuilt read-only from the saver — no compiled
+graph, no model), and the load-bearing structured facts live in ``agent_decisions``.
+:func:`load_run_transcript` interleaves them; economist/risk narrative exists only in
+``messages`` (they log no decision row), so the merge never assumes every agent has
+one.
 """
 
 from __future__ import annotations
@@ -1008,13 +1009,50 @@ def _has_pending_interrupt(saver: Any, thread_id: str | None) -> bool:
 
 
 def _messages_for(saver: Any, thread_id: str | None) -> list[Any]:
-    """The checkpoint's ``messages`` channel for ``thread_id`` (empty if absent)."""
+    """The ``messages`` channel state at ``thread_id``'s latest checkpoint.
+
+    deepagents keeps ``messages`` in a ``DeltaChannel``: a checkpoint stores the
+    channel only as a ``_DeltaSnapshot`` every Nth update and otherwise omits it, so
+    the state is the nearest snapshot (the history's ``seed``) with the ancestor
+    writes folded on top. A plain list under ``channel_values`` (a non-delta graph)
+    is returned as-is. Empty when the thread or the channel is absent.
+    """
     if not thread_id:
         return []
     tup = saver.get_tuple(_thread_config(thread_id))
     if tup is None:
         return []
-    return tup.checkpoint.get("channel_values", {}).get("messages", []) or []
+    channel_values = tup.checkpoint.get("channel_values", {})
+    if "messages" in channel_values:
+        return _stored_messages(channel_values["messages"])
+    return _replay_messages(saver, tup.config)
+
+
+def _stored_messages(stored: Any) -> list[Any]:
+    """Unwrap a stored ``messages`` blob (a plain list or a ``_DeltaSnapshot``)."""
+    # Matched by name: the snapshot type is langgraph-private, and importing it here
+    # would break the agent-stack-free module import.
+    if type(stored).__name__ == "_DeltaSnapshot":
+        stored = stored.value
+    return list(stored or [])
+
+
+def _replay_messages(saver: Any, config: Any) -> list[Any]:
+    """Rebuild ``messages`` from the saver's delta history (seed + ordered writes)."""
+    history_for = getattr(saver, "get_delta_channel_history", None)
+    if history_for is None:
+        return []
+    history = history_for(config=config, channels=["messages"]).get("messages") or {}
+    state = _stored_messages(history["seed"]) if "seed" in history else []
+    incoming: list[Any] = []
+    for _task_id, _channel, write in history.get("writes", []):
+        # A write is one message-like or a list of them; only lists flatten.
+        incoming.extend(write if isinstance(write, list) else [write])
+    if not incoming:
+        return state
+    from langgraph.graph.message import add_messages
+
+    return list(add_messages(state, incoming))
 
 
 def _message_entry(message: Any, index: int) -> TranscriptEntry:
