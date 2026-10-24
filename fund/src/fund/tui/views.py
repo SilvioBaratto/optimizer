@@ -1353,7 +1353,8 @@ class AuditView(ShellView):
         if self.filter_overrides:
             parts.append("⚑ overrides")
         if self.filter_portfolio:
-            parts.append("this pf")
+            focused = self.shell._portfolio_id is not None
+            parts.append("this pf" if focused else "this pf (none focused)")
         count = f"{len(self._entries)} rows"
         if self._truncated:
             count += " · older omitted (e exports all)"

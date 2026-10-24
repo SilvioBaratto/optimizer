@@ -3059,6 +3059,27 @@ async def test_audit_portfolio_scope_filters_to_focus(shell_env) -> None:
         assert view.filter_portfolio is True
         # _PID_A owns the agent decision + the approve row; the override is _PID_B.
         assert table.row_count == 2
+        filters = str(view.query_one("#audit-filters", Static).render())
+        assert "this pf" in filters
+        assert "none focused" not in filters
+
+
+@pytest.mark.asyncio
+async def test_audit_portfolio_scope_says_when_no_portfolio_is_focused(
+    shell_env,
+) -> None:
+    # On the fund-wide landing there is no "this pf" to filter to, so every row stays
+    # listed; the filter line must not claim a scope it is not applying.
+    with shell_env.get_session() as session:
+        _seed_audit_rows(session)
+        session.commit()
+    app = _make_shell(shell_env)  # fund-wide: nothing focused
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_audit(app, pilot)
+        view.toggle_portfolio_scope()
+        assert view.query_one("#audit-table", DataTable).row_count == 3
+        filters = str(view.query_one("#audit-filters", Static).render())
+        assert "this pf (none focused)" in filters
 
 
 @pytest.mark.asyncio
