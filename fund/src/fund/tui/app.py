@@ -807,6 +807,11 @@ class ShellApp(App[None]):
         next tick instead of lingering stale until the next local action, without making
         every manual/test repaint also re-read the autonomy rows.
         """
+        if not self.is_running:
+            # The timer outlives the widgets for a moment on shutdown; Textual clears
+            # ``is_running`` before it empties the DOM, so a tick landing in that window
+            # has nothing to paint. Any other NoMatches is a real bug and must surface.
+            return
         self._refresh_runstate()
         self._sync_picker()
         self._refresh()

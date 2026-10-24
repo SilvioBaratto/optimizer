@@ -45,6 +45,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from textual.coordinate import Coordinate
+from textual.css.query import NoMatches
 from textual.widgets import (
     Button,
     Checkbox,
@@ -356,6 +357,39 @@ async def test_shell_mounts_frame_and_posture_view(shell_env) -> None:
         # The synchronous per-view refresh entry point drives the active view.
         app._refresh()
         assert posture.render_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_after_teardown_is_a_noop(shell_env) -> None:
+    """A timer tick racing the shutdown finds the DOM gone and must not raise.
+
+    The headless harness re-raises an app-level exception on exit, so an unguarded
+    tick made every fast-polling test flaky on a loaded machine.
+    """
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+    app._poll()
+
+
+@pytest.mark.asyncio
+async def test_poll_tick_on_a_live_app_does_not_hide_a_missing_widget(
+    shell_env, monkeypatch
+) -> None:
+    """Only the shutdown race is silent: a ``NoMatches`` from a view's repaint while
+    the app is running is a real bug and must surface rather than leave the view
+    stale on every tick."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        posture = app.query_one("#view-posture", ShellView)
+
+        def renamed_widget() -> None:
+            raise NoMatches("#renamed-widget")
+
+        monkeypatch.setattr(posture, "refresh_view", renamed_widget)
+        with pytest.raises(NoMatches):
+            app._poll()
 
 
 def test_shell_accepts_optional_portfolio_id() -> None:
