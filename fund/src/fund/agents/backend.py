@@ -20,8 +20,12 @@ knowledge:
 
 The theory tree is the *committed* in-repo ``optimizerwiki/`` canonical source;
 the skills tree is the *committed* ``fund/src/fund/skills`` resource tree. The
-runtime workdir is regenerated from both on every call so it never drifts and is
-never hand-edited. ``fund/.runtime/`` is gitignored — nothing staged here is committed.
+runtime workdir is reconciled against both on every call so it never drifts and is
+never hand-edited: a workdir that already matches canonical is left untouched, and
+only a stale or hand-edited one is rewritten. Every agent build stages the one shared
+workdir while other runs (worker sweep, TUI, CLI) read it lazily through their own
+backend, so the reconcile runs under a cross-process lock and never wipes a tree that
+is already correct. ``fund/.runtime/`` is gitignored — nothing staged here is committed.
 
 ``deepagents`` is imported **inside** :func:`build_backend` so a bare
 ``import fund.agents.backend`` drags in no agent stack and needs no environment
@@ -30,9 +34,14 @@ never hand-edited. ``fund/.runtime/`` is gitignored — nothing staged here is c
 
 from __future__ import annotations
 
+import hashlib
+import os
 import shutil
+import sys
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING
 
 from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR, STAGED_SKILLS_ROOT
 from fund.config import FundConfig, settings
@@ -63,6 +72,97 @@ _STAGE_SUBDIR = "optimizer-theory"
 # a ``.github`` workflow dir and ``.obsidian`` vault config that are not theory).
 _STAGE_IGNORE = shutil.ignore_patterns(".git", ".github", ".obsidian")
 
+# Lives in the workdir root, which staging never wipes (only the two subtrees below
+# it), so the lock survives every restage.
+_LOCK_NAME = ".stage.lock"
+
+_DIR_MARK = "<dir>"
+
+if sys.platform == "win32":
+    import msvcrt
+
+    def _acquire(handle: IO[bytes]) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+    def _release(handle: IO[bytes]) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    # ``flock`` (not ``lockf``): the lock belongs to the open file description, so
+    # two threads of one process that each open the file exclude each other too.
+    def _acquire(handle: IO[bytes]) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+    def _release(handle: IO[bytes]) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _staging_lock(root: Path) -> Iterator[None]:
+    """Serialise stagers of one workdir across threads and processes."""
+    with (root / _LOCK_NAME).open("a+b") as handle:
+        _acquire(handle)
+        try:
+            yield
+        finally:
+            _release(handle)
+
+
+def _layout(
+    top: Path,
+    prefix: str,
+    ignore: Callable[[str, list[str]], set[str]] | None,
+) -> dict[str, str]:
+    """Map every dir and file under ``top`` to ``<dir>`` or its content digest.
+
+    Keys are ``prefix``-relative POSIX paths. ``ignore`` mirrors the ``copytree``
+    filter so a source layout compares equal to the staged copy it produces; the
+    staged side passes ``None`` so a stray cruft entry still counts as drift.
+    """
+    entries = {prefix: _DIR_MARK}
+    for dirpath, dirnames, filenames in os.walk(top, followlinks=True):
+        skipped = ignore(dirpath, [*dirnames, *filenames]) if ignore else set()
+        dirnames[:] = [name for name in dirnames if name not in skipped]
+        base = Path(prefix) / Path(dirpath).relative_to(top)
+        for name in dirnames:
+            entries[(base / name).as_posix()] = _DIR_MARK
+        for name in filenames:
+            if name not in skipped:
+                digest = hashlib.sha256((Path(dirpath) / name).read_bytes())
+                entries[(base / name).as_posix()] = digest.hexdigest()
+    return entries
+
+
+def _expected_layout(src: Path, skills_src: Path) -> dict[str, str]:
+    """The workdir layout a fresh staging of ``src`` and ``skills_src`` produces."""
+    layout = _layout(src, _STAGE_SUBDIR, _STAGE_IGNORE)
+    for role, names in SKILLS_BY_AGENT.items():
+        for name in names:
+            # ``copytree`` creates the missing parent dirs of each skill copy.
+            layout[STAGED_SKILLS_ROOT] = _DIR_MARK
+            layout[f"{STAGED_SKILLS_ROOT}/{role}"] = _DIR_MARK
+            layout.update(
+                _layout(
+                    skills_src / name,
+                    f"{STAGED_SKILLS_ROOT}/{role}/{name}",
+                    _STAGE_IGNORE,
+                )
+            )
+    return layout
+
+
+def _staged_layout(root: Path) -> dict[str, str]:
+    """The layout currently on disk under the two staged subtrees of ``root``."""
+    layout: dict[str, str] = {}
+    for top in (_STAGE_SUBDIR, STAGED_SKILLS_ROOT):
+        if (root / top).is_dir():
+            layout.update(_layout(root / top, top, None))
+    return layout
+
 
 def _stage_skills(root: Path, skills_src: Path) -> None:
     """Regenerate the per-role skills tree under ``<root>/skills``.
@@ -73,10 +173,6 @@ def _stage_skills(root: Path, skills_src: Path) -> None:
     the backend (Risk R1). The whole ``skills`` subtree is wiped first so a
     hand-edited or stale staged skill never survives (drift-free).
     """
-    if not skills_src.is_dir():
-        raise FileNotFoundError(
-            f"Canonical skills tree not found at {skills_src}; cannot stage skills."
-        )
     staged_root = root / STAGED_SKILLS_ROOT
     if staged_root.exists():
         shutil.rmtree(staged_root)
@@ -96,14 +192,17 @@ def stage_theory(
     dest: Path | None = None,
     skills_source: Path | None = None,
 ) -> Path:
-    """Regenerate the runtime agent workdir and return its root path.
+    """Reconcile the runtime agent workdir with canonical and return its root path.
 
     When ``config.preload_theory`` is set, the canonical ``optimizerwiki/``
-    tree (``source``) is copied fresh under ``<dest>/optimizer-theory`` — wiping
-    any prior copy first so the result never drifts from canonical and the
+    tree (``source``) is copied under ``<dest>/optimizer-theory`` — the
     ``optimizer-theory/docs/…`` citation prefix is preserved verbatim — and the
-    per-role skills tree is staged under ``<dest>/skills`` (Risk R1). When preload
-    is disabled, the workdir is created empty and left untouched.
+    per-role skills tree is staged under ``<dest>/skills`` (Risk R1). A workdir
+    that already matches canonical byte for byte is left untouched, because other
+    live runs may be reading it; one that drifted (hand edit, stray file, changed
+    canonical, interrupted copy) has both subtrees wiped and recopied. The whole
+    reconcile runs under an exclusive cross-process lock. When preload is
+    disabled, the workdir is created empty and left untouched.
 
     Args:
         config: Frozen run config; ``preload_theory`` gates the copy.
@@ -119,6 +218,7 @@ def stage_theory(
     Raises:
         FileNotFoundError: If preloading is on but ``source`` (or the skills
             source) does not exist.
+        OSError: If the staging lock cannot be acquired.
     """
     src = _THEORY_SRC if source is None else source
     root = _AGENT_FS_ROOT if dest is None else dest
@@ -135,12 +235,19 @@ def stage_theory(
             "(set preload_theory=False to run without it)."
         )
 
-    staged = root / _STAGE_SUBDIR
-    if staged.exists():
-        shutil.rmtree(staged)
-    shutil.copytree(src, staged, ignore=_STAGE_IGNORE)
+    if not skills_src.is_dir():
+        raise FileNotFoundError(
+            f"Canonical skills tree not found at {skills_src}; cannot stage skills."
+        )
 
-    _stage_skills(root, skills_src)
+    with _staging_lock(root):
+        if _staged_layout(root) == _expected_layout(src, skills_src):
+            return root
+        staged = root / _STAGE_SUBDIR
+        if staged.exists():
+            shutil.rmtree(staged)
+        shutil.copytree(src, staged, ignore=_STAGE_IGNORE)
+        _stage_skills(root, skills_src)
 
     return root
 

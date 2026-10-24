@@ -271,3 +271,89 @@ def test_stage_theory_preload_gate_skips_skills(tmp_path):
     # Gated off: neither theory docs nor skills are staged.
     assert not (root / "optimizer-theory").exists()
     assert not (root / STAGED_SKILLS_ROOT).exists()
+
+
+# --- Staging must not disturb a workdir another live run may be reading ------
+# Every agent build stages the one shared workdir; the worker sweep, the TUI and
+# ``fund approve`` build agents concurrently, and a running agent lazily reads
+# theory/skill files through the backend. An up-to-date workdir must therefore be
+# left untouched, and concurrent stagers must serialise rather than corrupt it.
+
+
+def _file_identities(root: Path) -> dict[str, tuple[int, int]]:
+    """Snapshot ``(inode, ctime_ns)`` per staged file; a rewrite changes ctime."""
+    return {
+        path.relative_to(root).as_posix(): (path.stat().st_ino, path.stat().st_ctime_ns)
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_restaging_an_up_to_date_workdir_leaves_every_file_untouched(tmp_path):
+    root, _ = _stage(_PRELOAD, tmp_path)
+    before = _file_identities(root)
+    assert before, "fixture must stage at least one file"
+
+    _stage(_PRELOAD, tmp_path)
+
+    assert _file_identities(root) == before
+
+
+def test_restaging_after_the_canonical_source_changes_picks_up_the_change(tmp_path):
+    root, skills = _stage(_PRELOAD, tmp_path)
+    theory = tmp_path / "canonical" / "optimizerwiki"
+    (theory / "openwiki" / "quickstart.md").write_text("new routing", encoding="utf-8")
+    first_skill = next(skills.glob("*/SKILL.md"))
+    first_skill.write_text("---\nname: changed\n---\nnew body", encoding="utf-8")
+
+    _stage(_PRELOAD, tmp_path)
+
+    quickstart = root / "optimizer-theory" / "openwiki" / "quickstart.md"
+    assert quickstart.read_text(encoding="utf-8") == "new routing"
+    restaged = next((root / "skills").rglob(f"{first_skill.parent.name}/SKILL.md"))
+    assert restaged.read_text(encoding="utf-8") == first_skill.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_concurrent_staging_never_fails_or_exposes_a_missing_file(tmp_path):
+    import threading
+
+    theory = _fake_theory(tmp_path / "canonical")
+    skills = _fake_skills(tmp_path / "canonical-skills")
+    dest = tmp_path / "agent-fs"
+    backend.stage_theory(_PRELOAD, source=theory, dest=dest, skills_source=skills)
+    probe = dest / "optimizer-theory" / "openwiki" / "quickstart.md"
+
+    errors: list[BaseException] = []
+    missing_reads: list[int] = []
+    stop = threading.Event()
+
+    def stager() -> None:
+        try:
+            for _ in range(8):
+                backend.stage_theory(
+                    _PRELOAD, source=theory, dest=dest, skills_source=skills
+                )
+        except BaseException as exc:
+            errors.append(exc)
+
+    def reader() -> None:
+        while not stop.is_set():
+            try:
+                probe.read_text(encoding="utf-8")
+            except OSError:
+                missing_reads.append(1)
+
+    threads = [threading.Thread(target=stager) for _ in range(3)]
+    watcher = threading.Thread(target=reader)
+    watcher.start()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    stop.set()
+    watcher.join()
+
+    assert errors == []
+    assert missing_reads == []
