@@ -2548,8 +2548,9 @@ class ShellApp(App[None]):
         """The autonomy posture glyph: ``❄ FROZEN`` when frozen, else ``● ARMED``.
 
         Fund scope wins: a FROZEN fund reads frozen regardless of the focused
-        portfolio's own row; a read error falls back to ``● ARMED``. Portfolios frozen
-        *other than* the focused one are counted after the glyph (``· ❄ 1 other
+        portfolio's own row. A read error reads ``? UNKNOWN`` — never the permissive
+        ``● ARMED``, which would tell the adviser a frozen fund had resumed. Portfolios
+        frozen *other than* the focused one are counted after the glyph (``· ❄ 1 other
         frozen``), since a freeze from the fund-wide Decisions queue can land on a
         portfolio the header is not focused on and would otherwise show nowhere.
         """
@@ -2570,7 +2571,7 @@ class ShellApp(App[None]):
                     others = [p for p in repo.frozen_portfolio_ids() if p != focus]
                 session.rollback()
         except Exception:  # keep the shell alive on a read error
-            return "● ARMED"
+            return "? UNKNOWN"
         glyph = "❄ FROZEN" if frozen else "● ARMED"
         if others:
             qualifier = "other " if focus is not None else ""
@@ -2581,9 +2582,10 @@ class ShellApp(App[None]):
         """The focused portfolio's latest-run glyph: live / running / awaiting / idle.
 
         A streaming round latches ``▶ LIVE`` (poll-stable). Otherwise: fund-wide (no
-        focus), no runs, or a read error all read as ``idle``; a ``paused`` or
-        ``responded`` (barge-in re-gate) latest run is ``awaiting`` the adviser,
-        ``pending``/``running`` is live, everything else (completed / rejected) is idle.
+        focus) or no runs read as ``idle`` and a read error as ``? unknown``; a
+        ``paused`` or ``responded`` (barge-in re-gate) latest run is ``awaiting`` the
+        adviser, ``pending``/``running`` is live, everything else (completed /
+        rejected) is idle.
         """
         if self._streaming:
             return "▶ LIVE"
@@ -2594,7 +2596,7 @@ class ShellApp(App[None]):
                 runs = observe.list_portfolio_runs(session, self._portfolio_id, limit=1)
                 session.rollback()
         except Exception:
-            return "✓ idle"
+            return "? unknown"
         if not runs:
             return "✓ idle"
         status = runs[0].status

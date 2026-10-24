@@ -4715,6 +4715,51 @@ async def test_rearm_portfolio_restores_armed_without_rationale(tui_env) -> None
 
 
 @pytest.mark.asyncio
+async def test_header_glyphs_show_unknown_not_armed_idle_on_read_error(
+    shell_env,
+) -> None:
+    from fund.audit.autonomy_repository import (
+        AutonomyRepository,
+        AutonomyScope,
+        AutonomyState,
+    )
+
+    with shell_env.get_session() as session:
+        AutonomyRepository(session).set_state(
+            AutonomyScope.FUND, None, AutonomyState.FROZEN, reason="test"
+        )
+        _seed_run(session, _PID_A, seed=1, status="paused")
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        mode = app.query_one("#hdr-mode", Static)
+        assert str(mode.render()) == "❄ FROZEN"
+        assert "awaiting" in app._runstate
+
+        @contextmanager
+        def _failing_session():
+            raise ConnectionError("pool timeout")
+            yield  # pragma: no cover
+
+        healthy = app._session_factory
+        app._session_factory = _failing_session
+        app._refresh_runstate()
+        await pilot.pause()
+        # A blind poll must not read as a permissive "armed"/"idle" on a frozen fund.
+        assert "ARMED" not in str(mode.render())
+        assert "unknown" in str(mode.render()).lower()
+        assert "idle" not in app._runstate
+        assert "unknown" in app._runstate.lower()
+
+        app._session_factory = healthy
+        app._refresh_runstate()
+        await pilot.pause()
+        assert str(mode.render()) == "❄ FROZEN"  # self-heals on the next good read
+        assert "awaiting" in app._runstate
+
+
+@pytest.mark.asyncio
 async def test_rearm_fund_requires_rationale(tui_env) -> None:
     from fund.audit.autonomy_repository import (
         AutonomyRepository,
