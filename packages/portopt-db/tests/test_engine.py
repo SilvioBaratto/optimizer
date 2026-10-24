@@ -11,7 +11,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import event, text
-from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import (
+    DataError,
+    DisconnectionError,
+    OperationalError,
+    SQLAlchemyError,
+)
 
 from portopt_db.config import DbConfig
 from portopt_db.engine import DatabaseManager
@@ -225,6 +230,37 @@ class TestGetSession:
             raise ValueError("bug in a service")
         session.rollback.assert_called_once()
         session.close.assert_called_once()
+
+    def test_failed_bulk_insert_logs_the_driver_error_not_the_statement(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mgr, _ = self._ready()
+        statement = "INSERT INTO price_history VALUES " + ",".join(["(%s, %s)"] * 5000)
+        exc = DataError(
+            statement, {"p": 1}, Exception("numeric field overflow\nDETAIL: row 1")
+        )
+        with (
+            caplog.at_level("ERROR", logger=M),
+            pytest.raises(DataError),
+            mgr.get_session(),
+        ):
+            raise exc
+        logged = "\n".join(r.getMessage() for r in caplog.records)
+        assert "numeric field overflow" in logged
+        assert "INSERT INTO price_history" not in logged
+        assert len(logged) < 1_000
+
+    def test_oversized_non_driver_error_message_is_capped_in_the_log(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mgr, _ = self._ready()
+        with (
+            caplog.at_level("ERROR", logger=M),
+            pytest.raises(ValueError),
+            mgr.get_session(),
+        ):
+            raise ValueError("x" * 100_000)
+        assert len("\n".join(r.getMessage() for r in caplog.records)) < 1_000
 
     def test_close_failure_is_swallowed(self) -> None:
         mgr, session = self._ready()

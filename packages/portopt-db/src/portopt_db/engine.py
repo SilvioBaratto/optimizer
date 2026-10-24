@@ -11,7 +11,12 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import (
+    DBAPIError,
+    DisconnectionError,
+    OperationalError,
+    SQLAlchemyError,
+)
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
@@ -19,6 +24,34 @@ from portopt_db.base import Base
 from portopt_db.config import DbConfig
 
 logger = logging.getLogger(__name__)
+
+_MAX_LOGGED_ERROR_CHARS = 300
+
+
+def summarize_db_error(exc: BaseException) -> str:
+    """Return a short, single-line description of *exc* that is safe to log.
+
+    ``str()`` of a SQLAlchemy ``DBAPIError`` embeds the full statement and its
+    bound parameters; a 1,300-row multi-row upsert makes that ~300 KB per
+    failure. For a driver error only the driver's own exception class and the
+    first line of its message are kept (the part that names the cause).
+
+    Args:
+        exc: Any exception raised inside a database session.
+
+    Returns:
+        ``"<DriverError>: <first message line>"`` for a ``DBAPIError``, else
+        ``str(exc)``, cut to a bounded length.
+    """
+    orig = exc.orig if isinstance(exc, DBAPIError) else None
+    if orig is not None:
+        lines = str(orig).strip().splitlines()
+        message = f"{type(orig).__name__}: {lines[0] if lines else ''}"
+    else:
+        message = str(exc)
+    if len(message) > _MAX_LOGGED_ERROR_CHARS:
+        return message[:_MAX_LOGGED_ERROR_CHARS] + "..."
+    return message
 
 
 class DatabaseManager:
@@ -161,17 +194,19 @@ class DatabaseManager:
         try:
             yield session
         except (DisconnectionError, OperationalError) as e:
-            logger.error(f"Database connection error: {e}")
+            logger.error(f"Database connection error: {summarize_db_error(e)}")
             if hasattr(session, "rollback"):
                 session.rollback()
             raise
         except SQLAlchemyError as e:
-            logger.error(f"Database error: {e}")
+            logger.error(f"Database error: {summarize_db_error(e)}")
             if hasattr(session, "rollback"):
                 session.rollback()
             raise
         except Exception as e:
-            logger.error(f"Unexpected error in database session: {e}")
+            logger.error(
+                f"Unexpected error in database session: {summarize_db_error(e)}"
+            )
             if hasattr(session, "rollback"):
                 session.rollback()
             raise
