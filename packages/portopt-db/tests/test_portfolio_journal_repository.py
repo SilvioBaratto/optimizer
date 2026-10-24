@@ -1,7 +1,6 @@
 """Tests for PortfolioJournal model and PortfolioJournalRepository.
 
-Covers model round-trips with letter-bearing UUIDs (SQLite UUID affinity guard),
-metadata registration, composite UniqueConstraint enforcement, upsert idempotency,
+Covers model round-trips, metadata registration, composite UniqueConstraint enforcement, upsert idempotency,
 updated_at advancement with created_at preserved, and list_for_portfolio filtering.
 """
 
@@ -19,8 +18,6 @@ from portopt_db.repositories.orders.portfolio_journal_repository import (
     PortfolioJournalRepository,
 )
 
-# Letter-bearing UUIDs: prevents SQLite REAL-coercion of all-decimal UUID strings,
-# which would crash the UUID result processor under statement caching.
 _PID_A = uuid.UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
 _PID_B = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 _RUN_ID = uuid.UUID("b2c3d4e5-f6a7-8901-bcde-f12345678901")

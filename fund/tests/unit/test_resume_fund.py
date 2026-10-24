@@ -70,7 +70,7 @@ from fund.audit import (
 )
 from fund.config import settings
 
-# A second letter-bearing portfolio id for the parity test (a distinct
+# A second portfolio id for the parity test (a distinct
 # idempotency key so both approvals write their own paper ticket).
 _PID_B = uuid.UUID("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d")
 

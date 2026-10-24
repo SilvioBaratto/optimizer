@@ -12,7 +12,7 @@ from sqlalchemy import DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.sql.compiler import SQLCompiler
+from sqlalchemy.sql.compiler import SQLCompiler, TypeCompiler
 from sqlalchemy.sql.expression import FunctionElement
 
 
@@ -56,6 +56,13 @@ def _compile_clock_timestamp_sqlite(
     element: ClockTimestamp, compiler: SQLCompiler, **kw: Any
 ) -> str:
     return "STRFTIME('%Y-%m-%d %H:%M:%f', 'now')"
+
+
+@compiles(UUID, "sqlite")
+def _compile_uuid_sqlite(element: UUID[Any], compiler: TypeCompiler, **kw: Any) -> str:
+    # SQLite reads affinity off the declared type name, and ``UUID`` would get NUMERIC:
+    # a stored hex id that parses as a number (all digits, or one ``e``) turns REAL.
+    return "CHAR(32)"
 
 
 class TimestampMixin:

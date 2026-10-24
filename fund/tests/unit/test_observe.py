@@ -58,10 +58,6 @@ from fund.audit.positions_repository import PositionRepository
 from fund.audit.repository import AgentRunRepository
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
-# A letter-bearing UUID: ``AgentRun.portfolio_id`` is a Postgres ``UUID`` column,
-# which SQLite gives NUMERIC affinity — an all-decimal UUID would be coerced to a
-# REAL under the test harness and crash the UUID result processor. Real portfolio
-# ids are ``uuid4`` (always mixed-hex), so this only bites test fixtures.
 _PID = uuid.UUID("aaaa1111-2222-3333-4444-555566667777")
 _ASOF = date(2026, 1, 30)
 _CHANNEL_VERSION = "00000000000000000000000000000001.0.1"

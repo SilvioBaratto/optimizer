@@ -5,9 +5,12 @@ set -euo pipefail
 # signal it has no handler for. Without a trap, a `docker stop` during the DB wait or
 # the migrations is ignored for the whole grace period and ends in SIGKILL (exit 137).
 child=""
+# Reap the child before exiting: once PID 1 exits the kernel SIGKILLs the rest of the
+# namespace, which would cut short alembic's rollback on SIGTERM.
 terminate() {
     if [ -n "$child" ]; then
         kill -TERM "$child" 2>/dev/null || true
+        wait "$child" 2>/dev/null || true
     fi
     exit 143
 }

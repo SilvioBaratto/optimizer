@@ -4,8 +4,7 @@ The persisted marked-to-market NAV series lives in ``portopt_db`` so the shared
 ``Base.metadata`` builds it under SQLite in tests. These tests prove the table
 creates on SQLite, a NAV row round-trips (with an optional benchmark level), the
 composite ``(portfolio_id, date)`` uniqueness blocks a duplicate, and distinct
-portfolios/dates coexist. ``portfolio_id`` is seeded with a letter-bearing UUID
-so SQLite does not REAL-coerce it.
+portfolios/dates coexist.
 """
 
 from __future__ import annotations

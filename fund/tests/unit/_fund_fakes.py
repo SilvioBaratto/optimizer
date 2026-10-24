@@ -34,15 +34,18 @@ import datetime as dt
 import math
 import uuid
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from portopt_db.models import Base
 from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import Engine, create_engine, select
+from sqlalchemy.pool import SingletonThreadPool
 
 from fund.schemas import ConstraintSet
 from fund.schemas.constraint_set import EsgPolicy
@@ -307,9 +310,7 @@ def _task_call(subagent: str, index: int) -> AIMessage:
 #
 # A deterministic ``N_DAYS`` x 3 close panel extending past ``ASOF`` so the real
 # bound ``optimize_portfolio`` computes stable weights over a seeded SQLite panel
-# (the optimizer output, never the LLM). ``PORTFOLIO_ID`` bears hex letters: an
-# all-digit UUID gets coerced to a float by SQLite's numeric affinity when a UUID
-# column round-trips through ``refresh`` (see fund-test-uuid-sqlite-affinity).
+# (the optimizer output, never the LLM).
 # ---------------------------------------------------------------------------
 
 START = dt.date(2023, 11, 1)
@@ -325,6 +326,35 @@ _SERIES = {"AAA": (100.0, 0.0), "BBB": (50.0, 1.3), "CCC": (25.0, 2.6)}
 def _close_on(start: float, phase: float, i: int) -> float:
     """Deterministic close for day ``i``: a phased oscillation off ``start``."""
     return round(start * (1.0 + 0.02 * math.sin(0.5 * i + phase)), 6)
+
+
+def threaded_sqlite_engine(path: Path) -> Engine:
+    """Build a file-backed SQLite engine holding every model's table.
+
+    For harnesses whose sessions run on several threads (a TUI worker beside the
+    poll loop). Each thread gets its own connection, so a session closing on one
+    thread, which rolls back its connection, cannot discard a write another thread
+    has flushed but not committed, as it does on one shared ``StaticPool``
+    connection. Sessions on the *same* thread still share a connection, as an
+    in-run freeze needs: SQLite admits one writer, so a second connection would
+    block on the run's open write transaction.
+
+    Args:
+        path: The database file to create; discarded with the test's ``tmp_path``.
+
+    Returns:
+        The engine; the caller disposes of it on teardown.
+    """
+    # Past ``pool_size`` threads the pool closes surplus connections, even ones a
+    # live worker thread still holds; every Textual worker is a fresh thread.
+    engine = create_engine(
+        f"sqlite:///{path}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+        poolclass=SingletonThreadPool,
+        pool_size=1000,
+    )
+    Base.metadata.create_all(engine)
+    return engine
 
 
 def seed_panel(session: Any, n_days: int = N_DAYS) -> None:

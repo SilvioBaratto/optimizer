@@ -166,6 +166,9 @@ class ExposureResult:
             factors finite), or ``None`` on a degraded estimate. :func:`attribute`
             reuses it so a factor dropped for degeneracy cannot widen the attribution
             window and inflate the residual with NAV days the regression never saw.
+            Excluded from ``==``: an ``Index`` compares element-wise, so a generated
+            ``__eq__`` raises on any two distinct index objects (always on Python
+            3.13, which compares field by field without tuple identity shortcuts).
     """
 
     exposures: dict[str, float]
@@ -174,7 +177,7 @@ class ExposureResult:
     r2: float | None
     method_used: RegressionMethod
     insufficient_history: bool
-    estimation_index: pd.Index | None = None
+    estimation_index: pd.Index | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

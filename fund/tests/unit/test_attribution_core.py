@@ -261,6 +261,24 @@ def test_estimate_exposures_identical_inputs_fit_once(fit_calls):
     assert second == first
 
 
+def test_exposure_results_with_equal_but_distinct_indexes_compare_equal():
+    """``==`` must not compare the estimation index element-wise: the cache hands
+    out copies, so two equal estimates rarely share the same index object."""
+    idx = pd.date_range("2025-01-01", periods=5, freq="B")
+    fields = {
+        "exposures": {"rates": 0.5},
+        "alpha": 0.0,
+        "n_obs": 5,
+        "r2": 0.9,
+        "method_used": RegressionMethod.OLS,
+        "insufficient_history": False,
+    }
+
+    assert ExposureResult(**fields, estimation_index=idx) == ExposureResult(
+        **fields, estimation_index=idx.copy()
+    )
+
+
 def test_estimate_exposures_cache_hands_out_independent_copies(fit_calls):
     """A caller mutating its result must not corrupt what the next poll receives."""
     nav, factors = _synthetic(n=60, betas={"rates": 0.5, "equity": 0.9})
