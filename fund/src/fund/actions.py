@@ -199,7 +199,9 @@ def apply_action(
             ``portfolio_id`` for ``profile`` / ``run``).
         LookupError: ``run_id`` names no run (propagated from ``resume_run``).
         RuntimeError: ``run`` on a portfolio with no active ``ConstraintSet``
-            (propagated from ``run_fund`` — profile it first).
+            (propagated from ``run_fund`` — profile it first); or ``approve`` /
+            ``respond`` / ``edit`` on a gate whose fund or portfolio is FROZEN (only
+            ``reject`` / ``killswitch`` still close it).
         sqlalchemy.exc.DBAPIError: A resume-style action whose ``idempotency_key`` is
             held by a concurrent in-flight submit; that submit owns the action.
     """

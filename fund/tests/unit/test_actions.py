@@ -17,6 +17,7 @@ import datetime as dt
 import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -45,6 +46,7 @@ from langgraph.store.memory import InMemoryStore
 from portopt_db.models import Base, FundAutonomyState, PaperOrder
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
+from pydantic import Field
 from sqlalchemy import create_engine
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
@@ -1968,3 +1970,163 @@ def test_reject_refuses_an_already_finalised_run(clean_db) -> None:
 def test_reject_of_an_unknown_run_raises_lookup_error(clean_db) -> None:
     with pytest.raises(LookupError, match="no agent_run"):
         apply_action("reject", session=clean_db, run_id=uuid.uuid4())
+
+
+# --- a freeze halts the gates it leaves behind ------------------------------------
+
+
+def _freeze_scope(env, scope: str) -> None:
+    """Commit a FROZEN posture at ``scope`` from its own session, as a freeze does."""
+    with env.get_session() as session:
+        autonomy = AutonomyRepository(session)
+        if scope == "fund":
+            autonomy.set_state(AutonomyScope.FUND, None, AutonomyState.FROZEN)
+        else:
+            autonomy.set_state(
+                AutonomyScope.PORTFOLIO, PORTFOLIO_ID, AutonomyState.FROZEN
+            )
+        session.commit()
+
+
+@pytest.mark.parametrize(
+    ("action", "scope", "extra"),
+    [
+        ("approve", "fund", {}),
+        ("approve", "portfolio", {}),
+        ("respond", "portfolio", {"pm_directive": "Trim AAA first."}),
+        ("edit", "fund", {"new_value": {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}}),
+    ],
+)
+def test_a_frozen_scope_refuses_to_drive_an_open_gate(
+    paused_env, action, scope, extra
+) -> None:
+    """A freeze only rejects the gates committed when it lands. One opened by a round
+    that was already running, or any resume racing the freeze, must still be refused:
+    approving it would place a ticket under the halt the freeze promised."""
+    env = paused_env
+    _freeze_scope(env, scope)
+
+    with env.get_session() as session:
+        with pytest.raises(RuntimeError, match="frozen"):
+            apply_action(
+                action,
+                session=session,
+                run_id=env.run_id,
+                portfolio_id=PORTFOLIO_ID,
+                checkpointer=env.saver,
+                store=env.store,
+                model=env.model_factory(),
+                **extra,
+            )
+        session.rollback()
+
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "paused"
+        assert session.query(PaperOrder).count() == 0
+        assert HumanAuditLogRepository(session).list_recent(action=action) == []
+        # The checkpoint was never resumed, so the gate can still be rejected.
+        assert [r.run_id for r in observe.pending_hitl(session, env.saver)] == [
+            env.run_id
+        ]
+
+
+@pytest.mark.parametrize("action", ["reject", "killswitch"])
+def test_the_emergency_stops_still_settle_a_gate_while_frozen(clean_db, action) -> None:
+    """Refusing approve must not trap the adviser: reject and killswitch are how a
+    gate that survived the freeze is closed."""
+    run_id = _paused_run(clean_db)
+    AutonomyRepository(clean_db).set_state(
+        AutonomyScope.PORTFOLIO, PORTFOLIO_ID, AutonomyState.FROZEN
+    )
+    clean_db.commit()
+
+    apply_action(action, session=clean_db, run_id=run_id, portfolio_id=PORTFOLIO_ID)
+    clean_db.commit()
+
+    assert AgentRunRepository(clean_db).get_run(run_id).status == "rejected"
+
+
+class _HaltDuringResumeModel(ScriptedFundModel):
+    """Scripted PM that has a freeze land while a gate resume is inside the graph."""
+
+    halt: Any = Field(default=None, exclude=True)
+
+    def _pm_turn(self, messages):
+        if self.halt is not None and _count_tool_calls(messages, "place_orders"):
+            halt, self.halt = self.halt, None
+            halt()
+        return super()._pm_turn(messages)
+
+
+def _freeze_rejects_the_run(env) -> Any:
+    """A callback committing ``rejected`` from its own session, as a freeze does."""
+
+    def freeze_run() -> None:
+        with env.get_session() as other:
+            AgentRunRepository(other).finalize_run(
+                env.run_id, weights={}, status="rejected"
+            )
+            other.commit()
+
+    return freeze_run
+
+
+def test_a_respond_does_not_revive_a_run_a_freeze_rejected_meanwhile(
+    paused_env,
+) -> None:
+    """The respond loaded the run as ``paused`` before entering the graph. A freeze that
+    commits ``rejected`` during the PM's turn must win: last-writer-wins would flip the
+    halted run back to ``responded`` and re-open its gate."""
+    env = paused_env
+    model = _HaltDuringResumeModel(
+        universe=UNIVERSE,
+        weights=env.expected,
+        max_orders=2,
+        halt=_freeze_rejects_the_run(env),
+    )
+    with env.get_session() as session:
+        apply_action(
+            "respond",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=model,
+            pm_directive="Trim AAA first.",
+        )
+        session.commit()
+
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "rejected"
+
+
+def test_an_approve_does_not_complete_a_run_a_freeze_rejected_meanwhile(
+    paused_env,
+) -> None:
+    """The approve checked the freeze before entering the graph. A freeze that commits
+    ``rejected`` during the PM's post-ticket turn must win: finalising ``completed``
+    over it would write positions into a halted fund, so the approval is refused and
+    the caller's transaction (carrying the ticket) is rolled back."""
+    env = paused_env
+    model = _HaltDuringResumeModel(
+        universe=UNIVERSE, weights=env.expected, halt=_freeze_rejects_the_run(env)
+    )
+    with env.get_session() as session:
+        # ``RunNotOpenError`` (a ``ValueError``): the compare-and-set finalisation
+        # refuses the run the freeze already settled.
+        with pytest.raises(ValueError, match="rejected"):
+            apply_action(
+                "approve",
+                session=session,
+                run_id=env.run_id,
+                portfolio_id=PORTFOLIO_ID,
+                checkpointer=env.saver,
+                store=env.store,
+                model=model,
+            )
+        session.rollback()
+
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "rejected"
+        assert PositionRepository(session).get_holdings(PORTFOLIO_ID) == []

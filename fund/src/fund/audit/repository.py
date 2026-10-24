@@ -427,13 +427,26 @@ class AgentRunRepository(RepositoryBase):
         directive back to the PM, which may re-gate (call ``place_orders`` again): the
         run then stays alive as ``"responded"`` — distinct from ``"paused"`` so an
         observer tells a plain pause from a barged-in re-gate — and remains in
-        :meth:`list_paused_runs`, still awaiting approval.
+        :meth:`list_paused_runs`, still awaiting approval. A run that is no longer at a
+        live gate (finalised by a concurrent reject or freeze) keeps its outcome.
         """
         run = self.get_run(run_id)
         if run is None:
             return None
-        run.status = "responded"
+        # A compare-and-set on the stored status, not on the loaded copy: the respond
+        # read the run before the PM's turn, so a freeze or reject that committed
+        # ``rejected`` meanwhile must stay final instead of being flipped back to a
+        # live gate (last-writer-wins would re-open a halted run).
         self.session.flush()
+        self.session.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.status.in_(_OPEN_RUN_STATUSES),
+            )
+            .values(status="responded")
+            .execution_options(synchronize_session=False)
+        )
         self.session.refresh(run)
         return run
 
