@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from optimizer.factors._config import (
+    DEFAULT_MIN_OBSERVATIONS,
     FactorConstructionConfig,
     FactorType,
 )
@@ -228,35 +229,54 @@ def _compute_momentum(
     return momentum.replace([np.inf, -np.inf], np.nan)
 
 
+def _simple_returns(price_history: pd.DataFrame) -> pd.DataFrame:
+    """Per-ticker simple returns that keep NaN gaps in place.
+
+    Only rows where *every* ticker is NaN (the leading row) are dropped.
+    Dropping a row because a single ticker is missing would let one dead
+    ticker, young listing or exchange holiday shrink or wipe out the window
+    of every other ticker; downstream reductions skip NaN per column instead.
+    """
+    return price_history.pct_change().dropna(how="all")
+
+
+def _required_observations(min_obs: int, lookback: int) -> int:
+    """Observations a ticker needs, never more than the window can hold."""
+    return min(min_obs, lookback)
+
+
 def _compute_volatility(
     price_history: pd.DataFrame,
     lookback: int = 252,
+    min_obs: int = DEFAULT_MIN_OBSERVATIONS,
 ) -> pd.Series:
     """Annualized return volatility (natural units, always non-negative).
 
     Lower volatility is favorable for LOW_RISK factor scoring.
     The sign is NOT flipped here; direction is handled in standardization
-    via FACTOR_DIRECTION.
+    via FACTOR_DIRECTION. Tickers with fewer than ``min_obs`` returns in the
+    window are NaN.
     """
-    returns = price_history.pct_change().dropna()
-    tail = returns.iloc[-lookback:] if len(returns) >= lookback else returns
+    tail = _simple_returns(price_history).iloc[-lookback:]
     vol: pd.Series = tail.std()
-    return pd.Series(vol * np.sqrt(252), dtype=float)
+    enough = tail.count() >= _required_observations(min_obs, lookback)
+    return pd.Series(vol.where(enough) * np.sqrt(252), dtype=float)
 
 
 def _compute_beta(
     price_history: pd.DataFrame,
     market_returns: pd.Series | None = None,
     lookback: int = 252,
+    min_obs: int = DEFAULT_MIN_OBSERVATIONS,
 ) -> pd.Series:
     """Market beta (natural units).
 
     Lower beta is favorable for LOW_RISK factor scoring.
     The sign is NOT flipped here; direction is handled in standardization
-    via FACTOR_DIRECTION.
+    via FACTOR_DIRECTION. Tickers with fewer than ``min_obs`` jointly observed
+    returns are NaN.
     """
-    returns = price_history.pct_change().dropna()
-    tail = returns.iloc[-lookback:] if len(returns) >= lookback else returns
+    tail = _simple_returns(price_history).iloc[-lookback:]
 
     if market_returns is None:
         mkt: pd.Series = tail.mean(axis=1)
@@ -264,36 +284,51 @@ def _compute_beta(
         mkt = market_returns.reindex(tail.index).dropna()
         tail = tail.loc[mkt.index]
 
-    market_var = cast(float, mkt.var())
+    # Covariance and market variance must come from the same sample, so each
+    # ticker is regressed on the dates where both it and the market exist.
+    required = _required_observations(min_obs, lookback)
+    beta_values = {
+        str(col): _pairwise_beta(tail[col], mkt, required) for col in tail.columns
+    }
+    return pd.Series(beta_values, dtype=float)
+
+
+def _pairwise_beta(asset: pd.Series, market: pd.Series, min_obs: int = 2) -> float:
+    """Beta of ``asset`` on ``market`` over their jointly observed dates."""
+    observed = asset.notna() & market.notna()
+    asset_obs, market_obs = asset.loc[observed], market.loc[observed]
+    if len(asset_obs) < max(2, min_obs):
+        return float("nan")
+    market_var = cast(float, market_obs.var())
     if market_var < 1e-12:
         # Near-zero market variance (over-diversified proxy) produces
         # numerically unstable betas — return NaN rather than huge values.
-        return pd.Series(np.nan, index=tail.columns)
-
-    beta_values = {
-        str(col): float(tail[col].cov(mkt) / market_var) for col in tail.columns
-    }
-    return pd.Series(beta_values, dtype=float)
+        return float("nan")
+    return float(asset_obs.cov(market_obs) / market_var)
 
 
 def _compute_amihud_illiquidity(
     price_history: pd.DataFrame,
     volume_history: pd.DataFrame,
     lookback: int = 252,
+    min_obs: int = DEFAULT_MIN_OBSERVATIONS,
 ) -> pd.Series:
     """Amihud illiquidity ratio (avg |return| / dollar volume).
 
-    Higher illiquidity = higher expected return premium.
+    Higher illiquidity = higher expected return premium. Only days with a
+    return and non-zero dollar volume count towards ``min_obs``; tickers
+    below it are NaN.
     """
-    returns = price_history.pct_change().dropna()
+    returns = _simple_returns(price_history)
     dollar_vol = (price_history * volume_history).reindex(returns.index)
 
-    tail_ret = returns.iloc[-lookback:] if len(returns) >= lookback else returns
-    tail_dv = dollar_vol.iloc[-lookback:] if len(dollar_vol) >= lookback else dollar_vol
+    tail_ret = returns.iloc[-lookback:]
+    tail_dv = dollar_vol.iloc[-lookback:]
 
     safe_dv = tail_dv.replace(0, np.nan)
     ratio = tail_ret.abs() / safe_dv
-    result: pd.Series = ratio.mean()
+    enough = ratio.count() >= _required_observations(min_obs, lookback)
+    result: pd.Series = ratio.mean().where(enough)
     return result
 
 
@@ -430,12 +465,14 @@ def compute_factor(
             return _compute_volatility(
                 price_history,
                 lookback=config.volatility_lookback,
+                min_obs=config.min_observations,
             )
         case FactorType.BETA:
             return _compute_beta(
                 price_history,
                 market_returns=market_returns,
                 lookback=config.beta_lookback,
+                min_obs=config.min_observations,
             )
         case FactorType.AMIHUD_ILLIQUIDITY:
             if volume_history is None:
@@ -444,6 +481,7 @@ def compute_factor(
                 price_history,
                 volume_history,
                 lookback=config.amihud_lookback,
+                min_obs=config.min_observations,
             )
         case FactorType.RECOMMENDATION_CHANGE:
             return _compute_recommendation_change(analyst_data)

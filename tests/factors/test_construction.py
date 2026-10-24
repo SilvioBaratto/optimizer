@@ -933,6 +933,219 @@ class TestAlignToPitNoTickerColumn:
         assert "ticker" not in result.columns
 
 
+def _ragged_panel(n_days: int = 300) -> pd.DataFrame:
+    """Prices for A, B, C (full history), D (never traded) and E (young IPO)."""
+    rng = np.random.default_rng(7)
+    dates = pd.bdate_range("2023-01-01", periods=n_days)
+    common = rng.normal(0.0004, 0.01, n_days)
+    rets = {
+        t: common * beta + rng.normal(0, 0.012, n_days)
+        for t, beta in zip("ABC", (0.8, 1.0, 1.3), strict=True)
+    }
+    prices = pd.DataFrame(
+        {t: 100 * np.exp(np.cumsum(r)) for t, r in rets.items()}, index=dates
+    )
+    prices["D"] = np.nan
+    young = pd.Series(np.nan, index=dates)
+    young.iloc[-50:] = 100 * np.exp(np.cumsum(rng.normal(0, 0.03, 50)))
+    prices["E"] = young
+    return prices
+
+
+class TestRaggedPriceHistory:
+    """One gap or dead ticker must not corrupt the rest of the cross-section."""
+
+    def test_volatility_survives_all_nan_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_volatility
+
+        prices = _ragged_panel()
+        result = _compute_volatility(prices)
+        assert result[["A", "B", "C"]].notna().all()
+        assert np.isnan(result["D"])
+
+    def test_volatility_window_is_not_shortened_by_young_listing(self) -> None:
+        from optimizer.factors._construction import _compute_volatility
+
+        prices = _ragged_panel()
+        alone = _compute_volatility(prices[["A", "B", "C"]])
+        joint = _compute_volatility(prices)
+        pd.testing.assert_series_equal(joint[["A", "B", "C"]], alone, check_names=False)
+
+    def test_volatility_ignores_exchange_holiday_gap_of_one_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_volatility
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        gappy = prices.copy()
+        gappy.iloc[100, gappy.columns.get_loc("C")] = np.nan
+        alone = _compute_volatility(prices[["A", "B"]])
+        joint = _compute_volatility(gappy)
+        pd.testing.assert_series_equal(joint[["A", "B"]], alone, check_names=False)
+
+    def test_beta_survives_all_nan_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        prices = _ragged_panel()
+        mkt = prices[["A", "B", "C"]].pct_change().mean(axis=1).dropna()
+        result = _compute_beta(prices, market_returns=mkt)
+        assert result[["A", "B", "C"]].notna().all()
+        assert np.isnan(result["D"])
+
+    def test_beta_default_proxy_unaffected_by_dead_ticker(self) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        prices = _ragged_panel()
+        alone = _compute_beta(prices[["A", "B", "C"]])
+        joint = _compute_beta(prices[["A", "B", "C", "D"]])
+        pd.testing.assert_series_equal(joint[["A", "B", "C"]], alone)
+
+    def test_beta_uses_pairwise_complete_sample_for_covariance_and_variance(
+        self,
+    ) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        prices = _ragged_panel()[["A", "B", "C", "E"]]
+        prices["G"] = prices["B"]
+        prices.iloc[100:140, prices.columns.get_loc("G")] = np.nan
+        mkt = prices[["A", "B", "C"]].pct_change().mean(axis=1).dropna()
+        result = _compute_beta(prices, market_returns=mkt)
+
+        for ticker in ("A", "E", "G"):
+            rets = prices[ticker].pct_change().iloc[-252:]
+            pair = pd.concat([rets, mkt], axis=1, keys=["r", "m"], sort=True).dropna()
+            expected = pair["r"].cov(pair["m"]) / pair["m"].var()
+            assert result[ticker] == pytest.approx(expected, rel=1e-9), ticker
+
+    def test_amihud_survives_all_nan_ticker(
+        self,
+    ) -> None:
+        from optimizer.factors._construction import _compute_amihud_illiquidity
+
+        prices = _ragged_panel()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        result = _compute_amihud_illiquidity(prices, volume)
+        assert result[["A", "B", "C"]].notna().all()
+        assert np.isnan(result["D"])
+
+    def test_amihud_window_is_not_shortened_by_young_listing(self) -> None:
+        from optimizer.factors._construction import _compute_amihud_illiquidity
+
+        prices = _ragged_panel()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        cols = ["A", "B", "C"]
+        alone = _compute_amihud_illiquidity(prices[cols], volume[cols])
+        joint = _compute_amihud_illiquidity(prices, volume)
+        pd.testing.assert_series_equal(joint[cols], alone, check_names=False)
+
+
+def _panel_with_fresh_listing() -> pd.DataFrame:
+    """Ragged panel plus Y, which has only three prices (two returns)."""
+    prices = _ragged_panel()
+    fresh = pd.Series(np.nan, index=prices.index)
+    fresh.iloc[-3:] = (100.0, 101.0, 99.5)
+    prices["Y"] = fresh
+    return prices
+
+
+class TestMinimumObservations:
+    """A ticker with almost no history must not be ranked on noise."""
+
+    def test_volatility_is_nan_below_default_minimum(self) -> None:
+        from optimizer.factors._construction import _compute_volatility
+
+        result = _compute_volatility(_panel_with_fresh_listing())
+        assert np.isnan(result["Y"])
+        assert result[["A", "B", "C", "E"]].notna().all()
+
+    def test_beta_is_nan_below_default_minimum(self) -> None:
+        from optimizer.factors._construction import _compute_beta
+
+        prices = _panel_with_fresh_listing()
+        mkt = prices[["A", "B", "C"]].pct_change().mean(axis=1).dropna()
+        for market_returns in (None, mkt):
+            result = _compute_beta(prices, market_returns=market_returns)
+            assert np.isnan(result["Y"])
+            assert result[["A", "B", "C", "E"]].notna().all()
+
+    def test_amihud_is_nan_below_default_minimum(self) -> None:
+        from optimizer.factors._construction import _compute_amihud_illiquidity
+
+        prices = _panel_with_fresh_listing()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        result = _compute_amihud_illiquidity(prices, volume)
+        assert np.isnan(result["Y"])
+        assert result[["A", "B", "C", "E"]].notna().all()
+
+    def test_minimum_is_inclusive(self) -> None:
+        from optimizer.factors._construction import (
+            _compute_amihud_illiquidity,
+            _compute_beta,
+            _compute_volatility,
+        )
+
+        prices = _panel_with_fresh_listing()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        # Y has exactly two return observations.
+        assert np.isfinite(_compute_volatility(prices, min_obs=2)["Y"])
+        assert np.isnan(_compute_volatility(prices, min_obs=3)["Y"])
+        assert np.isfinite(_compute_beta(prices, min_obs=2)["Y"])
+        assert np.isnan(_compute_beta(prices, min_obs=3)["Y"])
+        assert np.isfinite(_compute_amihud_illiquidity(prices, volume, min_obs=2)["Y"])
+        assert np.isnan(_compute_amihud_illiquidity(prices, volume, min_obs=3)["Y"])
+
+    def test_amihud_counts_only_days_with_traded_volume(self) -> None:
+        from optimizer.factors._construction import _compute_amihud_illiquidity
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        volume.iloc[-30:, volume.columns.get_loc("C")] = 0.0
+        result = _compute_amihud_illiquidity(prices, volume, lookback=40, min_obs=20)
+        assert np.isnan(result["C"])
+        assert result[["A", "B"]].notna().all()
+
+    def test_minimum_is_capped_by_the_lookback_window(self) -> None:
+        from optimizer.factors._construction import (
+            _compute_amihud_illiquidity,
+            _compute_beta,
+            _compute_volatility,
+        )
+
+        prices = _ragged_panel()[["A", "B", "C"]]
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        assert _compute_volatility(prices, lookback=10, min_obs=60).notna().all()
+        assert _compute_beta(prices, lookback=10, min_obs=60).notna().all()
+        amihud = _compute_amihud_illiquidity(prices, volume, lookback=10, min_obs=60)
+        assert amihud.notna().all()
+
+    def test_compute_factor_honours_config_minimum(self) -> None:
+        prices = _ragged_panel()
+        volume = pd.DataFrame(1e6, index=prices.index, columns=prices.columns)
+        fundamentals = pd.DataFrame(index=pd.Index(list(prices.columns)))
+        factors = (
+            FactorType.VOLATILITY,
+            FactorType.BETA,
+            FactorType.AMIHUD_ILLIQUIDITY,
+        )
+        for factor in factors:
+            lenient = compute_factor(
+                factor,
+                fundamentals,
+                prices,
+                volume_history=volume,
+                config=FactorConstructionConfig(min_observations=20),
+            )
+            strict = compute_factor(
+                factor,
+                fundamentals,
+                prices,
+                volume_history=volume,
+                config=FactorConstructionConfig(min_observations=60),
+            )
+            # E has 49 return observations: enough for 20, not for 60.
+            assert np.isfinite(lenient["E"]), factor
+            assert np.isnan(strict["E"]), factor
+            assert strict[["A", "B", "C"]].notna().all(), factor
+
+
 class TestBetaDegenerateMarket:
     """A near-zero market variance produces NaN betas rather than huge values."""
 

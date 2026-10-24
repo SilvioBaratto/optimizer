@@ -249,6 +249,14 @@ class TestFactorConstructionConfig:
         with pytest.raises(AttributeError):
             cfg.momentum_lookback = 126  # type: ignore[misc]
 
+    def test_min_observations_default(self) -> None:
+        assert FactorConstructionConfig().min_observations == 20
+
+    @pytest.mark.parametrize("bad", [1, 0, -5])
+    def test_min_observations_below_two_rejected(self, bad: int) -> None:
+        with pytest.raises(ConfigurationError, match="min_observations"):
+            FactorConstructionConfig(min_observations=bad)
+
     def test_publication_lag_is_not_a_construction_option(self) -> None:
         import dataclasses
 

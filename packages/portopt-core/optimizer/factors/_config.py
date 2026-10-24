@@ -8,6 +8,11 @@ from enum import Enum
 
 from optimizer.exceptions import ConfigurationError
 
+# About one trading month of daily returns: below this a volatility, beta or
+# Amihud estimate is noise that would otherwise rank a fresh listing as the
+# lowest-risk, most liquid name in the cross-section.
+DEFAULT_MIN_OBSERVATIONS = 20
+
 
 class FactorGroupType(str, Enum):
     """Factor group taxonomy."""
@@ -230,6 +235,10 @@ class FactorConstructionConfig:
         amihud_lookback: Lookback window for Amihud illiquidity in trading days.
             All four lookbacks must be ``>= 1``; invalid values raise
             ``ConfigurationError``.
+        min_observations: Fewest per-ticker return observations inside the
+            lookback window for which volatility, beta and Amihud illiquidity
+            are reported; tickers below it get NaN. Capped at the lookback so
+            a short window never blanks the whole cross-section. Must be >= 2.
     """
 
     factors: tuple[FactorType, ...] = (
@@ -250,6 +259,7 @@ class FactorConstructionConfig:
     volatility_lookback: int = 252
     beta_lookback: int = 252
     amihud_lookback: int = 252
+    min_observations: int = DEFAULT_MIN_OBSERVATIONS
 
     def __post_init__(self) -> None:
         for name in (
@@ -262,6 +272,9 @@ class FactorConstructionConfig:
             if value < 1:
                 msg = f"{name} must be >= 1, got {value}"
                 raise ConfigurationError(msg)
+        if self.min_observations < 2:
+            msg = f"min_observations must be >= 2, got {self.min_observations}"
+            raise ConfigurationError(msg)
         # Momentum compares the price `skip + 1` bars back with the price
         # `lookback` bars back; they coincide (zero momentum) once
         # skip + 1 >= lookback and reverse order beyond that.
