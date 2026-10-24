@@ -5,8 +5,11 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable
 
+import numpy as np
+import pandas as pd
 import pytest
 
+from optimizer import factors
 from optimizer.exceptions import ConfigurationError
 from optimizer.factors import (
     FACTOR_DIRECTION,
@@ -30,7 +33,41 @@ from optimizer.factors import (
     StandardizationConfig,
     StandardizationMethod,
     WinsorizeMethod,
+    run_factor_validation,
 )
+
+# One alternative value per FactorValidationConfig field, chosen so that
+# run_factor_validation on _validation_inputs() produces a different report.
+_VALIDATION_PERTURBATIONS: dict[str, float] = {
+    "newey_west_lags": 1,
+    "t_stat_threshold": 1e6,
+    "fdr_alpha": 1.0,
+    "n_quantiles": 3,
+    # 30 tickers per cross-section, so a floor of 31 drops every date.
+    "composite_min_observations": 31,
+    "min_ic_observations": 31,
+}
+
+
+def _validation_inputs() -> tuple[dict[str, pd.DataFrame], pd.DataFrame, pd.DataFrame]:
+    rng = np.random.default_rng(3)
+    n_dates, n_tickers = 48, 30
+    dates = pd.date_range("2020-01-31", periods=n_dates, freq="ME")
+    tickers = [f"T{i:02d}" for i in range(n_tickers)]
+
+    def frame(values: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame(values, index=dates, columns=tickers)
+
+    shape = (n_dates, n_tickers)
+    signal = rng.normal(size=shape)
+    factor_history = {
+        "signal": frame(signal),
+        "weak": frame(0.15 * signal + rng.normal(size=shape)),
+        "noise": frame(rng.normal(size=shape)),
+    }
+    returns = frame(0.6 * signal + rng.normal(size=shape))
+    composite = frame(signal + rng.normal(size=shape))
+    return factor_history, returns, composite
 
 
 class TestEnums:
@@ -675,6 +712,58 @@ class TestFactorValidationConfig:
     def test_non_positive_periods_per_year_raises(self, bad: int) -> None:
         with pytest.raises(ConfigurationError, match="periods_per_year"):
             FactorValidationConfig(periods_per_year=bad)
+
+    @pytest.mark.parametrize(
+        "field", [f.name for f in dataclasses.fields(FactorValidationConfig)]
+    )
+    def test_every_field_changes_the_validation_report(self, field: str) -> None:
+        # A knob nothing reads (e.g. mimicking-leg fractions, which the
+        # mimicking builder takes as its own ``quantile`` argument) would let a
+        # caller believe a stricter setting was applied. A field added without
+        # an entry in _VALIDATION_PERTURBATIONS fails here on purpose.
+        if field == "periods_per_year":
+            pytest.skip(
+                "only scales the benchmark comparison of factors that have a "
+                "published spread; covered in tests/factors/test_validation.py"
+            )
+        assert field in _VALIDATION_PERTURBATIONS, (
+            f"add a perturbation for FactorValidationConfig.{field}"
+        )
+        factor_history, returns, composite = _validation_inputs()
+        base = FactorValidationConfig()
+        perturbed = dataclasses.replace(
+            base, **{field: _VALIDATION_PERTURBATIONS[field]}
+        )
+
+        def report_repr(config: FactorValidationConfig) -> str:
+            # repr, not ==: the report holds NaN fields and NaN != NaN.
+            return repr(
+                run_factor_validation(
+                    factor_history,
+                    returns,
+                    config=config,
+                    composite_scores_history=composite,
+                )
+            )
+
+        assert report_repr(perturbed) != report_repr(base)
+
+    @pytest.mark.parametrize("removed", ["fmp_top_pct", "fmp_bottom_pct"])
+    def test_removed_mimicking_leg_fractions_fail_loudly(self, removed: str) -> None:
+        with pytest.raises(TypeError):
+            FactorValidationConfig(**{removed: 0.1})
+
+    def test_unconsumed_group_ic_aggregation_api_is_not_public(self) -> None:
+        # No code path aggregates group ICs by t-stat weight or negative-IC
+        # filter, so exporting the switches would make them silent no-ops.
+        for name in (
+            "GroupICAggregationConfig",
+            "GroupICResult",
+            "ICWeightingMethod",
+            "ICNegativeFilterPolicy",
+        ):
+            assert name not in factors.__all__
+            assert not hasattr(factors, name)
 
 
 class TestFactorIntegrationConfig:

@@ -83,34 +83,6 @@ class ICFallbackStrategy(str, Enum):
     RAISE = "raise"
 
 
-class ICWeightingMethod(str, Enum):
-    """Method for aggregating per-factor ICs within a group.
-
-    SIMPLE_MEAN averages ICs equally (current default behaviour).
-    TSTAT_WEIGHTED uses absolute Newey-West t-stat as weight so that
-    factors with more statistically significant ICs dominate the group
-    average.
-    """
-
-    SIMPLE_MEAN = "simple_mean"
-    TSTAT_WEIGHTED = "tstat_weighted"
-
-
-class ICNegativeFilterPolicy(str, Enum):
-    """Policy for handling factors with consistently negative IC.
-
-    INCLUDE keeps all factors regardless of IC sign (current default).
-    EXCLUDE removes negative-IC factors before computing the group
-    average (denominator shrinks).
-    SOFT zeros the contribution of negative-IC factors but keeps
-    them in the denominator (dampening).
-    """
-
-    INCLUDE = "include"
-    EXCLUDE = "exclude"
-    SOFT = "soft"
-
-
 class SelectionMethod(str, Enum):
     """Stock selection method."""
 
@@ -988,8 +960,6 @@ class FactorValidationConfig:
         t_stat_threshold: Minimum absolute t-statistic for significance.
         fdr_alpha: False discovery rate alpha level.
         n_quantiles: Number of quantiles for spread analysis.
-        fmp_top_pct: Top percentile for factor-mimicking portfolios.
-        fmp_bottom_pct: Bottom percentile for factor-mimicking portfolios.
         composite_min_observations: Minimum non-NaN observations per
             cross-section for composite IC. Default 24, for reliable Spearman
             rank correlations. This bounds assets per date, not the number of
@@ -1009,8 +979,6 @@ class FactorValidationConfig:
     t_stat_threshold: float = 2.0
     fdr_alpha: float = 0.05
     n_quantiles: int = 5
-    fmp_top_pct: float = 0.2
-    fmp_bottom_pct: float = 0.2
     composite_min_observations: int = 24
     min_ic_observations: int = 24
     periods_per_year: int = 12
@@ -1073,55 +1041,9 @@ class FactorIntegrationConfig:
         return cls(use_black_litterman=True)
 
 
-@dataclass(frozen=True)
-class GroupICAggregationConfig:
-    """Configuration for group-level IC aggregation.
-
-    Controls how per-factor ICs are combined within each factor group.
-
-    Attributes:
-        weighting: Method for weighting per-factor ICs within a group.
-        negative_filter: Policy for handling factors with consistently
-            negative IC.
-        min_observations_tstat: Minimum IC observations to compute a valid
-            t-stat. Factors below this threshold fall back to equal weight
-            when ``weighting=TSTAT_WEIGHTED``. Default 24.
-        newey_west_lags: Number of lags for Newey-West HAC standard errors
-            when computing t-stat weights.
-    """
-
-    weighting: ICWeightingMethod = ICWeightingMethod.SIMPLE_MEAN
-    negative_filter: ICNegativeFilterPolicy = ICNegativeFilterPolicy.INCLUDE
-    min_observations_tstat: int = 24
-    newey_west_lags: int = 6
-
-    @classmethod
-    def for_simple_mean(cls) -> GroupICAggregationConfig:
-        """Default: simple arithmetic mean, no filtering."""
-        return cls()
-
-    @classmethod
-    def for_tstat_weighted(cls) -> GroupICAggregationConfig:
-        """Weight factor ICs by absolute Newey-West t-stat."""
-        return cls(weighting=ICWeightingMethod.TSTAT_WEIGHTED)
-
-    @classmethod
-    def for_excluding_negative(cls) -> GroupICAggregationConfig:
-        """Exclude factors with consistently negative IC."""
-        return cls(negative_filter=ICNegativeFilterPolicy.EXCLUDE)
-
-    @classmethod
-    def for_robust(cls) -> GroupICAggregationConfig:
-        """T-stat weighted with negative IC exclusion."""
-        return cls(
-            weighting=ICWeightingMethod.TSTAT_WEIGHTED,
-            negative_filter=ICNegativeFilterPolicy.EXCLUDE,
-        )
-
-
 @dataclass
 class FactorBuildHealth:
-    """Diagnostic report from build_factor_scores_history().
+    """Diagnostic report on how many rebalancing dates a factor build covered.
 
     Attributes:
         total_dates: Number of rebalancing dates attempted.

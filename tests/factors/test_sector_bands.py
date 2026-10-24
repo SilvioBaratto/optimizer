@@ -411,7 +411,9 @@ def test_resolve_with_unbanded_sector_in_universe_does_not_widen() -> None:
 
 
 def test_resolve_with_sectors_survives_all_zero_caps() -> None:
-    bands = tuple(("recession", sector, 0.0, 0.0) for sector in ALL_11_SECTORS)
+    # Listing every sector with zero caps is rejected at construction, so the
+    # degenerate config only covers the sectors of the narrow universe.
+    bands = tuple(("recession", sector, 0.0, 0.0) for sector in NARROW_UNIVERSE)
     cfg = SectorRegimeBandsConfig(enable=True, bands=bands)
     result = resolve_sector_bands(MacroRegime.RECESSION, cfg, sectors=NARROW_UNIVERSE)
     assert sum(cap for _, cap in result.values()) >= 1.0

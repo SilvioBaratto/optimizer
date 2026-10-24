@@ -72,24 +72,6 @@ class CompositeICResult:
 
 
 @dataclass
-class GroupICResult:
-    """Result of group-level IC aggregation with per-factor breakdown.
-
-    Attributes:
-        group_ic: (dates x groups) group-level IC history.  Identical in shape
-            to the legacy ``build_group_ic_history`` return value.
-        factor_ic: (dates x factors) per-factor IC time series.
-        excluded_factors: Group name → list of factor names excluded by the
-            negative-IC filter policy.  Empty when
-            ``ICNegativeFilterPolicy.INCLUDE``.
-    """
-
-    group_ic: pd.DataFrame
-    factor_ic: pd.DataFrame
-    excluded_factors: dict[str, list[str]]
-
-
-@dataclass
 class QuantileSpreadResult:
     """Quantile spread analysis results for a single factor.
 
