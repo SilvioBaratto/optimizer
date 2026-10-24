@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 _HORIZONS = ("1D", "1M", "YTD", "1Y", "max")
 
+# Calendar days of bars read before a book's earliest fill so the fill-day price, and
+# the 5-row FX forward-fill behind it, still resolve across weekends and holidays.
+_MARK_LOOKBACK_DAYS = 30
+
 
 @dataclass(frozen=True)
 class NavPoint:
@@ -859,6 +863,79 @@ def _series_returns(
     return r1d, _window(30), _window(365)
 
 
+def _active_ticket(session: Any, portfolio_id: uuid.UUID, asof: dt.date | None) -> Any:
+    """The latest paper ticket filled at or before ``asof`` (``None`` when absent)."""
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from sqlalchemy import select
+
+    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
+    if asof is not None:
+        stmt = stmt.where(PaperOrder.fill_date <= asof)
+    stmt = stmt.order_by(PaperOrder.fill_date.desc(), PaperOrder.asof.desc())
+    return session.execute(stmt).scalars().first()
+
+
+def _ticket_lines(ticket: Any) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """A ticket's tickers in line order, and the (last) line for each of them."""
+    line_by_ticker: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for line in ticket.lines:
+        ticker = line.get("ticker")
+        if ticker is None:
+            continue
+        if ticker not in line_by_ticker:
+            order.append(ticker)
+        line_by_ticker[ticker] = line
+    return order, line_by_ticker
+
+
+def _book_base_prices(
+    session: Any,
+    order: list[str],
+    *,
+    base_currency: str,
+    start: dt.date | None,
+    end: dt.date | None,
+) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+    """Base-currency closes for a book: ``(raw, forward-filled)``, or ``None``.
+
+    ``None`` when no holding has any price in the window. ``raw`` keeps each holding's
+    own trading days (NaN elsewhere); the forward-filled copy is what values are
+    marked on.
+
+    Raises:
+        FxCoverageError: See :func:`_require_fx_coverage`.
+    """
+    raw_prices, currency_map = _load_price_frame(session, order, start=start, end=end)
+    if raw_prices.empty:
+        return None
+    quotes = sorted({_major_currency(code) for code in currency_map.values()})
+    fx_rates = _load_fx_rates_frame(
+        session, base_currency, quotes, start=start, end=end
+    )
+    _require_fx_coverage(base_currency, currency_map, fx_rates)
+    base_raw = _to_base_prices(
+        raw_prices,
+        base_currency=base_currency,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+    )
+    return base_raw, base_raw.ffill()
+
+
+def _marked_value(
+    ticker: str, shares: dict[str, float], base_prices: pd.DataFrame
+) -> tuple[float, float] | None:
+    """``(shares, value)`` at the holding's latest base close; ``None`` if unpriced."""
+    qty = shares.get(ticker)
+    if qty is None or ticker not in base_prices.columns:
+        return None
+    marked = base_prices[ticker].dropna()
+    if marked.empty:
+        return None
+    return qty, qty * float(marked.iloc[-1])
+
+
 def holding_marks(
     portfolio_id: uuid.UUID,
     *,
@@ -881,6 +958,10 @@ def holding_marks(
     did not trade cannot manufacture a 0 % move. Like :func:`build_nav_series`,
     value and P&L are gross of the modelled slippage/commission.
 
+    The trailing returns need a year of closes, so this reads each holding's whole
+    price history; a caller that only needs the book's weights (the drift poll) should
+    use :func:`marked_weights`.
+
     Args:
         portfolio_id: Portfolio whose current book to mark.
         session: Open SQLAlchemy session (reader; no commit).
@@ -895,55 +976,28 @@ def holding_marks(
         FxCoverageError: Foreign holdings exist but no FX rate covers their currency
             under ``base_currency`` (see :func:`build_nav_series`).
     """
-    from portopt_db.models.orders.paper_order import PaperOrder
-    from sqlalchemy import select
-
-    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
-    if asof is not None:
-        stmt = stmt.where(PaperOrder.fill_date <= asof)
-    stmt = stmt.order_by(PaperOrder.fill_date.desc(), PaperOrder.asof.desc())
-    ticket = session.execute(stmt).scalars().first()
+    ticket = _active_ticket(session, portfolio_id, asof)
     if ticket is None:
         return []
 
-    line_by_ticker: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
-    for line in ticket.lines:
-        ticker = line.get("ticker")
-        if ticker is None:
-            continue
-        if ticker not in line_by_ticker:
-            order.append(ticker)
-        line_by_ticker[ticker] = line
-
-    raw_prices, currency_map = _load_price_frame(session, order, end=asof)
-    if raw_prices.empty:
-        return [_degraded_mark(ticker) for ticker in order]
-
-    quotes = sorted({_major_currency(code) for code in currency_map.values()})
-    fx_rates = _load_fx_rates_frame(session, base_currency, quotes, end=asof)
-    _require_fx_coverage(base_currency, currency_map, fx_rates)
-    base_raw = _to_base_prices(
-        raw_prices,
-        base_currency=base_currency,
-        currency_map=currency_map,
-        fx_rates=fx_rates,
+    order, line_by_ticker = _ticket_lines(ticket)
+    book = _book_base_prices(
+        session, order, base_currency=base_currency, start=None, end=asof
     )
-    base_prices = base_raw.ffill()
+    if book is None:
+        return [_degraded_mark(ticker) for ticker in order]
+    base_raw, base_prices = book
     shares = _ticket_shares(ticket, base_prices)
 
     computed: dict[str, tuple[float, float, pd.Series]] = {}
     for ticker in order:
-        qty = shares.get(ticker)
-        if qty is None or ticker not in base_prices.columns:
+        marked = _marked_value(ticker, shares, base_prices)
+        if marked is None:
             continue
-        marked = base_prices[ticker].dropna()
-        if marked.empty:
-            continue
+        qty, value = marked
         # Value marks on the ffilled (asof) close; returns run on the holding's own
         # real closes so a carry-forward over a non-trading day cannot fake a move.
-        returns_series = base_raw[ticker].dropna()
-        computed[ticker] = (qty, qty * float(marked.iloc[-1]), returns_series)
+        computed[ticker] = (qty, value, base_raw[ticker].dropna())
 
     total = sum(value for _, value, _ in computed.values())
 
@@ -976,6 +1030,72 @@ def holding_marks(
     return marks
 
 
+def marked_weights(
+    portfolio_id: uuid.UUID,
+    *,
+    session: Any,
+    base_currency: str,
+    asof: dt.date | None = None,
+) -> dict[str, float] | None:
+    """Market-value weights of the current paper book, from a bounded price read.
+
+    The same weights :func:`holding_marks` reports (shares × latest base close over
+    the book's total), but loading only the bars from ``_MARK_LOOKBACK_DAYS`` before
+    the book's earliest fill instead of each holding's whole listing history. The
+    drift poll runs this for every portfolio every couple of seconds on the TUI event
+    loop, so its cost must scale with the book's age, not the instruments'.
+
+    ``None`` — never a partial map — when the portfolio has no paper ticket, a holding
+    has no price in the window (including one whose last bar before its fill is more
+    than ``_MARK_LOOKBACK_DAYS`` older), or the total value is zero: weights over only
+    the priced holdings would misstate the book.
+
+    Args:
+        portfolio_id: Portfolio whose current book to weight.
+        session: Open SQLAlchemy session (reader; no commit).
+        base_currency: Mandate base currency to express values in.
+        asof: Mark date upper bound; ``None`` uses the latest available prices.
+
+    Returns:
+        ``{ticker: weight}`` summing to 1, or ``None`` when the book cannot be marked.
+
+    Raises:
+        FxCoverageError: Foreign holdings exist but no FX rate covers their currency
+            under ``base_currency`` (see :func:`build_nav_series`).
+    """
+    ticket = _active_ticket(session, portfolio_id, asof)
+    if ticket is None:
+        return None
+
+    order, _ = _ticket_lines(ticket)
+    fills = [
+        _as_date(line.get("fill_date")) or ticket.fill_date
+        for line in ticket.lines
+        if line.get("ticker") is not None
+    ]
+    window_start = min(fills, default=ticket.fill_date) - dt.timedelta(
+        days=_MARK_LOOKBACK_DAYS
+    )
+    book = _book_base_prices(
+        session, order, base_currency=base_currency, start=window_start, end=asof
+    )
+    if book is None:
+        return None
+    _, base_prices = book
+    shares = _ticket_shares(ticket, base_prices)
+
+    values: dict[str, float] = {}
+    for ticker in order:
+        marked = _marked_value(ticker, shares, base_prices)
+        if marked is None:
+            return None
+        values[ticker] = marked[1]
+    total = sum(values.values())
+    if not total:
+        return None
+    return {ticker: value / total for ticker, value in values.items()}
+
+
 __all__ = [
     "FxCoverageError",
     "HoldingMark",
@@ -983,6 +1103,7 @@ __all__ = [
     "PerformanceSummary",
     "build_nav_series",
     "holding_marks",
+    "marked_weights",
     "nav_return_series",
     "portfolio_metrics",
 ]

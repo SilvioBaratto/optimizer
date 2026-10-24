@@ -549,6 +549,151 @@ def test_portfolio_state_target_falls_back_to_latest_allocator_proposal(db_sessi
     assert state.drift_l1 == pytest.approx(0.6)
 
 
+def _seed_eur_book(
+    db_session,
+    *,
+    aaa_close_now: float,
+    bbb_close_now: float,
+    pre_fill_days: int = 0,
+) -> None:
+    """An approved 60/40 EUR book filled at 100/100, re-priced to the given closes.
+
+    ``pre_fill_days`` adds that many daily bars (at 90) before the fill, the listing
+    history a real instrument carries long before the book was built.
+    """
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+    from portopt_db.models.orders.paper_order import PaperOrder
+    from portopt_db.models.universe.universe import Exchange, Instrument
+
+    fill_day, now_day = date(2026, 1, 5), date(2026, 1, 29)
+    exchange = Exchange(name="X")
+    db_session.add(exchange)
+    db_session.flush()
+    for ticker, close_now in (("AAA", aaa_close_now), ("BBB", bbb_close_now)):
+        inst = Instrument(
+            ticker=ticker, short_name=ticker, exchange=exchange, yfinance_ticker=ticker
+        )
+        db_session.add(inst)
+        db_session.flush()
+        db_session.add_all(
+            [
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=fill_day,
+                    close=Decimal("100"),
+                    price_unit="EUR",
+                ),
+                PriceHistory(
+                    instrument_id=inst.id,
+                    date=now_day,
+                    close=Decimal(str(close_now)),
+                    price_unit="EUR",
+                ),
+            ]
+        )
+        db_session.add_all(
+            PriceHistory(
+                instrument_id=inst.id,
+                date=fill_day - timedelta(days=offset),
+                close=Decimal("90"),
+                price_unit="EUR",
+            )
+            for offset in range(1, pre_fill_days + 1)
+        )
+    db_session.add(
+        PaperOrder(
+            portfolio_id=_PID,
+            asof=date(2026, 1, 4),
+            weights_hash="h1",
+            weights={"AAA": 0.6, "BBB": 0.4},
+            fill_date=fill_day,
+            lines=[
+                {"ticker": "AAA", "notional": 6000.0, "fill_price": 100.0},
+                {"ticker": "BBB", "notional": 4000.0, "fill_price": 100.0},
+            ],
+            notional=10000.0,
+            total_commission=0.0,
+            total_slippage_cost=0.0,
+        )
+    )
+    PositionRepository(db_session).set_holdings(
+        _PID,
+        [{"ticker": "AAA", "weight": 0.6}, {"ticker": "BBB", "weight": 0.4}],
+        asof=_ASOF,
+    )
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 0.6, "BBB": 0.4},
+        created_at=datetime(2026, 1, 4, tzinfo=UTC),
+    )
+    db_session.flush()
+
+
+def test_portfolio_state_current_is_marked_to_market_so_a_rally_shows_as_drift(
+    db_session,
+):
+    _seed_eur_book(db_session, aaa_close_now=130.0, bbb_close_now=100.0)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    # 60 sh x 130 = 7800 vs 40 sh x 100 = 4000 -> 66.1% / 33.9% against a 60/40 target.
+    assert state.current["AAA"] == pytest.approx(7800 / 11800)
+    assert state.current["BBB"] == pytest.approx(4000 / 11800)
+    assert state.drift_l1 == pytest.approx(2 * (7800 / 11800 - 0.6))
+    assert state.drift_l1 > 0.1
+
+
+def test_portfolio_state_marks_from_the_bars_since_the_fill_not_the_full_history(
+    db_session, monkeypatch
+):
+    """The TUI polls ``portfolio_state`` on its event loop, so it must stay bounded."""
+    from portopt_db.repositories.market_data.yfinance_repository import (
+        YFinanceRepository,
+    )
+
+    _seed_eur_book(
+        db_session, aaa_close_now=130.0, bbb_close_now=100.0, pre_fill_days=400
+    )
+    rows_read: list[int] = []
+    original = YFinanceRepository.get_price_history
+
+    def spy(self, *args, **kwargs):
+        rows = original(self, *args, **kwargs)
+        rows_read.append(len(rows))
+        return rows
+
+    monkeypatch.setattr(YFinanceRepository, "get_price_history", spy)
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current["AAA"] == pytest.approx(7800 / 11800)
+    assert state.drift_l1 > 0.1
+    # 2 tickers x 400 pre-fill bars is 800+ rows when the whole history is loaded.
+    assert sum(rows_read) < 150
+
+
+def test_portfolio_state_without_a_priced_book_keeps_the_positions_snapshot(
+    db_session,
+):
+    PositionRepository(db_session).set_holdings(
+        _PID, [{"ticker": "AAA", "weight": 1.0}], asof=_ASOF
+    )
+    _make_run(
+        db_session,
+        portfolio_id=_PID,
+        status="completed",
+        weights={"AAA": 1.0},
+        created_at=datetime(2026, 2, 10, tzinfo=UTC),
+    )
+
+    state = observe.portfolio_state(db_session, _PID)
+
+    assert state.current == {"AAA": 1.0}
+    assert state.drift_l1 == pytest.approx(0.0)
+
+
 def test_portfolio_state_reads_best_effort_metrics_when_present(db_session):
     run = _make_run(
         db_session,

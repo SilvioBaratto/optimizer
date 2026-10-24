@@ -305,8 +305,13 @@ def load_run_transcript(session: Any, saver: Any, run: Any) -> list[TranscriptEn
 def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
     """Current holdings vs target weights, with L1 drift and best-effort metrics.
 
-    ``current`` is the ticker→weight map from the ``positions`` snapshot; ``target``
-    is the latest ``completed`` run's ``weights`` (fallback: the latest allocator
+    ``current`` is the paper book's **market-value** weights (shares × latest
+    base-currency close, as :func:`holdings_summary` marks them), so a price move
+    since the fill shows up as drift. The ``positions`` snapshot stores the weights
+    the book was *built* to, which equal ``target`` right after every approval, so
+    it is used only when the book cannot be marked (no paper ticket, an unpriced
+    holding, or a base currency without FX coverage). ``target`` is the latest
+    ``completed`` run's ``weights`` (fallback: the latest allocator
     ``optimize_portfolio`` proposal). ``metrics`` is read from the latest allocator
     decision when it carries a ``metrics`` block, else ``{}`` — Phase 7 persists no
     dedicated metrics column, and metrics are never fabricated.
@@ -314,8 +319,10 @@ def portfolio_state(session: Any, portfolio_id: uuid.UUID) -> PortfolioState:
     from fund.audit.positions_repository import PositionRepository
     from fund.audit.repository import AgentRunRepository
 
-    holdings = PositionRepository(session).get_holdings(portfolio_id)
-    current = {p.ticker: p.weight for p in holdings}
+    current = _marked_current_weights(session, portfolio_id)
+    if current is None:
+        holdings = PositionRepository(session).get_holdings(portfolio_id)
+        current = {p.ticker: p.weight for p in holdings}
     run_repo = AgentRunRepository(session)
     target = _target_weights(run_repo, portfolio_id)
     return PortfolioState(
@@ -366,11 +373,44 @@ def default_decision_bar(session: Any, *, today: dt.date | None = None) -> dt.da
         )
         .group_by(PriceHistory.instrument_id)
     )
-    latest = sorted(session.execute(stmt).scalars())
+    latest: list[dt.date] = sorted(session.execute(stmt).scalars())
     if not latest:
         return day
     reached = latest[int(len(latest) * _DECISION_BAR_LAGGING_SHARE)]
     return reached - dt.timedelta(days=1)
+
+
+def _marked_current_weights(
+    session: Any, portfolio_id: uuid.UUID
+) -> dict[str, float] | None:
+    """Market-value weights of the portfolio's paper book, or ``None`` if unmarkable.
+
+    ``None`` — rather than a partial map — when there is no paper ticket, any
+    holding is unpriced, or the mandate's base currency has no FX coverage: weights
+    renormalised over only the priced holdings would misstate the drift, so the
+    caller falls back to the stored snapshot instead.
+
+    Reads through :func:`fund.performance.marked_weights`, which loads only the bars
+    since the book's fill: this sits on the TUI's 2-second poll path (once per
+    portfolio, several times a tick), where :func:`holdings_summary`'s whole-history
+    read — needed there for its trailing returns — would stall the event loop.
+    """
+    from fund.performance import FxCoverageError, marked_weights
+
+    try:
+        return marked_weights(
+            portfolio_id,
+            session=session,
+            base_currency=_base_currency(session, portfolio_id),
+        )
+    except FxCoverageError:
+        return None
+
+
+def _base_currency(session: Any, portfolio_id: uuid.UUID) -> str:
+    """The portfolio's mandate base currency; ``"EUR"`` (the seeded FX base) if none."""
+    mandate = get_mandate(session, portfolio_id)
+    return mandate.base_currency if mandate is not None else "EUR"
 
 
 def interrupt_for(saver: Any, run: Any) -> dict[str, Any] | None:
@@ -506,10 +546,11 @@ def holdings_summary(
     """
     from fund.performance import holding_marks
 
-    mandate = get_mandate(session, portfolio_id)
-    base_currency = mandate.base_currency if mandate is not None else "EUR"
     return holding_marks(
-        portfolio_id, session=session, base_currency=base_currency, asof=asof
+        portfolio_id,
+        session=session,
+        base_currency=_base_currency(session, portfolio_id),
+        asof=asof,
     )
 
 
