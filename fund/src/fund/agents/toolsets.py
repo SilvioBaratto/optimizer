@@ -97,6 +97,23 @@ TOOLS_BY_AGENT: dict[str, tuple[str, ...]] = {
 }
 
 
+# Model-facing day-span bounds. The spans are LLM-chosen, so out-of-range values
+# are rejected rather than passed through: a negative span would answer "ok, no
+# events" and a multi-year one would flood the agent's context with digests.
+_EVENTS_WINDOW_BOUNDS: tuple[int, int] = (1, 60)
+_HISTORY_LOOKBACK_BOUNDS: tuple[int, int] = (1, 365)
+
+
+def _days_out_of_range(
+    name: str, value: int, bounds: tuple[int, int]
+) -> ToolResult | None:
+    """An error envelope when ``value`` falls outside ``bounds`` (inclusive)."""
+    low, high = bounds
+    if low <= value <= high:
+        return None
+    return err(f"{name} must be between {low} and {high} days (got {value})")
+
+
 @dataclass(frozen=True)
 class RunContext:
     """Immutable per-run binding context for the toolset closures.
@@ -546,12 +563,18 @@ def _get_regime_stats_impl(ctx: RunContext, tickers: list[str]) -> ToolResult:
 @tool_envelope
 @_serialised
 def _get_recent_events_impl(ctx: RunContext, window: int = 14) -> ToolResult:
+    if (bad := _days_out_of_range("window", window, _EVENTS_WINDOW_BOUNDS)) is not None:
+        return bad
     return _tools.get_recent_events(ctx.session, ctx.asof, window=window)
 
 
 @tool_envelope
 @_serialised
 def _get_portfolio_history_impl(ctx: RunContext, lookback: int = 90) -> ToolResult:
+    if (
+        bad := _days_out_of_range("lookback", lookback, _HISTORY_LOOKBACK_BOUNDS)
+    ) is not None:
+        return bad
     # ``portfolio_id`` is bound from the run context, never chosen by the model —
     # an agent reads only its own portfolio's history.
     return _tools.get_portfolio_history(
@@ -709,8 +732,8 @@ def _bind_get_recent_events(ctx: RunContext) -> BaseTool:
 
     @tool
     def get_recent_events(window: int = 14) -> ToolResult:
-        """Recent global market/macro/news digests in the ``window`` days up to the
-        run date (no look-ahead). Returns the ``{ok, data}`` envelope with one
+        """Recent global market/macro/news digests in the ``window`` days (1-60) up
+        to the run date (no look-ahead). Returns the ``{ok, data}`` envelope with one
         compact entry per day (narrative + top themes) — never a raw matrix."""
         return _get_recent_events_impl(ctx, window)
 
@@ -722,9 +745,10 @@ def _bind_get_portfolio_history(ctx: RunContext) -> BaseTool:
 
     @tool
     def get_portfolio_history(lookback: int = 90) -> ToolResult:
-        """This portfolio's own recent activity in the ``lookback`` days up to the
-        run date: prior rebalances, runs, orders, and current holdings. Returns the
-        ``{ok, data}`` envelope with compact summaries — never a raw matrix."""
+        """This portfolio's own recent activity in the ``lookback`` days (1-365) up
+        to the run date: prior rebalances, runs, orders, and current holdings.
+        Returns the ``{ok, data}`` envelope with compact summaries — never a raw
+        matrix."""
         return _get_portfolio_history_impl(ctx, lookback)
 
     return get_portfolio_history

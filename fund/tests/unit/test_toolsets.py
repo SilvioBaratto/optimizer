@@ -405,6 +405,68 @@ def test_bound_get_portfolio_history_returns_envelope(db_session) -> None:
     assert result["data"]["current_holdings"] == {}
 
 
+@pytest.mark.parametrize("window", [-30, 0, 61, 10**9])
+def test_get_recent_events_rejects_out_of_range_window(db_session, window) -> None:
+    MarketJournalRepository(db_session).upsert_journal(
+        dt.date(2024, 1, 25),
+        macro_deltas={},
+        market_moves={},
+        news_themes={"themes": {"rates": 1}},
+        narrative="digest",
+        source_counts={},
+    )
+    events = _find(
+        bind_toolset("economist", _make_context(db_session)), "get_recent_events"
+    )
+
+    result = events.invoke({"window": window})
+
+    # An ``ok`` answer with zero events reads to the economist as "no macro
+    # backdrop", so an out-of-range span must be an explicit error.
+    assert result["ok"] is False
+    assert "window" in result["error"]
+
+
+@pytest.mark.parametrize("window", [1, 60])
+def test_get_recent_events_accepts_window_bounds(db_session, window) -> None:
+    events = _find(
+        bind_toolset("economist", _make_context(db_session)), "get_recent_events"
+    )
+
+    result = events.invoke({"window": window})
+
+    assert result["ok"] is True
+    assert result["data"]["window"] == window
+
+
+@pytest.mark.parametrize("lookback", [-30, 0, 366, 10**9])
+def test_get_portfolio_history_rejects_out_of_range_lookback(
+    db_session, lookback
+) -> None:
+    history = _find(
+        bind_toolset("orchestrator", _make_context(db_session)),
+        "get_portfolio_history",
+    )
+
+    result = history.invoke({"lookback": lookback})
+
+    assert result["ok"] is False
+    assert "lookback" in result["error"]
+
+
+@pytest.mark.parametrize("lookback", [1, 365])
+def test_get_portfolio_history_accepts_lookback_bounds(db_session, lookback) -> None:
+    history = _find(
+        bind_toolset("orchestrator", _make_context(db_session)),
+        "get_portfolio_history",
+    )
+
+    result = history.invoke({"lookback": lookback})
+
+    assert result["ok"] is True
+    assert result["data"]["lookback"] == lookback
+
+
 def test_bound_estimate_moments_returns_full_covariance(db_session) -> None:
     _seed_panel(db_session)
     ctx = _make_context(db_session)
