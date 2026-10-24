@@ -813,6 +813,50 @@ async def test_decisions_killswitch_cancel_is_a_noop_and_run_stays_paused(
 
 
 @pytest.mark.asyncio
+async def test_confirm_screen_opens_on_cancel_so_a_stray_enter_is_not_a_confirm(
+    shell_env,
+) -> None:
+    # The dialog opens right after the Enter that submitted the Ask turn, so a
+    # double-tap or key repeat lands on it: the safe button must hold focus.
+    app = _make_shell(shell_env)
+    results: list[bool | None] = []
+    async with app.run_test(size=_SIZE) as pilot:
+        app.push_screen(ConfirmScreen("FREEZE the fund"), results.append)
+        await pilot.pause()
+        assert app.focused is not None
+        assert app.focused.id == "confirm-no"
+        await pilot.press("enter")
+        await pilot.pause()
+    assert results == [False]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["k", "K"])
+async def test_scope_pick_screen_opens_on_cancel_so_a_stray_enter_picks_nothing(
+    tui_env, key
+) -> None:
+    # `k` (run killswitch) / `K` (portfolio re-arm) then an immediate Enter must not
+    # fire the first, consequential scope button.
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        await pilot.press(key)
+        await pilot.pause()
+        assert isinstance(app.screen, ScopePickScreen)
+        assert app.focused is not None
+        assert app.focused.id == "scope-cancel"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not isinstance(app.screen, ScopePickScreen)
+        assert app.last_worker is None
+        assert "cancelled" in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+
+
+@pytest.mark.asyncio
 async def test_decisions_killswitch_without_selection_shows_no_confirm(tui_env) -> None:
     # Guard: nothing selected => no modal, no worker, just the status hint.
     app = _make_shell(tui_env)

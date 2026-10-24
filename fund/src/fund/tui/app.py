@@ -101,6 +101,10 @@ class ConfirmScreen(ModalScreen[bool]):
     .confirm-actions { height: auto; align-horizontal: center; padding-top: 1; }
     """
 
+    # The dialog opens right after the Enter that submitted the triggering turn, so a
+    # key repeat lands on whatever holds focus: that must be the harmless button.
+    AUTO_FOCUS: ClassVar[str | None] = "#confirm-no"
+
     BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
 
     def __init__(self, prompt: str) -> None:
@@ -272,6 +276,10 @@ class ScopePickScreen(ModalScreen["str | None"]):
     .scope-actions { height: auto; align-horizontal: center; padding-top: 1; }
     .scope-actions Button { margin: 0 1; }
     """
+
+    # Every scope button is consequential, so a stray Enter right after the opening
+    # keypress must land on Cancel rather than the first scope.
+    AUTO_FOCUS: ClassVar[str | None] = "#scope-cancel"
 
     BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
 
