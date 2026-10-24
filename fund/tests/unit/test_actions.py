@@ -1276,6 +1276,41 @@ def test_approve_is_refused_when_the_fund_froze_after_the_gate_opened(
         assert HumanAuditLogRepository(session).list_recent(action="approve") == []
 
 
+def test_freeze_does_not_rewrite_a_run_an_approve_completed_first(
+    paused_env, monkeypatch
+) -> None:
+    """A portfolio freeze lists the live gates, then rejects each. An approve that
+    finalises one of them in between wins: the freeze must leave that run ``completed``
+    instead of rewriting it to ``rejected`` over a ticket and a positions snapshot."""
+    env = paused_env
+    with env.get_session() as session:
+        repo = AgentRunRepository(session)
+        stale_listing = repo.list_paused_runs()
+        assert [run.id for run in stale_listing] == [env.run_id]
+        repo.finalize_run(env.run_id, weights=env.expected, status="completed")
+        monkeypatch.setattr(
+            AgentRunRepository,
+            "list_paused_runs",
+            lambda self, portfolio_id=None: stale_listing,
+        )
+
+        apply_action(
+            "freeze",
+            session=session,
+            scope="portfolio",
+            portfolio_id=PORTFOLIO_ID,
+            rationale="halt",
+        )
+        session.commit()
+
+    with env.get_session() as session:
+        run = AgentRunRepository(session).get_run(env.run_id)
+        assert run.status == "completed"
+        assert run.weights == env.expected
+        state = AutonomyRepository(session).portfolio_state(PORTFOLIO_ID)
+        assert state.state == "frozen"
+
+
 def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:
     """A repeated keyed action replays the first outcome without re-resuming the run."""
     env = paused_env

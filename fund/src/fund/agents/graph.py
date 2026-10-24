@@ -959,7 +959,7 @@ class FundRun:
     agent: Any = field(repr=False, compare=False)
     thread_config: dict[str, Any] = field(repr=False, compare=False)
     session: Any = field(repr=False, compare=False)
-    ctx: Any = field(default=None, repr=False, compare=False)
+    ctx: Any = field(repr=False, compare=False)
 
     def resume(
         self, decision: str, *, pm_directive: str | None = None
@@ -1178,17 +1178,25 @@ def _resume_gate(
 ) -> dict[str, Any]:
     """Resume the paused PM for a gate decision, shared by both resume routes.
 
-    An approve whose gate was already consumed by an earlier attempt that did not
-    survive (:func:`_gate_consumed`) has its ticket placed directly first, since the
-    resume can no longer reach ``place_orders``; every other decision is the plain
-    :func:`_resume_agent`. ``ctx`` is ``None`` for a handle built without one, which
-    skips the consumed-gate recovery.
+    The run is claimed first (:meth:`AgentRunRepository.claim_for_resume`): the status
+    guard that precedes this is a plain read, so a concurrent reject, freeze or second
+    approve may have finalised the run since, and driving the graph then would place
+    orders for a run the adviser already settled. An approve whose gate was already
+    consumed by an earlier attempt that did not survive (:func:`_gate_consumed`) has
+    its ticket placed directly, since the resume can no longer reach ``place_orders``;
+    every other decision is the plain :func:`_resume_agent`.
+
+    Raises:
+        ValueError: The run is no longer at a live gate.
     """
-    if (
-        ctx is not None
-        and decision == "approve"
-        and _gate_consumed(agent, thread_config)
-    ):
+    from fund.audit.repository import AgentRunRepository
+
+    if not AgentRunRepository(ctx.session).claim_for_resume(ctx.run_id):
+        raise ValueError(
+            f"agent_run {ctx.run_id} is no longer at a live gate (another resolver "
+            "finalised it first); nothing was resumed"
+        )
+    if decision == "approve" and _gate_consumed(agent, thread_config):
         _replace_consumed_ticket(ctx, approved_weights)
     return _resume_agent(agent, thread_config, decision, pm_directive)
 

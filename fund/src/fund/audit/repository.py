@@ -14,11 +14,12 @@ import json
 import uuid
 from collections.abc import Iterator, Sequence
 from datetime import UTC, date, datetime
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from portopt_db.models import AgentDecision, AgentRun
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select, update
+from sqlalchemy.engine import CursorResult
 
 from fund.audit.orders_repository import weights_hash
 
@@ -32,6 +33,17 @@ _STREAM_BATCH = 20
 # "pending" row is a run still being driven (or one that crashed before the gate), so
 # it is deliberately absent.
 RESUMABLE_RUN_STATUSES: tuple[str, ...] = ("paused", "responded")
+
+# Statuses a run may still be finalised from; every other status is terminal.
+_OPEN_RUN_STATUSES: tuple[str, ...] = ("pending", *RESUMABLE_RUN_STATUSES)
+
+
+class RunNotOpenError(ValueError):
+    """A run was finalised while it was no longer pending or at a live gate.
+
+    Another resolver (a reject, a freeze, a completed approve) got there first. A
+    ``ValueError`` so the shells treat it like the resume guard's own refusals.
+    """
 
 
 class AgentRunRepository(RepositoryBase):
@@ -114,19 +126,64 @@ class AgentRunRepository(RepositoryBase):
         """Stamp the run's output weights + terminal status; ``None`` if not found.
 
         ``error`` records why a run ended ``"failed"``; successful finalisations leave
-        it unset.
+        it unset. A terminal status is final: the write is a compare-and-set on the
+        stored status, not on the session's loaded copy, so a resolver that lost a race
+        (an approve overtaken by a reject or a freeze, or the reverse) cannot overwrite
+        the winner's outcome. Re-stamping the *same* outcome is an idempotent replay
+        and still succeeds.
+
+        Raises:
+            RunNotOpenError: The run was already finalised with a different outcome.
         """
         run = self.get_run(run_id)
         if run is None:
             return None
-        run.weights = weights
-        run.status = status
-        run.finished_at = finished_at or datetime.now(UTC)
+        values: dict[str, Any] = {
+            "weights": weights,
+            "status": status,
+            "finished_at": finished_at or datetime.now(UTC),
+        }
         if error is not None:
-            run.error = error
+            values["error"] = error
+        # Autoflush is off in the shells' sessions; flush so the UPDATE sees the row.
         self.session.flush()
+        result = self.session.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                or_(AgentRun.status.in_(_OPEN_RUN_STATUSES), AgentRun.status == status),
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
         self.session.refresh(run)
+        if cast("CursorResult[Any]", result).rowcount != 1:
+            raise RunNotOpenError(
+                f"agent_run {run_id} is {run.status!r}, already finalised; cannot "
+                f"finalise it {status!r}"
+            )
         return run
+
+    def claim_for_resume(self, run_id: uuid.UUID) -> bool:
+        """Take the run for one adviser decision; ``False`` if it left its live gate.
+
+        The compare-and-set a resolver must win before it drives the run's graph
+        thread: a conditional UPDATE on the stored status, so a resolver that read
+        ``"paused"`` before a concurrent approve, reject or freeze finalised the run
+        matches no row and backs off. On PostgreSQL the UPDATE also holds the row's
+        lock until the caller's transaction ends, so a concurrent resolver blocks and
+        then re-evaluates against the committed status instead of resuming the same
+        thread alongside this one. Changes nothing else.
+        """
+        # Autoflush is off in the shells' sessions; flush so the UPDATE sees the row.
+        self.session.flush()
+        result = self.session.execute(
+            update(AgentRun)
+            .where(AgentRun.id == run_id, AgentRun.status.in_(RESUMABLE_RUN_STATUSES))
+            .values(status=AgentRun.status)
+            .execution_options(synchronize_session=False)
+        )
+        return bool(cast("CursorResult[Any]", result).rowcount == 1)
 
     def latest_optimizer_weights(self, run_id: uuid.UUID) -> dict[str, float]:
         """The single authoritative read of a run's optimizer weights.
@@ -542,4 +599,4 @@ class AgentRunRepository(RepositoryBase):
         return [(dec, pid) for dec, pid in self.session.execute(stmt).all()]
 
 
-__all__ = ["RESUMABLE_RUN_STATUSES", "AgentRunRepository"]
+__all__ = ["RESUMABLE_RUN_STATUSES", "AgentRunRepository", "RunNotOpenError"]

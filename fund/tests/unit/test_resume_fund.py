@@ -770,6 +770,97 @@ def test_fundrun_resume_refuses_a_run_that_is_not_at_a_gate(db_session) -> None:
     assert _paper_orders(db_session) == []
 
 
+# --- two resolvers racing for the same gate ----------------------------------
+
+
+class _ConcurrentResolutionDuringClosingTurn(ScriptedFundModel):
+    """A PM whose closing turn (after ``place_orders`` ran) overlaps another resolver
+    committing its own outcome for the same run — a reject, or a freeze killswitch."""
+
+    concurrent: object = None
+
+    def _pm_turn(self, messages):
+        if self.concurrent is not None and _count_tool_calls(messages, "place_orders"):
+            self.concurrent()
+        return super()._pm_turn(messages)
+
+
+def test_approve_does_not_overwrite_a_run_rejected_while_it_was_in_flight(
+    db_session,
+) -> None:
+    """The adviser presses Approve, then Reject (or a freeze halts the fund) while the
+    approve is still resuming the graph. The reject finalises first; the approve must
+    then fail rather than stamp the run ``completed`` and rewrite the positions."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+
+    def reject_lands() -> None:
+        AgentRunRepository(db_session).finalize_run(
+            run.run_id, weights={}, status="rejected"
+        )
+
+    model = _ConcurrentResolutionDuringClosingTurn(
+        universe=UNIVERSE, weights=expected, concurrent=reject_lands
+    )
+    with pytest.raises(ValueError, match="rejected"):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=model,
+        )
+
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "rejected"
+    assert _positions_map(db_session) == {}
+
+
+def test_resume_fund_backs_off_when_another_resolver_finalised_the_run_first(
+    db_session, monkeypatch
+) -> None:
+    """The status guard is a plain read, so a reject can commit between it and the
+    resume. The loser must not drive the graph at all: that would run
+    ``place_orders`` for a run the adviser already rejected."""
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    build_fund_agent = graph_mod.build_fund_agent
+
+    def reject_lands_then_build(*args, **kwargs):
+        AgentRunRepository(db_session).finalize_run(
+            run.run_id, weights={}, status="rejected"
+        )
+        return build_fund_agent(*args, **kwargs)
+
+    monkeypatch.setattr(graph_mod, "build_fund_agent", reject_lands_then_build)
+    model = ScriptedFundModel(universe=UNIVERSE, weights=expected)
+
+    with pytest.raises(ValueError, match="no longer at a live gate"):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=model,
+        )
+
+    assert model.generate_calls == 0
+    assert _paper_orders(db_session) == []
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
+
+
 # --- parity: FundRun.resume and resume_fund leave identical state ------------
 
 

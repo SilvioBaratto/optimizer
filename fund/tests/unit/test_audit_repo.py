@@ -12,9 +12,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 
+import pytest
 from portopt_db.models import AgentDecision, AgentRun
+from sqlalchemy import update
 
 from fund.audit import AgentRunRepository
+from fund.audit.repository import RunNotOpenError
 
 
 def test_create_run_persists_and_returns_row(db_session):
@@ -101,6 +104,101 @@ def test_finalize_run_records_the_error_of_a_failed_run(db_session):
     assert finalized is not None
     assert finalized.status == "failed"
     assert finalized.error == "TimeoutError: provider timed out"
+
+
+def _new_run(repo: AgentRunRepository) -> AgentRun:
+    return repo.create_run(
+        portfolio_id=None,
+        asof=date(2026, 1, 2),
+        seed=1,
+        universe=["AAPL"],
+        optimizer_config={},
+    )
+
+
+def _set_status_behind_the_session(db_session, run_id, status: str) -> None:
+    """What another transaction committing a status looks like to this session: the
+    row changes while the session's loaded copy still says what it read earlier."""
+    db_session.execute(
+        update(AgentRun).where(AgentRun.id == run_id).values(status=status)
+    )
+
+
+def test_finalize_run_refuses_a_run_that_is_already_finalised(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.finalize_run(run.id, weights={}, status="rejected")
+
+    with pytest.raises(RunNotOpenError, match="rejected"):
+        repo.finalize_run(run.id, weights={"AAPL": 1.0}, status="completed")
+
+    db_session.refresh(run)
+    assert run.status == "rejected"
+    assert run.weights == {}
+
+
+def test_finalize_run_allows_replaying_the_same_outcome(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.finalize_run(run.id, weights={"AAPL": 1.0}, status="completed")
+
+    replayed = repo.finalize_run(run.id, weights={"AAPL": 1.0}, status="completed")
+
+    assert replayed is not None
+    assert replayed.status == "completed"
+    assert replayed.weights == {"AAPL": 1.0}
+
+
+def test_finalize_run_sees_a_status_committed_since_the_run_was_loaded(db_session):
+    """A finalisation must not rely on the session's loaded copy of the run: another
+    transaction may have finalised it since (a reject or freeze racing an approve)."""
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.mark_paused(run.id)
+    _set_status_behind_the_session(db_session, run.id, "rejected")
+
+    with pytest.raises(RunNotOpenError):
+        repo.finalize_run(run.id, weights={"AAPL": 1.0}, status="completed")
+
+    db_session.refresh(run)
+    assert run.status == "rejected"
+
+
+@pytest.mark.parametrize("status", ["paused", "responded"])
+def test_claim_for_resume_succeeds_for_a_run_at_a_live_gate(db_session, status):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    _set_status_behind_the_session(db_session, run.id, status)
+
+    assert repo.claim_for_resume(run.id) is True
+
+
+@pytest.mark.parametrize(
+    "status", ["pending", "completed", "rejected", "incomplete", "blocked", "failed"]
+)
+def test_claim_for_resume_refuses_a_run_that_is_not_at_a_live_gate(db_session, status):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    _set_status_behind_the_session(db_session, run.id, status)
+
+    assert repo.claim_for_resume(run.id) is False
+
+
+def test_claim_for_resume_refuses_a_run_finalised_since_it_was_loaded(db_session):
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    repo.mark_paused(run.id)
+    loaded = repo.get_run(run.id)
+    assert loaded is not None and loaded.status == "paused"
+    _set_status_behind_the_session(db_session, run.id, "rejected")
+
+    assert repo.claim_for_resume(run.id) is False
+
+
+def test_claim_for_resume_returns_false_for_unknown_id(db_session):
+    import uuid
+
+    assert AgentRunRepository(db_session).claim_for_resume(uuid.uuid4()) is False
 
 
 def test_finalize_run_returns_none_for_unknown_id(db_session):

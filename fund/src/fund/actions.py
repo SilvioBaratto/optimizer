@@ -23,6 +23,7 @@ trail (see its docstring), so the staged work of that action sequence is discard
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import json
 import uuid
@@ -549,11 +550,14 @@ def _reject_live_runs(session: Session, portfolio_id: uuid.UUID | None) -> None:
     without a graph resume (an emergency stop needs no model/checkpointer). Scoped to
     ``portfolio_id`` when given, else fund-wide. No commit (the caller owns it).
     """
-    from fund.audit.repository import AgentRunRepository
+    from fund.audit.repository import AgentRunRepository, RunNotOpenError
 
     repo = AgentRunRepository(session)
     for run in repo.list_paused_runs(portfolio_id=portfolio_id):
-        repo.finalize_run(run.id, weights={}, status="rejected")
+        # A resolver that finalised the run since the listing (an approve in flight)
+        # won the race; its outcome must stand instead of being rewritten to rejected.
+        with contextlib.suppress(RunNotOpenError):
+            repo.finalize_run(run.id, weights={}, status="rejected")
 
 
 def halt_run_if_frozen(
