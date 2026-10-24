@@ -1798,7 +1798,7 @@ class ShellApp(App[None]):
             return
         self._stream_resume.clear()  # hold a streaming worker at the next boundary
         run_id = view.live_run_id
-        paused_at = view.live_text.splitlines()[0] if view.live_text else "the gate"
+        paused_at = view.held_step_label()
 
         # The streaming run's own portfolio, NOT self._portfolio_id — the header focus
         # may have moved since the stream started, which would otherwise mis-route the

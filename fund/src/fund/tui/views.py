@@ -1755,6 +1755,8 @@ class DeliberationView(ShellView):
         becomes ✓ before the new row lands, so markers need no second producer pass;
         the viewport snaps to the tail while :attr:`following`, and the detail pane
         mirrors the newest step.
+        While the adviser is inspecting an earlier row the cursor and the detail pane
+        stay where they are.
         """
         if self.live_run_id is None or event.run_id != self.live_run_id:
             return
@@ -1771,8 +1773,12 @@ class DeliberationView(ShellView):
             key=str(event.index),
         )
         if self.following:
+            # Keeping the cursor on the tail makes ``following`` mean "cursor on the
+            # last row", so a highlight message that outlives a later event cannot
+            # read as the adviser moving away.
+            table.move_cursor(row=table.row_count - 1)
             table.scroll_end(animate=False)
-        self._paint_live_detail(event)
+            self._paint_live_detail(event)
 
     def end_live(self) -> None:
         """Leave live mode and fall back to the replay transcript (terminal event)."""
@@ -1850,11 +1856,19 @@ class DeliberationView(ShellView):
         self._paint_live_subtitle()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        """Pause auto-follow when the adviser moves the live cursor off the tail."""
+        """Track the live cursor: off the tail pauses follow, and the row is shown.
+
+        Reads the table's current cursor rather than the message's row, which can be
+        stale by the time the loop handles it.
+        """
         if event.data_table.id != "delib-live":
             return
-        self.following = event.cursor_row == event.data_table.row_count - 1
+        table = event.data_table
+        row = table.cursor_row
+        self.following = row == table.row_count - 1
         self._paint_live_subtitle()
+        if 0 <= row < len(self._live_events):
+            self._paint_live_detail(self._live_events[row])
 
     def _paint_live_subtitle(self) -> None:
         follow = "following" if self.following else "inspecting (f to follow)"
@@ -1864,6 +1878,17 @@ class DeliberationView(ShellView):
         text = _stream_detail(event)
         self.live_text = text
         self.query_one("#delib-detail", Static).update(text)
+
+    def held_step_label(self) -> str:
+        """Header line of the newest streamed step, or ``"the gate"`` before any.
+
+        The stream is held at its tail whatever row the adviser is inspecting, so the
+        barge-in overlay reads this rather than :attr:`live_text`, which mirrors the
+        inspected row.
+        """
+        if not self._live_events:
+            return "the gate"
+        return _stream_detail(self._live_events[-1]).splitlines()[0]
 
     def select_run(self, run_id: uuid.UUID) -> None:
         """Focus a run's transcript; a new run clears the step, then repaint."""

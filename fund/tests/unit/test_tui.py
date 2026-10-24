@@ -4631,6 +4631,94 @@ async def test_deliberation_live_follow_then_inspect_then_resume(shell_env) -> N
 
 
 @pytest.mark.asyncio
+async def test_deliberation_live_inspect_shows_the_highlighted_step(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        for event in _scripted_stream(rid):
+            view.ingest_event(event)
+            await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        live.focus()
+        live.move_cursor(row=1)
+        await pilot.pause()
+        assert view.following is False
+        assert "proposed weights" in view.live_text  # inspected step, not the newest
+        detail = view.query_one("#delib-detail", Static)
+        assert "proposed weights" in detail.visual.plain
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_new_event_keeps_the_inspected_detail(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        for event in _scripted_stream(rid):
+            view.ingest_event(event)
+            await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        live.focus()
+        live.move_cursor(row=1)
+        await pilot.pause()
+        view.ingest_event(_step_event(rid, 5, "a later report"))
+        await pilot.pause()
+        assert live.row_count == 4
+        assert view.following is False
+        assert "proposed weights" in view.live_text  # not clobbered by the newest step
+        view.action_follow_live()
+        await pilot.pause()
+        assert "a later report" in view.live_text  # follow resumes the newest step
+
+
+@pytest.mark.asyncio
+async def test_barge_in_label_names_the_held_step_while_inspecting(shell_env) -> None:
+    """The overlay says where the stream is held (the newest step), not which earlier
+    row the adviser happens to be reading when they press ``b``."""
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        for event in _scripted_stream(rid):
+            view.ingest_event(event)
+            await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        live.focus()
+        live.move_cursor(row=0)  # inspect the first step
+        await pilot.pause()
+        assert view.following is False
+        assert "economist" in view.live_text  # the detail pane shows the inspected row
+        app.action_barge_in()
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, BargeInScreen)
+        assert "place_orders" in screen._paused_at  # the newest step, held at the gate
+        assert "economist" not in screen._paused_at
+
+
+@pytest.mark.asyncio
+async def test_deliberation_live_burst_of_events_keeps_following(shell_env) -> None:
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        rid = uuid.uuid4()
+        view.start_live(rid, _PID_A)
+        for event in _scripted_stream(rid):  # no yield to the loop between events
+            view.ingest_event(event)
+        await pilot.pause()
+        live = view.query_one("#delib-live", DataTable)
+        assert live.row_count == 3
+        assert view.following is True  # the cursor never left the tail
+        assert live.cursor_row == 2
+
+
+@pytest.mark.asyncio
 async def test_deliberation_follow_key_in_replay_does_not_claim_a_live_round(
     shell_env,
 ) -> None:
