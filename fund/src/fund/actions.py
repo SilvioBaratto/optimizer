@@ -15,7 +15,10 @@ keyless import.
 
 Transaction discipline (D1): :func:`apply_action` opens no session of its own and
 never commits — the caller injects a sync session and owns the transaction boundary
-(the TUI worker commits once the action lands, exactly like ``resume_run``).
+(the TUI worker commits once the action lands, exactly like ``resume_run``). The one
+exception is a ``profile`` action that hits a MiFID suitability breach:
+``run_profiler`` then rolls the session back and commits only the blocked run's
+trail (see its docstring), so the staged work of that action sequence is discarded.
 """
 
 from __future__ import annotations

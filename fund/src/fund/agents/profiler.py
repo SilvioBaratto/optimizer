@@ -533,6 +533,79 @@ def _prompt_text(questionnaire: Any) -> str:
     return json.dumps(questionnaire, default=str, sort_keys=True)
 
 
+def _record_normalised_answers(
+    audit: Any,
+    run_id: uuid.UUID,
+    *,
+    answers: MiFIDAnswers,
+    questionnaire: Any,
+    typed: bool,
+) -> None:
+    """Log the typed answers as the run's ``normalize_answers`` decision.
+
+    ``resume_profiler`` re-derives the mapping from this payload, so it is the
+    run's source of truth; a verbatim typed form carries no prompt to audit.
+    """
+    answers_json = answers.model_dump_json()
+    audit.append_decision(
+        run_id,
+        agent="profiler",
+        step="normalize_answers",
+        llm_prompt=None if typed else _prompt_text(questionnaire),
+        llm_response=answers_json,
+        llm_response_hash=_hash(answers_json),
+    )
+
+
+def _commit_blocked_trail(
+    session: Session,
+    *,
+    portfolio_id: uuid.UUID,
+    asof: dt.date,
+    answers: MiFIDAnswers,
+    questionnaire: Any,
+    typed: bool,
+    reason: str,
+) -> uuid.UUID:
+    """Persist a suitability breach's audit trail alone, then commit it.
+
+    Every caller's session scope rolls back on the ``SuitabilityBreachError`` that
+    follows, which would erase the only record of a legally blocked assessment. A
+    commit takes the whole transaction with it though, including whatever the
+    caller staged beforehand (the TUI onboarding flushes the portfolio's mandate and
+    its audit row first, and a blocked onboarding must leave neither behind). So
+    the transaction is rolled back and the trail is re-recorded on the clean one,
+    which is what gets committed.
+
+    Returns:
+        The id of the committed ``blocked`` run (the one rolled back with the
+        caller's transaction no longer exists), for the breach error to carry.
+    """
+    from fund.audit import AgentRunRepository
+
+    session.rollback()
+    audit = AgentRunRepository(session)
+    run = audit.create_run(
+        portfolio_id=portfolio_id,
+        asof=asof,
+        seed=None,
+        universe=[],
+        optimizer_config={"step": "profiler"},
+    )
+    _record_normalised_answers(
+        audit, run.id, answers=answers, questionnaire=questionnaire, typed=typed
+    )
+    audit.append_decision(
+        run.id,
+        agent="profiler",
+        step="suitability_breach",
+        hitl_decision={"decision": "blocked", "reason": reason},
+    )
+    audit.finalize_run(run.id, weights={}, status="blocked")
+    session.commit()
+    return run.id
+
+
 def _persist_instruction(portfolio_id: str) -> str:
     """The human turn that drives the agent to call ``save_profile`` once."""
     return (
@@ -887,7 +960,11 @@ def run_profiler(
 
     ``model`` must expose ``with_structured_output`` (normalisation) and be a
     tool-calling chat model (the agent). Every write goes through the injected
-    ``session`` (caller owns the transaction) and, when given, the ``store``.
+    ``session`` (caller owns the transaction) and, when given, the ``store`` — with
+    one exception: a ``SuitabilityBreachError`` ends the caller's transaction. The
+    session is rolled back, discarding anything the caller had staged, and only the
+    ``blocked`` run's trail is committed before the error propagates, so the
+    compliance record outlives the caller's own rollback.
     """
     from fund.audit import AgentRunRepository
     from fund.schemas.structured import structured_call
@@ -921,14 +998,8 @@ def run_profiler(
             retries=1,
             fallback=fallback,
         )
-    answers_json = answers.model_dump_json()
-    audit.append_decision(
-        run.id,
-        agent="profiler",
-        step="normalize_answers",
-        llm_prompt=None if typed else _prompt_text(questionnaire),
-        llm_response=answers_json,
-        llm_response_hash=_hash(answers_json),
+    _record_normalised_answers(
+        audit, run.id, answers=answers, questionnaire=questionnaire, typed=typed
     )
 
     try:
@@ -936,18 +1007,19 @@ def run_profiler(
             answers, portfolio_id=pid_str, base_currency=base_currency
         )
     except SuitabilityBreachError as exc:
-        # HARD MiFID breach: a terminal business outcome, not an infra error.
-        # Record it and finalise the run so no 'pending' orphan is left behind
-        # (mirrors run_fund's early-exit finalisation; the caller still sees the
-        # exception).
-        audit.append_decision(
-            run.id,
-            agent="profiler",
-            step="suitability_breach",
-            hitl_decision={"decision": "blocked", "reason": str(exc)},
+        # HARD MiFID breach: a terminal business outcome, not an infra error. The
+        # blocked run is finalised (no 'pending' orphan, mirroring run_fund's
+        # early-exit) and kept past the caller's rollback; the caller still sees
+        # the exception.
+        exc.run_id = _commit_blocked_trail(
+            session,
+            portfolio_id=pid_uuid,
+            asof=run_asof,
+            answers=answers,
+            questionnaire=questionnaire,
+            typed=typed,
+            reason=str(exc),
         )
-        audit.finalize_run(run.id, weights={}, status="blocked")
-        exc.run_id = run.id
         raise
 
     save_profile = _make_save_profile(

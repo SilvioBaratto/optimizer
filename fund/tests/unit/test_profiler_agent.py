@@ -14,7 +14,10 @@ The always-on HITL gate itself is covered in ``test_profiler_hitl.py``.
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import uuid
+from collections.abc import Generator
+from contextlib import contextmanager
 
 import pytest
 from _profiler_fakes import (
@@ -27,7 +30,11 @@ from _profiler_fakes import (
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.models import AgentRun, MifidProfile
+from portopt_db.models import AgentRun, Base, MifidProfile
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from fund.agents.profiler import (
     SuitabilityBreachError,
@@ -381,37 +388,131 @@ def test_approve_without_store_still_persists_the_row(db_session):
 
 
 # --- ESG / legal hard block -------------------------------------------------
+#
+# A breach rolls the session back to commit only the blocked trail, so these tests
+# run on a real-commit engine: the shared ``db_session`` SAVEPOINT harness would
+# have its outer transaction torn down by that rollback.
 
 
-def test_esg_all_sectors_excluded_hard_blocks_before_persist(db_session):
+@pytest.fixture
+def private_engine() -> Generator[Engine, None, None]:
+    """A pristine in-memory DB whose commits are real (no outer SAVEPOINT)."""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    yield engine
+    engine.dispose()
+
+
+@contextmanager
+def _rollback_on_error_session(engine: Engine) -> Generator[Session, None, None]:
+    """Mirror ``DatabaseManager.get_session``: roll back on any exception."""
+    session = Session(bind=engine)
+    try:
+        yield session
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def test_esg_all_sectors_excluded_hard_blocks_before_persist(private_engine):
     pid = uuid.uuid4()
     answers = make_answers(exclusions=tuple(GicsSector))  # empties the universe
     model = make_model(answers, portfolio_id=str(pid))
 
-    with pytest.raises(SuitabilityBreachError):
-        _run(model, db_session, portfolio_id=pid)
+    with Session(bind=private_engine) as session:
+        with pytest.raises(SuitabilityBreachError):
+            _run(model, session, portfolio_id=pid)
 
-    # Nothing was persisted — the breach hard-blocks outright.
-    assert db_session.query(MifidProfile).count() == 0
+        # Nothing was persisted — the breach hard-blocks outright.
+        assert session.query(MifidProfile).count() == 0
 
 
-def test_esg_breach_finalizes_run_no_orphan_pending(db_session):
+def test_esg_breach_finalizes_run_no_orphan_pending(private_engine):
     pid = uuid.uuid4()
     answers = make_answers(exclusions=tuple(GicsSector))  # empties the universe
     model = make_model(answers, portfolio_id=str(pid))
 
-    with pytest.raises(SuitabilityBreachError):
-        _run(model, db_session, portfolio_id=pid)
+    with Session(bind=private_engine) as session:
+        with pytest.raises(SuitabilityBreachError):
+            _run(model, session, portfolio_id=pid)
 
-    runs = db_session.query(AgentRun).filter(AgentRun.portfolio_id == pid).all()
-    assert len(runs) == 1  # the pending run was created
-    run = runs[0]
-    assert run.status == "blocked"  # finalised to a terminal status
-    assert run.status != "pending"
-    assert run.finished_at is not None  # no dangling open run
-    steps = [d.step for d in run.decisions]
-    assert "normalize_answers" in steps  # LLM audit trail preserved
-    assert "suitability_breach" in steps  # breach recorded
+        runs = session.query(AgentRun).filter(AgentRun.portfolio_id == pid).all()
+        assert len(runs) == 1  # the pending run was created
+        run = runs[0]
+        assert run.status == "blocked"  # finalised to a terminal status
+        assert run.finished_at is not None  # no dangling open run
+        steps = [d.step for d in run.decisions]
+        assert "normalize_answers" in steps  # LLM audit trail preserved
+        assert "suitability_breach" in steps  # breach recorded
+
+
+def test_blocked_breach_record_survives_the_callers_rollback(private_engine):
+    pid = uuid.uuid4()
+    answers = make_answers(exclusions=tuple(GicsSector))  # empties the universe
+    model = make_model(answers, portfolio_id=str(pid))
+
+    with (
+        pytest.raises(SuitabilityBreachError),
+        _rollback_on_error_session(private_engine) as session,
+    ):
+        run_profiler(
+            model,
+            _MESSAGES,
+            portfolio_id=pid,
+            session=session,
+            checkpointer=MemorySaver(),
+        )
+
+    with Session(bind=private_engine) as check:
+        runs = check.query(AgentRun).filter(AgentRun.portfolio_id == pid).all()
+        assert [r.status for r in runs] == ["blocked"]
+        steps = [d.step for d in runs[0].decisions]
+        assert "normalize_answers" in steps
+        assert "suitability_breach" in steps
+
+
+def test_breach_commits_the_blocked_trail_but_not_the_callers_staged_work(
+    private_engine,
+):
+    pid, other = uuid.uuid4(), uuid.uuid4()
+    answers = make_answers(exclusions=tuple(GicsSector))
+    model = make_model(answers, portfolio_id=str(pid))
+
+    with (
+        pytest.raises(SuitabilityBreachError),
+        _rollback_on_error_session(private_engine) as session,
+    ):
+        # Work the caller staged before the profiler ran (flushed, not committed).
+        AgentRunRepository(session).create_run(
+            portfolio_id=other,
+            asof=dt.date(2026, 1, 2),
+            seed=None,
+            universe=[],
+            optimizer_config={"step": "staged-by-caller"},
+        )
+        run_profiler(
+            model,
+            _MESSAGES,
+            portfolio_id=pid,
+            session=session,
+            checkpointer=MemorySaver(),
+        )
+
+    with Session(bind=private_engine) as check:
+        persisted = check.query(AgentRun).all()
+        assert [(r.portfolio_id, r.status) for r in persisted] == [(pid, "blocked")]
+        decisions = persisted[0].decisions
+        assert [d.step for d in decisions] == [
+            "normalize_answers",
+            "suitability_breach",
+        ]
+        assert decisions[0].llm_response == answers.model_dump_json()
 
 
 # --- build_profiler_agent: create_deep_agent kwargs (spy, no LLM) ------------

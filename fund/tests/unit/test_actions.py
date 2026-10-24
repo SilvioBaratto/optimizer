@@ -915,6 +915,50 @@ def test_profile_blocked_by_a_suitability_breach_is_committed_not_rolled_back(
     assert MifidProfileRepository(clean_db).get_active(pid) is None
 
 
+def test_blocked_onboarding_keeps_only_the_breach_trail(clean_db) -> None:
+    """A suitability breach mid-onboarding must not commit the mandate staged before it.
+
+    The TUI worker stages ``new_portfolio`` and ``profile`` on one session; the
+    breach commits the blocked run's trail, but the portfolio that was never
+    onboarded must roll back with its audit row. The blocked profile is returned as
+    a result, so the worker's own commit then lands only the breach's audit row.
+    """
+    from _profiler_fakes import make_answers, make_model
+    from portopt_db.models import AgentRun
+
+    from fund.schemas.enums import GicsSector
+
+    model = make_model(
+        make_answers(exclusions=tuple(GicsSector)),  # empties the universe
+        portfolio_id=str(PORTFOLIO_ID),
+    )
+    apply_action(
+        "new_portfolio",
+        session=clean_db,
+        portfolio_id=PORTFOLIO_ID,
+        mandate=make_mandate(),
+    )
+
+    result = apply_action(
+        "profile",
+        session=clean_db,
+        portfolio_id=PORTFOLIO_ID,
+        questionnaire="Everything but nothing, EUR.",
+        model=model,
+        checkpointer=MemorySaver(),
+        store=InMemoryStore(),
+    )
+    clean_db.commit()  # the worker commits once the action lands
+
+    runs = clean_db.query(AgentRun).filter(AgentRun.portfolio_id == PORTFOLIO_ID).all()
+    assert [r.status for r in runs] == ["blocked"]
+    assert result.run_id == runs[0].id
+    assert observe.get_mandate(clean_db, PORTFOLIO_ID) is None
+    audit_rows = HumanAuditLogRepository(clean_db).list_recent()
+    assert [row.action for row in audit_rows] == ["profile"]
+    assert audit_rows[0].run_id == runs[0].id
+
+
 def test_run_requires_a_portfolio_id_and_a_mandate(db_session) -> None:
     """``run`` guards both its required args before invoking the fund pipeline."""
     with pytest.raises(ValueError, match="requires a portfolio_id"):
