@@ -104,12 +104,15 @@ class ResultsCompute:
         frontier_error: The failure message when ``frontier`` is ``None``.
         backtest: The backtest result, or ``None`` on tool failure.
         backtest_error: The failure message when ``backtest`` is ``None``.
+        base_currency: The currency the figures are scored in (the mandate's reporting
+            currency), or ``None`` when prices were left in listing currency.
     """
 
     frontier: FrontierPoint | None
     frontier_error: str | None
     backtest: BacktestResult | None
     backtest_error: str | None
+    base_currency: str | None = None
 
 
 @dataclass(frozen=True)
@@ -203,6 +206,7 @@ def compute_results(
         frontier_error=frontier_error,
         backtest=result,
         backtest_error=backtest_error,
+        base_currency=base_currency,
     )
 
 

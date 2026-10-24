@@ -4266,6 +4266,43 @@ def test_readout_frontier_labels_annualised_units_with_readable_precision() -> N
     assert "sharpe 0.67 (annualised)" in text
 
 
+def test_readout_results_name_the_currency_the_figures_are_in() -> None:
+    """A recorded base currency labels the frontier and backtest figures with it."""
+    from fund import readouts_compute
+    from fund.tui.readouts import render_readout
+
+    def _compute(base_currency: str | None) -> readouts_compute.ResultsCompute:
+        return readouts_compute.ResultsCompute(
+            frontier=readouts_compute.FrontierPoint(
+                mean=0.1, standard_deviation=0.11, sharpe_ratio=0.9, n_observations=500
+            ),
+            frontier_error=None,
+            backtest=readouts_compute.BacktestResult(
+                mean=0.08,
+                standard_deviation=0.12,
+                sharpe_ratio=0.67,
+                max_drawdown=-0.08,
+                n_observations=300,
+                n_folds=0,
+                out_of_sample=False,
+                window_start="2024-01-01",
+                window_end="2024-12-31",
+            ),
+            backtest_error=None,
+            base_currency=base_currency,
+        )
+
+    labelled = render_readout("allocator", "optimize_portfolio", None, _compute("EUR"))
+    assert labelled is not None
+    assert "sharpe 0.90 (annualised · EUR)" in labelled
+    assert "sharpe 0.67 (annualised · EUR)" in labelled
+
+    unlabelled = render_readout("allocator", "optimize_portfolio", None, _compute(None))
+    assert unlabelled is not None
+    assert "sharpe 0.90 (annualised)" in unlabelled
+    assert "EUR" not in unlabelled
+
+
 def test_readout_risk_lists_limits_the_verdict_did_not_evaluate() -> None:
     """An ok verdict still names the limits no check covered, so ok is not read as
     "inside every limit"."""

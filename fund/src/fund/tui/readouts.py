@@ -41,6 +41,19 @@ _PENDING_LABEL = "compute to view"
 # convention as the Performance view); say so, or a reader assumes per-bar figures.
 _ANNUALISED_LABEL = "(annualised)"
 
+
+def _units_label(compute: Any) -> str:
+    """The unit tag for recomputed figures: annualised, plus their currency if known.
+
+    The recompute scores in the mandate base currency, which the allocator's own tool
+    outputs (listing-currency) do not, so the reader is told which one these are.
+    """
+    currency = getattr(compute, "base_currency", None)
+    if not currency:
+        return _ANNUALISED_LABEL
+    return f"(annualised · {currency})"
+
+
 # Risk verdict tiers as (dot, label) — the word always travels with the glyph so status
 # never rides on colour/shape alone (mirrors views._HEALTH_*). The live ok/warn/breach
 # tiers derive from risk_check violations in T6; it is pending until expanded.
@@ -118,7 +131,7 @@ def _frontier_lines(compute: Any) -> list[str]:
     return [
         f"frontier point · mean {_pct(point.mean)}"
         f" · vol {_pct(point.standard_deviation)}"
-        f" · sharpe {_num(point.sharpe_ratio)} {_ANNUALISED_LABEL}"
+        f" · sharpe {_num(point.sharpe_ratio)} {_units_label(compute)}"
     ]
 
 
@@ -131,7 +144,7 @@ def _backtest_lines(compute: Any) -> list[str]:
     result = compute.backtest
     mode = "out-of-sample" if result.out_of_sample else "in-sample"
     return [
-        f"backtest · sharpe {_num(result.sharpe_ratio)} {_ANNUALISED_LABEL}"
+        f"backtest · sharpe {_num(result.sharpe_ratio)} {_units_label(compute)}"
         f" · maxDD {_num(result.max_drawdown)}",
         f"  {result.n_observations} obs · {result.n_folds} folds · {mode}"
         f" · {result.window_start} → {result.window_end}",

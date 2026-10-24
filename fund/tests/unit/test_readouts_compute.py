@@ -26,7 +26,8 @@ from _fund_fakes import (
     seed_panel,
 )
 from portopt_db.models import Base
-from portopt_db.models.universe.universe import Instrument
+from portopt_db.models.market_data.yfinance_data import PriceHistory
+from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -42,7 +43,7 @@ _PERIODS_PER_YEAR = 252.0
 _LONG_PANEL_DAYS = 400
 
 
-def _priced_session(n_days: int) -> Iterator[Session]:
+def _bare_session() -> Iterator[Session]:
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -51,13 +52,24 @@ def _priced_session(n_days: int) -> Iterator[Session]:
     Base.metadata.create_all(engine)
     local = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     session = local()
-    seed_panel(session, n_days=n_days)
-    session.commit()
     try:
         yield session
     finally:
         session.close()
         engine.dispose()
+
+
+def _priced_session(n_days: int) -> Iterator[Session]:
+    for session in _bare_session():
+        seed_panel(session, n_days=n_days)
+        session.commit()
+        yield session
+
+
+@pytest.fixture
+def bare_session() -> Iterator[Session]:
+    """An empty in-memory SQLite session over the full portopt_db schema."""
+    yield from _bare_session()
 
 
 @pytest.fixture
@@ -74,7 +86,7 @@ def long_priced_session() -> Iterator[Session]:
 
 @pytest.mark.parametrize("lookback_days", [100, None])
 def test_compute_results_never_labels_a_held_weights_backtest_out_of_sample(
-    bare_session: Session, lookback_days: int | None
+    long_priced_session: Session, lookback_days: int | None
 ) -> None:
     """Weights fitted on the full panel cannot be validated on windows inside it.
 
@@ -82,11 +94,11 @@ def test_compute_results_never_labels_a_held_weights_backtest_out_of_sample(
     walk-forward test block (and the in-sample fallback) lies within the optimizer's
     own training sample. Reporting folds as out-of-sample overstates the evidence.
     """
-    asof = _seed_long_panel(bare_session, 400)
+    asof = START + dt.timedelta(days=_LONG_PANEL_DAYS - 1)
     constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
     weights = {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}
     result = compute_results(
-        bare_session,
+        long_priced_session,
         asof,
         list(UNIVERSE),
         constraint_set,
@@ -97,6 +109,139 @@ def test_compute_results_never_labels_a_held_weights_backtest_out_of_sample(
     if lookback_days is not None:
         assert result.backtest.n_folds >= 1  # the walk-forward path is exercised
     assert result.backtest.out_of_sample is False
+
+
+def _seed_cross_currency_panel(
+    session: Session,
+    n_days: int,
+    *,
+    with_fx: bool = True,
+    usd_local_wobble: float = 0.0,
+) -> dt.date:
+    """Seed an EUR-listed and a USD-listed name plus daily EUR-per-USD rates.
+
+    By default the USD name's local close never moves, so every base-currency return it
+    has comes from the exchange rate; a replay that ignores FX sees it as a zero-risk
+    asset. ``usd_local_wobble`` gives it a small local move instead (a zero-variance
+    asset cannot be optimised on listing-currency returns at all).
+    """
+    from portopt_db.repositories.market_data.fx_rates_repository import (
+        FxRatesRepository,
+    )
+
+    start = dt.date(2024, 1, 1)
+    for ticker, currency in {"EUA": "EUR", "USB": "USD"}.items():
+        exchange = Exchange(name=f"EX-{ticker}")
+        session.add(exchange)
+        session.flush()
+        instrument = Instrument(
+            ticker=ticker,
+            short_name=ticker,
+            exchange_id=exchange.id,
+            instrument_type="EQUITY",
+            asset_class="equity",
+            yfinance_ticker=ticker,
+            currency_code=currency,
+        )
+        session.add(instrument)
+        session.flush()
+        for i in range(n_days):
+            wobble = (
+                0.01 * math.sin(0.7 * i)
+                if currency == "EUR"
+                else usd_local_wobble * math.cos(0.45 * i)
+            )
+            close = 100.0 * (1.0 + wobble)
+            session.add(
+                PriceHistory(
+                    instrument_id=instrument.id,
+                    date=start + dt.timedelta(days=i),
+                    close=round(close, 6),
+                    price_unit=currency,
+                    volume=1000,
+                )
+            )
+    rates = [
+        {
+            "base_currency": "EUR",
+            "quote_currency": "USD",
+            "date": start + dt.timedelta(days=i),
+            "rate": round(0.92 * (1.0 + 0.02 * math.sin(0.23 * i + 1.0)), 6),
+        }
+        for i in range(n_days)
+    ]
+    FxRatesRepository(session).upsert_rates(rates if with_fx else [])
+    session.flush()
+    return start + dt.timedelta(days=n_days - 1)
+
+
+def test_compute_results_replays_on_base_currency_returns(
+    bare_session: Session,
+) -> None:
+    """A EUR mandate's backtest carries the USD name's FX return and its covariance.
+
+    The Performance view marks NAV in the mandate base currency; backtesting raw
+    listing-currency closes would show a different book to the same investor. The
+    frontier point's own base-currency scoring is covered by the allocator-solve test.
+    """
+    import numpy as np
+    import pandas as pd
+    from optimizer.preprocessing import prices_to_returns
+    from skfolio import Portfolio
+
+    asof = _seed_cross_currency_panel(bare_session, 60)
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    assert constraint_set["base_currency"] == "EUR"
+    weights = {"EUA": 0.5, "USB": 0.5}
+
+    result = compute_results(
+        bare_session,
+        asof,
+        list(weights),
+        constraint_set,
+        weights,
+        base_currency="EUR",
+    )
+
+    days = pd.date_range("2024-01-01", periods=60, freq="D")
+    eur = [100.0 * (1.0 + 0.01 * math.sin(0.7 * i)) for i in range(60)]
+    usd_in_eur = [
+        100.0 * round(0.92 * (1.0 + 0.02 * math.sin(0.23 * i + 1.0)), 6)
+        for i in range(60)
+    ]
+    base_prices = pd.DataFrame({"EUA": eur, "USB": usd_in_eur}, index=days)
+    oracle = Portfolio(
+        prices_to_returns(base_prices), np.array([weights["EUA"], weights["USB"]])
+    )
+    assert result.backtest is not None
+    assert result.backtest.standard_deviation == pytest.approx(
+        oracle.annualized_standard_deviation, rel=1e-4
+    )
+
+
+def test_compute_results_degrades_when_foreign_listings_have_no_fx_rates(
+    bare_session: Session,
+) -> None:
+    """With no FX coverage the read-out is unavailable, never a silent currency mix."""
+    asof = _seed_cross_currency_panel(
+        bare_session, 60, with_fx=False, usd_local_wobble=0.004
+    )
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    weights = {"EUA": 0.5, "USB": 0.5}
+
+    result = compute_results(
+        bare_session,
+        asof,
+        list(weights),
+        constraint_set,
+        weights,
+        base_currency="EUR",
+    )
+
+    assert result.frontier is None
+    assert "FxCoverageError" in (result.frontier_error or "")
+    assert result.backtest is None
+    assert "FxCoverageError" in (result.backtest_error or "")
 
 
 def test_compute_results_returns_frontier_and_backtest_numbers(
