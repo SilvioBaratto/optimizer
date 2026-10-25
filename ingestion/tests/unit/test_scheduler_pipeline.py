@@ -307,12 +307,14 @@ class TestStepFailureIsolation:
             patch.object(scheduler, "run_macro_step") as macro,
             patch.object(scheduler, "run_news_step") as news,
             patch.object(scheduler, "run_daily_events_step") as events,
+            patch.object(scheduler, "run_fred_step") as fred,
         ):
             scheduler.run_daily_pipeline()
 
         fx.assert_called_once()
         macro.assert_called_once()
         events.assert_called_once()
+        fred.assert_called_once()
         news.assert_not_called()
 
 
