@@ -53,6 +53,7 @@ from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance import (
     CircuitBreakerProtocol,
     YFinanceClient,
+    fetch_yahoo_news,
     record_failure,
     track_request_outcomes,
 )
@@ -775,18 +776,7 @@ class YFinanceDataService:
                 skipped.append("all:fresh")
                 return {"counts": counts, "errors": errors, "skipped": skipped}
 
-        # Lazy ticker construction: only materialise the yf.Ticker (and
-        # acquire the rate-limiter) when at least one category will be fetched.
-        # The ticker object is needed only by the news fetch; all other
-        # categories call through sub-clients that invoke _get_ticker
-        # internally and share the same cache.
-        _ticker_holder: list[Any] = []  # mutable cell for lazy init
         profile_info: dict[str, Any] | None = None
-
-        def _get_lazy_ticker() -> Any:
-            if not _ticker_holder:
-                _ticker_holder.append(self.yf_client.get_ticker(yfinance_ticker))
-            return _ticker_holder[0]
 
         if (
             mode == "incremental"
@@ -1585,7 +1575,9 @@ class YFinanceDataService:
 
         # 11. News (always fetched; article bodies scraped once)
         try:
-            news_list = self._timed(lambda: _get_lazy_ticker().news)
+            news_list = self._timed(
+                lambda: fetch_yahoo_news(yfinance_ticker, self.yf_client)
+            )
             if news_list:
                 from app.services.market_data.yfinance.news.scraper import (
                     ArticleScraper,

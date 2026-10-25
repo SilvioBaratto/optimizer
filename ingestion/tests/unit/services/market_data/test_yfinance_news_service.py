@@ -35,12 +35,19 @@ import pytest
 pytest.importorskip("yfinance")
 
 from app.services.market_data.yfinance.infrastructure import CircuitBreaker
+from app.services.market_data.yfinance.news import client as news_client_module
 from app.services.market_data.yfinance.news.aggregator import (
     CountryNewsFetcher,
     _is_article_recent,
     _parse_article_date,
 )
-from app.services.market_data.yfinance.news.client import NewsClient
+from app.services.market_data.yfinance.news.client import (
+    NewsClient,
+    fetch_yahoo_news,
+)
+from app.services.market_data.yfinance.news.client import (
+    _search_news as real_search_news,
+)
 from tests._fixtures.assertions import assert_json_safe
 
 # ---------------------------------------------------------------------------
@@ -161,6 +168,86 @@ class TestNewsClientFetch:
         client = NewsClient(yf_client=yf_client, scraper=scraper)
         client.fetch("^GSPC", max_retries=1, fetch_full_content=True, max_articles=2)
         assert scraper.fetch.call_count == 2
+
+
+class TestFetchYahooNewsFallback:
+    def test_when_ticker_feed_populated_then_search_is_not_used(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        articles = [_make_article()]
+        yf_client = _make_yf_client(news=articles)
+        searched: list[str] = []
+        monkeypatch.setattr(
+            news_client_module,
+            "_search_news",
+            lambda symbol, count: searched.append(symbol) or [],
+        )
+
+        assert fetch_yahoo_news("AAPL", yf_client) == articles
+        assert searched == []
+
+    def test_when_ticker_feed_empty_then_search_articles_are_returned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        yf_client = _make_yf_client(news=[])
+        searched = [_make_article(title="From search")]
+        monkeypatch.setattr(
+            news_client_module, "_search_news", lambda symbol, count: searched
+        )
+
+        assert fetch_yahoo_news("AAPL", yf_client, count=7) == searched
+
+    def test_when_ticker_feed_none_then_search_articles_are_returned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        yf_client = _make_yf_client(news=None)
+        searched = [_make_article(title="From search")]
+        monkeypatch.setattr(
+            news_client_module, "_search_news", lambda symbol, count: searched
+        )
+
+        assert fetch_yahoo_news("AAPL", yf_client) == searched
+
+    def test_when_both_sources_empty_then_ticker_feed_value_is_preserved(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            news_client_module, "_search_news", lambda symbol, count: []
+        )
+
+        assert fetch_yahoo_news("AAPL", _make_yf_client(news=[])) == []
+        assert fetch_yahoo_news("AAPL", _make_yf_client(news=None)) is None
+
+    def test_search_news_requests_zero_quotes_and_returns_flat_articles(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        articles = [{"uuid": "u1", "title": "t", "link": "https://example.com/1"}]
+        captured: dict[str, Any] = {}
+
+        class _FakeSearch:
+            def __init__(self, query: str, **kwargs: Any) -> None:
+                captured["query"] = query
+                captured.update(kwargs)
+                self.news = articles
+
+        monkeypatch.setattr(news_client_module.yf, "Search", _FakeSearch)
+
+        # The suite-wide fixture replaces the module attribute, so call the real
+        # function captured at import time.
+        assert real_search_news("AAPL", 10) == articles
+        assert captured == {"query": "AAPL", "max_results": 0, "news_count": 10}
+
+    def test_news_client_uses_search_fallback_when_feed_is_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        yf_client = _make_yf_client(news=[])
+        articles = [_make_article(title="From search")]
+        monkeypatch.setattr(
+            news_client_module, "_search_news", lambda symbol, count: articles
+        )
+        client = NewsClient(yf_client=yf_client, scraper=MagicMock())
+
+        assert client.fetch("^GSPC", max_retries=1) == articles
 
 
 class TestNewsClientSharedCircuitBreaker:

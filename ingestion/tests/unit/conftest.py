@@ -8,6 +8,22 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _offline_news_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the news search fallback off the network across the unit suite.
+
+    ``fetch_yahoo_news`` falls back to ``yf.Search`` whenever the ticker feed is
+    empty, and ``Ticker.news`` is empty for every symbol since Yahoo retired the
+    ``/xhr/ncp`` route, so any test stubbing an empty feed would otherwise issue a
+    real request. Only the fallback indirection is stubbed — patching
+    ``yf.Search`` itself would break the search sub-client tests that inspect the
+    HTTP layer.
+    """
+    from app.services.market_data.yfinance.news import client as news_client_module
+
+    monkeypatch.setattr(news_client_module, "_search_news", lambda symbol, count: [])
+
+
+@pytest.fixture(autouse=True)
 def _isolated_checkout(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> Path:

@@ -6,10 +6,45 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+import yfinance as yf
+
 from .._base import fetch_with_resilience
 from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
 
 logger = logging.getLogger(__name__)
+
+
+def _search_news(symbol: str, count: int) -> list[dict[str, Any]]:
+    """Fetch articles from Yahoo's search endpoint.
+
+    ``Ticker.news`` requests ``/xhr/ncp``, which Yahoo now answers with 404, so it
+    returns an empty list for every symbol. The search endpoint still serves the
+    same flat article shape (``uuid``/``link``/``providerPublishTime``).
+    """
+    return list(yf.Search(symbol, max_results=0, news_count=count).news or [])
+
+
+def fetch_yahoo_news(
+    symbol: str,
+    yf_client: YFinanceClientProtocol,
+    count: int = 10,
+) -> list[dict[str, Any]] | None:
+    """Fetch a ticker's news, falling back to the search endpoint.
+
+    Args:
+        symbol: Yahoo Finance ticker symbol.
+        yf_client: Client used to obtain the ``Ticker`` object.
+        count: Maximum articles requested from the search fallback.
+
+    Returns:
+        Article dicts from the ticker feed, else from search. When both are
+        empty, the ticker feed's own empty value (``[]`` or ``None``) is
+        returned so callers keep seeing the signal they always did.
+    """
+    news = yf_client.get_ticker(symbol).news
+    if news:
+        return news
+    return _search_news(symbol, count) or news
 
 
 @dataclass
@@ -23,12 +58,14 @@ class NewsClient:
         default_max_retries: Retry count used when callers pass ``None``.
         empty_feed_alert_after: Number of consecutive tickers without any
             article after which a single warning is logged.
+        news_count: Maximum articles requested from the search fallback.
     """
 
     yf_client: YFinanceClientProtocol
     scraper: ArticleScraperProtocol | None = None
     default_max_retries: int = 3
     empty_feed_alert_after: int = 3
+    news_count: int = 10
     _empty_feed_streak: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -55,14 +92,13 @@ class NewsClient:
                 ``fetch_full_content`` is ``True``. ``None`` means all.
 
         Returns:
-            List of article dicts from ``ticker.news``, or ``None`` when Yahoo
-            has no usable answer or every attempt failed.
+            List of article dicts, or ``None`` when Yahoo has no usable answer
+            or every attempt failed.
         """
         max_retries = max_retries or self.default_max_retries
 
         def _action() -> list[dict[str, Any]] | None:
-            ticker = self.yf_client.get_ticker(symbol)
-            return ticker.news
+            return fetch_yahoo_news(symbol, self.yf_client, self.news_count)
 
         news = fetch_with_resilience(
             _action,
