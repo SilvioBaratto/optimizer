@@ -663,3 +663,141 @@ def test_ca_bundle_secret_default_exists_on_a_fresh_clone() -> None:
         check=False,
     )
     assert tracked.returncode == 0, tracked.stderr
+
+
+class _FakeDocker:
+    """Scripted ``subprocess.run`` for a host whose Docker daemon starts down.
+
+    ``docker info`` fails ``down_polls`` times and then answers; ``docker context
+    show`` prints ``context``; the runtime launch command exits ``start_rc``.
+    """
+
+    def __init__(
+        self,
+        *,
+        context: str = "colima",
+        down_polls: int = 1,
+        start_rc: int = 0,
+        start_stderr: str = "",
+    ) -> None:
+        self.context = context
+        self.down_polls = down_polls
+        self.start_rc = start_rc
+        self.start_stderr = start_stderr
+        self.calls: list[list[str]] = []
+        self._info_polls = 0
+
+    def __call__(self, cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+        self.calls.append(cmd)
+        if cmd[:2] == ["docker", "info"]:
+            self._info_polls += 1
+            return _cp(0 if self._info_polls > self.down_polls else 1)
+        if cmd[:3] == ["docker", "context", "show"]:
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=f"{self.context}\n", stderr=""
+            )
+        if cmd[:2] == ["docker", "compose"]:
+            return _cp(0)
+        return _cp(self.start_rc, self.start_stderr)
+
+    @property
+    def launches(self) -> list[list[str]]:
+        return [cmd for cmd in self.calls if cmd[0] != "docker"]
+
+
+class TestEnsureDocker:
+    """`ensure_docker` boots a stopped local runtime so `portopt start` works cold."""
+
+    @pytest.fixture(autouse=True)
+    def _host(self, monkeypatch: pytest.MonkeyPatch) -> list[float]:
+        installed = {"docker", "colima", "orb"}
+        monkeypatch.setattr(
+            db.shutil,
+            "which",
+            lambda name: f"/usr/local/bin/{name}" if name in installed else None,
+        )
+        monkeypatch.setattr(db.sys, "platform", "darwin")
+        sleeps: list[float] = []
+        monkeypatch.setattr(db.time, "sleep", sleeps.append)
+        return sleeps
+
+    def _install(self, monkeypatch: pytest.MonkeyPatch, fake: _FakeDocker) -> None:
+        monkeypatch.setattr(db.subprocess, "run", fake)
+
+    def test_running_daemon_launches_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeDocker(down_polls=0)
+        self._install(monkeypatch, fake)
+        db.ensure_docker()
+        assert fake.launches == []
+
+    def test_colima_context_starts_colima(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeDocker(context="colima")
+        self._install(monkeypatch, fake)
+        db.ensure_docker()
+        assert fake.launches == [["colima", "start", "--profile", "default"]]
+
+    def test_colima_profile_context_starts_that_profile(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeDocker(context="colima-work")
+        self._install(monkeypatch, fake)
+        db.ensure_docker()
+        assert fake.launches == [["colima", "start", "--profile", "work"]]
+
+    def test_orbstack_context_starts_orbstack(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeDocker(context="orbstack")
+        self._install(monkeypatch, fake)
+        db.ensure_docker()
+        assert fake.launches == [["orb", "start"]]
+
+    def test_docker_desktop_is_polled_until_its_daemon_answers(
+        self, monkeypatch: pytest.MonkeyPatch, _host: list[float]
+    ) -> None:
+        """`open -a Docker` returns before the daemon is up, so it must be polled."""
+        fake = _FakeDocker(context="desktop-linux", down_polls=3)
+        self._install(monkeypatch, fake)
+        db.ensure_docker()
+        assert fake.launches == [["open", "-a", "Docker"]]
+        assert len(_host) == 2
+
+    def test_linux_engine_is_not_started_and_hints_systemctl(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(db.sys, "platform", "linux")
+        fake = _FakeDocker(context="default", down_polls=99)
+        self._install(monkeypatch, fake)
+        with pytest.raises(db.DockerError, match="systemctl"):
+            db.ensure_docker()
+        assert fake.launches == []
+
+    def test_failed_launch_raises_with_its_stderr(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeDocker(start_rc=1, start_stderr="disk /Volumes/Colima missing")
+        self._install(monkeypatch, fake)
+        with pytest.raises(db.DockerError, match="/Volumes/Colima missing"):
+            db.ensure_docker()
+
+    def test_daemon_that_never_answers_times_out(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeDocker(context="desktop-linux", down_polls=99)
+        self._install(monkeypatch, fake)
+        with pytest.raises(db.DockerError, match="unreachable"):
+            db.ensure_docker(timeout=0)
+
+    def test_missing_cli_raises_the_install_hint_without_launching(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(db.shutil, "which", lambda name: None)
+        fake = _FakeDocker(down_polls=99)
+        self._install(monkeypatch, fake)
+        with pytest.raises(db.DockerError, match="not found"):
+            db.ensure_docker()
+        assert fake.calls == []

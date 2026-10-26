@@ -1,7 +1,8 @@
 """Runtime lifecycle for portopt: start / stop / status (SPEC D6/D10).
 
-`run_start` decrypts `~/.portopt/secrets.enc`, renders the compose secret files,
-and brings the full stack up (the fund engine + the persistent ingestion daemon).
+`run_start` boots a stopped Docker runtime, decrypts `~/.portopt/secrets.enc`,
+renders the compose secret files, and brings the full stack up (the fund engine +
+the persistent ingestion daemon).
 `run_stop` stops only the fund engine, leaving the scheduler + db running, and
 `run_stop(all_services=True)` takes the whole stack down.
 `run_status` reports Docker + service health.
@@ -26,10 +27,12 @@ class LifecycleError(RuntimeError):
 def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     """Decrypt secrets, render compose secret files, and bring the full stack up.
 
-    Brings up both the fund decision engine and the persistent ingestion daemon so
-    the scheduler is never left down by a start. A running service whose mounted
-    secret was rotated since the last render is restarted first, so it picks up
-    the new key instead of keeping the one it read at startup.
+    Boots the local Docker runtime first when its daemon is down (Colima, OrbStack,
+    Docker Desktop), so a start works from a cold machine. Brings up both the fund
+    decision engine and the persistent ingestion daemon so the scheduler is never
+    left down by a start. A running service whose mounted secret was rotated since
+    the last render is restarted first, so it picks up the new key instead of
+    keeping the one it read at startup.
 
     Args:
         passphrase: The master passphrase that decrypts the secret store.
@@ -40,7 +43,7 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
         raise LifecycleError(
             "A master passphrase is required (set PORTOPT_PASSPHRASE)."
         )
-    docker_bootstrap.check_docker()
+    docker_bootstrap.ensure_docker()
     # Resolved before anything is decrypted: compose mounts <checkout>/secrets/*, so
     # plaintext rendered into the cwd would both miss the mounts and litter a random
     # directory with live keys.

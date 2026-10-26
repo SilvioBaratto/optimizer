@@ -60,7 +60,7 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     # Default to no persisted LLM config; the real compose_env.render/cleanup run
     # against the tmp repo's env files.
     monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
-    monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "ensure_docker", lambda: None)
 
     def _fake_build_and_up(**kw: object) -> list[str]:
         calls["build_profiles"] = kw.get("profiles")
@@ -235,6 +235,19 @@ def test_run_start_propagates_bad_passphrase(
     monkeypatch.setattr(lifecycle.secret_store, "load_secrets", _boom)
     with pytest.raises(InvalidPassphraseError):
         lifecycle.run_start("wrong")
+    assert patched["compose"] == []
+
+
+def test_run_start_renders_nothing_when_docker_cannot_be_booted(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _down() -> None:
+        raise lifecycle.docker_bootstrap.DockerError("colima start failed")
+
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "ensure_docker", _down)
+    with pytest.raises(lifecycle.docker_bootstrap.DockerError):
+        lifecycle.run_start("pw")
+    assert patched["rendered"] is None
     assert patched["compose"] == []
 
 
@@ -519,7 +532,7 @@ def real_render(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         lifecycle.secret_store, "load_secrets", lambda pw, **kw: {"fred_api_key": "fk"}
     )
     monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
-    monkeypatch.setattr(lifecycle.docker_bootstrap, "check_docker", lambda: None)
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "ensure_docker", lambda: None)
     monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", lambda **kw: [])
     monkeypatch.setattr(
         lifecycle.docker_bootstrap, "stop_services", lambda s, **kw: None

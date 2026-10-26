@@ -522,7 +522,7 @@ def start(
         help="Rebuild images before starting, to pick up code / migration changes.",
     ),
 ) -> None:
-    """Decrypt secrets, mount them as compose secrets, and launch the stack."""
+    """Boot Docker if it is down, decrypt secrets, and launch the whole stack."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
     install_secret_redaction()
     from app.setup import lifecycle

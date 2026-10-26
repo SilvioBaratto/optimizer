@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from itertools import pairwise
 from pathlib import Path
@@ -113,6 +114,71 @@ def check_docker() -> None:
         raise DockerError(f"Docker daemon not reachable. {_start_hint()}")
     if _run(["docker", "compose", "version"]).returncode != 0:
         raise DockerError(f"`docker compose` (v2) not available. {_install_hint()}")
+
+
+# A VM-backed runtime (Colima, Docker Desktop) cold-boots in well under this.
+_DAEMON_BOOT_TIMEOUT = 180.0
+_DAEMON_POLL_SECONDS = 2.0
+
+
+def _daemon_reachable() -> bool:
+    return _run(["docker", "info"]).returncode == 0
+
+
+def _runtime_start_command() -> list[str] | None:
+    """Return the argv that boots the runtime the CLI targets, or None.
+
+    The active docker context decides, not whichever runtime happens to be
+    installed: booting a different one leaves the CLI pointed at a dead socket.
+    """
+    context = _run(["docker", "context", "show"]).stdout.strip()
+    if context.startswith("colima") and shutil.which("colima"):
+        # A non-default Colima profile's context is named `colima-<profile>`.
+        profile = context.removeprefix("colima").removeprefix("-") or "default"
+        return ["colima", "start", "--profile", profile]
+    if context == "orbstack" and shutil.which("orb"):
+        return ["orb", "start"]
+    if sys.platform == "darwin":
+        return ["open", "-a", "Docker"]
+    return None
+
+
+def ensure_docker(*, timeout: float = _DAEMON_BOOT_TIMEOUT) -> None:
+    """Verify Docker like `check_docker`, first booting a stopped local runtime.
+
+    When the CLI is installed but its daemon is down, starts the runtime the active
+    docker context points at (`colima start`, `orb start`, or Docker Desktop on
+    macOS) and waits for the daemon to answer. Docker Engine on Linux needs root to
+    start, so there it fails with the same hint as `check_docker`.
+
+    Args:
+        timeout: Seconds to wait for a launched daemon to answer `docker info`.
+
+    Raises:
+        DockerError: The CLI or compose plugin is missing, no runtime could be
+            started, the launch command failed, or the daemon was still unreachable
+            after `timeout` seconds.
+    """
+    if shutil.which("docker") is not None and not _daemon_reachable():
+        cmd = _runtime_start_command()
+        if cmd is None:
+            raise DockerError(f"Docker daemon not reachable. {_start_hint()}")
+        launch = " ".join(cmd)
+        print(f"Docker daemon not running; starting it with `{launch}`...")
+        result = _run(cmd)
+        if result.returncode != 0:
+            raise DockerError(f"`{launch}` failed:\n{result.stderr}")
+        # `colima start` blocks until the VM is up, but `open -a Docker` returns as
+        # soon as the app launches, long before its daemon listens.
+        deadline = time.monotonic() + timeout
+        while not _daemon_reachable():
+            if time.monotonic() >= deadline:
+                raise DockerError(
+                    f"Docker daemon still unreachable {timeout:.0f}s after "
+                    f"`{launch}`. {_start_hint()}"
+                )
+            time.sleep(_DAEMON_POLL_SECONDS)
+    check_docker()
 
 
 def bring_up_db() -> None:
