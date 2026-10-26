@@ -4,6 +4,9 @@
 # Runtime agent workdir (staged theory tree, regenerated each startup)
 fund/.runtime/
 
+# Local scratch dir for Rankia data, not tracked
+/rankia/
+
 # fund-tui exports hold client data (capital, mandates, adviser free text). They go to
 # FUND_EXPORT_DIR (./exports when mounted into the container); the name patterns catch
 # the files older versions wrote into the working directory.

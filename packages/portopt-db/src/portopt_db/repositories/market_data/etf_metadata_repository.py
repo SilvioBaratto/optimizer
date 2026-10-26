@@ -314,12 +314,6 @@ class ETFMetadataRepository(RepositoryBase):
                     "price_to_cashflow": _pick(
                         metrics, "Price/Cashflow", "priceToCashflow"
                     ),
-                    "median_market_cap": _pick(
-                        metrics, "Median Market Cap", "medianMarketCap"
-                    ),
-                    "three_year_earnings_growth": _pick(
-                        metrics, "3 Year Earnings Growth", "threeYearEarningsGrowth"
-                    ),
                 }
             ],
             index_elements=["instrument_id", "as_of"],
@@ -328,8 +322,6 @@ class ETFMetadataRepository(RepositoryBase):
                 "price_to_book",
                 "price_to_sales",
                 "price_to_cashflow",
-                "median_market_cap",
-                "three_year_earnings_growth",
                 "updated_at",
             ],
         )
@@ -362,13 +354,10 @@ class ETFMetadataRepository(RepositoryBase):
                     "as_of": as_of,
                     "duration": _pick(metrics, "Duration", "duration"),
                     "maturity": _pick(metrics, "Maturity", "maturity"),
-                    "credit_quality": _pick(
-                        metrics, "Credit Quality", "creditQuality", "credit_quality"
-                    ),
                 }
             ],
             index_elements=["instrument_id", "as_of"],
-            update_columns=["duration", "maturity", "credit_quality", "updated_at"],
+            update_columns=["duration", "maturity", "updated_at"],
         )
         return 1
 

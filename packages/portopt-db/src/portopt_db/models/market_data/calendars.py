@@ -80,7 +80,6 @@ class EconomicEventCalendar(BaseModel):
     country: Mapped[str] = mapped_column(String(50), nullable=False)
     event_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     actual: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    forecast: Mapped[str | None] = mapped_column(String(50), nullable=True)
     prior: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 

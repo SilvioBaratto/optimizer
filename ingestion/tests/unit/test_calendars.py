@@ -233,7 +233,6 @@ class TestRepository:
         got = db_session.query(EconomicEventCalendar).one()
         assert got.country == "US"  # from "Region", not the "?" fallback
         assert got.event_date == dt.date(2026, 9, 11)
-        assert got.forecast == "3.1%"
         assert got.prior == "3.0%"
 
     def test_ipo_real_labels(self, db_session) -> None:

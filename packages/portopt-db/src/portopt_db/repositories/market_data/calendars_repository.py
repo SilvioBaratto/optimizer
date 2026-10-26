@@ -277,14 +277,13 @@ class CalendarsRepository(RepositoryBase):
                 "country": country,
                 "event_date": event_date,
                 "actual": _str(_col(r, "Actual", "actual"), 50),
-                "forecast": _str(_col(r, "Expected", "forecast", "Forecast"), 50),
                 "prior": _str(_col(r, "Last", "prior", "Prior"), 50),
             }
         written = self._commit(
             EconomicEventCalendar,
             list(out.values()),
             ["event", "country", "event_date"],
-            ["actual", "forecast", "prior"],
+            ["actual", "prior"],
         )
         # A key the payload itself dates there is a genuine occurrence (a daily
         # event), not the legacy copy of another one, so it is never removed.

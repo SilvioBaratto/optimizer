@@ -104,7 +104,7 @@ def _equity(engine: Engine, instrument_id: uuid.UUID) -> dict[str, float | None]
         ).one()
     return {
         col: None if row._mapping[col] is None else float(row._mapping[col])
-        for col in (*_VALUATION, "median_market_cap", "three_year_earnings_growth")
+        for col in _VALUATION
     }
 
 
@@ -137,8 +137,6 @@ def test_upgrade_inverts_stored_reciprocals_into_multiples(engine: Engine) -> No
         price_to_book=0.19034,
         price_to_sales=0.27459,
         price_to_cashflow=0.05326,
-        median_market_cap=2.5e11,
-        three_year_earnings_growth=0.12,
     )
 
     _run(engine, "upgrade")
@@ -148,8 +146,6 @@ def test_upgrade_inverts_stored_reciprocals_into_multiples(engine: Engine) -> No
     assert out["price_to_book"] == pytest.approx(5.254, abs=0.01)
     assert out["price_to_sales"] == pytest.approx(3.642, abs=0.01)
     assert out["price_to_cashflow"] == pytest.approx(18.78, abs=0.05)
-    assert out["median_market_cap"] == pytest.approx(2.5e11)
-    assert out["three_year_earnings_growth"] == pytest.approx(0.12)
 
 
 def test_upgrade_nulls_zero_and_negative_no_data_values(engine: Engine) -> None:

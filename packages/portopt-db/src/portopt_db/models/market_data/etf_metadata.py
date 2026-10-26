@@ -170,12 +170,6 @@ class ETFEquityHoldings(BaseModel):
     price_to_cashflow: Mapped[float | None] = mapped_column(
         Numeric(20, 6), nullable=True
     )
-    median_market_cap: Mapped[float | None] = mapped_column(
-        Numeric(24, 2), nullable=True
-    )
-    three_year_earnings_growth: Mapped[float | None] = mapped_column(
-        Numeric(20, 6), nullable=True
-    )
 
 
 class ETFBondHoldings(BaseModel):
@@ -197,7 +191,6 @@ class ETFBondHoldings(BaseModel):
     as_of: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     duration: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     maturity: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
-    credit_quality: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
 
 
 class ETFBondRating(BaseModel):

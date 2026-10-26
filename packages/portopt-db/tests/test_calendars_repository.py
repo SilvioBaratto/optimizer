@@ -65,7 +65,6 @@ def test_economic_real_labels_and_region(db_session) -> None:
     got = db_session.query(EconomicEventCalendar).one()
     assert got.country == "US"  # from "Region", not the "?" fallback
     assert got.event_date == dt.date(2026, 9, 11)
-    assert got.forecast == "3.1%"
     assert got.prior == "3.0%"
 
 
@@ -358,19 +357,19 @@ def test_economic_event_keyed_on_its_utc_date_is_replaced_not_duplicated(
     # replace those rows instead of living next to them forever.
     db_session.add(
         EconomicEventCalendar(
-            event="CPI", country=region, event_date=legacy_date, forecast="old"
+            event="CPI", country=region, event_date=legacy_date, prior="old"
         )
     )
     db_session.flush()
 
     repo = CalendarsRepository(db_session)
-    payload = {**_economic_payload("CPI", region, instant_utc), "Expected": "new"}
+    payload = {**_economic_payload("CPI", region, instant_utc), "Last": "new"}
     repo.upsert_economic_events([payload])
     repo.upsert_economic_events([payload])  # a second refetch changes nothing
     db_session.flush()
 
     assert _stored_economic_events(db_session) == [("CPI", region, local_date)]
-    assert db_session.query(EconomicEventCalendar).one().forecast == "new"
+    assert db_session.query(EconomicEventCalendar).one().prior == "new"
 
 
 def test_economic_event_legacy_cleanup_leaves_other_events_alone(db_session) -> None:
