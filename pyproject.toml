@@ -43,7 +43,7 @@ Changelog = "https://github.com/SilvioBaratto/optimizer/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest==9.1.1", "pytest-cov==7.1.0", "hypothesis==6.168.5", "pyyaml==6.0.3"]
-lint = ["ruff==0.16.10", "pip-audit==2.10.1"]
+lint = ["ruff==0.17.3", "pip-audit==2.10.1"]
 # pyright is pinned exactly: each release can add checks that fail the zero-error
 # CI gate, so the pin moves together with any fixes the new version needs.
 typecheck = ["mypy==2.3.1", "pyright[nodejs]==1.1.414"]
