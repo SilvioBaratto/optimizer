@@ -41,7 +41,7 @@ dependencies = [
     # Install wizard (portopt setup): interactive prompts, rich output, encrypted secret store
     "questionary==2.1.1",
     "rich==15.0.0",
-    "cryptography==50.0.1",
+    "cryptography==50.0.2",
     # PATH install for the `optimizer` launcher: userpath edits the User PATH via
     # shell rc / registry (never `setx`, which truncates PATH at 1024 chars).
     "userpath==1.9.2",
