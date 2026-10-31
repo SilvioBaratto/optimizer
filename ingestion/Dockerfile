@@ -1,5 +1,5 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 
 # uv binary (pinned to match the workspace lockfile tooling)
 COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /usr/local/bin/uv
@@ -54,7 +54,7 @@ RUN --mount=type=secret,id=ca_bundle \
     uv sync --frozen --no-dev --no-editable --package portopt --active
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 WORKDIR /app
 
