@@ -53,8 +53,15 @@ def _answers(
     reaction: LossReaction = LossReaction.HOLD,
     exclusions: tuple[GicsSector, ...] = (),
     other_preferences: tuple[str, ...] = (),
+    look_through_tolerance: float | None = 0.0,
     unanswered: tuple[str, ...] = (),
 ) -> MiFIDAnswers:
+    """``look_through_tolerance=None`` leaves the figure unstated."""
+    stated = (
+        {}
+        if look_through_tolerance is None
+        else {"look_through_tolerance": look_through_tolerance}
+    )
     return MiFIDAnswers(
         base_currency="EUR",
         knowledge=KnowledgeAnswers(level=KnowledgeLevel.INFORMED),
@@ -65,7 +72,9 @@ def _answers(
             likert_items=likert,
             loss_reaction=reaction,
         ),
-        esg=EsgAnswers(exclusions=exclusions, other_preferences=other_preferences),
+        esg=EsgAnswers(
+            exclusions=exclusions, other_preferences=other_preferences, **stated
+        ),
         unanswered=unanswered,  # type: ignore[arg-type]
     )
 
@@ -230,6 +239,50 @@ def test_each_unanswered_datum_gets_its_own_flag_once() -> None:
         f"{FLAG_UNANSWERED_INPUT}:capacity.buffer_months",
         f"{FLAG_UNANSWERED_INPUT}:objectives.likert_items",
     ]
+
+
+# --- the fund look-through tolerance is only owed when sectors are excluded ----
+
+_TOLERANCE_FLAG = f"{FLAG_UNANSWERED_INPUT}:esg.look_through_tolerance"
+
+
+def test_exclusions_without_a_stated_tolerance_flag_it_for_the_adviser() -> None:
+    cs, sa = run_mapping(
+        _answers(exclusions=(GicsSector.ENERGY,), look_through_tolerance=None),
+        portfolio_id="pf-1",
+    )
+
+    assert _TOLERANCE_FLAG in sa.inconsistency_flags
+    assert cs.esg.look_through_tolerance == 0.0
+
+
+@pytest.mark.parametrize("figure", [0.0, 0.05])
+def test_a_stated_tolerance_including_zero_raises_no_flag(figure: float) -> None:
+    _, sa = run_mapping(
+        _answers(exclusions=(GicsSector.ENERGY,), look_through_tolerance=figure),
+        portfolio_id="pf-1",
+    )
+
+    assert _TOLERANCE_FLAG not in sa.inconsistency_flags
+
+
+@pytest.mark.parametrize("figure", [None, 0.0, 0.3])
+def test_no_exclusions_means_no_tolerance_flag_whatever_the_figure(
+    figure: float | None,
+) -> None:
+    _, sa = run_mapping(_answers(look_through_tolerance=figure), portfolio_id="pf-1")
+
+    assert _TOLERANCE_FLAG not in sa.inconsistency_flags
+
+
+def test_a_tolerance_listed_unanswered_without_exclusions_raises_no_flag() -> None:
+    # The extraction model may list the path out of caution; with nothing excluded
+    # the figure is irrelevant, so the adviser must not be asked about it.
+    _, sa = run_mapping(
+        _answers(unanswered=("esg.look_through_tolerance",)), portfolio_id="pf-1"
+    )
+
+    assert sa.inconsistency_flags == ()
 
 
 # --- placeholders for unanswered data and unenforceable ESG preferences ------

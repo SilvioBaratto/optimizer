@@ -86,6 +86,11 @@ _SECOND_MOMENT_MEASURES: frozenset[RiskMeasureType] = frozenset(
     {RiskMeasureType.VARIANCE, RiskMeasureType.SEMI_VARIANCE}
 )
 
+# Variance is homogeneous of degree 2 in the weights, so its marginal price along the
+# direction of scaling the portfolio is twice its level; a first-order measure's is
+# its level (see ``_calibrate_risk_aversion``).
+_VARIANCE_DEGREE = 2.0
+
 
 def _resolve_config(constraints: dict[str, Any] | None) -> MeanRiskConfig:
     """Build a long-only ``MeanRiskConfig`` (minimum-variance unless overridden).
@@ -112,13 +117,22 @@ def _calibrate_risk_aversion(
 
     The MiFID ``a_gamma`` ladder is quoted for variance utility ``mu - a * var``,
     where per-period variance (~1e-4) and expected return are commensurate. A
-    first-order measure (CVaR, CDaR, max drawdown, ...) runs ~1e-2, so the same
-    coefficient makes the risk term swamp ``mu`` and the utility objective returns
-    the minimum-risk portfolio for every client. The coefficient is rescaled so the
-    equal-weight portfolio pays the same risk penalty as it would under variance.
+    first-order measure ``R`` (CVaR, CDaR, max drawdown, ...) runs ~1e-2, so the
+    same coefficient makes the risk term swamp ``mu``.
+
+    The coefficient is chosen so the tail-measure utility settles at the risk level
+    the quoted scale implies. At the variance-utility optimum ``w*`` for ``a``,
+    scaling exposure by ``t`` changes utility by ``mu - 2 t a var``, so
+    ``mu(w*) = 2 a var(w*)``. A utility over a degree-1 measure is indifferent to the
+    same scaling when ``mu = a' R(w*)``, hence ``a' = 2 a var(w*) / R(w*)``. The
+    anchor ``w*`` is solved under the config's own bounds and regularisation (not
+    its cardinality cap, which would make the anchor a MIP). Equating the penalty on
+    the equal-weight portfolio is not equivalent: it drops the factor 2 (variance is
+    degree 2, ``R`` degree 1) and ignores that a risk-averse target is a low-variance
+    portfolio, which leaves the coefficient too small and the optimum too risky.
 
     Only ``MAXIMIZE_UTILITY`` reads ``risk_aversion``; other objectives, the
-    second-moment measures and a degenerate reference (no measurable risk) keep the
+    second-moment measures and a degenerate anchor (no measurable risk) keep the
     config unchanged.
     """
     if (
@@ -126,22 +140,30 @@ def _calibrate_risk_aversion(
         or config.risk_measure in _SECOND_MOMENT_MEASURES
     ):
         return config
-    n_assets = returns.shape[1]
-    reference = Portfolio(
+    anchor_model = build_mean_risk(
+        replace(config, risk_measure=RiskMeasureType.VARIANCE, cardinality=None)
+    )
+    anchor_model.fit(returns)
+    if anchor_model.weights_ is None:  # set by the fit above; narrows the Optional
+        return config
+    anchor = Portfolio(
         X=returns,
-        weights=np.full(n_assets, 1.0 / n_assets),
+        weights=np.asarray(anchor_model.weights_, dtype=float),
         cvar_beta=config.cvar_beta,
         evar_beta=config.evar_beta,
         cdar_beta=config.cdar_beta,
         edar_beta=config.edar_beta,
     )
-    variance = float(reference.variance)
-    measure = float(getattr(reference, config.risk_measure.value))
+    variance = float(anchor.variance)
+    measure = float(getattr(anchor, config.risk_measure.value))
     if not (math.isfinite(variance) and math.isfinite(measure)):
         return config
     if variance <= 0.0 or measure <= 0.0:
         return config
-    return replace(config, risk_aversion=config.risk_aversion * variance / measure)
+    return replace(
+        config,
+        risk_aversion=_VARIANCE_DEGREE * config.risk_aversion * variance / measure,
+    )
 
 
 def _clean_weights(weights: np.ndarray, config: MeanRiskConfig) -> np.ndarray:
@@ -197,6 +219,10 @@ def optimize_portfolio(
     base_currency: str | None = None,
 ) -> ToolResult:
     """Optimise weights for ``universe`` from prices as of ``asof``.
+
+    Under ``MAXIMIZE_UTILITY`` over a first-order risk measure the supplied
+    ``risk_aversion`` (quoted on the variance-utility scale) is rescaled so the
+    optimum carries the risk level that scale implies.
 
     Args:
         session: A sync ``portopt_db`` session; the tool does not own it.

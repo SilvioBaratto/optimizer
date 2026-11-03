@@ -37,7 +37,10 @@ split is load-bearing:
    attitudinal Likert (tolerance) disjoint from the financial capacity fields.
    Never guess an answer the client did not give: list it in `unanswered` (the
    mapping applies the most conservative value and flags it), and keep any ESG
-   preference that is not a GICS sector in `esg.other_preferences`.
+   preference that is not a GICS sector in `esg.other_preferences`. When sectors
+   are excluded, ask what share of a *fund* may sit in one: that fraction in
+   `[0, 1]` is `esg.look_through_tolerance`, and without a stated figure it stays
+   0 and joins `unanswered`.
 3. **Check consistency** — flag contradictions (e.g. "max growth" + "cannot lose
    anything") and overconfidence. Flag, never clamp; an ESG/legal breach
    hard-blocks.

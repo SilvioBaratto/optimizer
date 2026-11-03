@@ -19,11 +19,11 @@ dependencies = [
     "alembic==1.19.1",
     "pandas==3.0.6",
     # RepositoryBase's generic CRUD is typed against pydantic schemas.
-    "pydantic==2.13.4",
+    "pydantic==2.14.1",
 ]
 
 [project.optional-dependencies]
-test = ["pytest==9.1.1", "pytest-cov==7.1.0"]
+test = ["pytest==9.2.0", "pytest-cov==7.1.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

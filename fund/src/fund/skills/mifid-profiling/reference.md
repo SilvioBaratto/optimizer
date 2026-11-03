@@ -17,6 +17,7 @@ are `todo/deep_agent.md` line refs (`file:line`), preserved from the roadmap.
 | Objective | `objectives.goal` | `objective` (passthrough) | `15:80`, `17:89` |
 | Knowledge & experience (low) | `knowledge.level` | `universe_filters` (no_complex, no_leverage, cap) | `06:41`, `06:274` |
 | ESG | `esg.exclusions` | `esg` (**hard gate**, exclusions-only, D16): `universe_filter` drops the sectors' names and `risk_check` blocks any weight on them | fund-scope |
+| ESG (funds) | `esg.look_through_tolerance` | `esg.look_through_tolerance`: fraction in `[0, 1]` of a *fund* that may sit in an excluded sector; 0 (the default) is the strictest reading. Never inferred: only a stated figure moves it off 0 | fund-scope |
 
 ## Appetite → aversion (correctness-critical inversion)
 
@@ -96,6 +97,7 @@ appetite scale `[0, 1]` as the bands above.
 | `overconfidence` | `A_tol - A_cap >= 0.4` (attitude far outstripping finances) |
 | `reaction_tolerance_mismatch` | `A_tol >= 0.6` **and** `loss_reaction` is `sell_all` |
 | `unanswered_input:<datum>` | the client left that field unanswered (`MiFIDAnswers.unanswered`); one flag per datum, and the field holds its conservative placeholder |
+| `unanswered_input:esg.look_through_tolerance` | sectors are excluded but the client gave no fund tolerance, so the strict 0 was assumed; never raised when nothing is excluded, and an explicit 0 counts as stated |
 | `unenforced_esg_preference` | `esg.other_preferences` is non-empty: a preference no GICS sector expresses, shown to the adviser but not enforced |
 
 A growth/max objective ignores `a_gamma` in the optimizer, so the first flag is the

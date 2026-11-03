@@ -66,6 +66,12 @@ def test_profiler_prompt_flags_anti_overconfidence():
     assert "overconfiden" in PROFILER_SYSTEM_PROMPT.lower()
 
 
+def test_profiler_prompt_asks_for_the_fund_look_through_tolerance():
+    lower = PROFILER_SYSTEM_PROMPT.lower()
+    assert "look-through" in lower
+    assert "fund" in lower
+
+
 # --- skill: frontmatter + body ----------------------------------------------
 
 
@@ -98,6 +104,15 @@ def test_reference_md_carries_the_pillar_knob_table():
     assert "esg" in lower
     # Theory citations preserved (deep_agent.md line refs).
     assert "01:142" in text or "deep_agent" in lower
+
+
+def test_skill_and_reference_document_the_look_through_tolerance():
+    skill = (_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    reference = (_SKILL_DIR / "reference.md").read_text(encoding="utf-8")
+
+    assert "esg.look_through_tolerance" in skill
+    assert "esg.look_through_tolerance" in reference
+    assert "unanswered_input:esg.look_through_tolerance" in reference
 
 
 # --- hygiene: schemas stay a pure data layer --------------------------------

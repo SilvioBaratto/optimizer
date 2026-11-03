@@ -35,9 +35,9 @@ gate, and the adviser sees that the value was assumed rather than client-provide
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from fund.schemas.enums import (
     GicsSector,
@@ -79,7 +79,12 @@ UnansweredDatum = Literal[
     "objectives.likert_items",
     "objectives.loss_reaction",
     "esg.exclusions",
+    "esg.look_through_tolerance",
 ]
+
+# Owed only when sectors are excluded: with nothing excluded there is no fund screen
+# for the figure to loosen.
+LOOK_THROUGH_TOLERANCE_PATH: UnansweredDatum = "esg.look_through_tolerance"
 
 _Pillar = Literal["knowledge", "capacity", "objectives", "esg"]
 _QuestionKind = Literal["single_choice", "multi_choice", "likert", "numeric"]
@@ -191,7 +196,12 @@ class EsgAnswers(BaseModel):
     refuses to hold; the profiler turns them into a HARD ``EsgPolicy`` block.
     ``exclusions`` has no default: "no preference" is an explicit empty tuple, so an
     omitted answer cannot pass as one. ``other_preferences`` keeps the stated
-    preferences no sector expresses so the adviser sees them."""
+    preferences no sector expresses so the adviser sees them.
+
+    ``look_through_tolerance`` is how much of a *fund* may sit in an excluded sector.
+    A fund has no single sector, so without a stated share the only fund screen is
+    the strictest one (0.0); it defaults to that, which keeps records stored before
+    the field existed valid."""
 
     model_config = _ANSWERS_CONFIG
 
@@ -208,6 +218,17 @@ class EsgAnswers(BaseModel):
             "ESG preferences the client stated that are NOT a GICS sector (e.g. "
             "'no tobacco', 'no weapons'), verbatim. Never map one onto an arbitrary "
             "sector; they are surfaced to the adviser, not enforced."
+        ),
+    )
+    look_through_tolerance: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Largest share of a FUND's weight allowed in an excluded sector, as a "
+            "FRACTION in [0, 1] (0.05 means 5%). 0 means none at all. Set it only "
+            "from a figure the client stated; otherwise leave 0 and list "
+            "'esg.look_through_tolerance' in unanswered."
         ),
     )
 
@@ -244,6 +265,36 @@ class MiFIDAnswers(BaseModel):
             "'capacity.buffer_months'). Empty when the client answered everything."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flag_unstated_look_through_tolerance(cls, data: Any) -> Any:
+        """Mark the tolerance unanswered when sectors are excluded but no figure given.
+
+        The typed TUI form and the CLI ``--answers`` path hand the profiler a finished
+        ``MiFIDAnswers`` and skip the extraction model, so nothing else would say the
+        strict 0.0 was assumed. An explicit 0 counts as stated: only an absent key
+        (or, for a typed ``EsgAnswers``, a field left out of the constructor) is
+        unstated. Anything this cannot read is passed on for the field validators to
+        reject.
+        """
+        if not isinstance(data, dict):
+            return data
+        esg = data.get("esg")
+        if isinstance(esg, EsgAnswers):
+            excluded = bool(esg.exclusions)
+            stated = "look_through_tolerance" in esg.model_fields_set
+        elif isinstance(esg, dict):
+            excluded = bool(esg.get("exclusions"))
+            stated = "look_through_tolerance" in esg
+        else:
+            return data
+        unanswered = data.get("unanswered", ())
+        if not isinstance(unanswered, list | tuple):
+            return data
+        if not excluded or stated or LOOK_THROUGH_TOLERANCE_PATH in unanswered:
+            return data
+        return {**data, "unanswered": (*unanswered, LOOK_THROUGH_TOLERANCE_PATH)}
 
 
 class SuitabilityAssessment(BaseModel):
@@ -334,5 +385,14 @@ QUESTION_BANK: tuple[MiFIDQuestion, ...] = (
         text="Which economic sectors, if any, do you wish to exclude on ESG grounds?",
         kind="multi_choice",
         options=tuple(sector.value for sector in GicsSector),
+    ),
+    MiFIDQuestion(
+        id="esg_2",
+        pillar="esg",
+        text=(
+            "What share of a fund may sit in an excluded sector, as a percentage "
+            "of the fund?"
+        ),
+        kind="numeric",
     ),
 )

@@ -144,6 +144,43 @@ def test_interrupt_description_shows_the_extracted_answers(db_session):
     assert "unenforced_esg_preference" in description
 
 
+def test_gate_description_states_the_look_through_tolerance_when_sectors_are_excluded(
+    db_session,
+):
+    pid = uuid.uuid4()
+    answers = make_answers(exclusions=(GicsSector.ENERGY,), look_through_tolerance=0.05)
+
+    run = _run(make_model(answers, portfolio_id=str(pid)), db_session, portfolio_id=pid)
+
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "ESG exclusions: energy" in description
+    assert "fund look-through tolerance 5%" in description
+    assert "unanswered_input:esg.look_through_tolerance" not in description
+
+
+def test_gate_flags_an_unstated_tolerance_and_shows_the_assumed_zero(db_session):
+    pid = uuid.uuid4()
+    answers = make_answers(exclusions=(GicsSector.ENERGY,), look_through_tolerance=None)
+
+    run = _run(make_model(answers, portfolio_id=str(pid)), db_session, portfolio_id=pid)
+
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "unanswered_input:esg.look_through_tolerance" in description
+    assert "fund look-through tolerance 0%" in description
+
+
+def test_gate_description_omits_the_tolerance_when_nothing_is_excluded(db_session):
+    pid = uuid.uuid4()
+
+    run = _run(
+        make_model(make_answers(), portfolio_id=str(pid)), db_session, portfolio_id=pid
+    )
+
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "ESG exclusions: none" in description
+    assert "look-through" not in description
+
+
 # --- a malformed save_profile call must not burn the adviser's approval ------
 
 

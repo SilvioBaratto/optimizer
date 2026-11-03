@@ -26,7 +26,7 @@ from textual.widgets import Button, Input, Label, Select, SelectionList, Static
 if TYPE_CHECKING:
     from textual.binding import BindingType
 
-    from fund.schemas.questionnaire import MiFIDAnswers
+    from fund.schemas.questionnaire import EsgAnswers, MiFIDAnswers
 
 
 @dataclass(frozen=True)
@@ -122,6 +122,14 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
                 yield SelectionList[str](
                     *((sector.value, sector.value) for sector in GicsSector), id="q-esg"
                 )
+                # Meaningless without an excluded sector, and the form is already
+                # tall, so it appears only once the first sector is ticked.
+                tolerance = Input(
+                    placeholder="Max share of a fund in an excluded sector (%)",
+                    id="q-esg-lookthrough",
+                )
+                tolerance.display = False
+                yield tolerance
             # Plain text: error detail routinely carries ``[...]``, which Textual's
             # markup parser rejects with a MarkupError that would crash the app.
             yield Static("", id="q-error", classes="q-error", markup=False)
@@ -135,6 +143,15 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
             self._submit()
         elif event.button.id == "q-cancel":
             self.dismiss(None)
+
+    def on_selection_list_selected_changed(
+        self, event: SelectionList.SelectedChanged
+    ) -> None:
+        """Show the fund-tolerance field while at least one sector is excluded."""
+        if event.selection_list.id == "q-esg":
+            self.query_one("#q-esg-lookthrough", Input).display = bool(
+                event.selection_list.selected
+            )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """``↵`` in any text field submits, so the form works without a pointer."""
@@ -168,7 +185,6 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         """
         from fund.schemas.questionnaire import (
             CapacityAnswers,
-            EsgAnswers,
             KnowledgeAnswers,
             MiFIDAnswers,
             ObjectivesAnswers,
@@ -187,11 +203,26 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
                 likert_items=self._likert(),
                 loss_reaction=self._choice("#q-loss-reaction"),
             ),
-            esg=EsgAnswers(
-                exclusions=tuple(self.query_one("#q-esg", SelectionList).selected)
-            ),
+            esg=self._esg_answers(),
         )
         return OnboardingSubmission(answers=answers, capital=self._capital())
+
+    def _esg_answers(self) -> EsgAnswers:
+        """The ESG pillar: ticked sectors plus, when any, the typed fund tolerance.
+
+        A blank tolerance leaves ``look_through_tolerance`` out of the constructor
+        instead of passing 0.0: only an omitted figure is flagged as assumed at the
+        adviser gate, while an explicit ``0`` is the client saying "none at all".
+        """
+        from fund.schemas.questionnaire import EsgAnswers
+
+        exclusions = tuple(self.query_one("#q-esg", SelectionList).selected)
+        raw = self.query_one("#q-esg-lookthrough", Input).value.strip()
+        if not exclusions or not raw:
+            return EsgAnswers(exclusions=exclusions)
+        return EsgAnswers(
+            exclusions=exclusions, look_through_tolerance=_parse_percentage(raw)
+        )
 
     def _choice(self, selector: str) -> Any:
         """The picked value of a required ``Select``; raise when left blank."""
@@ -223,6 +254,22 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         if capital <= 0:
             raise ValueError("capital must be a positive number")
         return capital
+
+
+def _parse_percentage(raw: str) -> float:
+    """A typed percentage (``"5"`` or ``"5%"``) as a fraction in ``[0, 1]``.
+
+    Raises:
+        ValueError: The text is not a number between 0 and 100.
+    """
+    message = "look-through tolerance must be a percentage between 0 and 100"
+    try:
+        percent = float(raw.removesuffix("%").strip())
+    except ValueError:
+        raise ValueError(message) from None
+    if not 0.0 <= percent <= 100.0:  # also rejects NaN
+        raise ValueError(message)
+    return percent / 100.0
 
 
 def describe_error(exc: Exception) -> str:

@@ -524,6 +524,55 @@ def test_compute_risk_does_not_list_limits_the_profile_left_unset(
     assert "drawdown" in result.unchecked_limits[0]
 
 
+def test_compute_risk_lists_the_look_through_tolerance_it_does_not_evaluate(
+    priced_session: Session,
+) -> None:
+    """The fund tolerance is recorded but no verdict reads it, so it is a listed gap."""
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    constraint_set["esg"] = {
+        "exclusions": ["energy"],
+        "min_taxonomy": None,
+        "min_sfdr": None,
+        "pai_flags": [],
+        "look_through_tolerance": 0.05,
+    }
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.5}, constraint_set, None, session=priced_session
+    )
+
+    (line,) = (i for i in result.unchecked_limits if "look-through" in i)
+    assert "5%" in line
+
+
+def test_compute_risk_adds_no_gap_line_for_a_strict_tolerance(
+    priced_session: Session,
+) -> None:
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    constraint_set["esg"] = {
+        "exclusions": ["energy"],
+        "min_taxonomy": None,
+        "min_sfdr": None,
+        "pai_flags": [],
+        "look_through_tolerance": 0.0,
+    }
+    constraint_set["universe_filters"] = {
+        "no_complex": False,
+        "no_leverage": False,
+        "max_position_cap": None,
+    }
+    constraint_set["cardinality"] = None
+
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.5}, constraint_set, None, session=priced_session
+    )
+
+    assert len(result.unchecked_limits) == 1  # only the always-recorded nu ceilings
+
+
 def test_compute_risk_missing_sector_mapping_degrades(priced_session: Session) -> None:
     """A missing sector mapping degrades to unavailable (None), never a crash."""
     from fund.readouts_compute import compute_risk

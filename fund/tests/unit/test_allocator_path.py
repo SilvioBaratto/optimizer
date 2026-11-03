@@ -748,6 +748,29 @@ def _synthetic_returns(seed: int = 0):
     )
 
 
+def _stock_panel(seed: int = 0, n: int = 30, t: int = 600):
+    """A stock-like panel: volatile growth names with the highest sample means,
+    plus a defensive tail, driven by one fat-tailed market factor."""
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    n_growth = n * 2 // 3
+    vol = np.concatenate(
+        [rng.uniform(0.28, 0.55, n_growth), rng.uniform(0.12, 0.22, n - n_growth)]
+    ) / np.sqrt(252)
+    beta = rng.uniform(0.6, 1.3, n)
+    market_vol = 0.16 / np.sqrt(252)
+    idio = np.sqrt(np.maximum(vol**2 - (beta * market_vol) ** 2, 1e-6))
+    mu = (0.05 + 0.5 * (vol * np.sqrt(252) - 0.12) + rng.normal(0, 0.1, n)) / 252
+    fat = np.sqrt(5 / 3)
+    market = rng.standard_t(5, t) / fat * market_vol
+    noise = rng.standard_t(5, (t, n)) / fat * idio
+    return pd.DataFrame(
+        mu + np.outer(market, beta) + noise, columns=[f"S{i}" for i in range(n)]
+    )
+
+
 def _utility_config(measure, risk_aversion):
     from dataclasses import replace
 
@@ -761,29 +784,120 @@ def _utility_config(measure, risk_aversion):
     )
 
 
+def _utility_weights(returns, measure, risk_aversion, *, calibrate: bool):
+    import numpy as np
+    from optimizer.optimization import build_mean_risk
+
+    from fund.tools.optimize import _calibrate_risk_aversion
+
+    config = _utility_config(measure, risk_aversion)
+    if calibrate:
+        config = _calibrate_risk_aversion(config, returns)
+    model = build_mean_risk(config)
+    model.fit(returns)
+    return np.asarray(model.weights_)
+
+
+def _annualised_vol(returns, weights) -> float:
+    import numpy as np
+
+    return float(returns.dot(weights).std() * np.sqrt(252))
+
+
+# The MiFID ladder (``profiler._AVERSION_BANDS``), most to least risk-averse.
+_BAND_A_GAMMAS = (12.0, 8.0, 5.0, 2.5, 1.0)
+
+
 class TestRiskAversionCalibration:
     """``a_gamma`` is quoted for variance utility; other measures need rescaling."""
 
-    @pytest.mark.parametrize("measure", ["cvar", "cdar", "max_drawdown"])
-    def test_equal_weight_pays_the_same_penalty_as_under_variance(
-        self, measure: str
+    @pytest.mark.parametrize(
+        ("a_gamma", "expected"),
+        [
+            (12.0, 0.12226),
+            (8.0, 0.09579),
+            (5.0, 0.07048),
+            (2.5, 0.04115),
+            (1.0, 0.02556),
+        ],
+    )
+    def test_each_band_maps_to_a_fixed_cvar_risk_aversion(
+        self, a_gamma: float, expected: float
     ) -> None:
-        import numpy as np
         from optimizer.optimization import RiskMeasureType
-        from skfolio import Portfolio
 
         from fund.tools.optimize import _calibrate_risk_aversion
 
-        returns = _synthetic_returns()
-        config = _utility_config(RiskMeasureType(measure), 5.0)
+        config = _utility_config(RiskMeasureType.CVAR, a_gamma)
 
-        calibrated = _calibrate_risk_aversion(config, returns)
+        calibrated = _calibrate_risk_aversion(config, _stock_panel())
 
-        reference = Portfolio(X=returns, weights=np.full(returns.shape[1], 1 / 8))
-        assert calibrated.risk_aversion * getattr(reference, measure) == pytest.approx(
-            5.0 * reference.variance
+        assert calibrated.risk_aversion == pytest.approx(expected, rel=1e-2)
+
+    @pytest.mark.parametrize(
+        ("measure", "a_gamma"),
+        [
+            ("cvar", 12.0),
+            ("cvar", 8.0),
+            ("cvar", 5.0),
+            ("cvar", 2.5),
+            ("cdar", 8.0),
+        ],
+    )
+    def test_tail_measure_utility_takes_the_variance_utility_risk_level(
+        self, measure: str, a_gamma: float
+    ) -> None:
+        """A conservative ``a_gamma`` must stay conservative under a tail measure.
+
+        Matching the penalty on the equal-weight portfolio left the coefficient about
+        half the size the quoted variance scale implies, so a conservative client got
+        the risk level of an aggressive one."""
+        from optimizer.optimization import RiskMeasureType
+
+        returns = _stock_panel()
+        risk_measure = RiskMeasureType(measure)
+
+        quoted = _utility_weights(
+            returns, RiskMeasureType.VARIANCE, a_gamma, calibrate=False
         )
-        assert calibrated.risk_aversion < 0.1
+        tail = _utility_weights(returns, risk_measure, a_gamma, calibrate=True)
+
+        ratio = _annualised_vol(returns, tail) / _annualised_vol(returns, quoted)
+        assert 0.9 < ratio < 1.12
+
+    def test_conservative_band_is_clearly_less_risky_than_aggressive(self) -> None:
+        from optimizer.optimization import RiskMeasureType
+
+        returns = _stock_panel()
+
+        vols = [
+            _annualised_vol(
+                returns,
+                _utility_weights(returns, RiskMeasureType.CVAR, a, calibrate=True),
+            )
+            for a in _BAND_A_GAMMAS
+        ]
+
+        assert vols == sorted(vols)
+        assert vols[1] < 0.7 * vols[-1]
+
+    def test_the_anchor_respects_the_weight_cap(self) -> None:
+        """The anchor is solved under the config's own bounds: a cap that binds the
+        real problem must bind the anchor, or the coefficient is sized for a
+        portfolio the client can never hold."""
+        from dataclasses import replace
+
+        from optimizer.optimization import RiskMeasureType
+
+        from fund.tools.optimize import _calibrate_risk_aversion
+
+        returns = _stock_panel()
+        config = _utility_config(RiskMeasureType.CVAR, 8.0)
+
+        free = _calibrate_risk_aversion(config, returns)
+        capped = _calibrate_risk_aversion(replace(config, max_weights=0.1), returns)
+
+        assert capped.risk_aversion != pytest.approx(free.risk_aversion, rel=1e-3)
 
     @pytest.mark.parametrize("measure", ["variance", "semi_variance"])
     def test_second_moment_measures_keep_the_quoted_scale(self, measure: str) -> None:

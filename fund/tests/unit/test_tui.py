@@ -59,6 +59,7 @@ from textual.widgets import (
     ListItem,
     ListView,
     Select,
+    SelectionList,
     Static,
 )
 from textual.worker import WorkerState
@@ -2969,6 +2970,179 @@ async def test_questionnaire_rejects_non_positive_capital(shell_env) -> None:
         assert isinstance(app.screen, QuestionnaireScreen)
 
 
+_TOLERANCE_FIELD = "#q-esg-lookthrough"
+
+
+async def _open_filled_questionnaire(app, pilot):
+    """Push a questionnaire pre-filled with valid, exclusion-free answers."""
+    from _profiler_fakes import make_answers
+
+    await pilot.pause()
+    screen = QuestionnaireScreen(ask_capital=True)
+    app.push_screen(screen)
+    await pilot.pause()
+    _fill_questionnaire(screen, make_answers(), capital="100000")
+    return screen
+
+
+async def _exclude(screen, pilot, *sectors: str) -> None:
+    """Tick sectors in the ESG list the way a user does, firing its change event."""
+    esg = screen.query_one("#q-esg", SelectionList)
+    for sector in sectors:
+        esg.select(sector)
+    await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_tolerance_field_follows_the_sector_selection(
+    shell_env,
+) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        screen = await _open_filled_questionnaire(app, pilot)
+        field = screen.query_one(_TOLERANCE_FIELD, Input)
+        assert field.display is False  # nothing excluded, nothing to tolerate
+
+        await _exclude(screen, pilot, "energy")
+        assert field.display is True
+        assert "excluded sector" in field.placeholder
+        assert "%" in field.placeholder
+
+        await _exclude(screen, pilot, "utilities")
+        assert field.display is True  # still shown with several sectors
+
+        esg = screen.query_one("#q-esg", SelectionList)
+        esg.deselect("energy")
+        esg.deselect("utilities")
+        await pilot.pause()
+        assert field.display is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed", ["5", "5%", " 5 % ", "5.0"])
+async def test_questionnaire_tolerance_is_parsed_from_a_percentage(
+    shell_env, typed
+) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        screen = await _open_filled_questionnaire(app, pilot)
+        await _exclude(screen, pilot, "energy")
+        screen.query_one(_TOLERANCE_FIELD, Input).value = typed
+
+        answers = screen.build_submission().answers
+
+    assert answers.esg.look_through_tolerance == pytest.approx(0.05)
+    assert answers.unanswered == ()  # a stated figure needs no confirmation
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_explicit_zero_is_a_stated_tolerance(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        screen = await _open_filled_questionnaire(app, pilot)
+        await _exclude(screen, pilot, "energy")
+        screen.query_one(_TOLERANCE_FIELD, Input).value = "0"
+
+        answers = screen.build_submission().answers
+
+    assert answers.esg.look_through_tolerance == 0.0
+    assert answers.unanswered == ()
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_blank_tolerance_with_sectors_is_left_for_the_gate(
+    shell_env,
+) -> None:
+    """No figure typed: strict 0.0 is submitted and the profiler flags it as assumed."""
+    from fund.agents.profiler import run_mapping
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        screen = await _open_filled_questionnaire(app, pilot)
+        await _exclude(screen, pilot, "energy")
+
+        answers = screen.build_submission().answers
+
+    assert answers.esg.look_through_tolerance == 0.0
+    assert answers.unanswered == ("esg.look_through_tolerance",)
+    _, suitability = run_mapping(answers, portfolio_id="pf-1")
+    assert (
+        "unanswered_input:esg.look_through_tolerance" in suitability.inconsistency_flags
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed", ["150", "100.5", "-1", "five", "nan"])
+async def test_questionnaire_rejects_an_out_of_range_tolerance_inline(
+    shell_env, typed
+) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        screen = await _open_filled_questionnaire(app, pilot)
+        await _exclude(screen, pilot, "energy")
+        screen.query_one(_TOLERANCE_FIELD, Input).value = typed
+
+        with pytest.raises(ValueError, match="between 0 and 100"):
+            screen.build_submission()
+        screen._submit()
+        await pilot.pause()
+
+        assert isinstance(app.screen, QuestionnaireScreen)  # modal stays open
+        message = str(screen.query_one("#q-error", Static).render())
+        assert "look-through tolerance" in message
+        assert "between 0 and 100" in message
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_accepts_the_full_range_ends(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        screen = await _open_filled_questionnaire(app, pilot)
+        await _exclude(screen, pilot, "energy")
+        field = screen.query_one(_TOLERANCE_FIELD, Input)
+
+        field.value = "100"
+        assert screen.build_submission().answers.esg.look_through_tolerance == 1.0
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_without_sectors_ignores_the_tolerance_field(
+    shell_env,
+) -> None:
+    """Submissions with nothing excluded are identical to those before the field."""
+    from fund.schemas.questionnaire import EsgAnswers
+
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        screen = await _open_filled_questionnaire(app, pilot)
+        await _exclude(screen, pilot, "energy")
+        screen.query_one(_TOLERANCE_FIELD, Input).value = "150"  # now invalid
+        screen.query_one("#q-esg", SelectionList).deselect("energy")
+        await pilot.pause()
+
+        answers = screen.build_submission().answers
+
+    assert answers.esg == EsgAnswers(exclusions=())
+    assert answers.unanswered == ()
+
+
+@pytest.mark.asyncio
+async def test_questionnaire_enter_in_the_tolerance_field_submits(shell_env) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        screen = await _open_filled_questionnaire(app, pilot)
+        await _exclude(screen, pilot, "energy")
+        field = screen.query_one(_TOLERANCE_FIELD, Input)
+        field.value = "5"
+        field.focus()
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, QuestionnaireScreen)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("size", [(80, 24), (120, 40)])
 async def test_questionnaire_submit_and_error_stay_reachable_on_short_terminals(
@@ -2994,6 +3168,29 @@ async def test_questionnaire_submit_and_error_stay_reachable_on_short_terminals(
         await pilot.pause()
         assert isinstance(app.screen, QuestionnaireScreen)
         assert "required" in str(screen.query_one("#q-error", Static).render())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [(80, 24), (120, 40)])
+async def test_questionnaire_actions_stay_reachable_with_the_tolerance_field_shown(
+    shell_env, size
+) -> None:
+    app = _make_shell(shell_env)
+    async with app.run_test(size=size) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen)
+        await pilot.pause()
+        await _exclude(screen, pilot, "energy")
+        for selector in ("#q-submit", "#q-cancel", "#q-error"):
+            assert app.screen.region.contains_region(
+                screen.query_one(selector).region
+            ), selector
+        field = screen.query_one(_TOLERANCE_FIELD, Input)
+        field.focus()
+        await pilot.pause()
+        assert field.display is True
+        assert screen.query_one(".q-form").scroll_y > 0  # focus scrolls it into view
 
 
 @pytest.mark.asyncio

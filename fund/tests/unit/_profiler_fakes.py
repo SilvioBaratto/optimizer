@@ -135,9 +135,19 @@ def make_answers(
     currency: str = "EUR",
     exclusions: tuple[Any, ...] = (),
     other_preferences: tuple[str, ...] = (),
+    look_through_tolerance: float | None = 0.0,
     unanswered: tuple[Any, ...] = (),
 ) -> MiFIDAnswers:
-    """A valid ``MiFIDAnswers`` (defaults land in the Balanced band, no flags)."""
+    """A valid ``MiFIDAnswers`` (defaults land in the Balanced band, no flags).
+
+    ``look_through_tolerance=None`` leaves the figure unstated, which the schema
+    flags whenever exclusions exist.
+    """
+    stated = (
+        {}
+        if look_through_tolerance is None
+        else {"look_through_tolerance": look_through_tolerance}
+    )
     return MiFIDAnswers(
         base_currency=currency,
         knowledge=KnowledgeAnswers(level=knowledge),
@@ -148,7 +158,11 @@ def make_answers(
             likert_items=likert,
             loss_reaction=reaction,
         ),
-        esg=EsgAnswers(exclusions=exclusions, other_preferences=other_preferences),
+        esg=EsgAnswers(
+            exclusions=exclusions,
+            other_preferences=other_preferences,
+            **stated,
+        ),
         unanswered=unanswered,
     )
 
