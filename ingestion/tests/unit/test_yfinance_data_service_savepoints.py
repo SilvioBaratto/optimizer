@@ -143,7 +143,12 @@ def test_failed_etf_write_rolls_back_the_whole_etf_snapshot(db_session) -> None:
         mp.setattr(ETFMetadataRepository, "upsert_holdings", _failing_holdings)
         with _emulated_pg_abort(db_session.get_bind()) as state:
             result = service.fetch_and_store(
-                inst.id, "SVPT", period="1mo", mode="full", asset_class="fixed_income"
+                inst.id,
+                "SVPT",
+                period="1mo",
+                mode="full",
+                asset_class="fixed_income",
+                instrument_type="ETF",
             )
         assert state["aborted"] is False
 

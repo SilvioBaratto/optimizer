@@ -275,7 +275,8 @@ def test_incremental_skips_when_metadata_is_fresh(db_session) -> None:
     yf.funds.fetch_fund_profile.assert_not_called()
 
 
-def test_dispatch_calls_etf_branch_only_for_funds(db_session) -> None:
+def _dispatch_count(db_session, **fetch_kwargs: object) -> int:
+    """How many times ``fetch_and_store`` enters the ETF fund-metadata branch."""
     from unittest.mock import patch
 
     inst = _fi_instrument(db_session)
@@ -285,12 +286,47 @@ def test_dispatch_calls_etf_branch_only_for_funds(db_session) -> None:
     svc = _service(db_session, yf)
 
     with patch.object(svc, "_fetch_etf_metadata") as branch:
-        svc.fetch_and_store(inst.id, "JAGA.DE", mode="full", asset_class="equity")
-        assert branch.call_count == 0
-        svc.fetch_and_store(inst.id, "JAGA.DE", mode="full", asset_class="fixed_income")
-        assert branch.call_count == 1
-        svc.fetch_and_store(inst.id, "V60A.DE", mode="full", asset_class="multi_asset")
-        assert branch.call_count == 2
+        svc.fetch_and_store(inst.id, "JAGA.DE", mode="full", **fetch_kwargs)
+    return branch.call_count
+
+
+@pytest.mark.parametrize(
+    "asset_class",
+    ["equity", "commodity", "fixed_income", "multi_asset", None],
+)
+def test_every_etf_triggers_the_fund_branch(db_session, asset_class) -> None:
+    """Equity and commodity ETFs need sector weights too, so the type decides."""
+    assert (
+        _dispatch_count(db_session, instrument_type="ETF", asset_class=asset_class) == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "asset_class", ["equity", "fixed_income", "multi_asset", "commodity", None]
+)
+def test_a_stock_never_triggers_the_fund_branch(db_session, asset_class) -> None:
+    """A STOCK with an ETF-like asset_class must not fire a funds_data request."""
+    assert (
+        _dispatch_count(db_session, instrument_type="STOCK", asset_class=asset_class)
+        == 0
+    )
+
+
+@pytest.mark.parametrize(
+    ("asset_class", "expected"),
+    [
+        ("fixed_income", 1),
+        ("multi_asset", 1),
+        ("equity", 0),
+        ("commodity", 0),
+        (None, 0),
+    ],
+)
+def test_unknown_instrument_type_falls_back_to_the_asset_class_rule(
+    db_session, asset_class, expected
+) -> None:
+    """A caller that passes no instrument_type behaves as before."""
+    assert _dispatch_count(db_session, asset_class=asset_class) == expected
 
 
 def test_none_profile_and_funds_data_is_safe(db_session) -> None:
