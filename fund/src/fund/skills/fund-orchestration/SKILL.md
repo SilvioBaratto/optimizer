@@ -37,6 +37,9 @@ profile/universe is fixed for the whole run.
    round or recall a limit from memory.
 2. Delegate each step with the `task` tool, passing the run instruction's Mandate and
    ConstraintSet text verbatim plus the prior step's report as complete instructions.
+   If the run instruction carries an eligible universe block, relay it verbatim in the
+   allocator's brief (the tools enforce it and `list_universe` returns exactly that
+   set), and tell the economist to keep its views to that set.
    The executor binds no tool, so for it also read `current_holdings` with
    `get_portfolio_history` and pass them with the target weights.
 3. Respect the round cap (`max_pm_rounds` / `recursion_limit`): when it is hit the

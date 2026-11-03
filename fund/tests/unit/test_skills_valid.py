@@ -607,6 +607,53 @@ def test_universe_preselection_missing_has_both_causes_and_is_not_dropped_by_han
     assert "drop" not in step.lower(), step
 
 
+def _flat_lower(text: str) -> str:
+    return " ".join(text.lower().replace("`", "").split())
+
+
+def test_universe_preselection_takes_the_whole_eligible_universe():
+    for name in ("SKILL.md", "reference.md"):
+        flat = _flat_lower(_read("universe-preselection", name))
+        assert "eligible universe" in flat, name
+    skill = _flat_lower(_read("universe-preselection", "SKILL.md"))
+    assert "returns exactly" in skill
+    assert "take all of it" in skill
+    assert "do not sample by sector" in skill
+    # Without an allowlist the sector choice and paging stay as they were.
+    assert "without an eligible universe" in skill
+
+
+def test_universe_preselection_says_the_tools_refuse_outside_names():
+    flat = _flat_lower(_read("universe-preselection", "SKILL.md"))
+
+    assert "outside the eligible universe" in flat
+
+
+def test_fund_orchestration_relays_the_eligible_universe_block():
+    skill = _flat_lower(_read("fund-orchestration", "SKILL.md"))
+    reference = _flat_lower(_read("fund-orchestration", "reference.md"))
+
+    assert "eligible universe" in skill
+    assert "run instruction" in skill
+    assert "verbatim" in skill
+    assert "eligible universe" in reference
+
+
+def test_economist_skills_let_proxies_and_views_follow_the_eligible_universe():
+    macro = _flat_lower(_read("macro-regime-read", "SKILL.md"))
+    views = _flat_lower(_read("views-construction", "SKILL.md"))
+
+    assert "need not be eligible" in macro
+    assert "eligible universe" in views
+    assert "advisory" in views
+
+
+def test_risk_limits_skill_lists_the_eligibility_violation():
+    skill = _read("risk-limits-check", "SKILL.md")
+
+    assert "not_eligible" in skill
+
+
 def test_fund_orchestration_skill_documents_the_adviser_directive():
     body = " ".join(
         _read("fund-orchestration", "SKILL.md").lower().replace("`", "").split()

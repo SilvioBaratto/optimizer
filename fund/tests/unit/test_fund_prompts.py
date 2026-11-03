@@ -23,6 +23,8 @@ These tests assert the prompt contract:
 
 from __future__ import annotations
 
+import re
+
 from fund.agents import prompts
 from fund.agents.prompts import (
     ALLOCATOR_SYSTEM_PROMPT,
@@ -82,6 +84,56 @@ def test_pm_prompt_explains_how_to_treat_standing_directives():
     lower = " ".join(PM_SYSTEM_PROMPT.lower().split())
     assert "standing directives" in lower
     assert "never relax" in lower
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.lower().replace("`", "").split())
+
+
+def test_pm_prompt_has_an_eligible_universe_section_modelled_on_the_directives():
+    section = _flat(_pm_section("Eligible universe"))
+
+    assert "run instruction" in section or "instruction lists" in section
+    assert "verbatim" in section
+    assert "never propose" in section
+    assert "allocator" in section and "economist" in section
+
+
+def test_pm_allocator_bullet_scopes_the_candidates_to_the_eligible_universe():
+    bullet = re.search(r"\*\*allocator\*\*(.*?)\n3\.", PM_SYSTEM_PROMPT, re.S)
+    assert bullet
+    flat = _flat(bullet.group(1))
+
+    assert "pre-select" in flat
+    assert "eligible universe" in flat
+
+
+def test_allocator_prompt_takes_the_whole_eligible_universe_instead_of_paging():
+    flat = _flat(ALLOCATOR_SYSTEM_PROMPT)
+
+    assert "if the instruction lists an eligible universe" in flat
+    assert "returns exactly that set" in flat
+    assert "do not sample by sector" in flat
+    # The market-cap paging and sector choice only apply without an allowlist.
+    assert "without an eligible universe" in flat
+    assert "refuse" in flat
+
+
+def test_economist_prompt_keeps_proposals_inside_the_eligible_universe():
+    flat = _flat(ECONOMIST_SYSTEM_PROMPT)
+
+    assert "eligible universe" in flat
+    assert "any ticker" in flat
+    assert "get_prices" in flat and "get_regime_stats" in flat
+    assert "must not propose" in flat
+
+
+def test_subagent_descriptions_mention_the_eligible_universe():
+    from fund.agents import graph
+
+    for description in (graph._ECONOMIST_DESCRIPTION, graph._ALLOCATOR_DESCRIPTION):
+        assert "eligible universe" in _flat(description)
+    assert "pre-select" in graph._ALLOCATOR_DESCRIPTION.lower()
 
 
 def test_pm_prompt_respects_the_round_cap():

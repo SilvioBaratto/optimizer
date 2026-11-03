@@ -7,6 +7,14 @@ On-demand support for `universe-preselection`. Points to the theory; never copie
 list. The run date, the ConstraintSet and every threshold come from the run, not from
 the LLM.
 
+## Eligible universe
+A mandate can carry an allowlist, resolved once per run into the eligible universe
+(`allowed` tickers in mandate order, `barred` ones with a reason such as `delisted`,
+`not_priced`, `no_instrument`, `esg:<sector>`). With one, `list_universe` returns
+exactly the allowed set (not the market-cap ranking, which buries every ETF) and
+`universe_filter`, `estimate_moments` and `optimize_portfolio` refuse a ticker outside
+it. Without one nothing changes.
+
 ## Stages the filter applies (fixed defaults)
 
 Order: validate -> outliers -> drop incomplete history -> impute -> drop zero

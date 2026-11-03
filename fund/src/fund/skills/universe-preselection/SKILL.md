@@ -2,9 +2,10 @@
 name: universe-preselection
 description: |
   Scope the DB universe (~8898 names) down to a tractable candidate set: list it with
-  `list_universe`, then prune the candidates with the pre-selection stack (data
-  cleaning, incomplete-history, zero-variance and correlated-asset drops) before
-  moments and optimization. Use when the allocator must scope a run's universe.
+  `list_universe` (or, when the run lists an eligible universe, take that whole set),
+  then prune the candidates with the pre-selection stack (data cleaning,
+  incomplete-history, zero-variance and correlated-asset drops) before moments and
+  optimization. Use when the allocator must scope a run's universe.
   Tickers always come from `list_universe` or the task's handoff, never from memory,
   and the skill never emits weights.
 ---
@@ -20,25 +21,34 @@ Start of the allocator step, before moments + optimization.
 
 ## Load-bearing rule
 `universe_filter` picks the surviving names. The LLM only forwards candidates it
-took from `list_universe` (which already removes the client's ESG-excluded sectors)
-or was handed by the task; it never adds, drops or invents a ticker by hand and never
+took from `list_universe` (which already removes the client's ESG-excluded sectors
+and, when the portfolio has an eligible universe, returns exactly that set) or was
+handed by the task; it never adds, drops or invents a ticker by hand and never
 emits weights. A ticker the database cannot price comes back as `missing`.
 
 ## Procedure
 1. Choose the scope from the ConstraintSet + regime (see reference.md): sector tilts,
    size floor, K&E restrictions. If the task handed over candidate tickers, start from
-   those.
-2. Call `list_universe(sector, limit, offset)` to page through the investable names
-   (largest market cap first; `total` is the full count) and collect the candidates.
-   `sector` takes the ConstraintSet's GICS names (`information_technology`) or the
-   stored names (`Technology`); an unknown name returns an error listing the valid
-   ones, never an empty page. Sector and market cap are the latest snapshot, so for a
-   past run date the size ranking is today's.
+   those. If the run instruction lists an eligible universe the scope is already
+   fixed: all of it, with no sector tilt to choose.
+2. Call `list_universe(sector, limit, offset)`. Without an eligible universe it pages
+   through the investable names (largest market cap first; `total` is the full
+   count) and you collect the candidates. `sector` takes the ConstraintSet's GICS
+   names (`information_technology`) or the stored names (`Technology`); an unknown
+   name returns an error listing the valid ones, never an empty page. Sector and
+   market cap are the latest snapshot, so for a past run date the size ranking is
+   today's. With an eligible universe it returns exactly that set, in the mandate's
+   order, with `instrument_type` and `asset_class` on every row: take all of it as
+   your candidates and do not sample by sector (an ETF has no sector, so a `sector`
+   filter never returns one). If every listed ticker is barred it returns an error
+   naming each with its reason: report it to the PM.
 3. Call `universe_filter(universe)` with the candidates. It returns the survivors in
    requested order (big frames stay in the tool; only the ticker list returns). Names
    the client's mandate forbids (complex or leveraged products for a restricted client,
    an unclassifiable instrument) come back under `mandate_excluded`: report them to the
-   PM. An empty list is a valid outcome: report it, do not retry with other names.
+   PM. A universe holding a ticker outside the eligible universe is refused with an
+   `ok: false` result naming each offender and its reason. An empty list is a valid
+   outcome: report it, do not retry with other names.
 4. Call `estimate_moments(universe)` with the survivors for mu/cov (Ledoit-Wolf
    covariance + empirical mean over history up to the run date). Tickers it flags as
    `missing` had no instrument row (an unknown or mistyped ticker) or no priced days.

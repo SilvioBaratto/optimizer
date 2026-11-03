@@ -94,13 +94,15 @@ _LOOKBACK_DAYS = DEFAULT_LOOKBACK_DAYS
 # when to delegate — each names the role's fixed pipeline position.
 _ECONOMIST_DESCRIPTION = (
     "Pipeline step 1. Reads the macro and price backdrop and hands the allocator a "
-    "qualitative regime narrative plus candidate views. Delegate first."
+    "qualitative regime narrative plus candidate views, kept to the eligible "
+    "universe when the instruction lists one. Delegate first."
 )
 _ALLOCATOR_DESCRIPTION = (
-    "Pipeline step 2. Pre-selects the candidate tickers it is handed, estimates "
-    "moments, and runs the optimizer to produce candidate weights under the "
-    "resolved constraints; the economist's views are advisory context, not an "
-    "optimizer input. Delegate after the economist."
+    "Pipeline step 2. Pre-selects the candidate tickers it is handed (all of the "
+    "eligible universe when the instruction lists one), estimates moments, and "
+    "runs the optimizer to produce candidate weights under the resolved "
+    "constraints; the economist's views are advisory context, not an optimizer "
+    "input. Delegate after the economist."
 )
 _RISK_DESCRIPTION = (
     "Pipeline step 3 — the blocking gate. Checks the allocator's proposal against "
