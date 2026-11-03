@@ -791,6 +791,64 @@ class TestRunInstruction:
 
         assert f"ESG exclusions {GicsSector.ENERGY.value}" in seed
 
+    @pytest.mark.parametrize(
+        ("tolerance", "stated"), [(0.05, "5%"), (0.025, "2.5%"), (1.0, "100%")]
+    )
+    def test_constraint_set_digest_states_the_fund_look_through_tolerance(
+        self, tolerance: float, stated: str
+    ) -> None:
+        """The PM can only relay the client's fund tolerance if the seed states it."""
+        cs = _constraint_set().model_copy(
+            update={
+                "esg": EsgPolicy(
+                    exclusions=(GicsSector.ENERGY,), look_through_tolerance=tolerance
+                )
+            }
+        )
+
+        seed = _run_instruction(
+            _mandate(), str(_PORTFOLIO_ID), _ASOF, constraint_set=cs
+        )
+
+        assert (
+            f"ESG exclusions {GicsSector.ENERGY.value} (funds may hold up to {stated})"
+        ) in seed
+
+    def test_constraint_set_digest_is_unchanged_at_a_zero_tolerance(self) -> None:
+        base = _constraint_set()
+        strict = base.model_copy(
+            update={"esg": EsgPolicy(exclusions=(GicsSector.ENERGY,))}
+        )
+        explicit = base.model_copy(
+            update={
+                "esg": EsgPolicy(
+                    exclusions=(GicsSector.ENERGY,), look_through_tolerance=0.0
+                )
+            }
+        )
+
+        def seed(cs):
+            return _run_instruction(
+                _mandate(), str(_PORTFOLIO_ID), _ASOF, constraint_set=cs
+            )
+
+        assert seed(explicit) == seed(strict)
+        assert "funds may hold" not in seed(strict)
+
+    def test_constraint_set_digest_omits_the_tolerance_without_exclusions(
+        self,
+    ) -> None:
+        cs = _constraint_set().model_copy(
+            update={"esg": EsgPolicy(look_through_tolerance=0.2)}
+        )
+
+        seed = _run_instruction(
+            _mandate(), str(_PORTFOLIO_ID), _ASOF, constraint_set=cs
+        )
+
+        assert "ESG exclusions none." in seed
+        assert "funds may hold" not in seed
+
 
 def test_run_fund_seed_exposes_mandate_and_constraint_limits(db_session) -> None:
     """End to end: the first message the PM sees carries the drift band, HITL gates

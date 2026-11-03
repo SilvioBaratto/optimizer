@@ -53,6 +53,7 @@ from fund.schemas.enums import (
     RiskToleranceBand,
 )
 from fund.schemas.questionnaire import (
+    LOOK_THROUGH_TOLERANCE_PATH,
     CapacityAnswers,
     EsgAnswers,
     KnowledgeAnswers,
@@ -196,6 +197,7 @@ _CONSERVATIVE_PLACEHOLDER: dict[str, Any] = {
     "objectives.horizon": Horizon.SHORT,
     "objectives.likert_items": (1,),
     "objectives.loss_reaction": LossReaction.SELL_ALL,
+    LOOK_THROUGH_TOLERANCE_PATH: 0.0,
 }
 
 
@@ -316,7 +318,9 @@ def _esg_policy(esg: EsgAnswers) -> EsgPolicy:
         raise SuitabilityBreachError(
             "ESG exclusions remove every GICS sector — no investable universe."
         )
-    return EsgPolicy(exclusions=exclusions)
+    return EsgPolicy(
+        exclusions=exclusions, look_through_tolerance=esg.look_through_tolerance
+    )
 
 
 # Low K&E (none/basic) → complex/leverage banned + a tightened per-position cap;
@@ -410,6 +414,7 @@ def _inconsistency_flags(
     flags.extend(
         f"{FLAG_UNANSWERED_INPUT}:{datum}"
         for datum in dict.fromkeys(answers.unanswered)
+        if datum != LOOK_THROUGH_TOLERANCE_PATH or answers.esg.exclusions
     )
     if answers.esg.other_preferences:
         flags.append(FLAG_UNENFORCED_ESG_PREFERENCE)
@@ -578,13 +583,20 @@ _EXTRACTION_SYSTEM_PROMPT = (
     "- esg.other_preferences: any stated ESG preference that is not a sector "
     "(e.g. 'no tobacco', 'no weapons'), verbatim, or []. Never turn one into a "
     "sector\n"
+    "- esg.look_through_tolerance: the largest share of a FUND that may sit in an "
+    "excluded sector, as a fraction in [0, 1] (5% -> 0.05); 0 when the client "
+    "allows none. Set it only if the client states a figure\n"
     "- base_currency: an ISO-4217 alpha code (e.g. EUR)\n"
     "- unanswered: the dotted path of every datum the client did NOT state (e.g. "
     "'capacity.buffer_months', 'objectives.likert_items'); [] when everything was "
     "stated. A required field must still hold a value, so give each unstated datum "
     "its most conservative value (knowledge.level none, max_1yr_loss_pct 0, "
     "buffer_months 0, likert_items [1], goal protection, horizon short, "
-    "loss_reaction sell_all, esg.exclusions []) and list its path here.\n"
+    "loss_reaction sell_all, esg.exclusions [], esg.look_through_tolerance 0) and "
+    "list its path here. When esg.exclusions is non-empty and the client gave no "
+    "figure for esg.look_through_tolerance, set it to 0 and list "
+    "'esg.look_through_tolerance' in unanswered; with no exclusions it needs no "
+    "entry.\n"
     "Take every other value from the client's statements and never guess an "
     "unstated one from context; do not invent fields."
 )
@@ -631,6 +643,9 @@ def _typed_answers(questionnaire: Any) -> MiFIDAnswers | None:
 def _answers_summary(answers: MiFIDAnswers) -> str:
     """One-line rendering of all four pillars for the adviser at the HITL gate."""
     exclusions = ", ".join(s.value for s in answers.esg.exclusions) or "none"
+    if answers.esg.exclusions:
+        share = answers.esg.look_through_tolerance * 100
+        exclusions += f" (fund look-through tolerance {share:g}%)"
     other = "; ".join(answers.esg.other_preferences) or "none"
     likert = ", ".join(str(item) for item in answers.objectives.likert_items)
     return (

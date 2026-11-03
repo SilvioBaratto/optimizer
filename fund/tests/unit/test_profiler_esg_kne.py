@@ -48,6 +48,8 @@ def _answers(
     exclusions: tuple[GicsSector, ...] = (),
     knowledge: KnowledgeLevel = KnowledgeLevel.INFORMED,
     goal: ObjectiveChoice = ObjectiveChoice.GROWTH,
+    look_through_tolerance: float | None = 0.0,
+    unanswered: tuple[str, ...] = (),
 ) -> MiFIDAnswers:
     return MiFIDAnswers(
         base_currency="EUR",
@@ -59,7 +61,15 @@ def _answers(
             likert_items=(5, 6, 4),
             loss_reaction=LossReaction.HOLD,
         ),
-        esg=EsgAnswers(exclusions=exclusions),
+        esg=EsgAnswers(
+            exclusions=exclusions,
+            **(
+                {}
+                if look_through_tolerance is None
+                else {"look_through_tolerance": look_through_tolerance}
+            ),
+        ),
+        unanswered=unanswered,  # type: ignore[arg-type]
     )
 
 
@@ -94,6 +104,50 @@ def test_esg_policy_dedupes_preserving_order() -> None:
     )
     assert isinstance(policy, EsgPolicy)
     assert policy.exclusions == (GicsSector.ENERGY, GicsSector.FINANCIALS)
+
+
+def test_look_through_tolerance_reaches_the_esg_policy() -> None:
+    answers = _answers(exclusions=(GicsSector.ENERGY,), look_through_tolerance=0.05)
+
+    cs = build_constraint_set(answers, portfolio_id="pf-1")
+
+    assert cs.esg.look_through_tolerance == 0.05
+
+
+def test_look_through_tolerance_defaults_to_strict_in_the_policy() -> None:
+    cs = build_constraint_set(
+        _answers(exclusions=(GicsSector.ENERGY,)), portfolio_id="pf-1"
+    )
+
+    assert cs.esg.look_through_tolerance == 0.0
+
+
+def test_an_unanswered_look_through_tolerance_is_replaced_by_strict_zero() -> None:
+    # Whatever the extraction model put in an unstated field must not loosen the
+    # fund screen: only a figure the client gave may do that.
+    answers = _answers(
+        exclusions=(GicsSector.ENERGY,),
+        look_through_tolerance=0.4,
+        unanswered=("esg.look_through_tolerance",),
+    )
+
+    cs, sa = run_mapping(answers, portfolio_id="pf-1")
+
+    assert cs.esg.look_through_tolerance == 0.0
+    assert sa.answers.esg.look_through_tolerance == 0.0
+    assert sa.answers.unanswered == ("esg.look_through_tolerance",)
+
+
+def test_a_stated_look_through_tolerance_survives_the_placeholder_pass() -> None:
+    answers = _answers(
+        exclusions=(GicsSector.ENERGY,),
+        look_through_tolerance=0.1,
+        unanswered=("capacity.buffer_months",),
+    )
+
+    cs, _ = run_mapping(answers, portfolio_id="pf-1")
+
+    assert cs.esg.look_through_tolerance == 0.1
 
 
 def test_excluding_every_sector_hard_blocks() -> None:

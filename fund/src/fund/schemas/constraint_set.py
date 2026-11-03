@@ -62,6 +62,9 @@ class EsgPolicy(BaseModel):
 
     ``min_taxonomy`` / ``min_sfdr`` are proportions in ``[0, 1]`` (provider data
     lands later); ``pai_flags`` names the Principal Adverse Indicators to screen.
+    ``look_through_tolerance`` is the largest share of a fund's weight allowed in an
+    excluded sector, in ``[0, 1]``; the default 0.0 is the strictest reading, and a
+    policy persisted without the field reads as that.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -70,6 +73,7 @@ class EsgPolicy(BaseModel):
     min_taxonomy: float | None = Field(default=None, ge=0.0, le=1.0)
     min_sfdr: float | None = Field(default=None, ge=0.0, le=1.0)
     pai_flags: tuple[str, ...] = ()
+    look_through_tolerance: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class UniverseFilters(BaseModel):

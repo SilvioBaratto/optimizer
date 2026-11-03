@@ -320,7 +320,8 @@ def _unchecked_limits(constraint_set: Mapping[str, Any] | None) -> tuple[str, ..
     here and an ``ok`` verdict is never read as "inside every limit":
 
     * the ``nu1/nu2/nu3`` drawdown ceilings, which need a backtested drawdown;
-    * the ESG taxonomy / SFDR minimums and PAI flags;
+    * the ESG taxonomy / SFDR minimums, PAI flags and the fund look-through
+      tolerance;
     * the ``cardinality`` cap on the number of names.
     """
     if not constraint_set:
@@ -355,12 +356,19 @@ def _drawdown_ceilings(constraint_set: Mapping[str, Any]) -> str | None:
 
 
 def _esg_thresholds(esg: Mapping[str, Any]) -> str | None:
-    """The taxonomy / SFDR minimums and PAI flags that are set, else ``None``."""
+    """The ESG thresholds that are set, else ``None``.
+
+    Taxonomy / SFDR minimums, PAI flags and the fund look-through tolerance; a
+    tolerance of 0 is the default strictest reading and adds nothing.
+    """
     parts: list[str] = []
     for key, label in (("min_taxonomy", "taxonomy"), ("min_sfdr", "SFDR")):
         value = esg.get(key)
         if _is_number(value) and value > 0:
             parts.append(f"{label} ≥ {float(value):.0%}")
+    tolerance = esg.get("look_through_tolerance")
+    if _is_number(tolerance) and tolerance > 0:
+        parts.append(f"look-through tolerance ≤ {float(tolerance) * 100:g}%")
     flags = esg.get("pai_flags")
     if isinstance(flags, list | tuple) and flags:
         parts.append(f"PAI flags: {', '.join(str(flag) for flag in flags)}")

@@ -33,7 +33,8 @@ the profile's objective.
   `w >= 0`, `sum(w) = 1`, no leverage (D17) — plus the mapped objective, risk measure,
   `risk_aversion`, tail betas, L1/L2 regularisation and `cardinality`.
 - Risk aversion `A` is quoted for variance utility; the tool rescales it for
-  CVaR / CDaR / MaxDD so max_utility does not collapse into min_risk.
+  CVaR / CDaR / MaxDD so max_utility lands at the risk level that variance-utility
+  `A` implies (neither collapsing into min_risk nor drifting to a riskier book).
 - Recorded intent, never applied today: the robust uncertainty set for prudent
   profiles: `15:80` (radius/geometry/norm in 1.0), and the turnover penalty.
 - Objective / cone obligations: the curated map
