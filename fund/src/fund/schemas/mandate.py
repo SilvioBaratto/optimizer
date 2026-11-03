@@ -18,11 +18,45 @@ import logging
 import math
 from collections.abc import Mapping
 from decimal import Decimal
-from typing import Any, ClassVar, Self
+from typing import Annotated, Any, ClassVar, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+)
 
 logger = logging.getLogger(__name__)
+
+_MAX_TICKER_LEN = 32
+_MAX_ELIGIBLE_TICKERS = 100
+
+
+def _dedupe_in_order(tickers: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(tickers))
+
+
+# ``max_length`` on the tuple caps the entry count, not each ticker's width, so the
+# per-ticker constraint lives on the item type. The width matches ``benchmark``; the
+# count keeps the PM seed block bounded.
+_EligibleTickers = Annotated[
+    tuple[
+        Annotated[
+            str,
+            StringConstraints(
+                strip_whitespace=True,
+                to_upper=True,
+                min_length=1,
+                max_length=_MAX_TICKER_LEN,
+            ),
+        ],
+        ...,
+    ],
+    Field(max_length=_MAX_ELIGIBLE_TICKERS),
+    AfterValidator(_dedupe_in_order),
+]
 
 
 class RunTriggers(BaseModel):
@@ -45,6 +79,9 @@ class PortfolioMandate(BaseModel):
     ``remembered_directives`` carries free-text co-pilot steers the adviser chose to
     persist across rounds; every run renders them into the PM's instruction, and the
     mandate JSON is their source of truth (no scalar mirror, no migration).
+    ``eligible_tickers`` is the hard allowlist of instruments the portfolio may hold:
+    normalised to upper-case, de-duplicated in order, and empty meaning unrestricted.
+    ``model_copy(update=...)`` skips validators, so consumers normalise again.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -65,6 +102,7 @@ class PortfolioMandate(BaseModel):
     # longer value at flush, so reject it here as a clean validation error instead.
     benchmark: str | None = Field(default=None, max_length=32)
     remembered_directives: tuple[str, ...] = ()
+    eligible_tickers: _EligibleTickers = ()
 
     @classmethod
     def from_stored(cls, payload: Mapping[str, Any]) -> Self:

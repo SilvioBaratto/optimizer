@@ -254,3 +254,67 @@ def test_constructor_still_rejects_a_threshold_above_the_l1_bound():
     # The clamp is a read-side repair only; new input stays strict.
     with pytest.raises(pydantic.ValidationError):
         PortfolioMandate.model_validate(_stored_payload(drift_l1_threshold=5.0))
+
+
+def _mandate_with_eligible(eligible: object) -> PortfolioMandate:
+    return PortfolioMandate(
+        portfolio_id="pf-001",
+        capital=Decimal("1000"),
+        base_currency="EUR",
+        drift_l1_threshold=0.1,
+        triggers=RunTriggers(cron=False, drift=True),
+        eligible_tickers=eligible,  # type: ignore[arg-type]
+    )
+
+
+def test_eligible_tickers_defaults_to_empty_meaning_unrestricted():
+    assert _valid_mandate().eligible_tickers == ()
+
+
+def test_old_serialised_mandate_validates_eligible_tickers_to_empty():
+    legacy = _valid_mandate().model_dump(mode="json")
+    legacy.pop("eligible_tickers", None)
+    assert "eligible_tickers" not in legacy
+
+    assert PortfolioMandate.model_validate(legacy).eligible_tickers == ()
+
+
+def test_eligible_tickers_are_stripped_uppercased_and_deduplicated_in_order():
+    m = _mandate_with_eligible([" vwce.de ", "VWCE.DE", "iBGS.l", "vwce.de"])
+
+    assert m.eligible_tickers == ("VWCE.DE", "IBGS.L")
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "X" * 33])
+def test_eligible_tickers_reject_an_empty_or_overlong_entry(bad: str):
+    with pytest.raises(pydantic.ValidationError):
+        _mandate_with_eligible(["VWCE.DE", bad])
+
+
+def test_eligible_tickers_accept_a_ticker_at_the_width_limit():
+    assert _mandate_with_eligible(["X" * 32]).eligible_tickers == ("X" * 32,)
+
+
+def test_eligible_tickers_cap_the_list_at_one_hundred_entries():
+    assert (
+        len(_mandate_with_eligible([f"T{i}" for i in range(100)]).eligible_tickers)
+        == 100
+    )
+    with pytest.raises(pydantic.ValidationError):
+        _mandate_with_eligible([f"T{i}" for i in range(101)])
+
+
+def test_eligible_tickers_round_trip_and_stay_hashable():
+    m = _mandate_with_eligible(["VWCE.DE", "IBGS.L"])
+
+    round_tripped = PortfolioMandate.model_validate(m.model_dump(mode="json"))
+
+    assert round_tripped == m
+    assert round_tripped.eligible_tickers == ("VWCE.DE", "IBGS.L")
+    assert hash(m) == hash(round_tripped)
+
+
+def test_eligible_tickers_is_frozen():
+    m = _mandate_with_eligible(["VWCE.DE"])
+    with pytest.raises(pydantic.ValidationError):
+        m.eligible_tickers = ("X",)  # type: ignore[misc]
