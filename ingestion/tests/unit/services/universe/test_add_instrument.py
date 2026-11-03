@@ -332,10 +332,10 @@ class TestRefusals:
         _exchange(db_session)
 
         with pytest.raises(AddInstrumentError) as excinfo:
-            _add(db_session, _client(_etf_info(exchange="BTS")))
+            _add(db_session, _client(_etf_info(exchange="FKA")))
 
         message = str(excinfo.value)
-        assert "BTS" in message
+        assert "FKA" in message
         assert XETRA in message
         assert "--exchange" in message
         self._assert_nothing_written(db_session)
@@ -387,7 +387,7 @@ class TestExchangeOverride:
 
         _add(
             db_session,
-            _client(_etf_info(exchange="BTS", currency="GBp")),
+            _client(_etf_info(exchange="FKA", currency="GBp")),
             yahoo_ticker="EGLN.L",
             asset_class="commodity",
             exchange=LSE,

@@ -22,6 +22,7 @@ class UniverseBuilderConfig:
         default_factory=lambda: {
             "NYSE": "",
             "NASDAQ": "",
+            "Cboe BZX": "",
             "London Stock Exchange": ".L",
             "London Stock Exchange AIM": ".L",
             "Euronext Paris": ".PA",

@@ -358,18 +358,18 @@ class TestUniverseBuilderExchangeFiltering:
 
         assert result.exchanges_saved == 1
 
-    def test_equity_etf_is_rejected_by_classification(self) -> None:
+    def test_leveraged_etf_is_rejected_by_classification(self) -> None:
         repo = _FakeRepo()
         mapper = MagicMock()
-        mapper.discover.return_value = "SPY"
+        mapper.discover.return_value = "TQQQ"
 
-        # SPY is an equity ETF → classify_instrument returns None → dropped
-        # (classification integrity, not investability filtering).
+        # A daily-reset leveraged product → classify_instrument returns None →
+        # dropped (classification integrity, not investability filtering).
         etf_instrument = {
-            "ticker": "SPY_US",
+            "ticker": "TQQQ_US",
             "type": "ETF",
-            "shortName": "SPY",
-            "name": "SPDR S&P 500 ETF Trust",
+            "shortName": "TQQQ",
+            "name": "ProShares UltraPro QQQ",
             "workingScheduleId": 1,
         }
         api_client = _make_api_client(instruments=[etf_instrument])

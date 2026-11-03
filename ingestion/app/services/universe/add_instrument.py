@@ -1,9 +1,10 @@
 """Add one hand-picked instrument to the universe after validating it on Yahoo.
 
-The Screener-driven build drops every ETF that is not a bond or multi-asset fund,
-so an operator who holds such an ETF has to add it by hand. This service does that
-safely: it reads the listing from Yahoo (type, venue, currency, names), checks
-that prices exist, and upserts one ``instruments`` row shaped like a build row.
+The Screener-driven build classifies funds from their names and only sees the head
+of each venue, so an operator who holds an ETF it misses or mislabels adds it by
+hand. This service does that safely: it reads the listing from Yahoo (type, venue,
+currency, names), checks that prices exist, and upserts one ``instruments`` row
+shaped like a build row.
 
 It writes through the caller's session and never commits; the CLI owns the
 transaction. It claims no job slot because it touches a single ticker.

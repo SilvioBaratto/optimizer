@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 EXCHANGE_NAME_TO_MIC = {
     "NYSE": "XNYS",
     "NASDAQ": "XNAS",
+    "Cboe BZX": "XNYS",
     "London Stock Exchange": "XLON",
     "London Stock Exchange AIM": "XLON",
     "Euronext Paris": "XPAR",

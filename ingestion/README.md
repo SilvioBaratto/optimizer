@@ -70,7 +70,8 @@ docker compose exec scheduler python -m app.cli daily-events
 docker compose exec scheduler python -m app.cli daily-events --backfill 2026-01-01:2026-09-30
 ```
 
-`add-instrument` is the way to put an ETF the Screener never returns into the universe. It
+`add-instrument` is the way to put an instrument the Screener misses, or classifies wrongly
+(the build labels ETFs from their names), into the universe. It
 checks the ticker on Yahoo (type, venue, price history), stores the instrument row, fetches 5y
 of prices and the ETF fund data, and with `--pin` records the ticker in `pinned_instruments`
 under source `manual` so the weekly universe build keeps it, leaves its classification and
