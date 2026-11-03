@@ -40,3 +40,15 @@ def _isolated_checkout(
     (repo / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
     monkeypatch.setenv("OPTIMIZER_REPO", str(repo))
     return repo
+
+
+@pytest.fixture(autouse=True)
+def _populated_universe_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Report a populated universe so ``run_daily_pipeline`` never probes a database.
+
+    The daily pipeline asks the ``instruments`` table whether it needs a first-run
+    bootstrap. Tests that call it with only ``_run_step`` patched would otherwise
+    open a real session against the configured ``DATABASE_URL``. Tests of the
+    bootstrap itself shadow this fixture by name.
+    """
+    monkeypatch.setattr("app.services.jobs.scheduler._universe_is_empty", lambda: False)
