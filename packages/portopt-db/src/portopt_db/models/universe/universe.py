@@ -72,7 +72,8 @@ class Instrument(BaseModel):
         currency_code: ISO 4217 trading currency.
         yfinance_ticker: Symbol as understood by yfinance; may differ from ticker after normalisation.
         t212_ticker: Trading 212 cross-reference; populated by the T212 annotation step.
-        asset_class: Coarse asset class string ("equity", "fixed_income", …); always present.
+        asset_class: Coarse asset class string ("equity", "fixed_income",
+            "multi_asset" or "commodity"); always present.
         fi_subclass: Fixed-income sub-category; None for non-fixed-income instruments.
         duration_bucket: Duration bracket for fixed-income; None for all other asset classes.
         delisted_at: Date the instrument was first found missing from a universe
@@ -110,7 +111,8 @@ class Instrument(BaseModel):
     t212_ticker: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Asset-class taxonomy (see services/universe/trading212/enums.py). Stored as
-    # strings like instrument_type. asset_class is non-null (STOCK ⇒ "equity");
+    # strings like instrument_type. asset_class is non-null (STOCK ⇒ "equity") and
+    # unconstrained: equity, fixed_income, multi_asset and commodity are in use.
     # fi_subclass/duration_bucket are populated only for fixed_income.
     asset_class: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="equity"

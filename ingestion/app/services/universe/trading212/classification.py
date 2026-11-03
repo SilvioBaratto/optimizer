@@ -3,7 +3,9 @@
 STOCK ⇒ equity. ETFs are classified as multi_asset (single-fund allocation),
 fixed_income (bond funds, with a sub-class + duration bucket), or rejected
 (``None``) when they are equity/thematic — equity exposure comes from the STOCK
-universe, not ETFs.
+universe, not ETFs. The fourth class, commodity, is never returned here: a gold
+or commodity ETF is rejected like any other equity-style ETF, and commodity rows
+are created only by ``add-instrument``.
 
 Pattern tables are module-level data (reviewable/tunable without touching the
 logic). Fixed-income sub-class precedence is inflation → em → high-yield →

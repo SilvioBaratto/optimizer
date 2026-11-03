@@ -15,6 +15,7 @@ Alembic head: `b6c7d8e9f0a1` (62 migrations, single tree at `packages/portopt-db
 - PK: `id`
 - Unique: `uq_instrument_ticker_exchange` (ticker, exchange_id)
 - FK: `exchange_id` → exchanges.id
+- `asset_class` values (no CHECK constraint): `equity`, `fixed_income`, `multi_asset`, `commodity`
 
 | Column | Type | Nullable |
 |--------|------|----------|
