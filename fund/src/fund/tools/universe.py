@@ -57,7 +57,7 @@ from fund.tools.prices import load_price_frame
 if TYPE_CHECKING:
     import pandas as pd
     from sklearn.pipeline import Pipeline
-    from sqlalchemy import Select
+    from sqlalchemy import ColumnElement, Select
     from sqlalchemy.orm import Session
 
 # ``PreSelectionConfig`` field names; the other criterion the tool applies is
@@ -105,6 +105,12 @@ _YAHOO_SECTOR_TO_GICS: dict[str, GicsSector] = {
 # One page never exceeds this, so a single call cannot flood the model's context
 # with the whole (~9k-name) universe.
 _MAX_PAGE_SIZE = 500
+
+# Stable reason strings of :func:`uninvestable_reasons`; tests and the eligibility
+# resolver compare against them.
+NO_INSTRUMENT = "no_instrument"
+DELISTED = "delisted"
+NOT_PRICED = "not_priced"
 
 
 def _label(name: str) -> str:
@@ -295,6 +301,18 @@ def universe_filter(
     )
 
 
+def _active_on(asof: dt.date) -> ColumnElement[bool]:
+    """Not delisted by ``asof``: a later delisting does not make it uninvestable."""
+    return or_(Instrument.delisted_at.is_(None), Instrument.delisted_at > asof)
+
+
+def _priced_by(asof: dt.date) -> ColumnElement[bool]:
+    """Has a price bar on or before ``asof``."""
+    return exists().where(
+        PriceHistory.instrument_id == Instrument.id, PriceHistory.date <= asof
+    )
+
+
 def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Select[Any]:
     """Select ``(ticker, name, sector, market_cap)`` of every investable instrument.
 
@@ -306,9 +324,6 @@ def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Sele
     and market cap come from the latest ``ticker_profiles`` snapshot, not from
     ``asof``.
     """
-    priced = exists().where(
-        PriceHistory.instrument_id == Instrument.id, PriceHistory.date <= asof
-    )
     stmt = (
         select(
             Instrument.yfinance_ticker,
@@ -319,8 +334,8 @@ def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Sele
         .outerjoin(TickerProfile, TickerProfile.instrument_id == Instrument.id)
         .where(
             Instrument.yfinance_ticker.is_not(None),
-            or_(Instrument.delisted_at.is_(None), Instrument.delisted_at > asof),
-            priced,
+            _active_on(asof),
+            _priced_by(asof),
         )
     )
     if exclusions:
@@ -335,6 +350,58 @@ def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Sele
             label.not_in(excluded),
         )
     return stmt
+
+
+def uninvestable_reasons(
+    session: Session, tickers: Collection[str], asof: dt.date
+) -> dict[str, str]:
+    """Why each of ``tickers`` is not investable on ``asof``, in one query.
+
+    Applies the same predicates as :func:`list_universe` (a yfinance ticker, not
+    delisted by the bar, a price on or before it), so the two cannot disagree about
+    who is investable.
+
+    Args:
+        session: A sync ``portopt_db`` session; the function does not own it.
+        tickers: yfinance tickers to classify.
+        asof: Decision bar; delistings and prices after it are ignored.
+
+    Returns:
+        ``{ticker: reason}`` for every ticker that is not investable, absent for the
+        rest. ``no_instrument``: no instrument row carries the ticker. ``delisted``:
+        every row is delisted by the bar (this wins over a missing price).
+        ``not_priced``: a live row exists but has no price on or before the bar. A
+        ticker carried by several rows is investable when any one of them is.
+    """
+    if not tickers:
+        return {}
+    rows = session.execute(
+        select(
+            Instrument.yfinance_ticker,
+            _active_on(asof).label("active"),
+            _priced_by(asof).label("priced"),
+        ).where(Instrument.yfinance_ticker.in_(list(tickers)))
+    ).all()
+    investable: set[str] = set()
+    live: set[str] = set()
+    seen: set[str] = set()
+    for ticker, active, priced in rows:
+        seen.add(ticker)
+        if active:
+            live.add(ticker)
+            if priced:
+                investable.add(ticker)
+    reasons: dict[str, str] = {}
+    for ticker in tickers:
+        if ticker in investable:
+            continue
+        if ticker not in seen:
+            reasons[ticker] = NO_INSTRUMENT
+        elif ticker not in live:
+            reasons[ticker] = DELISTED
+        else:
+            reasons[ticker] = NOT_PRICED
+    return reasons
 
 
 @tool_envelope
@@ -409,4 +476,11 @@ def list_universe(
     )
 
 
-__all__ = ["list_universe", "universe_filter"]
+__all__ = [
+    "DELISTED",
+    "NOT_PRICED",
+    "NO_INSTRUMENT",
+    "list_universe",
+    "uninvestable_reasons",
+    "universe_filter",
+]
