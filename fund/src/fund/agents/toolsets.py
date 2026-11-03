@@ -75,6 +75,7 @@ if TYPE_CHECKING:
 
     from fund.config import FundConfig
     from fund.schemas import ConstraintSet
+    from fund.tools.eligibility import Eligibility
 
 # Canonical role → tool-name map. Keys are the ``skills.SKILLS_BY_AGENT`` role
 # keys verbatim; the values **partition** the real ``fund.tools`` exports
@@ -136,7 +137,10 @@ class RunContext:
     (``None`` keeps listing currency — only sound for a single-currency universe).
     ``notional`` is the paper book the target weights scale — the mandate's capital —
     so a ticket is sized at what the adviser configured; ``None`` leaves
-    ``place_orders`` on its own default.
+    ``place_orders`` on its own default. ``eligible`` is the portfolio's resolved
+    allowlist, bound from the *current* mandate at every construction (run, resume
+    and the adviser edit) and never chosen by the model; ``None`` means the mandate
+    sets no allowlist, so no tool restricts tickers.
     """
 
     session: Session
@@ -154,6 +158,7 @@ class RunContext:
     lookback_days: int = DEFAULT_LOOKBACK_DAYS
     base_currency: str | None = None
     notional: float | None = None
+    eligible: Eligibility | None = None
     # Held for the whole body of every bound tool: the parallel tool calls of one
     # model turn run on worker threads, but ``session`` is not thread-safe.
     lock: threading.RLock = field(
@@ -531,6 +536,18 @@ def _risk_check_impl(ctx: RunContext) -> ToolResult:
             violations=data["violations"],
         )
     return result
+
+
+def active_constraint_set(ctx: RunContext) -> ConstraintSet | None:
+    """The run's active ``ConstraintSet``, for a caller outside the agent loop.
+
+    The adviser ``edit`` resolves the allowlist under the same set the live tools
+    read, so an ESG exclusion bars the same names in both.
+
+    Returns:
+        The portfolio's cached set, or ``None`` with no store or nothing cached.
+    """
+    return _resolve_constraint_set(ctx)
 
 
 def mandate_bounds(ctx: RunContext) -> dict[str, Any] | None:

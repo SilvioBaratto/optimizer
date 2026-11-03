@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
     from fund.schemas.constraint_set import ConstraintSet
     from fund.schemas.enums import GicsSector
+    from fund.schemas.mandate import PortfolioMandate
 
 NOT_IN_ALLOWLIST = "not_in_allowlist"
 ESG_UNCLASSIFIED = "esg_unclassified"
@@ -184,9 +185,39 @@ def resolve_eligibility(
     )
 
 
+def resolve_mandate_eligibility(
+    session: Session,
+    mandate: PortfolioMandate | None,
+    asof: dt.date,
+    *,
+    constraint_set: ConstraintSet | None = None,
+) -> Eligibility | None:
+    """Resolve the allowlist of ``mandate``, if the portfolio has one.
+
+    The one entry point the places that bind a ``RunContext`` share, so a missing
+    mandate (a run whose mandate row has vanished) reads as unrestricted everywhere.
+
+    Args:
+        session: A sync ``portopt_db`` session; the function does not own it.
+        mandate: The portfolio's current mandate, or ``None`` when it has none.
+        asof: Decision bar of the run.
+        constraint_set: The run's active constraints, for the ESG screen.
+
+    Returns:
+        ``None`` without a mandate or an allowlist; otherwise the resolved
+        :class:`Eligibility`.
+    """
+    if mandate is None:
+        return None
+    return resolve_eligibility(
+        session, mandate.eligible_tickers, asof, constraint_set=constraint_set
+    )
+
+
 __all__ = [
     "ESG_UNCLASSIFIED",
     "NOT_IN_ALLOWLIST",
     "Eligibility",
     "resolve_eligibility",
+    "resolve_mandate_eligibility",
 ]

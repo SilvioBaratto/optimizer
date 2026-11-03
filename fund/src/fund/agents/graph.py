@@ -1718,6 +1718,13 @@ def _prepare_fund_run(
         resolved_thread_id = thread_id or str(run.id)
         audit.set_thread_id(run.id, resolved_thread_id)
 
+        # Lazy: the tools package pulls the optimizer stack in, and this module's
+        # bare import must stay free of it.
+        from fund.tools.eligibility import resolve_mandate_eligibility
+
+        eligible = resolve_mandate_eligibility(
+            session, mandate, asof, constraint_set=constraint_set
+        )
         ctx = RunContext(
             session=session,
             asof=asof,
@@ -1727,6 +1734,7 @@ def _prepare_fund_run(
             portfolio_id=pid_uuid,
             base_currency=mandate.base_currency,
             notional=float(mandate.capital),
+            eligible=eligible,
         )
         effective_gates = _effective_gates(config, mandate)
         first_round = autonomy.consume_first_round(pid_uuid)
@@ -2296,6 +2304,10 @@ def resume_fund(
     from fund import observe
 
     mandate = observe.get_mandate(session, portfolio_id)
+    # The allowlist follows the current mandate, unlike the capital recorded at run
+    # open: an adviser who removed a ticker after the proposal must also stop the order.
+    from fund.tools.eligibility import resolve_mandate_eligibility
+
     ctx = RunContext(
         session=session,
         asof=run.asof,
@@ -2305,6 +2317,9 @@ def resume_fund(
         portfolio_id=portfolio_id,
         base_currency=mandate.base_currency if mandate is not None else None,
         notional=_ticket_capital(run, mandate),
+        eligible=resolve_mandate_eligibility(
+            session, mandate, run.asof, constraint_set=constraint_set
+        ),
     )
     agent = build_fund_agent(
         model,

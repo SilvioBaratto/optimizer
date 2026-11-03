@@ -679,6 +679,68 @@ def test_edit_into_an_esg_excluded_name_is_rejected_and_commits_nothing(
     _assert_edit_refused_and_run_still_paused(env, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
 
 
+def _spy_edit_contexts(monkeypatch: pytest.MonkeyPatch) -> list:
+    """Record the ``RunContext`` the edit path validates the typed weights under."""
+    import fund.agents.toolsets as toolsets
+
+    seen: list = []
+    original = toolsets.check_weights_against_mandate
+
+    def _spy(ctx, weights):
+        seen.append(ctx)
+        return original(ctx, weights)
+
+    monkeypatch.setattr(toolsets, "check_weights_against_mandate", _spy)
+    return seen
+
+
+def _edit_to_equal_weights(env) -> None:
+    with env.get_session() as session:
+        apply_action(
+            "edit",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            new_value={"AAA": 0.4, "BBB": 0.3, "CCC": 0.3},
+        )
+        session.commit()
+
+
+def test_edit_binds_the_eligibility_of_the_persisted_mandate(
+    paused_env, monkeypatch
+) -> None:
+    """The edit path resolves the allowlist from the stored mandate."""
+    env = paused_env
+    with env.get_session() as session:
+        MandateRepository(session).upsert(
+            make_mandate().model_copy(
+                update={"eligible_tickers": ("AAA", "BBB", "CCC", "NOPE")}
+            )
+        )
+        session.commit()
+    contexts = _spy_edit_contexts(monkeypatch)
+
+    _edit_to_equal_weights(env)
+
+    (ctx,) = contexts
+    assert ctx.eligible is not None
+    assert ctx.eligible.allowed == ("AAA", "BBB", "CCC")
+    assert ctx.eligible.barred == (("NOPE", "no_instrument"),)
+
+
+def test_edit_without_a_persisted_mandate_binds_no_eligibility(
+    paused_env, monkeypatch
+) -> None:
+    contexts = _spy_edit_contexts(monkeypatch)
+
+    _edit_to_equal_weights(paused_env)
+
+    assert [c.eligible for c in contexts] == [None]
+
+
 def test_edit_requires_a_run_id(db_session) -> None:
     """Edit without a ``run_id`` raises before touching the DB."""
     with pytest.raises(ValueError, match="requires a run_id"):

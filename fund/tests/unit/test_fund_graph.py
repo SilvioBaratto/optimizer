@@ -813,6 +813,78 @@ def test_prepare_fund_run_seeds_the_pm_with_the_mandates_remembered_directives(
     assert "never add EM debt" in message["content"]
 
 
+def test_prepare_fund_run_binds_no_eligibility_for_an_unrestricted_mandate(
+    db_session, monkeypatch
+):
+    """Without an allowlist the run context carries ``None``: no restriction."""
+    from _fund_fakes import make_mandate
+
+    captured = _prepare(db_session, make_mandate(), monkeypatch)
+
+    assert captured["ctx"].eligible is None
+
+
+def test_prepare_fund_run_binds_the_resolved_eligibility_to_the_run_context(
+    db_session, monkeypatch
+):
+    """The allowlist is resolved against the DB once and handed to every tool."""
+    from _fund_fakes import make_mandate, seed_panel
+
+    seed_panel(db_session)
+    mandate = make_mandate().model_copy(
+        update={"eligible_tickers": ("BBB", "NOPE", "AAA")}
+    )
+
+    captured = _prepare(db_session, mandate, monkeypatch)
+
+    eligible = captured["ctx"].eligible
+    assert eligible.allowed == ("BBB", "AAA")
+    assert eligible.barred == (("NOPE", "no_instrument"),)
+
+
+def test_prepare_fund_run_resolves_eligibility_under_the_runs_constraint_set(
+    db_session, monkeypatch
+):
+    """The client's ESG exclusions bar an allowlisted stock in an excluded sector."""
+    from _fund_fakes import (
+        classify_instruments,
+        make_energy_exclusion_constraint_set,
+        make_mandate,
+        seed_panel,
+    )
+    from langgraph.store.memory import InMemoryStore
+
+    from fund.audit import put_constraint_set
+
+    seed_panel(db_session)
+    classify_instruments(db_session, {"AAA": "Energy", "BBB": "Technology"})
+    store = InMemoryStore()
+    put_constraint_set(
+        store,
+        make_energy_exclusion_constraint_set(),
+        store_key=settings.constraint_set_store_key,
+    )
+    monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: k["ctx"])
+    mandate = make_mandate().model_copy(update={"eligible_tickers": ("AAA", "BBB")})
+
+    setup = graph._prepare_fund_run(
+        object(),
+        mandate,
+        portfolio_id=_PORTFOLIO_ID,
+        asof=_ASOF,
+        session=db_session,
+        checkpointer="CKPT",
+        store=store,
+        config=settings,
+        fallback=None,
+        thread_id=None,
+        seed=1,
+    )
+
+    assert setup.ctx.eligible.allowed == ("BBB",)
+    assert setup.ctx.eligible.barred == (("AAA", "esg:energy"),)
+
+
 def test_first_round_forces_all_orchestrator_gates(db_session, monkeypatch):
     """A portfolio's first round forces the full ``_ALL_ORCHESTRATOR_GATES`` set on top
     of the config and mandate gates, and flips ``first_round_gated`` off."""
