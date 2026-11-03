@@ -32,6 +32,7 @@ from _fixtures import add_and_flush, seed_universe
 from sqlalchemy import select, update
 from sqlalchemy.dialects import postgresql
 
+from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
@@ -590,6 +591,196 @@ def _reload(session, ticker: str) -> Instrument:
         .where(Instrument.ticker == ticker)
         .execution_options(populate_existing=True)
     ).scalar_one()
+
+
+_PROTECTED_COLUMNS = (
+    "asset_class",
+    "fi_subclass",
+    "duration_bucket",
+    "currency_code",
+    "yfinance_ticker",
+)
+
+
+def _screener_row(ticker: str, **overrides) -> dict:
+    """A Screener-style batch row that would downgrade a hand-classified ETF."""
+    return _batch_row(
+        ticker,
+        type="ETF",
+        assetClass="equity",
+        fiSubclass="government",
+        durationBucket="long",
+        currencyCode="USD",
+        yfinanceTicker=f"{ticker}.SCR",
+        **overrides,
+    )
+
+
+def _seed_commodity_etf(session, exchange, *, pinned: bool, ticker: str) -> None:
+    """A hand-added commodity ETF, optionally pinned under source ``manual``."""
+    add_and_flush(
+        session,
+        Instrument(
+            ticker=ticker,
+            short_name=ticker,
+            instrument_type="ETF",
+            asset_class="commodity",
+            fi_subclass=None,
+            duration_bucket=None,
+            currency_code="GBp",
+            yfinance_ticker=f"{ticker}.L",
+            exchange_id=exchange.id,
+        ),
+    )
+    if pinned:
+        add_and_flush(session, PinnedInstrument(ticker=f"{ticker}.L", source="manual"))
+
+
+class TestSaveInstrumentsBatchPinnedRows:
+    """A Screener upsert must not rewrite the classification of a pinned row."""
+
+    @staticmethod
+    def _upsert_sql() -> str:
+        session = MagicMock()
+        UniverseRepository(session).save_instruments_batch(
+            [{"ticker": "AGG", "shortName": "AGG"}], "exchange-id"
+        )
+        stmt = session.execute.call_args.args[0]
+        return " ".join(str(stmt.compile(dialect=postgresql.dialect())).split())
+
+    def test_statement_guards_each_protected_column_with_a_pin_check(self):
+        """The PostgreSQL statement wraps all five columns in CASE WHEN EXISTS."""
+        sql = self._upsert_sql().lower()
+        pin_check = (
+            "(exists (select * from pinned_instruments "
+            "where pinned_instruments.ticker = instruments.yfinance_ticker))"
+        )
+
+        for column in _PROTECTED_COLUMNS:
+            kept = (
+                "coalesce(instruments.currency_code"
+                if column == "currency_code"
+                else f"instruments.{column} else"
+            )
+            assert f"{column} = case when {pin_check} then {kept}" in sql
+        assert sql.count(pin_check) == len(_PROTECTED_COLUMNS)
+
+    def test_statement_leaves_other_columns_overwritten_as_before(self):
+        """Unprotected columns keep their plain excluded/coalesce form."""
+        sql = self._upsert_sql().lower()
+
+        assert "short_name = excluded.short_name" in sql
+        assert "isin = coalesce(excluded.isin, instruments.isin)" in sql
+        assert "delisted_at = %(param_" in sql
+        assert "instrument_type = excluded.instrument_type" in sql
+
+    def test_pinned_row_keeps_its_classification_and_listing_fields(self, db_session):
+        """A Screener row for a pinned ticker changes none of the five fields."""
+        repo = _repo(db_session)
+        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
+
+        repo.save_instruments_batch([_screener_row("EGLN")], lse.id)
+
+        row = _reload(db_session, "EGLN")
+        assert row.asset_class == "commodity"
+        assert row.fi_subclass is None
+        assert row.duration_bucket is None
+        assert row.currency_code == "GBp"
+        assert row.yfinance_ticker == "EGLN.L"
+
+    def test_pinned_row_is_still_revived_and_named(self, db_session):
+        """Delisting is cleared and the coalesced name/ISIN still fill in."""
+        repo = _repo(db_session)
+        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
+        db_session.execute(
+            update(Instrument)
+            .where(Instrument.ticker == "EGLN")
+            .values(delisted_at=date(2026, 10, 1), delisting_return=-0.2)
+        )
+
+        repo.save_instruments_batch(
+            [_screener_row("EGLN", name="iShares Physical Gold", isin="IE00B4ND3602")],
+            lse.id,
+        )
+
+        row = _reload(db_session, "EGLN")
+        assert row.delisted_at is None
+        assert row.delisting_return is None
+        assert row.name == "iShares Physical Gold"
+        assert row.isin == "IE00B4ND3602"
+
+    def test_unpinned_row_is_updated_exactly_as_before(self, db_session):
+        """Without a pin the Screener values win on all five fields."""
+        repo = _repo(db_session)
+        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        _seed_commodity_etf(db_session, lse, pinned=False, ticker="EGLN")
+
+        repo.save_instruments_batch([_screener_row("EGLN")], lse.id)
+
+        row = _reload(db_session, "EGLN")
+        assert row.asset_class == "equity"
+        assert row.fi_subclass == "government"
+        assert row.duration_bucket == "long"
+        assert row.currency_code == "USD"
+        assert row.yfinance_ticker == "EGLN.SCR"
+
+    def test_pin_is_matched_per_row_not_per_batch(self, db_session):
+        """One batch holding a pinned and an unpinned ticker treats each on its own."""
+        repo = _repo(db_session)
+        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
+        _seed_commodity_etf(db_session, lse, pinned=False, ticker="IGLN")
+
+        repo.save_instruments_batch(
+            [_screener_row("EGLN"), _screener_row("IGLN")], lse.id
+        )
+
+        assert _reload(db_session, "EGLN").asset_class == "commodity"
+        assert _reload(db_session, "IGLN").asset_class == "equity"
+
+    def test_pinned_row_with_null_currency_takes_the_screener_value(self, db_session):
+        """A stored NULL currency is filled rather than frozen at NULL."""
+        repo = _repo(db_session)
+        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
+        db_session.execute(
+            update(Instrument)
+            .where(Instrument.ticker == "EGLN")
+            .values(currency_code=None)
+        )
+
+        repo.save_instruments_batch([_screener_row("EGLN")], lse.id)
+
+        assert _reload(db_session, "EGLN").currency_code == "USD"
+
+    def test_pinned_row_is_not_rehomed_to_another_venue(self, db_session):
+        """A pinned symbol the Screener lists elsewhere stays where it is."""
+        repo = _repo(db_session)
+        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        xetra = repo.save_exchange({"name": "Deutsche Börse Xetra", "id": 2})
+        _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
+        original_id = _rows_for(db_session, "EGLN")[0].id
+
+        repo.save_instruments_batch([_batch_row("EGLN", type="ETF")], xetra.id)
+
+        by_venue = {r.exchange_id: r for r in _rows_for(db_session, "EGLN")}
+        assert by_venue[lse.id].id == original_id
+        assert by_venue[lse.id].asset_class == "commodity"
+
+    def test_unpinned_row_is_still_rehomed(self, db_session):
+        """The venue-change repair keeps working for rows nobody pinned."""
+        repo = _repo(db_session)
+        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        xetra = repo.save_exchange({"name": "Deutsche Börse Xetra", "id": 2})
+        _seed_commodity_etf(db_session, lse, pinned=False, ticker="EGLN")
+        original_id = _rows_for(db_session, "EGLN")[0].id
+
+        repo.save_instruments_batch([_batch_row("EGLN", type="ETF")], xetra.id)
+
+        rows = _rows_for(db_session, "EGLN")
+        assert [(r.id, r.exchange_id) for r in rows] == [(original_id, xetra.id)]
 
 
 class TestSaveInstrumentsBatchResave:

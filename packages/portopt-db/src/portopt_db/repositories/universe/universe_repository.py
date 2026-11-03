@@ -7,16 +7,32 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, exists, func, literal_column, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, joinedload
 
 from portopt_db.models.market_data.yfinance_data import TickerProfile
+from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repository import RepositoryBase
 
 logger = logging.getLogger(__name__)
+
+
+def _row_is_pinned() -> Any:
+    """Correlated predicate: the instrument row being written is pinned.
+
+    The outer column is a literal reference, not ``Instrument.yfinance_ticker``:
+    inside an ``INSERT ... ON CONFLICT DO UPDATE`` SQLAlchemy does not correlate
+    the target table, so the ORM column would be added to the subquery's FROM and
+    the predicate would match whenever any pin exists. Both the upsert and the
+    UPDATE that use this write ``instruments`` unaliased, so the name resolves to
+    the row being written.
+    """
+    return exists().where(
+        PinnedInstrument.ticker == literal_column("instruments.yfinance_ticker")
+    )
 
 
 class UniverseRepository(RepositoryBase):
@@ -84,6 +100,13 @@ class UniverseRepository(RepositoryBase):
         :meth:`_rehome_moved_symbols`) so a venue change never yields a second
         row. The session is flushed but not committed.
 
+        Rows pinned in ``pinned_instruments`` are operator-managed: their
+        ``asset_class``, ``fi_subclass``, ``duration_bucket``, ``currency_code``
+        and ``yfinance_ticker`` keep the stored value, because the Screener's
+        defaults (``equity``, its own listing currency) would otherwise
+        downgrade a hand-classified instrument such as a commodity ETF. A stored
+        NULL ``currency_code`` is still filled from the batch.
+
         Args:
             instruments_data: Raw attribute dicts as returned by the T212 API.
             exchange_id: UUID of the owning exchange row.
@@ -116,6 +139,7 @@ class UniverseRepository(RepositoryBase):
         self._rehome_moved_symbols([row["ticker"] for row in rows], exchange_id)
 
         stmt = pg_insert(Instrument).values(rows)
+        pinned = _row_is_pinned()
         stmt = stmt.on_conflict_do_update(
             constraint="uq_instrument_ticker_exchange",
             set_={
@@ -126,13 +150,33 @@ class UniverseRepository(RepositoryBase):
                 "name": func.coalesce(stmt.excluded.name, Instrument.name),
                 "isin": func.coalesce(stmt.excluded.isin, Instrument.isin),
                 "instrument_type": stmt.excluded.instrument_type,
-                "currency_code": func.coalesce(
-                    stmt.excluded.currency_code, Instrument.currency_code
+                "currency_code": case(
+                    (
+                        pinned,
+                        func.coalesce(
+                            Instrument.currency_code, stmt.excluded.currency_code
+                        ),
+                    ),
+                    else_=func.coalesce(
+                        stmt.excluded.currency_code, Instrument.currency_code
+                    ),
                 ),
-                "yfinance_ticker": stmt.excluded.yfinance_ticker,
-                "asset_class": stmt.excluded.asset_class,
-                "fi_subclass": stmt.excluded.fi_subclass,
-                "duration_bucket": stmt.excluded.duration_bucket,
+                "yfinance_ticker": case(
+                    (pinned, Instrument.yfinance_ticker),
+                    else_=stmt.excluded.yfinance_ticker,
+                ),
+                "asset_class": case(
+                    (pinned, Instrument.asset_class),
+                    else_=stmt.excluded.asset_class,
+                ),
+                "fi_subclass": case(
+                    (pinned, Instrument.fi_subclass),
+                    else_=stmt.excluded.fi_subclass,
+                ),
+                "duration_bucket": case(
+                    (pinned, Instrument.duration_bucket),
+                    else_=stmt.excluded.duration_bucket,
+                ),
                 # Re-activating an instrument clears its delisting status.
                 "delisted_at": None,
                 "delisting_return": None,
@@ -156,7 +200,9 @@ class UniverseRepository(RepositoryBase):
 
         A symbol is left alone when it already has a row on ``exchange_id`` (the
         move would violate the unique key) or when several rows exist elsewhere
-        (no way to tell which one is the predecessor).
+        (no way to tell which one is the predecessor). A pinned row is never
+        moved: the operator chose its venue, and the Screener listing the same
+        symbol elsewhere gets its own row instead.
         """
         homed_here = set(
             self.session.execute(
@@ -182,6 +228,7 @@ class UniverseRepository(RepositoryBase):
             self.session.execute(
                 update(Instrument)
                 .where(Instrument.id.in_(moved_ids))
+                .where(~_row_is_pinned())
                 .values(exchange_id=exchange_id)
             )
 
