@@ -86,6 +86,8 @@ _CODE_TO_CONFIG_NAME: dict[str, str] = {
     "NYQ": "NYSE",
     "PCX": "NYSE",
     "ASE": "NYSE",
+    # iShares moved many ETFs (factor, international) to Cboe BZX; Yahoo codes it BTS.
+    "BTS": "Cboe BZX",
     # UK
     "LSE": "London Stock Exchange",
     "IOB": "London Stock Exchange",
@@ -105,6 +107,31 @@ _CODE_TO_CONFIG_NAME: dict[str, str] = {
     "MAD": "Bolsa de Madrid",
     # Canada
     "TOR": "Toronto Stock Exchange",
+    "NEO": "Cboe Canada",
+    # Asia-Pacific
+    "JPX": "Tokyo Stock Exchange",
+    "ASX": "Australian Securities Exchange",
+    "HKG": "Hong Kong Stock Exchange",
+    "SHH": "Shanghai Stock Exchange",
+    "SHZ": "Shenzhen Stock Exchange",
+    "TAI": "Taiwan Stock Exchange",
+    "TWO": "Taipei Exchange",
+    "KSC": "Korea Exchange",
+    "KOE": "KOSDAQ",
+    "SES": "Singapore Exchange",
+    # Latin America / Israel
+    "MEX": "Bolsa Mexicana de Valores",
+    "SAO": "B3 Brasil Bolsa Balcão",
+    "TLV": "Tel Aviv Stock Exchange",
+    # Nordics
+    "CPH": "Nasdaq Copenhagen",
+    "STO": "Nasdaq Stockholm",
+    "HEL": "Nasdaq Helsinki",
+    "OSL": "Oslo Børs",
+    # US over-the-counter (foreign ordinaries and ADRs)
+    "PNK": "OTC Markets",
+    "OQB": "OTC Markets",
+    "OQX": "OTC Markets",
 }
 
 
@@ -136,8 +163,9 @@ def supported_exchange_names() -> list[str]:
 # ETFs are not filterable by exchange code on yf.screen (``eq exchange NMS`` returns
 # nothing for funds); they are queried by region. Map each in-scope exchange code to
 # its Yahoo region so ETF coverage tracks the same venue set. Returned ETF quotes are
-# still bucketed by their own exchange code via _CODE_TO_CONFIG_NAME, so out-of-scope
-# venues (e.g. a US ETF on BATS) drop exactly as stocks do.
+# still bucketed by their own exchange code via _CODE_TO_CONFIG_NAME, so a fund on a
+# venue missing from that table is dropped exactly as a stock is. Fund venues need
+# their own entries: Cboe BZX (BTS) hosts a large share of iShares' US ETFs.
 _CODE_TO_REGION: dict[str, str] = {
     "NMS": "us",
     "NGM": "us",
@@ -145,6 +173,7 @@ _CODE_TO_REGION: dict[str, str] = {
     "NYQ": "us",
     "PCX": "us",
     "ASE": "us",
+    "BTS": "us",
     "LSE": "gb",
     "IOB": "gb",
     "PAR": "fr",
@@ -159,6 +188,27 @@ _CODE_TO_REGION: dict[str, str] = {
     "MCE": "es",
     "MAD": "es",
     "TOR": "ca",
+    "NEO": "ca",
+    "JPX": "jp",
+    "ASX": "au",
+    "HKG": "hk",
+    "SHH": "cn",
+    "SHZ": "cn",
+    "TAI": "tw",
+    "TWO": "tw",
+    "KSC": "kr",
+    "KOE": "kr",
+    "SES": "sg",
+    "MEX": "mx",
+    "SAO": "br",
+    "TLV": "il",
+    "CPH": "dk",
+    "STO": "se",
+    "HEL": "fi",
+    "OSL": "no",
+    "PNK": "us",
+    "OQB": "us",
+    "OQX": "us",
 }
 
 
@@ -186,6 +236,31 @@ _EXCHANGE_PREF: tuple[str, ...] = (
     "IOB",
     "MUN",
     "MAD",
+    # Added venues rank after the original ones, so a tie on liquidity never
+    # moves an incumbent line; OTC comes last because a depositary line is the
+    # secondary listing of its home-venue entity.
+    "BTS",
+    "JPX",
+    "HKG",
+    "ASX",
+    "SHH",
+    "SHZ",
+    "TAI",
+    "KSC",
+    "SES",
+    "TWO",
+    "KOE",
+    "CPH",
+    "STO",
+    "HEL",
+    "OSL",
+    "MEX",
+    "SAO",
+    "TLV",
+    "NEO",
+    "PNK",
+    "OQX",
+    "OQB",
 )
 
 

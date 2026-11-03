@@ -36,6 +36,10 @@ Alembic head: `b6c7d8e9f0a1` (62 migrations, single tree at `packages/portopt-db
 | fi_subclass | character varying | yes |
 | duration_bucket | character varying | yes |
 | t212_ticker | character varying | yes |
+| is_t212_tradeable | boolean | yes |
+
+`is_t212_tradeable` is tri-state: NULL = not evaluated (Trading 212 unconfigured or no ISIN),
+true = the broker catalogue carries the instrument, false = matched and absent.
 
 ---
 

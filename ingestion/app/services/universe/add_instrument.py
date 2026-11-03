@@ -1,9 +1,10 @@
 """Add one hand-picked instrument to the universe after validating it on Yahoo.
 
-The Screener-driven build drops every ETF that is not a bond or multi-asset fund,
-so an operator who holds such an ETF has to add it by hand. This service does that
-safely: it reads the listing from Yahoo (type, venue, currency, names), checks
-that prices exist, and upserts one ``instruments`` row shaped like a build row.
+The Screener-driven build classifies funds from their names and only sees the head
+of each venue, so an operator who holds an ETF it misses or mislabels adds it by
+hand. This service does that safely: it reads the listing from Yahoo (type, venue,
+currency, names), checks that prices exist, and upserts one ``instruments`` row
+shaped like a build row.
 
 It writes through the caller's session and never commits; the CLI owns the
 transaction. It claims no job slot because it touches a single ticker.
@@ -250,6 +251,10 @@ def add_instrument(
     row.name = _first_non_empty(name, info.get("longName"), row.name)
     row.isin = isin or row.isin
     row.t212_ticker = t212_ticker or row.t212_ticker
+    # A pinned row is skipped by the T212 annotation step, so the broker line the
+    # operator names is the only evidence its tradability flag will ever get.
+    if row.t212_ticker:
+        row.is_t212_tradeable = True
     row.instrument_type = instrument_type
     row.currency_code = currency or row.currency_code
     row.yfinance_ticker = symbol

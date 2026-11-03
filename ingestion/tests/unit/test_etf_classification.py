@@ -1,8 +1,10 @@
 """T1 — fund classifier: name (+ optional yfinance metadata) → asset-class tags.
 
-Equity ETFs classify to ``None`` (rejected: equity exposure comes from the
-STOCK universe). Fixed-income sub-class precedence is geography/inflation-first:
-inflation_linked > em > high_yield > government > corporate > aggregate.
+An ETF no bond, multi-asset or commodity marker claims is an equity fund; only
+leveraged/inverse products and funds with no sleeve to name (crypto, currency,
+volatility) classify to ``None``. Fixed-income sub-class precedence is
+geography/inflation-first: inflation_linked > em > high_yield > government >
+corporate > aggregate.
 """
 
 from __future__ import annotations
@@ -21,11 +23,28 @@ class TestStockAndReject:
             "equity", None, None
         )
 
-    def test_equity_etf_is_rejected(self) -> None:
-        assert classify_instrument("Vanguard FTSE All-World (Acc)", "ETF") is None
-
     def test_non_stock_non_etf_is_rejected(self) -> None:
         assert classify_instrument("Some 3x Leverage Warrant", "WARRANT") is None
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Vanguard FTSE All-World (Acc)",
+            "Vanguard S&P 500 ETF",
+            "Invesco QQQ Trust",
+            "State Street Technology Select Sector SPDR ETF",
+            "iShares MSCI USA Momentum Factor ETF",
+            "VanEck Gold Miners ETF",
+            "Global X Copper Miners ETF",
+            "State Street SPDR S&P Oil & Gas Exploration & Production ETF",
+            "State Street SPDR S&P Metals & Mining ETF",
+            "Goldman Sachs ActiveBeta U.S. Large Cap Equity ETF",
+            "Vanguard Real Estate Index Fund ETF Shares",
+        ],
+    )
+    def test_equity_etf_is_classified_equity(self, name: str) -> None:
+        """An ETF no other sleeve claims is an equity fund, miners included."""
+        assert classify_instrument(name, "ETF") == Classification("equity", None, None)
 
     @pytest.mark.parametrize(
         "name",
@@ -34,11 +53,58 @@ class TestStockAndReject:
             "Invesco Physical Gold A",
             "WisdomTree Physical Silver",
             "Amundi Bloomberg Commodity ex-Agriculture",
+            "SPDR Gold Shares",
+            "SPDR Gold MiniShares",
+            "iShares Gold Trust",
+            "abrdn Physical Platinum Shares ETF",
+            "Invesco DB Commodity Index Tracking Fund",
+            "Invesco DB Agriculture Fund",
+            "United States Oil Fund, LP",
+            "United States Natural Gas Fund, LP",
+            "United States Copper Index Fund, LP",
+            "Teucrium Wheat Fund",
+            "abrdn Bloomberg All Commodity Strategy K-1 Free ETF",
         ],
     )
-    def test_commodity_named_etf_still_classifies_to_none(self, name: str) -> None:
-        """Commodity rows enter only through add-instrument, never the Screener build."""
+    def test_commodity_etf_is_classified_commodity(self, name: str) -> None:
+        """Physical-metal, futures and broad-commodity funds form their own sleeve."""
+        assert classify_instrument(name, "ETF") == Classification(
+            "commodity", None, None
+        )
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "iShares Bitcoin Trust ETF",
+            "iShares Ethereum Trust ETF",
+            "Grayscale Bitcoin Trust ETF",
+            "Invesco CurrencyShares Euro Currency Trust",
+            "Invesco DB US Dollar Index Bullish Fund",
+            "iPath Series B S&P 500 VIX Short-Term Futures",
+        ],
+    )
+    def test_fund_with_no_sleeve_to_name_is_not_classified(self, name: str) -> None:
+        """Crypto, currency and volatility funds must not be mislabelled as equity."""
         assert classify_instrument(name, "ETF") is None
+
+    @pytest.mark.parametrize(
+        ("name", "subclass", "duration"),
+        [
+            ("SPDR Bloomberg 1-3 Month T-Bill ETF", "government", "short"),
+            ("iShares Treasury Floating Rate Bond ETF", "government", "short"),
+            ("Invesco Senior Loan ETF", "high_yield", "intermediate"),
+            ("Amundi Money Market Fund USD", "aggregate", "short"),
+        ],
+    )
+    def test_cash_like_and_loan_funds_are_fixed_income(
+        self, name: str, subclass: str, duration: str
+    ) -> None:
+        """T-bill, money-market and loan funds are debt, not equity by default."""
+        result = classify_instrument(name, "ETF")
+        assert result is not None
+        assert result.asset_class == "fixed_income"
+        assert result.fi_subclass == subclass
+        assert result.duration_bucket == duration
 
     @pytest.mark.parametrize(
         "name",
@@ -104,7 +170,9 @@ class TestMultiAsset:
 
     def test_ucits_concentration_cap_name_is_not_multi_asset(self) -> None:
         # "20/35" is a UCITS concentration cap (equity ETF), not a 60/40 split.
-        assert classify_instrument("UBS MSCI Switzerland 20/35 (Acc)", "ETF") is None
+        assert classify_instrument(
+            "UBS MSCI Switzerland 20/35 (Acc)", "ETF"
+        ) == Classification("equity", None, None)
 
 
 class TestFixedIncomeSubclass:
@@ -155,8 +223,8 @@ class TestEquityFundsWithBondVocabulary:
             "Credit Services Dividend ETF",
         ],
     )
-    def test_equity_etf_with_bond_like_word_is_rejected(self, name: str) -> None:
-        assert classify_instrument(name, "ETF") is None
+    def test_equity_etf_with_bond_like_word_stays_equity(self, name: str) -> None:
+        assert classify_instrument(name, "ETF") == Classification("equity", None, None)
 
     @pytest.mark.parametrize(
         ("name", "subclass"),

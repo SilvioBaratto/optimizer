@@ -1,11 +1,16 @@
 """Classify an instrument into the asset-class taxonomy from its name.
 
 STOCK ⇒ equity. ETFs are classified as multi_asset (single-fund allocation),
-fixed_income (bond funds, with a sub-class + duration bucket), or rejected
-(``None``) when they are equity/thematic — equity exposure comes from the STOCK
-universe, not ETFs. The fourth class, commodity, is never returned here: a gold
-or commodity ETF is rejected like any other equity-style ETF, and commodity rows
-are created only by ``add-instrument``.
+fixed_income (bond, T-bill, money-market and loan funds, with a sub-class + duration
+bucket), commodity (physical metal, futures and broad-commodity funds) or equity.
+Equity is the fallback: a fund no other marker claims, miners and sector or factor
+funds included, holds equities. Only products that are not investable sleeves
+come back as ``None``: leveraged/inverse daily-reset funds, and crypto, currency
+and volatility funds, which would otherwise be mislabelled equity.
+
+The fallback is name-based, so an unusual name can land in the wrong class; an
+operator corrects such a row with ``add-instrument --pin``, which the build leaves
+alone.
 
 Pattern tables are module-level data (reviewable/tunable without touching the
 logic). Fixed-income sub-class precedence is inflation → em → high-yield →
@@ -68,7 +73,34 @@ _MULTI_ASSET = re.compile(
 # fund.
 _BOND_MARKER = re.compile(
     r"\bbond\b|treasur|\bgilt|\bbund\b|sovereign|\bgov(t|ies)?\b"
-    r"|fixed income|linker|\btips\b|\bagg\b|\bbtp\b",
+    r"|fixed income|linker|\btips\b|\bagg\b|\bbtp\b"
+    r"|\bt[\s-]?bills?\b|\bmoney market\b|\b(?:senior|bank) loans?\b",
+    re.I,
+)
+
+# Funds that hold physical metal, commodity futures or a commodity index. A name
+# with equity vocabulary describes the companies instead (gold miners, copper
+# miners, oil and gas exploration), so it stays in the equity fallback.
+_COMMODITY_MARKER = re.compile(
+    r"\b(?:gold|silver|platinum|palladium|bullion)\b|precious metals?"
+    r"|commodit(?:y|ies)|\bcrude\b|\bbrent\b|\bwti\b|\boil fund\b|natural gas"
+    r"|\bcopper\b|agricultur"
+    r"|\b(?:wheat|corn|soybeans?|sugar|coffee|cotton|cocoa)\b",
+    re.I,
+)
+_COMMODITY_COMPANY_VOCABULARY = re.compile(
+    r"\bminers?\b|\bmining\b|\bproducers?\b|royalt|streaming|exploration"
+    r"|\bequit(?:y|ies)\b|\bstocks?\b|\bcompanies\b|\bservices\b|\bequipment\b"
+    r"|\bsector\b|\brefiners?\b|\bmidstream\b|\bdividend",
+    re.I,
+)
+
+# Funds that hold no equity, debt or commodity sleeve we can name: spot crypto
+# trusts, currency trusts, dollar-index and volatility funds. Left unclassified
+# rather than mislabelled by the equity fallback.
+_NO_SLEEVE = re.compile(
+    r"bitcoin|ethereum|\bcrypto|currencyshares|currency trust|dollar index"
+    r"|\bvix\b|volatility",
     re.I,
 )
 
@@ -90,10 +122,14 @@ _FI_SUBCLASS: list[tuple[re.Pattern[str], str]] = [
         FiSubclass.INFLATION_LINKED.value,
     ),
     (re.compile(r"emerging|\bem\b|\bemd\b", re.I), FiSubclass.EM.value),
-    (re.compile(r"high[\s-]?yield|\bhy\b", re.I), FiSubclass.HIGH_YIELD.value),
+    (
+        re.compile(r"high[\s-]?yield|\bhy\b|\b(?:senior|bank) loans?\b", re.I),
+        FiSubclass.HIGH_YIELD.value,
+    ),
     (
         re.compile(
-            r"treasur|\bgilt|\bbund\b|sovereign|government|\bgov(t|ies)?\b|\bbtp\b",
+            r"treasur|\bgilt|\bbund\b|sovereign|government|\bgov(t|ies)?\b|\bbtp\b"
+            r"|\bt[\s-]?bills?\b",
             re.I,
         ),
         FiSubclass.GOVERNMENT.value,
@@ -143,9 +179,10 @@ def classify_instrument(
     instrument_type: str | None,
 ) -> Classification | None:
     """Return the asset-class tags from the instrument NAME, or ``None`` if the
-    instrument is rejected (equity/thematic/leveraged ETF, or a non-STOCK/non-ETF
-    type). Classification is name-only: the universe builder resolves it before
-    any yfinance fetch, so there is no funds_data to consult."""
+    instrument is rejected (a leveraged/inverse ETF, a crypto/currency/volatility
+    fund, or a non-STOCK/non-ETF type). Classification is name-only: the universe
+    builder resolves it before any yfinance fetch, so there is no funds_data to
+    consult."""
     itype = (instrument_type or "").upper()
     if itype == "STOCK":
         return Classification(AssetClass.EQUITY.value, None, None)
@@ -164,4 +201,12 @@ def classify_instrument(
             AssetClass.FIXED_INCOME.value, _fi_subclass(name), _duration(name)
         )
 
-    return None  # equity / thematic ETF — excluded from the universe
+    if _NO_SLEEVE.search(name):
+        return None
+
+    if _COMMODITY_MARKER.search(name) and not _COMMODITY_COMPANY_VOCABULARY.search(
+        name
+    ):
+        return Classification(AssetClass.COMMODITY.value, None, None)
+
+    return Classification(AssetClass.EQUITY.value, None, None)

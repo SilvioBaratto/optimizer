@@ -47,7 +47,8 @@ Alembic head `c4d5e6f7a8b9`, 68 migrations. Row counts below are the last verifi
 `instruments` is the head of the pipeline: every other ingestion step iterates it, so a stale
 universe silently caps what yfinance fetches. Rebuilt weekly (`universe_build`, Sat 02:00 —
 deliberately ahead of `weekly_refetch`). Now built from the yfinance source, so `t212_ticker` and
-`exchanges.t212_id` are legacy/NULL. `delisted_at`/`delisting_return` are currently all-NULL
+`exchanges.t212_id` are legacy/NULL unless the T212 overlay ran; `is_t212_tradeable` is tri-state
+(NULL = not evaluated). `delisted_at`/`delisting_return` are currently all-NULL
 (fresh universe); `delisting_return` stays NULL (unknown) when a ticker merely drops out of a
 universe build — only a caller that knows the terminal return passes one (−1.0 = bankruptcy).
 
