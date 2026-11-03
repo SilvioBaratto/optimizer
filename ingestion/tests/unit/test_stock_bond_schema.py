@@ -30,6 +30,34 @@ def _exchange(db_session, name: str = "Deutsche Börse Xetra") -> Exchange:
     return ex
 
 
+def test_asset_class_enum_lists_four_classes() -> None:
+    """The taxonomy is equity, fixed_income, multi_asset and commodity."""
+    assert [m.value for m in AssetClass] == [
+        "equity",
+        "fixed_income",
+        "multi_asset",
+        "commodity",
+    ]
+    assert AssetClass("commodity") is AssetClass.COMMODITY
+
+
+def test_commodity_value_fits_the_asset_class_column(db_session) -> None:
+    """A commodity row stores without a migration (String(20), no CHECK)."""
+    ex = _exchange(db_session, "London Stock Exchange")
+    inst = Instrument(
+        ticker="EGLN.L",
+        short_name="EGLN",
+        exchange_id=ex.id,
+        instrument_type="ETF",
+        asset_class=AssetClass.COMMODITY.value,
+    )
+    db_session.add(inst)
+    db_session.flush()
+    db_session.refresh(inst)
+
+    assert inst.asset_class == "commodity"
+
+
 def test_stock_defaults_to_equity_asset_class(db_session) -> None:
     ex = _exchange(db_session)
     inst = Instrument(

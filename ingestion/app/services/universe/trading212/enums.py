@@ -10,11 +10,18 @@ from enum import Enum
 
 
 class AssetClass(str, Enum):
-    """Top-level sleeve. Non-null on every instrument (STOCK ⇒ EQUITY)."""
+    """Top-level sleeve. Non-null on every instrument (STOCK ⇒ EQUITY).
+
+    ``COMMODITY`` (physical gold, other ETCs, commodity-swap ETFs) has no
+    company-sector exposure, so it is neither equity nor multi_asset. No
+    classifier returns it: such rows enter only through ``add-instrument``,
+    where the operator states the class explicitly.
+    """
 
     EQUITY = "equity"
     FIXED_INCOME = "fixed_income"
     MULTI_ASSET = "multi_asset"
+    COMMODITY = "commodity"
 
 
 class FiSubclass(str, Enum):

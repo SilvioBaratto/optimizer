@@ -200,8 +200,8 @@ class UniverseBuilder:
         self, exchanges: list[dict[str, Any]]
     ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         """Fixed-income + multi-asset ETFs across the (broader) ETF exchange set,
-        classifiable (equity/leveraged ETFs excluded) and deduped to one listing
-        per ISIN on the most-preferred exchange."""
+        classifiable (equity, commodity and leveraged ETFs excluded) and deduped
+        to one listing per ISIN on the most-preferred exchange."""
         allowed = self.config.get_etf_allowed_exchanges()
         ex_by_name: dict[str, dict[str, Any]] = {}
         candidates: list[tuple[str, dict[str, Any]]] = []
