@@ -82,6 +82,10 @@ class PortfolioMandate(BaseModel):
     ``eligible_tickers`` is the hard allowlist of instruments the portfolio may hold:
     normalised to upper-case, de-duplicated in order, and empty meaning unrestricted.
     ``model_copy(update=...)`` skips validators, so consumers normalise again.
+    ``tradeable_only`` additionally scopes the portfolio to instruments the Trading 212
+    catalogue carries, for runs that must be executable at the broker. It composes with
+    ``eligible_tickers`` (both must hold) and, being JSON-only like the allowlist, needs
+    no migration: a mandate saved before the field existed reads as ``False``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -103,6 +107,7 @@ class PortfolioMandate(BaseModel):
     benchmark: str | None = Field(default=None, max_length=32)
     remembered_directives: tuple[str, ...] = ()
     eligible_tickers: _EligibleTickers = ()
+    tradeable_only: bool = False
 
     @classmethod
     def from_stored(cls, payload: Mapping[str, Any]) -> Self:

@@ -2825,6 +2825,124 @@ async def test_mandate_unsaved_eligible_edit_does_not_leak_to_another_portfolio(
         assert view.query_one("#mandate-eligible", Input).value == ""
 
 
+# --- Mandate view: the Trading 212 tradeable-only toggle ----------------------
+
+
+def _seed_mandate_with_scope(env, *, tradeable_only: bool) -> None:
+    with env.get_session() as session:
+        MandateRepository(session).upsert(
+            make_mandate().model_copy(update={"tradeable_only": tradeable_only})
+        )
+        session.commit()
+
+
+def _stored_scope(env) -> bool:
+    with env.get_session() as session:
+        mandate = observe.get_mandate(session, PORTFOLIO_ID)
+        assert mandate is not None
+        return mandate.tradeable_only
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored", [True, False])
+async def test_mandate_tradeable_toggle_shows_the_persisted_scope(
+    shell_env, stored: bool
+) -> None:
+    _seed_mandate_with_scope(shell_env, tradeable_only=stored)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+
+        box = view.query_one("#mandate-tradeable", Checkbox)
+
+        assert box.value is stored
+        assert "Trading 212" in str(box.label)
+
+
+@pytest.mark.asyncio
+async def test_mandate_tradeable_toggle_saves_through_the_audited_path(
+    shell_env,
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-tradeable", Checkbox).value = True
+
+        await _save_mandate(app, pilot)
+
+    assert _stored_scope(shell_env) is True
+    with shell_env.get_session() as session:
+        (row,) = HumanAuditLogRepository(session).list_recent(action="mandate_edit")
+        assert row.new_value["tradeable_only"] is True
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_that_leaves_the_toggle_alone_keeps_the_stored_scope(
+    shell_env,
+) -> None:
+    _seed_mandate_with_scope(shell_env, tradeable_only=True)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-drift", Input).value = "0.25"
+
+        await _save_mandate(app, pilot)
+
+    assert _stored_scope(shell_env) is True
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_keeps_an_unsaved_tradeable_toggle(shell_env) -> None:
+    _seed_mandate_with_scope(shell_env, tradeable_only=False)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        box = view.query_one("#mandate-tradeable", Checkbox)
+        box.value = True
+
+        await pilot.pause(_SETTLE)
+        app._poll()
+        await pilot.pause()
+
+        assert box.value is True
+        assert view.proposed_mandate().tradeable_only is True
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_ack_releases_the_tradeable_toggle_it_persisted(
+    shell_env,
+) -> None:
+    _seed_mandate_with_scope(shell_env, tradeable_only=False)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-tradeable", Checkbox).value = True
+        assert "tradeable" in view._painted
+
+        view.mark_saved(view.proposed_mandate())
+
+        assert "tradeable" not in view._painted
+
+
+@pytest.mark.asyncio
+async def test_mandate_unsaved_tradeable_toggle_does_not_leak_to_another_portfolio(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate(_PID_A))
+        MandateRepository(session).upsert(make_mandate(_PID_B))
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-tradeable", Checkbox).value = True
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert view.query_one("#mandate-tradeable", Checkbox).value is False
+
+
 # --- Posture view: fund roster + fund strip + focused detail (T6) -------------
 
 _PID_C = uuid.UUID("cccc0003-0000-4000-8000-000000000003")

@@ -194,6 +194,7 @@ def _build_mandate(
     interrupt_on: list[str] | None,
     eligible: list[str] | None = None,
     clear_eligible: bool = False,
+    tradeable_only: bool | None = None,
 ) -> PortfolioMandate:
     """Merge CLI flags over any ``existing`` mandate into a new ``PortfolioMandate``."""
     if capital is not None:
@@ -228,6 +229,10 @@ def _build_mandate(
         eligible_val = tuple(eligible)
     else:
         eligible_val = existing.eligible_tickers if existing else ()
+    if tradeable_only is not None:
+        tradeable_val = tradeable_only
+    else:
+        tradeable_val = existing.tradeable_only if existing else False
     return PortfolioMandate(
         portfolio_id=str(portfolio_id),
         capital=capital_val,
@@ -238,6 +243,7 @@ def _build_mandate(
         benchmark=benchmark_val,
         remembered_directives=directives,
         eligible_tickers=eligible_val,
+        tradeable_only=tradeable_val,
     )
 
 
@@ -290,13 +296,23 @@ def mandate_set(
     clear_eligible: bool = typer.Option(
         False, "--clear-eligible", help="Remove the allowlist (unrestricted)."
     ),
+    tradeable_only: bool | None = typer.Option(
+        None,
+        "--tradeable-only/--no-tradeable-only",
+        help=(
+            "Restrict the portfolio to instruments Trading 212 can trade "
+            "(on top of --eligible); default off for a new mandate."
+        ),
+    ),
 ) -> None:
     """Upsert the per-portfolio mandate (one row per portfolio).
 
     Only the flags given are changed on an existing mandate; everything else
-    (triggers, gates, benchmark, remembered directives, eligible tickers) is
-    carried over. ``--eligible`` (repeatable) replaces the allowlist of instruments
-    the portfolio may hold; ``--clear-eligible`` empties it, meaning unrestricted.
+    (triggers, gates, benchmark, remembered directives, eligible tickers, the
+    Trading 212 scope) is carried over. ``--eligible`` (repeatable) replaces the
+    allowlist of instruments the portfolio may hold; ``--clear-eligible`` empties it,
+    meaning unrestricted. ``--tradeable-only`` additionally drops every instrument the
+    Trading 212 catalogue lacks, for runs that must be executable at the broker.
     """
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
@@ -316,6 +332,7 @@ def mandate_set(
                 interrupt_on=interrupt_on,
                 eligible=eligible,
                 clear_eligible=clear_eligible,
+                tradeable_only=tradeable_only,
             )
             saved = _save_mandate(session, pid, existing, mandate)
             session.commit()
@@ -347,6 +364,7 @@ def mandate_show(
                 f"benchmark:  {mandate.benchmark or '-'}",
                 f"hitl_gates: {', '.join(mandate.hitl_gates)}",
                 f"eligible:   {', '.join(mandate.eligible_tickers) or '-'}",
+                f"tradeable:  {'Trading 212 only' if mandate.tradeable_only else '-'}",
             ]
         )
     )

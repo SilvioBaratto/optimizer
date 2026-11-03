@@ -56,6 +56,7 @@ from fund.audit.positions_repository import PositionRepository
 from fund.config import settings
 from fund.schemas.constraint_set import EsgPolicy
 from fund.schemas.enums import GicsSector
+from fund.tools.eligibility import TRADEABLE_NOT_EVALUATED_NOTE
 
 # asset_class, first close, phase: distinct series so the covariance is well-posed.
 _ETF_SPECS = {
@@ -570,6 +571,224 @@ def test_removing_a_held_ticker_from_the_mandate_before_approval_stops_the_order
     env = _paused_etf_run(db_session)
     dropped = next(iter(_held(env["weights"])))
     _persist(db_session, _allowlist_mandate(*(t for t in _ETFS if t != dropped)))
+
+    _approve(
+        db_session,
+        env["run_id"],
+        env["saver"],
+        env["store"],
+        _etf_model(*_FULL_ALLOCATION),
+    )
+
+    assert AgentRunRepository(db_session).get_run(env["run_id"]).status == "incomplete"
+    assert db_session.query(PaperOrder).count() == 0
+    assert PositionRepository(db_session).get_holdings(PORTFOLIO_ID) == []
+
+
+# --- 5b. tradeable_only: scope to the Trading 212 catalogue ----------------------
+#
+# ``instruments.is_t212_tradeable`` is True (carried), False (matched and absent) or
+# NULL (never evaluated). Only an explicit False bars a name; nothing evaluated at all
+# leaves the universe whole with a visible note; everything False is an honest empty
+# universe. The same ``Eligibility`` drives every tool, so each section below pins the
+# chain from the persisted mandate to the paper ticket.
+
+
+def _flag_t212(session: Any, flags: dict[str, bool | None]) -> None:
+    """Set ``is_t212_tradeable`` on the seeded instruments named in ``flags``."""
+    for ticker, flag in flags.items():
+        instrument = session.execute(
+            select(Instrument).where(Instrument.yfinance_ticker == ticker)
+        ).scalar_one()
+        instrument.is_t212_tradeable = flag
+    session.flush()
+
+
+def _tradeable_mandate(*tickers: str) -> Any:
+    return _allowlist_mandate(*tickers).model_copy(update={"tradeable_only": True})
+
+
+_MIXED_FLAGS = {"EQETF.DE": True, "GOVETF.L": None, "GLDETF.L": False}
+
+
+def test_a_tradeable_only_allowlist_hides_and_refuses_the_name_the_broker_lacks(
+    db_session, seeds
+) -> None:
+    """True and NULL names are listed and optimized, the explicit False one is hidden,
+    named in the PM seed with its reason and refused by optimize; the approved ticket
+    holds only the carried names."""
+    seed_panel(db_session)
+    _seed_etfs(db_session)
+    _flag_t212(db_session, _MIXED_FLAGS)
+    mandate = _tradeable_mandate(*_ETFS)
+    _persist(db_session, mandate)
+    saver, store = MemorySaver(), _store()
+    model = _etf_model(_optimize("EQETF.DE", "GLDETF.L"), *_FULL_ALLOCATION)
+
+    run = _run_to_gate(db_session, model, mandate, saver, store)
+
+    assert "GLDETF.L (not_t212_tradeable)" in model.transcript[0][1]["error"]
+    assert _listed(model) == ["EQETF.DE", "GOVETF.L"]
+    assert "GLDETF.L (not_t212_tradeable)" in seeds[0]
+    assert "Trading 212" in seeds[0]
+    assert run.weights and set(run.weights) <= {"EQETF.DE", "GOVETF.L"}
+    assert AgentRunRepository(db_session).risk_gate(run.run_id, run.weights)[
+        "status"
+    ] == ("passed")
+
+    _approve(db_session, run.run_id, saver, store, _etf_model(*_FULL_ALLOCATION))
+
+    (order,) = db_session.query(PaperOrder).all()
+    assert {line["ticker"] for line in order.lines} <= {"EQETF.DE", "GOVETF.L"}
+
+
+def test_the_broker_scope_composes_with_the_allowlist_both_must_hold(
+    db_session,
+) -> None:
+    """A carried ETF the mandate does not list stays outside; an listed ETF the
+    broker lacks stays barred. Each refusal names its own reason."""
+    seed_panel(db_session)
+    _seed_etfs(db_session)
+    _flag_t212(db_session, {"EQETF.DE": True, "GOVETF.L": True, "GLDETF.L": False})
+    mandate = _tradeable_mandate("EQETF.DE", "GLDETF.L")
+    _persist(db_session, mandate)
+    model = _etf_model(_optimize("GOVETF.L", "GLDETF.L"), _list_universe)
+
+    _run_to_gate(db_session, model, mandate, MemorySaver(), _store())
+
+    error = model.transcript[0][1]["error"]
+    assert "GOVETF.L (not_in_allowlist)" in error
+    assert "GLDETF.L (not_t212_tradeable)" in error
+    assert _listed(model) == ["EQETF.DE"]
+
+
+def test_without_the_flag_the_broker_flags_are_ignored(db_session, seeds) -> None:
+    """Existing mandates keep their behaviour: the tri-state only matters on request."""
+    seed_panel(db_session)
+    _seed_etfs(db_session)
+    _flag_t212(db_session, dict.fromkeys(_ETFS, False))
+    mandate = _allowlist_mandate(*_ETFS)
+    _persist(db_session, mandate)
+    model = _etf_model(_list_universe)
+
+    _run_to_gate(db_session, model, mandate, MemorySaver(), _store())
+
+    assert _listed(model) == list(_ETFS)
+    assert "not_t212_tradeable" not in seeds[0]
+    assert "Trading 212" not in seeds[0]
+
+
+def test_a_broker_scope_without_an_allowlist_restricts_the_whole_universe(
+    db_session, seeds
+) -> None:
+    """No allowlist, but ``tradeable_only``: every stock and ETF in the database is a
+    candidate except the explicit Falses, and the PM is told why the rest is gone."""
+    seed_panel(db_session)
+    _seed_etfs(db_session)
+    _flag_t212(
+        db_session,
+        {
+            "AAA": True,
+            "BBB": False,
+            "CCC": None,
+            "EQETF.DE": True,
+            "GOVETF.L": False,
+            "GLDETF.L": None,
+        },
+    )
+    mandate = make_mandate().model_copy(update={"tradeable_only": True})
+    _persist(db_session, mandate)
+    model = _ScriptedAllocator(
+        universe=UNIVERSE, steps=[_optimize("AAA", "BBB"), *_FULL_ALLOCATION]
+    )
+
+    run = _run_to_gate(db_session, model, mandate, MemorySaver(), _store())
+
+    assert "BBB (not_t212_tradeable)" in model.transcript[0][1]["error"]
+    listed = _last(model.transcript, "list_universe")["data"]
+    assert {row["ticker"] for row in listed["instruments"]} == {
+        "AAA",
+        "CCC",
+        "EQETF.DE",
+        "GLDETF.L",
+    }
+    assert listed["total"] == 4
+    assert "Broker scope" in seeds[0]
+    assert "Allowed:" not in seeds[0]
+    assert run.weights and set(run.weights) <= {"AAA", "CCC", "EQETF.DE", "GLDETF.L"}
+    assert AgentRunRepository(db_session).risk_gate(run.run_id, run.weights)[
+        "status"
+    ] == ("passed")
+
+
+@pytest.mark.parametrize("with_allowlist", [True, False], ids=["allowlist", "open"])
+def test_nothing_evaluated_keeps_the_full_universe_with_a_visible_note(
+    db_session, seeds, with_allowlist: bool
+) -> None:
+    """Trading 212 unconfigured: the overlay never wrote a flag, so the scope cannot
+    bite. The universe stays whole and the PM seed says why, not a silent empty set."""
+    seed_panel(db_session)
+    _seed_etfs(db_session)
+    mandate = _tradeable_mandate(*_ETFS) if with_allowlist else _tradeable_mandate()
+    _persist(db_session, mandate)
+    model = _etf_model(*_FULL_ALLOCATION)
+
+    run = _run_to_gate(db_session, model, mandate, MemorySaver(), _store())
+
+    assert TRADEABLE_NOT_EVALUATED_NOTE in seeds[0]
+    listed = _last(model.transcript, "list_universe")["data"]
+    assert set(_ETFS) <= {row["ticker"] for row in listed["instruments"]}
+    assert listed["total"] == (3 if with_allowlist else 3 + len(_ETFS))
+    assert run.weights
+
+
+def test_a_broker_that_carries_none_of_the_allowlist_is_an_honest_empty_universe(
+    db_session, seeds
+) -> None:
+    """The overlay ran and matched nothing: every listed ETF is barred with its reason,
+    the allocator is told so and nothing is proposed."""
+    seed_panel(db_session)
+    _seed_etfs(db_session)
+    _flag_t212(db_session, dict.fromkeys(_ETFS, False))
+    mandate = _tradeable_mandate(*_ETFS)
+    _persist(db_session, mandate)
+    model = _etf_model(_list_universe)
+
+    run = _run_to_gate(db_session, model, mandate, MemorySaver(), _store())
+
+    listing = _last(model.transcript, "list_universe")
+    assert listing["ok"] is False
+    for ticker in _ETFS:
+        assert f"{ticker} (not_t212_tradeable)" in listing["error"]
+        assert f"{ticker} (not_t212_tradeable)" in seeds[0]
+    assert "no eligible ticker" in seeds[0].lower()
+    assert "Allowed:" not in seeds[0]
+    assert not run.weights
+    assert db_session.query(PaperOrder).count() == 0
+
+
+def test_an_adviser_edit_into_a_name_the_broker_lacks_is_rejected(db_session) -> None:
+    """The edit resolves the current mandate, so turning the scope on after the
+    proposal makes an edit holding an untradeable ETF a ``not_eligible`` violation."""
+    env = _paused_etf_run(db_session)
+    _flag_t212(db_session, _MIXED_FLAGS)
+    _persist(db_session, _tradeable_mandate(*_ETFS))
+
+    with pytest.raises(ValueError, match="not_t212_tradeable"):
+        _edit(env, {ticker: 1.0 / len(_ETFS) for ticker in _ETFS})
+
+    _assert_still_paused_with_nothing_committed(env)
+
+
+def test_approving_after_the_broker_drops_a_held_name_stops_the_order(
+    db_session,
+) -> None:
+    """The run was proposed unrestricted; by approval the overlay flags a held ETF
+    absent from the broker and the mandate is scoped, so ``place_orders`` refuses."""
+    env = _paused_etf_run(db_session)
+    held = sorted(_held(env["weights"]))
+    _flag_t212(db_session, {held[0]: False, **dict.fromkeys(held[1:], True)})
+    _persist(db_session, _tradeable_mandate(*_ETFS))
 
     _approve(
         db_session,

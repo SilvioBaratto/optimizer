@@ -197,6 +197,7 @@ def _rich_mandate(base_currency: str = "USD") -> PortfolioMandate:
         benchmark="SPY",
         remembered_directives=("no EM", "cap tech 20%"),
         eligible_tickers=tuple(UNIVERSE),
+        tradeable_only=True,
     )
 
 
@@ -399,6 +400,89 @@ def test_mandate_show_prints_a_dash_for_an_unrestricted_mandate(harness) -> None
 
     assert res.exit_code == 0, res.output
     assert "eligible:   -" in res.output
+
+
+def test_mandate_set_exposes_the_tradeable_only_toggle() -> None:
+    click_app = typer.main.get_command(cli.app)
+    command = click_app.commands["mandate"].commands["set"]  # type: ignore[attr-defined]
+    options = {opt for param in command.params for opt in param.opts}
+    options |= {opt for param in command.params for opt in param.secondary_opts}
+    assert {"--tradeable-only", "--no-tradeable-only"} <= options
+
+
+def test_mandate_set_tradeable_only_turns_the_scope_on(harness) -> None:
+    _set_mandate(harness)
+    assert _stored_mandate(harness).tradeable_only is False
+
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--tradeable-only"]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness).tradeable_only is True
+
+
+def test_mandate_set_no_tradeable_only_turns_the_scope_off(harness) -> None:
+    _persist_mandate(harness, _rich_mandate())
+
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--no-tradeable-only"]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness).tradeable_only is False
+
+
+def test_mandate_set_without_the_toggle_carries_the_scope_over(harness) -> None:
+    _persist_mandate(harness, _rich_mandate())
+
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--drift", "0.07"]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness).tradeable_only is True
+
+
+def test_mandate_set_tradeable_only_leaves_the_allowlist_alone(harness) -> None:
+    _persist_mandate(
+        harness, _rich_mandate().model_copy(update={"tradeable_only": False})
+    )
+
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--tradeable-only"]
+    )
+
+    assert res.exit_code == 0, res.output
+    stored = _stored_mandate(harness)
+    assert stored.tradeable_only is True
+    assert stored.eligible_tickers == tuple(UNIVERSE)
+
+
+def test_mandate_set_warns_when_the_overlay_has_not_run(harness) -> None:
+    _seed(harness)
+    _set_mandate(harness)
+
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--tradeable-only"]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert "warning:" in res.output
+    assert "Trading 212" in res.output
+
+
+def test_mandate_show_reports_the_broker_scope(harness) -> None:
+    _persist_mandate(harness, _rich_mandate())
+
+    on = harness.runner.invoke(cli.app, ["mandate", "show", str(PORTFOLIO_ID)])
+    _persist_mandate(
+        harness, _rich_mandate().model_copy(update={"tradeable_only": False})
+    )
+    off = harness.runner.invoke(cli.app, ["mandate", "show", str(PORTFOLIO_ID)])
+
+    assert "tradeable:  Trading 212 only" in on.output
+    assert "tradeable:  -" in off.output
 
 
 def test_mandate_set_without_capital_needs_an_existing_mandate(harness) -> None:

@@ -668,6 +668,7 @@ _SAVED_FIELDS: tuple[tuple[str, str], ...] = (
     ("drift", "drift_l1_threshold"),
     ("benchmark", "benchmark"),
     ("eligible", "eligible_tickers"),
+    ("tradeable", "tradeable_only"),
     ("gate", "hitl_gates"),
     ("directives", "remembered_directives"),
 )
@@ -677,8 +678,9 @@ class MandateView(ShellView):
     """Per-portfolio policy editor: run-policy (persisted) + guardrails (audit-only).
 
     RUN POLICY mirrors the editable ``PortfolioMandate`` fields (capital, base currency,
-    drift threshold, benchmark, eligible tickers); saving upserts through the unified
-    action path (``mandate_edit``), which also warns about an unpriced eligible ticker.
+    drift threshold, benchmark, eligible tickers, the Trading 212 tradeable-only scope);
+    saving upserts through the unified action path (``mandate_edit``), which also warns
+    about an unpriced eligible ticker.
     GUARDRAILS are read from the active MiFID profile — the
     suitability ``band`` is the ceiling, and proposing a *riskier* band logs a
     ``guardrail_override`` flagged ⚠ (audit-only this phase; enforcement is
@@ -749,6 +751,7 @@ class MandateView(ShellView):
                     placeholder="eligible tickers (comma-separated)",
                     id="mandate-eligible",
                 )
+                yield Checkbox("Tradeable on Trading 212 only", id="mandate-tradeable")
                 yield Static(
                     "", id="mandate-triggers", classes="mandate-readonly", markup=False
                 )
@@ -843,6 +846,7 @@ class MandateView(ShellView):
             "drift_l1_threshold": self.query_one("#mandate-drift", Input).value,
             "benchmark": self.query_one("#mandate-benchmark", Input).value or None,
             "eligible_tickers": self._proposed_eligible(),
+            "tradeable_only": self.query_one("#mandate-tradeable", Checkbox).value,
             "hitl_gates": self._proposed_gates(),
             "remembered_directives": list(self._directives),
         }
@@ -1029,6 +1033,10 @@ class MandateView(ShellView):
         for key, field, text in persisted:
             if self._take_persisted(key, field.value, text):
                 field.value = text
+        scope = self.query_one("#mandate-tradeable", Checkbox)
+        persisted_scope = mandate is not None and mandate.tradeable_only
+        if self._take_persisted("tradeable", scope.value, persisted_scope):
+            scope.value = persisted_scope
         base_currency.disabled = self.currency_locked
         if mandate is None:
             triggers.update("(no mandate — profile the portfolio first)")

@@ -971,6 +971,90 @@ def test_priced_eligible_tickers_raise_no_warning(clean_db) -> None:
     assert not (result.detail or {}).get("warnings")
 
 
+def _flag_tradeable(session, flags: dict[str, bool | None]) -> None:
+    for ticker, flag in flags.items():
+        instrument = session.execute(
+            select(Instrument).where(Instrument.yfinance_ticker == ticker)
+        ).scalar_one()
+        instrument.is_t212_tradeable = flag
+    session.flush()
+
+
+def _save_mandate(session, action: str = "mandate_edit", **update):
+    proposed = make_mandate().model_copy(update=update)
+    return apply_action(
+        action, session=session, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+
+
+def test_tradeable_only_before_the_overlay_ran_is_saved_with_a_warning(
+    clean_db,
+) -> None:
+    """The scope cannot be applied yet, and saying so beats a silent no-op."""
+    seed_panel(clean_db)
+
+    result = _save_mandate(clean_db, tradeable_only=True)
+    clean_db.commit()
+
+    assert result.detail is not None
+    (warning,) = result.detail["warnings"]
+    assert "Trading 212" in warning
+    stored = observe.get_mandate(clean_db, PORTFOLIO_ID)
+    assert stored is not None
+    assert stored.tradeable_only is True
+
+
+def test_tradeable_only_names_the_eligible_tickers_the_broker_lacks(clean_db) -> None:
+    seed_panel(clean_db)
+    _flag_tradeable(clean_db, {"AAA": True, "BBB": False, "CCC": None})
+
+    result = _save_mandate(
+        clean_db, tradeable_only=True, eligible_tickers=("AAA", "BBB", "CCC")
+    )
+
+    assert result.detail is not None
+    (warning,) = result.detail["warnings"]
+    assert "BBB" in warning
+    assert "AAA" not in warning
+    assert "CCC" not in warning
+    assert "not_t212_tradeable" in warning
+
+
+def test_tradeable_only_raises_no_warning_when_every_eligible_ticker_is_carried(
+    clean_db,
+) -> None:
+    seed_panel(clean_db)
+    _flag_tradeable(clean_db, {"AAA": True, "BBB": None, "CCC": False})
+
+    result = _save_mandate(
+        clean_db, tradeable_only=True, eligible_tickers=("AAA", "BBB")
+    )
+
+    assert not (result.detail or {}).get("warnings")
+
+
+def test_tradeable_only_without_an_allowlist_does_not_list_the_refused_universe(
+    clean_db,
+) -> None:
+    seed_panel(clean_db)
+    _flag_tradeable(clean_db, {"AAA": True, "BBB": False, "CCC": False})
+
+    result = _save_mandate(clean_db, tradeable_only=True)
+
+    assert not (result.detail or {}).get("warnings")
+
+
+def test_an_untradeable_eligible_ticker_raises_no_warning_without_the_scope(
+    clean_db,
+) -> None:
+    seed_panel(clean_db)
+    _flag_tradeable(clean_db, {"AAA": False, "BBB": True})
+
+    result = _save_mandate(clean_db, eligible_tickers=("AAA", "BBB"))
+
+    assert not (result.detail or {}).get("warnings")
+
+
 def test_unpriced_benchmark_and_eligible_tickers_each_get_a_warning(clean_db) -> None:
     seed_panel(clean_db)
     proposed = make_mandate().model_copy(

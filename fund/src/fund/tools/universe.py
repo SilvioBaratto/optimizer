@@ -435,6 +435,7 @@ def list_universe(
     exclusions: Collection[GicsSector | str] = (),
     tickers: Sequence[str] | None = None,
     sector: str | None = None,
+    tradeable_only: bool = False,
     limit: int = 100,
     offset: int = 0,
 ) -> ToolResult:
@@ -458,6 +459,9 @@ def list_universe(
         sector: Keep only this sector: a stored sector name (``Technology``) or the
             matching GICS name (``information_technology``), in any case. An ETF has
             no sector, so a sector filter never returns one.
+        tradeable_only: Drop every instrument the Trading 212 overlay flagged absent
+            from the broker. Only an explicit False is dropped: a row the overlay has
+            not evaluated stays, so a deployment without Trading 212 keeps its universe.
         limit: Page size, clamped to ``1..500``.
         offset: Rows to skip, for paging.
 
@@ -474,6 +478,8 @@ def list_universe(
     stmt = _investable(coerce_date(asof), () if restricted else exclusions)
     if tickers is not None:
         stmt = stmt.where(Instrument.yfinance_ticker.in_(list(tickers)))
+    if tradeable_only:
+        stmt = stmt.where(Instrument.is_t212_tradeable.is_not(False))
     if sector and sector.strip():
         wanted = _resolve_sector(sector)
         if wanted is None:

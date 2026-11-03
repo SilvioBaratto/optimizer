@@ -67,7 +67,7 @@ from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec
 from fund import tools as _tools
 from fund.config import DEFAULT_LOOKBACK_DAYS
 from fund.tools._base import ToolResult, err, ok, tool_envelope
-from fund.tools.eligibility import not_eligible_violations
+from fund.tools.eligibility import judges_funds_by_look_through, not_eligible_violations
 from fund.tools.mandate import HELD_TOL, constraint_set_breaches, held_tickers
 
 if TYPE_CHECKING:
@@ -245,7 +245,10 @@ def _instrument_breaches(
     look-through, which the stored-sector screen cannot, so funds are left to it.
     """
     return constraint_set_breaches(
-        ctx.session, cs, tickers, funds_by_look_through=ctx.eligible is not None
+        ctx.session,
+        cs,
+        tickers,
+        funds_by_look_through=judges_funds_by_look_through(ctx.eligible),
     )
 
 
@@ -408,7 +411,7 @@ def _get_macro_impl(ctx: RunContext, names: list[str]) -> ToolResult:
 def _list_universe_impl(
     ctx: RunContext, sector: str | None = None, limit: int = 100, offset: int = 0
 ) -> ToolResult:
-    if ctx.eligible is not None:
+    if ctx.eligible is not None and ctx.eligible.has_allowlist:
         # The portfolio's allowlist, already screened for ESG by the resolver, is the
         # whole universe: the market-cap ranking would bury every fund below it.
         if not ctx.eligible.allowed:
@@ -432,6 +435,10 @@ def _list_universe_impl(
         ctx.asof,
         exclusions=tuple(cs.esg.exclusions) if cs is not None else (),
         sector=sector,
+        # A broker scope with no allowlist cannot enumerate its names, so the listing
+        # drops the refused ones in SQL; the same predicate the resolver collected
+        # them with, and nothing to drop when it found none.
+        tradeable_only=ctx.eligible is not None and bool(ctx.eligible.untradeable),
         limit=limit,
         offset=offset,
     )

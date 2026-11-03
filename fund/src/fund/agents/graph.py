@@ -946,6 +946,17 @@ _ELIGIBLE_ALLOWED_BUDGET = 1400
 _ELIGIBLE_BARRED_BUDGET = 700
 
 
+_BROKER_SCOPE_INTRO = (
+    "Broker scope (resolved by the system from the client's mandate and enforced by "
+    "the tools): the portfolio may hold only instruments Trading 212 can trade. "
+    "list_universe already leaves the others out and the allocator tools refuse any "
+    "of them as not_t212_tradeable, so take candidates from list_universe."
+)
+_BROKER_BAR_EXPLANATION = (
+    "not_t212_tradeable means the Trading 212 catalogue does not carry the instrument."
+)
+
+
 def _eligible_block(eligible: Eligibility | None) -> str:
     """Render the portfolio's eligible universe for the PM, or ``""`` when unrestricted.
 
@@ -953,10 +964,17 @@ def _eligible_block(eligible: Eligibility | None) -> str:
     allowlist, so this is guidance that saves the allocator calls it would be refused
     for, not a control. Both lists are fitted to a budget with whole entries and a
     stated "+N more", and because a truncated allowlist would otherwise read as the
-    whole of it, the text says ``list_universe`` returns the full set.
+    whole of it, the text says ``list_universe`` returns the full set. A broker scope
+    with no allowlist has no names to list, so it is stated in words, and a scope the
+    resolver could not apply is reported as a note rather than left silent.
     """
     if eligible is None:
         return ""
+    notes = " ".join(f"Note: {note}." for note in eligible.notes)
+    if not eligible.has_allowlist:
+        scope = _BROKER_SCOPE_INTRO if eligible.untradeable else ""
+        text = " ".join(part for part in (scope, notes) if part)
+        return f"{text}\n\n" if text else ""
     barred = _fit_entries(
         "Barred and unavailable: ",
         [f"{ticker} ({reason})" for ticker, reason in eligible.barred],
@@ -981,7 +999,9 @@ def _eligible_block(eligible: Eligibility | None) -> str:
             "names outside the list."
         )
         allowed = ""
-    return " ".join(part for part in (intro, allowed, barred) if part) + "\n\n"
+    broker = _BROKER_BAR_EXPLANATION if eligible.has_broker_bar else ""
+    parts = (intro, allowed, barred, broker, notes)
+    return " ".join(part for part in parts if part) + "\n\n"
 
 
 def _constraint_digest(constraint_set: ConstraintSet) -> str:
