@@ -343,6 +343,141 @@ class TestMarkDelisted:
         db_session.refresh(inst)
         assert inst.delisted_at == date(2023, 1, 1)
 
+    def test_pinned_instrument_is_never_marked_delisted(self, db_session):
+        """A pin overrides the "absent from the snapshot" signal."""
+        ex = _make_exchange(db_session, "Pinned Venue")
+        etf = add_and_flush(
+            db_session,
+            Instrument(
+                ticker="VWCE.DE",
+                short_name="VWCE",
+                yfinance_ticker="VWCE.DE",
+                exchange=ex,
+            ),
+        )
+        add_and_flush(db_session, PinnedInstrument(ticker="VWCE.DE", source="manual"))
+
+        result = _repo(db_session).mark_delisted("VWCE.DE", ex.id, date(2024, 6, 1))
+
+        assert result is False
+        db_session.refresh(etf)
+        assert etf.delisted_at is None
+        assert etf.delisting_return is None
+
+    def test_unpinned_instrument_is_still_marked_beside_a_pinned_one(self, db_session):
+        """Only the pinned ticker is spared; its neighbour is delisted as before."""
+        ex = _make_exchange(db_session, "Mixed Venue")
+        for ticker in ("KEEP.DE", "DROP.DE"):
+            add_and_flush(
+                db_session,
+                Instrument(
+                    ticker=ticker,
+                    short_name=ticker,
+                    yfinance_ticker=ticker,
+                    exchange=ex,
+                ),
+            )
+        add_and_flush(db_session, PinnedInstrument(ticker="KEEP.DE", source="manual"))
+        repo = _repo(db_session)
+
+        assert repo.mark_delisted("KEEP.DE", ex.id, date(2024, 6, 1)) is False
+        assert repo.mark_delisted("DROP.DE", ex.id, date(2024, 6, 1)) is True
+
+    def test_pin_matches_the_yfinance_ticker_not_the_screener_ticker(self, db_session):
+        """The pin key is the Yahoo symbol, whatever the row's own ticker says."""
+        ex = _make_exchange(db_session, "Alias Venue")
+        add_and_flush(
+            db_session,
+            Instrument(
+                ticker="VWCEd_EQ",
+                short_name="VWCE",
+                yfinance_ticker="VWCE.DE",
+                exchange=ex,
+            ),
+        )
+        add_and_flush(db_session, PinnedInstrument(ticker="VWCE.DE", source="manual"))
+
+        assert (
+            _repo(db_session).mark_delisted("VWCEd_EQ", ex.id, date(2024, 6, 1))
+            is False
+        )
+
+
+class TestGetPinnedTickers:
+    """``get_pinned_tickers`` speaks the same ticker space as ``get_active_tickers``."""
+
+    def test_returns_instrument_tickers_of_pinned_rows_on_the_exchange(
+        self, db_session
+    ):
+        """The result holds ``Instrument.ticker`` values, keyed via the Yahoo pin."""
+        ex = _make_exchange(db_session, "Pin Venue")
+        add_and_flush(
+            db_session,
+            Instrument(
+                ticker="VWCEd_EQ",
+                short_name="VWCE",
+                yfinance_ticker="VWCE.DE",
+                instrument_type="ETF",
+                exchange=ex,
+            ),
+        )
+        add_and_flush(
+            db_session,
+            Instrument(
+                ticker="OTHER",
+                short_name="OTHER",
+                yfinance_ticker="OTHER.DE",
+                instrument_type="ETF",
+                exchange=ex,
+            ),
+        )
+        add_and_flush(db_session, PinnedInstrument(ticker="VWCE.DE", source="manual"))
+
+        assert _repo(db_session).get_pinned_tickers(ex.id) == {"VWCEd_EQ"}
+
+    def test_scoped_by_exchange(self, db_session):
+        """A pinned row on another venue is not reported for this one."""
+        here = _make_exchange(db_session, "Here")
+        there = _make_exchange(db_session, "There")
+        add_and_flush(
+            db_session,
+            Instrument(
+                ticker="X", short_name="X", yfinance_ticker="X.L", exchange=there
+            ),
+        )
+        add_and_flush(db_session, PinnedInstrument(ticker="X.L", source="manual"))
+
+        assert _repo(db_session).get_pinned_tickers(here.id) == set()
+        assert _repo(db_session).get_pinned_tickers(there.id) == {"X"}
+
+    def test_scoped_by_instrument_type(self, db_session):
+        """The stock and ETF build passes each see only their own pinned rows."""
+        ex = _make_exchange(db_session, "Typed")
+        for ticker, itype in (("S.DE", "STOCK"), ("E.DE", "ETF")):
+            add_and_flush(
+                db_session,
+                Instrument(
+                    ticker=ticker,
+                    short_name=ticker,
+                    yfinance_ticker=ticker,
+                    instrument_type=itype,
+                    exchange=ex,
+                ),
+            )
+            add_and_flush(db_session, PinnedInstrument(ticker=ticker, source="manual"))
+        repo = _repo(db_session)
+
+        assert repo.get_pinned_tickers(ex.id, instrument_type="ETF") == {"E.DE"}
+        assert repo.get_pinned_tickers(ex.id, instrument_type="STOCK") == {"S.DE"}
+        assert repo.get_pinned_tickers(ex.id) == {"E.DE", "S.DE"}
+
+    def test_no_pins_returns_empty_set(self, db_session):
+        """Without pins nothing is reported."""
+        ex = _make_exchange(db_session, "Unpinned")
+        _make_instrument(db_session, ex, "AAA")
+
+        assert _repo(db_session).get_pinned_tickers(ex.id) == set()
+
 
 class TestGetActiveTickers:
     def test_when_no_instruments_returns_empty_set(self, db_session):

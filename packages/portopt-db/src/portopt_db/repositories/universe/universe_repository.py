@@ -244,6 +244,8 @@ class UniverseRepository(RepositoryBase):
         Being absent from a universe snapshot is also what a still-trading name
         looks like after a screener floor change, a truncated page or a flipped
         canonical listing, so this method never invents a terminal return.
+        A pinned instrument (see ``pinned_instruments``) is never marked, so no
+        caller can delist a row an operator asked to keep.
 
         Args:
             ticker: Ticker of the instrument within ``exchange_id``.
@@ -257,17 +259,37 @@ class UniverseRepository(RepositoryBase):
 
         Returns:
             True if the row was updated, False if no matching active instrument
-            was found.
+            was found or the instrument is pinned.
         """
         result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
             update(Instrument)
             .where(Instrument.ticker == ticker)
             .where(Instrument.exchange_id == exchange_id)
             .where(Instrument.delisted_at.is_(None))  # only if not already marked
+            .where(~_row_is_pinned())
             .values(delisted_at=delisted_at, delisting_return=delisting_return)
         )
         self.session.flush()
         return bool(result.rowcount)
+
+    def get_pinned_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
+        """Return the ``Instrument.ticker`` of pinned rows on an exchange.
+
+        Same ticker space and ``instrument_type`` scoping as
+        :meth:`get_active_tickers`, so the universe build can subtract the result
+        from its pre-build snapshot. The pin itself is keyed by the Yahoo symbol
+        (``yfinance_ticker``), which may differ from the row's own ticker.
+        """
+        stmt = (
+            select(Instrument.ticker)
+            .where(Instrument.exchange_id == exchange_id)
+            .where(_row_is_pinned())
+        )
+        if instrument_type is not None:
+            stmt = stmt.where(Instrument.instrument_type == instrument_type)
+        return set(self.session.execute(stmt).scalars())
 
     def get_active_tickers(
         self, exchange_id: Any, instrument_type: str | None = None
