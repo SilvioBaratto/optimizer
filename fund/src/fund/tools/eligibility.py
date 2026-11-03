@@ -25,6 +25,16 @@ barred, because their sector data is sparse (government 6 of 265, corporate 27 o
 aggregate 70 of 969 funds carry any). That is intended: no data cannot show a fund is
 clean.
 
+A mandate's ``tradeable_only`` additionally scopes the portfolio to what the Trading 212
+catalogue carries, so a run that must be executable at the broker cannot propose a name
+it cannot buy. ``instruments.is_t212_tradeable`` is a tri-state and only an explicit
+False bars a name (``not_t212_tradeable``); NULL means the overlay never evaluated the
+row, which must not read as a refusal. When no instrument has been evaluated at all the
+restriction cannot be applied, so the universe stays whole and the result carries a
+note instead of silently going empty. It composes with the allowlist (both must hold),
+and with no allowlist it still engages: the result is then a refusal list over the
+whole universe (``has_allowlist`` False) rather than an enumeration of it.
+
 The resolver is deliberately **not** a bound tool and is not exported from
 ``fund.tools``: the model never chooses its own eligibility. The agent-stack-light
 callers (``fund.agents.graph``, ``fund.actions``) import it lazily inside a function,
@@ -43,6 +53,7 @@ from portopt_db.models.universe.universe import Instrument
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
+from portopt_db.repositories.universe.universe_repository import UniverseRepository
 from sqlalchemy import select
 
 from fund.config import settings
@@ -66,6 +77,11 @@ if TYPE_CHECKING:
 
 NOT_IN_ALLOWLIST = "not_in_allowlist"
 ESG_UNCLASSIFIED = "esg_unclassified"
+NOT_T212_TRADEABLE = "not_t212_tradeable"
+TRADEABLE_NOT_EVALUATED_NOTE = (
+    "tradeable_only is set but no instrument has been checked against the "
+    "Trading 212 catalogue yet, so the broker restriction is not applied"
+)
 _ETF = "ETF"
 _COMMODITY = "commodity"
 _FIXED_INCOME = "fixed_income"
@@ -89,19 +105,42 @@ class Eligibility:
     """The outcome of resolving a portfolio's allowlist on one run date.
 
     Attributes:
-        allowed: Tickers the portfolio may hold, in mandate order.
+        allowed: Tickers the portfolio may hold, in mandate order. Empty, and
+            meaningless, without an allowlist (:attr:`has_allowlist` False).
         barred: ``(ticker, reason)`` for every allowlisted ticker that may not be
             held, in mandate order. Reasons are stable strings: ``no_instrument``,
-            ``delisted``, ``not_priced``, ``esg:<gics sector>``, ``esg_unclassified``.
+            ``delisted``, ``not_priced``, ``not_t212_tradeable``, ``esg:<gics
+            sector>``, ``esg_unclassified``.
+        has_allowlist: ``True`` when the mandate lists tickers, so only
+            :attr:`allowed` may be held. ``False`` when the only restriction is the
+            Trading 212 scope over an otherwise unrestricted universe: then nothing
+            is enumerated and only the names in :attr:`untradeable` are refused.
+        untradeable: Without an allowlist, every ticker the overlay flagged absent
+            from the broker. Unused with one, where :attr:`barred` carries the same
+            reason per allowlisted name.
+        notes: Caveats the system raises about this resolution for the adviser and
+            the PM seed, such as a broker scope that could not be applied.
     """
 
     allowed: tuple[str, ...]
     barred: tuple[tuple[str, str], ...]
+    has_allowlist: bool = True
+    untradeable: frozenset[str] = frozenset()
+    notes: tuple[str, ...] = ()
 
     @property
     def allowed_set(self) -> frozenset[str]:
         """The allowed tickers as a set, for membership tests."""
         return frozenset(self.allowed)
+
+    @property
+    def has_broker_bar(self) -> bool:
+        """Whether any allowlisted name is barred for not being on the broker.
+
+        A property rather than a constant import so the renderers that must stay
+        agent-stack-free can ask without importing this module.
+        """
+        return any(reason == NOT_T212_TRADEABLE for _, reason in self.barred)
 
     def reason_for(self, ticker: str) -> str | None:
         """Why ``ticker`` is barred, or ``None`` when it is not a barred name.
@@ -109,6 +148,8 @@ class Eligibility:
         A ticker outside the allowlist altogether is not barred by the resolver, so it
         also yields ``None``; use :meth:`offenders` to classify arbitrary tickers.
         """
+        if not self.has_allowlist:
+            return NOT_T212_TRADEABLE if ticker in self.untradeable else None
         for barred_ticker, reason in self.barred:
             if barred_ticker == ticker:
                 return reason
@@ -123,9 +164,16 @@ class Eligibility:
 
         Returns:
             ``{ticker: reason}`` in the order given: the resolver's reason for a
-            barred allowlist name, ``not_in_allowlist`` for any other name. Empty when
-            every ticker is allowed.
+            barred allowlist name, ``not_in_allowlist`` for any other name. Without an
+            allowlist only a name the broker does not carry is an offender
+            (``not_t212_tradeable``). Empty when every ticker is allowed.
         """
+        if not self.has_allowlist:
+            return {
+                ticker: NOT_T212_TRADEABLE
+                for ticker in tickers
+                if ticker in self.untradeable
+            }
         allowed = self.allowed_set
         barred = dict(self.barred)
         return {
@@ -334,6 +382,7 @@ def resolve_eligibility(
     *,
     constraint_set: ConstraintSet | None = None,
     max_sector_age_days: int | None = None,
+    tradeable_only: bool = False,
 ) -> Eligibility | None:
     """Resolve ``allowlist`` into the tickers that may be held on ``asof``.
 
@@ -349,22 +398,36 @@ def resolve_eligibility(
         max_sector_age_days: How old, at ``asof``, an ETF's sector snapshot may be
             before it no longer counts. ``None`` reads
             ``FundConfig.esg_sector_weights_max_age_days``.
+        tradeable_only: Also bar every name the Trading 212 overlay flagged absent
+            from the broker (``not_t212_tradeable``), see the module docstring.
 
     Returns:
-        ``None`` when the allowlist is empty: the portfolio is unrestricted and
-        callers apply no check. Otherwise an :class:`Eligibility` whose ``allowed``
-        and ``barred`` follow the mandate's order. A name that fails the data checks
-        keeps that reason and is not screened for ESG. The data checks cost a constant
-        number of queries however long the list is, the ETF look-through adds a
-        constant number more, and the stock screen costs a few per screened ticker,
-        which is why the result is resolved once per run.
+        ``None`` when the allowlist is empty and ``tradeable_only`` is off: the
+        portfolio is unrestricted and callers apply no check. With ``tradeable_only``
+        and no allowlist, an :class:`Eligibility` with ``has_allowlist`` False that
+        refuses only the untradeable names. Otherwise an :class:`Eligibility` whose
+        ``allowed`` and ``barred`` follow the mandate's order. A name that fails the
+        data checks keeps that reason and is not screened further, and a name the
+        broker lacks is not ESG-screened. The data checks cost a constant number of
+        queries however long the list is, the broker scope adds two more, the ETF
+        look-through a constant number more, and the stock screen costs a few per
+        screened ticker, which is why the result is resolved once per run.
     """
     tickers = _normalise(allowlist)
     if not tickers:
-        return None
+        return _broker_scope(session) if tradeable_only else None
     if max_sector_age_days is None:
         max_sector_age_days = settings.esg_sector_weights_max_age_days
     barred = uninvestable_reasons(session, tickers, asof)
+    notes: tuple[str, ...] = ()
+    if tradeable_only:
+        refused = UniverseRepository(session).get_t212_untradeable_tickers(
+            [t for t in tickers if t not in barred]
+        )
+        if refused is None:
+            notes = (TRADEABLE_NOT_EVALUATED_NOTE,)
+        else:
+            barred.update(dict.fromkeys(refused, NOT_T212_TRADEABLE))
     barred.update(
         _esg_reasons(
             session,
@@ -377,7 +440,37 @@ def resolve_eligibility(
     return Eligibility(
         allowed=tuple(t for t in tickers if t not in barred),
         barred=tuple((t, barred[t]) for t in tickers if t in barred),
+        notes=notes,
     )
+
+
+def _broker_scope(session: Session) -> Eligibility:
+    """The refusal list of a ``tradeable_only`` mandate that has no allowlist.
+
+    Enumerating every tradeable instrument would turn a universe of thousands into
+    an allowlist, so only the names the broker lacks are collected. When no instrument
+    has been evaluated nothing can be refused and the note says why.
+    """
+    refused = UniverseRepository(session).get_t212_untradeable_tickers()
+    return Eligibility(
+        allowed=(),
+        barred=(),
+        has_allowlist=False,
+        untradeable=frozenset(refused or ()),
+        notes=(TRADEABLE_NOT_EVALUATED_NOTE,) if refused is None else (),
+    )
+
+
+def judges_funds_by_look_through(eligible: Eligibility | None) -> bool:
+    """Whether the resolver already judged the run's ETFs by sector look-through.
+
+    Only an allowlist is screened that way. A broker scope alone enumerates no names,
+    so funds stay with the stored-sector screen they would face without it.
+
+    Args:
+        eligible: The run's resolved eligibility, or ``None`` when unrestricted.
+    """
+    return eligible is not None and eligible.has_allowlist
 
 
 def resolve_mandate_eligibility(
@@ -388,7 +481,7 @@ def resolve_mandate_eligibility(
     constraint_set: ConstraintSet | None = None,
     max_sector_age_days: int | None = None,
 ) -> Eligibility | None:
-    """Resolve the allowlist of ``mandate``, if the portfolio has one.
+    """Resolve the allowlist and broker scope of ``mandate``, if it sets either.
 
     The one entry point the places that bind a ``RunContext`` share, so a missing
     mandate (a run whose mandate row has vanished) reads as unrestricted everywhere.
@@ -401,8 +494,8 @@ def resolve_mandate_eligibility(
         max_sector_age_days: See :func:`resolve_eligibility`.
 
     Returns:
-        ``None`` without a mandate or an allowlist; otherwise the resolved
-        :class:`Eligibility`.
+        ``None`` without a mandate, or with neither an allowlist nor
+        ``tradeable_only``; otherwise the resolved :class:`Eligibility`.
     """
     if mandate is None:
         return None
@@ -412,6 +505,7 @@ def resolve_mandate_eligibility(
         asof,
         constraint_set=constraint_set,
         max_sector_age_days=max_sector_age_days,
+        tradeable_only=mandate.tradeable_only,
     )
 
 
@@ -443,7 +537,10 @@ def not_eligible_violations(
 __all__ = [
     "ESG_UNCLASSIFIED",
     "NOT_IN_ALLOWLIST",
+    "NOT_T212_TRADEABLE",
+    "TRADEABLE_NOT_EVALUATED_NOTE",
     "Eligibility",
+    "judges_funds_by_look_through",
     "not_eligible_violations",
     "resolve_eligibility",
     "resolve_mandate_eligibility",

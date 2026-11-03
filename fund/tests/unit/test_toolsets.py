@@ -1799,6 +1799,127 @@ def test_without_an_allowlist_any_universe_reaches_the_tools(db_session) -> None
     assert result["ok"] is True
 
 
+# --- a broker scope without an allowlist: a refusal list over the whole universe ---
+
+
+def _flag_untradeable(db_session, *tickers: str) -> None:
+    """Flag ``tickers`` absent from the broker and every other seeded name carried."""
+    for ticker in _UNIVERSE:
+        instrument = db_session.execute(
+            select(Instrument).where(Instrument.yfinance_ticker == ticker)
+        ).scalar_one()
+        instrument.is_t212_tradeable = ticker not in tickers
+    db_session.flush()
+
+
+def _broker_scope_context(db_session, *untradeable: str, store=None) -> RunContext:
+    from fund.tools.eligibility import Eligibility
+
+    _seed_panel(db_session)
+    _flag_untradeable(db_session, *untradeable)
+    ctx = _make_context(db_session, store=store, universe=[])
+    return dataclasses.replace(
+        ctx,
+        eligible=Eligibility(
+            allowed=(),
+            barred=(),
+            has_allowlist=False,
+            untradeable=frozenset(untradeable),
+        ),
+    )
+
+
+def test_a_broker_scope_lists_the_whole_universe_minus_the_untradeable(
+    db_session,
+) -> None:
+    ctx = _broker_scope_context(db_session, "BBB")
+    list_universe = _find(bind_toolset("allocator", ctx), "list_universe")
+
+    result = list_universe.invoke({})
+
+    assert result["ok"] is True
+    assert [row["ticker"] for row in result["data"]["instruments"]] == ["AAA", "CCC"]
+    assert result["data"]["total"] == 2
+
+
+def test_a_broker_scope_with_nothing_untradeable_lists_everything(db_session) -> None:
+    ctx = _broker_scope_context(db_session)
+    list_universe = _find(bind_toolset("allocator", ctx), "list_universe")
+
+    result = list_universe.invoke({})
+
+    assert {row["ticker"] for row in result["data"]["instruments"]} == set(_UNIVERSE)
+
+
+@pytest.mark.parametrize(
+    "tool_name", ["universe_filter", "estimate_moments", "optimize_portfolio"]
+)
+def test_a_broker_scope_refuses_an_untradeable_name_with_the_reason(
+    db_session, tool_name: str
+) -> None:
+    ctx = _broker_scope_context(db_session, "CCC")
+    tool = _find(bind_toolset("allocator", ctx), tool_name)
+
+    result = tool.invoke({"universe": ["AAA", "CCC"]})
+
+    assert result["ok"] is False
+    assert "CCC (not_t212_tradeable)" in result["error"]
+    assert "AAA" not in result["error"].split(":", 1)[1]
+
+
+def test_a_broker_scope_lets_a_tradeable_name_outside_any_list_through(
+    db_session,
+) -> None:
+    """There is no allowlist, so only the broker refusals restrict the model."""
+    ctx = _broker_scope_context(db_session, "CCC")
+    ufilter = _find(bind_toolset("allocator", ctx), "universe_filter")
+
+    result = ufilter.invoke({"universe": ["AAA", "BBB", "SPY"]})
+
+    assert "outside the portfolio's eligible universe" not in result.get("error", "")
+
+
+def test_a_broker_scope_alone_leaves_the_stored_sector_esg_screen_in_place(
+    db_session,
+) -> None:
+    """Only an allowlist hands funds to the resolver's look-through; a broker scope
+    enumerates nothing, so the ordinary screen still judges every name, and a fund
+    with no stored sector fails closed there as it did before the scope."""
+    ctx = _broker_scope_context(db_session, store=_store_with_cs(_energy_exclusion()))
+    _classify(db_session, "AAA", sector="Energy")
+    _classify(db_session, "BBB", instrument_type="ETF")
+    _classify(db_session, "CCC", sector="Technology")
+    ufilter = _find(bind_toolset("allocator", ctx), "universe_filter")
+
+    result = ufilter.invoke({"universe": _UNIVERSE})
+
+    assert result["ok"] is True
+    assert result["mandate_excluded"] == {
+        "AAA": ["esg_exclusion"],
+        "BBB": ["unclassified_sector"],
+    }
+
+
+def test_a_broker_scope_fails_a_held_untradeable_name_at_the_risk_gate(
+    db_session,
+) -> None:
+    ctx = _broker_scope_context(
+        db_session, "CCC", store=_store_with_cs(_constraint_set())
+    )
+    _audit_proposal(ctx, _WEIGHTS)
+
+    result = _find(bind_toolset("risk", ctx), "risk_check").invoke({})
+
+    assert result["ok"] is True
+    assert result["data"]["passed"] is False
+    (violation,) = result["data"]["violations"]
+    assert violation == {
+        "type": "not_eligible",
+        "asset": "CCC",
+        "reason": "not_t212_tradeable",
+    }
+
+
 def test_market_context_tools_stay_unrestricted(db_session) -> None:
     ctx = _restricted_context(db_session)
     get_prices = _find(bind_toolset("economist", ctx), "get_prices")

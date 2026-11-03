@@ -45,6 +45,7 @@ def _seed(
     instrument_type: str = "ETF",
     asset_class: str = "equity",
     fi_subclass: str | None = None,
+    tradeable: bool | None = None,
 ) -> None:
     exchange = Exchange(name=f"EX-{ticker}")
     session.add(exchange)
@@ -59,6 +60,7 @@ def _seed(
         fi_subclass=fi_subclass,
         yfinance_ticker=ticker,
         delisted_at=delisted_at,
+        is_t212_tradeable=tradeable,
     )
     session.add(instrument)
     session.flush()
@@ -817,3 +819,249 @@ def test_not_eligible_violations_are_empty_without_an_allowlist() -> None:
     from fund.tools.eligibility import not_eligible_violations
 
     assert not_eligible_violations(None, {"Z": 1.0}) == []
+
+
+# --- tradeable_only: scope to the Trading 212 catalogue -----------------------
+#
+# The flag is a tri-state per instrument: True (carried), False (matched and absent),
+# NULL (never evaluated). Only an explicit False bars a name. When no instrument has
+# been evaluated at all the restriction cannot be applied and the full universe stays,
+# with a note, rather than silently emptying it.
+
+
+def _seed_tradeable_catalogue(session) -> None:
+    _seed(session, "ON.T", tradeable=True)
+    _seed(session, "OFF.T", tradeable=False)
+    _seed(session, "NEW.T")
+    _seed(session, "OFF2.T", tradeable=False)
+
+
+def test_tradeable_only_is_off_by_default_whatever_the_flags_say(db_session) -> None:
+    _seed_tradeable_catalogue(db_session)
+
+    result = resolve_eligibility(db_session, ("ON.T", "OFF.T", "NEW.T"), _ASOF)
+
+    assert result == Eligibility(allowed=("ON.T", "OFF.T", "NEW.T"), barred=())
+
+
+def test_tradeable_only_bars_an_explicit_false_and_keeps_true_and_unevaluated(
+    db_session,
+) -> None:
+    _seed_tradeable_catalogue(db_session)
+
+    result = resolve_eligibility(
+        db_session, ("OFF.T", "ON.T", "NEW.T", "OFF2.T"), _ASOF, tradeable_only=True
+    )
+
+    assert result == Eligibility(
+        allowed=("ON.T", "NEW.T"),
+        barred=(("OFF.T", "not_t212_tradeable"), ("OFF2.T", "not_t212_tradeable")),
+    )
+
+
+def test_tradeable_only_composes_with_the_allowlist(db_session) -> None:
+    """A tradeable name outside the allowlist stays outside it."""
+    _seed_tradeable_catalogue(db_session)
+
+    result = resolve_eligibility(db_session, ("ON.T",), _ASOF, tradeable_only=True)
+
+    assert result is not None
+    assert result.allowed == ("ON.T",)
+    assert result.offenders(["ON.T", "NEW.T", "OFF.T"]) == {
+        "NEW.T": "not_in_allowlist",
+        "OFF.T": "not_in_allowlist",
+    }
+
+
+def test_a_data_bar_takes_precedence_over_the_tradeable_bar(db_session) -> None:
+    _seed(db_session, "GONE.T", delisted_at=_ASOF, tradeable=False)
+    _seed(db_session, "NOPX.T", priced=False, tradeable=False)
+    _seed(db_session, "OFF.T", tradeable=False)
+
+    result = resolve_eligibility(
+        db_session,
+        ("GONE.T", "NOPX.T", "MISSING.T", "OFF.T"),
+        _ASOF,
+        tradeable_only=True,
+    )
+
+    assert result is not None
+    assert result.barred == (
+        ("GONE.T", "delisted"),
+        ("NOPX.T", "not_priced"),
+        ("MISSING.T", "no_instrument"),
+        ("OFF.T", "not_t212_tradeable"),
+    )
+
+
+def test_both_conditions_must_hold_under_an_esg_exclusion(db_session) -> None:
+    """An untradeable name keeps its tradeable reason and is not ESG-screened."""
+    _seed_stock(db_session, "OIL.OFF", sector="Energy")
+    _seed_stock(db_session, "OIL.ON", sector="Energy")
+    _seed_stock(db_session, "TECH.OFF", sector="Technology")
+    _seed_stock(db_session, "TECH.ON", sector="Technology")
+    for ticker, flag in (
+        ("OIL.OFF", False),
+        ("OIL.ON", True),
+        ("TECH.OFF", False),
+        ("TECH.ON", True),
+    ):
+        instrument = (
+            db_session.query(Instrument)
+            .filter(Instrument.yfinance_ticker == ticker)
+            .one()
+        )
+        instrument.is_t212_tradeable = flag
+    db_session.flush()
+
+    result = resolve_eligibility(
+        db_session,
+        ("OIL.OFF", "OIL.ON", "TECH.OFF", "TECH.ON"),
+        _ASOF,
+        constraint_set=_esg_constraint_set(GicsSector.ENERGY),
+        tradeable_only=True,
+    )
+
+    assert result is not None
+    assert result.allowed == ("TECH.ON",)
+    assert result.barred == (
+        ("OIL.OFF", "not_t212_tradeable"),
+        ("OIL.ON", "esg:energy"),
+        ("TECH.OFF", "not_t212_tradeable"),
+    )
+
+
+def test_tradeable_only_keeps_the_full_allowlist_with_a_note_when_nothing_is_evaluated(
+    db_session,
+) -> None:
+    _seed(db_session, "ELIG.A")
+    _seed(db_session, "ELIG.B")
+
+    result = resolve_eligibility(
+        db_session, ("ELIG.A", "ELIG.B"), _ASOF, tradeable_only=True
+    )
+
+    assert result is not None
+    assert result.allowed == ("ELIG.A", "ELIG.B")
+    assert result.barred == ()
+    assert len(result.notes) == 1
+    assert "Trading 212" in result.notes[0]
+
+
+def test_tradeable_only_bars_everything_when_the_overlay_matched_nothing(
+    db_session,
+) -> None:
+    """The overlay ran and the broker carries none of them: an honest empty universe."""
+    _seed(db_session, "OFF.A", tradeable=False)
+    _seed(db_session, "OFF.B", tradeable=False)
+
+    result = resolve_eligibility(
+        db_session, ("OFF.A", "OFF.B"), _ASOF, tradeable_only=True
+    )
+
+    assert result is not None
+    assert result.allowed == ()
+    assert result.barred == (
+        ("OFF.A", "not_t212_tradeable"),
+        ("OFF.B", "not_t212_tradeable"),
+    )
+    assert result.notes == ()
+
+
+def test_tradeable_only_engages_without_an_allowlist(db_session) -> None:
+    """An empty allowlist no longer short-circuits to unrestricted."""
+    _seed_tradeable_catalogue(db_session)
+
+    result = resolve_eligibility(db_session, (), _ASOF, tradeable_only=True)
+
+    assert result is not None
+    assert result.has_allowlist is False
+    assert result.allowed == ()
+    assert result.barred == ()
+    assert result.untradeable == frozenset({"OFF.T", "OFF2.T"})
+    assert result.offenders(["ON.T", "NEW.T", "OFF.T", "ANYTHING.ELSE"]) == {
+        "OFF.T": "not_t212_tradeable"
+    }
+    assert result.reason_for("OFF.T") == "not_t212_tradeable"
+    assert result.reason_for("ON.T") is None
+
+
+def test_tradeable_only_without_an_allowlist_and_nothing_evaluated_restricts_nothing(
+    db_session,
+) -> None:
+    _seed(db_session, "ELIG.A")
+
+    result = resolve_eligibility(db_session, (), _ASOF, tradeable_only=True)
+
+    assert result is not None
+    assert result.has_allowlist is False
+    assert result.untradeable == frozenset()
+    assert result.offenders(["ELIG.A", "ANYTHING"]) == {}
+    assert len(result.notes) == 1
+    assert "Trading 212" in result.notes[0]
+
+
+def test_an_empty_allowlist_without_tradeable_only_is_still_unrestricted(
+    db_session,
+) -> None:
+    _seed_tradeable_catalogue(db_session)
+
+    assert resolve_eligibility(db_session, (), _ASOF, tradeable_only=False) is None
+
+
+def test_the_tradeable_scope_costs_a_constant_number_of_extra_queries(
+    db_session,
+) -> None:
+    _seed_tradeable_catalogue(db_session)
+    engine = db_session.get_bind().engine
+    counted: list[str] = []
+
+    def _count(conn, cursor, statement, parameters, context, executemany) -> None:
+        counted.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _count)
+    try:
+        resolve_eligibility(db_session, ("ON.T",), _ASOF, tradeable_only=True)
+        small = len(counted)
+        counted.clear()
+        resolve_eligibility(
+            db_session, ("ON.T", "OFF.T", "NEW.T", "OFF2.T"), _ASOF, tradeable_only=True
+        )
+        large = len(counted)
+    finally:
+        event.remove(engine, "before_cursor_execute", _count)
+
+    assert small == large
+
+
+def test_resolve_mandate_eligibility_reads_the_flag_off_the_mandate(db_session) -> None:
+    from _fund_fakes import make_mandate
+
+    from fund.tools.eligibility import resolve_mandate_eligibility
+
+    _seed_tradeable_catalogue(db_session)
+    mandate = make_mandate().model_copy(update={"tradeable_only": True})
+
+    scoped = resolve_mandate_eligibility(db_session, mandate, _ASOF)
+    plain = resolve_mandate_eligibility(
+        db_session, mandate.model_copy(update={"tradeable_only": False}), _ASOF
+    )
+
+    assert scoped is not None
+    assert scoped.untradeable == frozenset({"OFF.T", "OFF2.T"})
+    assert plain is None
+
+
+def test_not_eligible_violations_report_the_tradeable_reason() -> None:
+    from fund.tools.eligibility import not_eligible_violations
+
+    open_scope = Eligibility(
+        allowed=(),
+        barred=(),
+        has_allowlist=False,
+        untradeable=frozenset({"OFF.T"}),
+    )
+
+    assert not_eligible_violations(open_scope, {"OFF.T": 0.4, "ON.T": 0.6}) == [
+        {"type": "not_eligible", "asset": "OFF.T", "reason": "not_t212_tradeable"}
+    ]

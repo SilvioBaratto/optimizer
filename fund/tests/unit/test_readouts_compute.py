@@ -802,6 +802,46 @@ def test_compute_risk_leaves_the_esg_judgement_to_the_resolver_under_an_allowlis
     ]
 
 
+def test_compute_risk_under_a_broker_scope_fails_a_held_untradeable_name_only(
+    priced_session: Session,
+) -> None:
+    """With no allowlist the scope refuses only the untradeable name, and a held ETF
+    keeps the stored-sector screen it has without any eligibility."""
+    from fund.readouts_compute import compute_risk
+    from fund.tools.eligibility import Eligibility
+
+    aaa = priced_session.execute(
+        select(Instrument).where(Instrument.yfinance_ticker == "AAA")
+    ).scalar_one()
+    aaa.instrument_type = "ETF"
+    priced_session.flush()
+    scope = Eligibility(
+        allowed=(),
+        barred=(),
+        has_allowlist=False,
+        untradeable=frozenset({"CCC"}),
+    )
+
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+        _energy_exclusion(),
+        None,
+        session=priced_session,
+        eligible=scope,
+    )
+
+    assert result.passed is False
+    assert {(v["type"], v["asset"]) for v in result.violations} == {
+        ("unclassified_sector", "AAA"),
+        ("unclassified_sector", "BBB"),
+        ("unclassified_sector", "CCC"),
+        ("not_eligible", "CCC"),
+    }
+    assert {"type": "not_eligible", "asset": "CCC", "reason": "not_t212_tradeable"} in (
+        result.violations
+    )
+
+
 def test_compute_risk_enforces_eligibility_without_a_constraint_set(
     priced_session: Session,
 ) -> None:

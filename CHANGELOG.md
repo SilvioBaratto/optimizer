@@ -129,6 +129,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `commodity` is a new asset class
   - `ETFMetadataRepository.get_latest_sector_weights` batches the latest sector
     snapshots for a list of tickers
+  - `PortfolioMandate.tradeable_only`, an opt-in broker scope on top of the
+    allowlist (default off, mandate JSON only, no migration): `fund mandate set
+    --tradeable-only | --no-tradeable-only` or the TUI Mandate view's "Tradeable
+    on Trading 212 only" box. The resolver bars an instrument whose
+    `is_t212_tradeable` is an explicit False as `not_t212_tradeable`; NULL is not
+    barred, and when nothing has been evaluated the universe stays whole with a
+    note in the PM seed and the mandate-save warning. It also works without an
+    allowlist, as a refusal list over the whole universe (`list_universe` drops the
+    False rows). `UniverseRepository.get_t212_untradeable_tickers` is the new read
 
 ### Changed
 

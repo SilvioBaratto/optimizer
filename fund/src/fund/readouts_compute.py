@@ -23,7 +23,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from fund.agents.toolsets import _bounds_args, _optimizer_constraints
 from fund.config import DEFAULT_LOOKBACK_DAYS
 from fund.schemas import ConstraintSet
-from fund.tools.eligibility import not_eligible_violations, resolve_mandate_eligibility
+from fund.tools.eligibility import (
+    judges_funds_by_look_through,
+    not_eligible_violations,
+    resolve_mandate_eligibility,
+)
 from fund.tools.mandate import constraint_set_breaches, held_tickers
 from fund.tools.optimize import optimize_portfolio
 from fund.tools.risk import backtest, risk_check
@@ -290,7 +294,7 @@ def compute_risk(
                 session,
                 cs,
                 held_tickers(weights),
-                funds_by_look_through=eligible is not None,
+                funds_by_look_through=judges_funds_by_look_through(eligible),
             )
         except SQLAlchemyError as exc:
             return RiskCompute(

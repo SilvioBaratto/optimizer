@@ -68,7 +68,7 @@ from fund.schemas.enums import (
     RiskMeasureChoice,
 )
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
-from fund.tools.eligibility import Eligibility
+from fund.tools.eligibility import TRADEABLE_NOT_EVALUATED_NOTE, Eligibility
 from fund.tools.optimize import optimize_portfolio
 
 _START = dt.date(2023, 11, 1)
@@ -943,6 +943,78 @@ class TestEligibleBlock:
         seed = self._seed(Eligibility(allowed=("A", "B"), barred=()))
 
         assert "more" not in seed
+
+    def test_a_barred_broker_name_is_explained(self) -> None:
+        eligible = Eligibility(
+            allowed=("VWCE.DE",), barred=(("ARKK", "not_t212_tradeable"),)
+        )
+
+        seed = self._seed(eligible)
+
+        assert "ARKK (not_t212_tradeable)" in seed
+        assert "Trading 212" in seed
+
+    def test_the_broker_explanation_is_absent_when_no_name_was_barred_for_it(
+        self,
+    ) -> None:
+        seed = self._seed(
+            Eligibility(allowed=("A",), barred=(("OIL.S", "esg:energy"),))
+        )
+
+        assert "Trading 212" not in seed
+
+    def test_a_note_is_stated_after_the_allowlist(self) -> None:
+        eligible = Eligibility(allowed=("VWCE.DE",), barred=(), notes=("be careful",))
+
+        seed = self._seed(eligible)
+
+        assert "Note: be careful." in seed
+        assert seed.index("VWCE.DE") < seed.index("Note: be careful.")
+        assert seed.index("Note: be careful.") < seed.index("Produce an allocation")
+
+    def test_a_broker_scope_without_an_allowlist_tells_the_pm_what_it_means(
+        self,
+    ) -> None:
+        eligible = Eligibility(
+            allowed=(),
+            barred=(),
+            has_allowlist=False,
+            untradeable=frozenset({"ARKK"}),
+        )
+
+        seed = self._seed(eligible)
+
+        assert "Trading 212" in seed
+        assert "not_t212_tradeable" in seed
+        assert "list_universe" in seed
+        # There is no list of names to hand the allocator, and it must not be told
+        # that no ticker can be held.
+        assert "no eligible ticker" not in seed.lower()
+        assert "Allowed:" not in seed
+        assert seed.index("Trading 212") < seed.index("Produce an allocation")
+
+    def test_a_broker_scope_that_could_not_be_applied_says_so_instead_of_staying_silent(
+        self,
+    ) -> None:
+        eligible = Eligibility(
+            allowed=(),
+            barred=(),
+            has_allowlist=False,
+            notes=(TRADEABLE_NOT_EVALUATED_NOTE,),
+        )
+
+        seed = self._seed(eligible)
+
+        assert TRADEABLE_NOT_EVALUATED_NOTE in seed
+        assert "may hold only" not in seed
+
+    def test_a_broker_scope_that_refuses_nothing_leaves_the_seed_unchanged(
+        self,
+    ) -> None:
+        bare = _run_instruction(_mandate(), str(_PORTFOLIO_ID), _ASOF)
+        eligible = Eligibility(allowed=(), barred=(), has_allowlist=False)
+
+        assert self._seed(eligible) == bare
 
 
 def test_run_fund_seed_exposes_mandate_and_constraint_limits(db_session) -> None:

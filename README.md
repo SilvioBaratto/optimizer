@@ -293,7 +293,7 @@ a provider's SDK with the matching extra (`uv sync --package portopt-fund
 | Command | What it does |
 |---|---|
 | `fund profile <portfolio_id>` | Build/refresh an investor profile from a questionnaire |
-| `fund mandate set <portfolio_id>` / `fund mandate show <portfolio_id>` | Write or display a portfolio's mandate (capital, base currency, drift threshold, benchmark, eligible tickers via repeatable `--eligible` / `--clear-eligible`) |
+| `fund mandate set <portfolio_id>` / `fund mandate show <portfolio_id>` | Write or display a portfolio's mandate (capital, base currency, drift threshold, benchmark, eligible tickers via repeatable `--eligible` / `--clear-eligible`, the Trading 212 scope via `--tradeable-only` / `--no-tradeable-only`) |
 | `fund run <portfolio_id> --asof <date>` | Run a decision round for a rebalance bar |
 | `fund approve <run_id>` / `fund reject <run_id>` | Resolve a paused (human-in-the-loop) run |
 | `fund status [portfolio_id]` | Show the paused-run queue |
@@ -335,6 +335,16 @@ with `ctrl+s`). A ticker with no priced instrument yet is accepted with a warnin
 the mandate can be written before the instrument exists; until it has prices the
 ticker stays barred. Saving the mandate also pins the tickers (source
 `mandate:<portfolio_id>`) so the weekly build cannot delist them.
+
+A run that must be executable at the broker can also be scoped to Trading 212 with
+`fund mandate set <portfolio_id> --tradeable-only` (`--no-tradeable-only` lifts it; the
+Mandate view has a "Tradeable on Trading 212 only" box). It composes with `--eligible`
+(both must hold) and works without an allowlist, then dropping every instrument the
+broker lacks from the whole universe, while research and benchmarking keep the full
+multi-region one. Only an instrument the ingestion annotation step found absent from the
+Trading 212 catalogue is barred (`not_t212_tradeable`); one it never evaluated stays.
+Until the step has evaluated anything the flag restricts nothing, which the save warns
+about and the PM seed repeats rather than silently emptying the universe.
 
 With ESG exclusions in the client's profile, a fund is allowed by look-through: its
 latest sector snapshot must keep the excluded share within the client's tolerance

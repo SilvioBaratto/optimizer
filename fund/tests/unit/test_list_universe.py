@@ -303,3 +303,43 @@ def test_an_empty_ticker_set_lists_nothing_rather_than_everything(db_session) ->
 
     assert _tickers(result) == []
     assert result["data"]["total"] == 0
+
+
+def _flag_tradeable(db_session, flags: dict[str, bool | None]) -> None:
+    for ticker, flag in flags.items():
+        row = (
+            db_session.query(Instrument)
+            .filter(Instrument.yfinance_ticker == ticker)
+            .one()
+        )
+        row.is_t212_tradeable = flag
+    db_session.flush()
+
+
+def test_tradeable_only_drops_only_an_explicit_false(db_session) -> None:
+    """True, NULL (never evaluated) and False rows: only the False row is dropped."""
+    _seed_catalogue(db_session)
+    _flag_tradeable(db_session, {"TECH": True, "OIL": False, "PHRM": None})
+
+    result = list_universe(db_session, _ASOF, tradeable_only=True)
+
+    assert _tickers(result) == ["TECH", "PHRM", "LATE", "NOCAP", "NOSEC"]
+    assert result["data"]["total"] == 5
+
+
+def test_the_full_universe_is_listed_unless_tradeable_only_is_asked(db_session) -> None:
+    _seed_catalogue(db_session)
+    _flag_tradeable(db_session, {"TECH": True, "OIL": False})
+
+    assert "OIL" in _tickers(list_universe(db_session, _ASOF))
+    assert "OIL" in _tickers(list_universe(db_session, _ASOF, tradeable_only=False))
+
+
+def test_tradeable_only_pages_over_the_narrowed_total(db_session) -> None:
+    _seed_catalogue(db_session)
+    _flag_tradeable(db_session, {"TECH": False})
+
+    result = list_universe(db_session, _ASOF, tradeable_only=True, limit=2, offset=1)
+
+    assert _tickers(result) == ["PHRM", "LATE"]
+    assert result["data"]["total"] == 5

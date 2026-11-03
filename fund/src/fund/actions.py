@@ -1115,10 +1115,51 @@ def _check_eligible(session: Session, mandate: Any) -> list[str]:
     return [warning]
 
 
+def _check_tradeable(session: Session, mandate: Any) -> list[str]:
+    """One warning when the broker scope is on but cannot bite as the adviser expects.
+
+    Two cases: no instrument has been checked against Trading 212 yet (the scope is a
+    no-op until the annotation step runs, and the resolver says so on every run too),
+    or some eligible tickers are known to be absent from the broker (they stay barred
+    as ``not_t212_tradeable``). The mandate is saved anyway, like an unpriced ticker:
+    the catalogue refreshes independently of the adviser's edit.
+    """
+    if not mandate.tradeable_only:
+        return []
+    from portopt_db.repositories.universe.universe_repository import (
+        UniverseRepository,
+    )
+
+    # An empty list asks about nothing rather than everything: with no allowlist the
+    # whole refusal list would be thousands of names, and only the "not evaluated"
+    # answer is worth a warning.
+    tickers = _normalised_tickers(mandate.eligible_tickers)
+    refused = UniverseRepository(session).get_t212_untradeable_tickers(tickers)
+    if refused is None:
+        warning = (
+            "tradeable_only is set but no instrument has been checked against the "
+            "Trading 212 catalogue yet, so it restricts nothing until the "
+            "annotation step has run"
+        )
+    elif refused:
+        warning = (
+            f"eligible tickers not on Trading 212: {', '.join(refused)}; they stay "
+            "barred (not_t212_tradeable) while tradeable_only is set"
+        )
+    else:
+        return []
+    logger.warning("actions: %s", warning)
+    return [warning]
+
+
 def _check_mandate(session: Session, mandate: Any) -> tuple[Any, list[str]]:
     """Canonicalise the benchmark and collect every warning a mandate save reports."""
     checked, warnings = _check_benchmark(session, mandate)
-    return checked, [*warnings, *_check_eligible(session, checked)]
+    return checked, [
+        *warnings,
+        *_check_eligible(session, checked),
+        *_check_tradeable(session, checked),
+    ]
 
 
 def _sync_pins(session: Session, mandate: Any) -> None:
