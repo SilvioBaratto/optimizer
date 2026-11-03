@@ -35,9 +35,9 @@ gate, and the adviser sees that the value was assumed rather than client-provide
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from fund.schemas.enums import (
     GicsSector,
@@ -81,6 +81,10 @@ UnansweredDatum = Literal[
     "esg.exclusions",
     "esg.look_through_tolerance",
 ]
+
+# Owed only when sectors are excluded: with nothing excluded there is no fund screen
+# for the figure to loosen.
+LOOK_THROUGH_TOLERANCE_PATH: UnansweredDatum = "esg.look_through_tolerance"
 
 _Pillar = Literal["knowledge", "capacity", "objectives", "esg"]
 _QuestionKind = Literal["single_choice", "multi_choice", "likert", "numeric"]
@@ -261,6 +265,36 @@ class MiFIDAnswers(BaseModel):
             "'capacity.buffer_months'). Empty when the client answered everything."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flag_unstated_look_through_tolerance(cls, data: Any) -> Any:
+        """Mark the tolerance unanswered when sectors are excluded but no figure given.
+
+        The typed TUI form and the CLI ``--answers`` path hand the profiler a finished
+        ``MiFIDAnswers`` and skip the extraction model, so nothing else would say the
+        strict 0.0 was assumed. An explicit 0 counts as stated: only an absent key
+        (or, for a typed ``EsgAnswers``, a field left out of the constructor) is
+        unstated. Anything this cannot read is passed on for the field validators to
+        reject.
+        """
+        if not isinstance(data, dict):
+            return data
+        esg = data.get("esg")
+        if isinstance(esg, EsgAnswers):
+            excluded = bool(esg.exclusions)
+            stated = "look_through_tolerance" in esg.model_fields_set
+        elif isinstance(esg, dict):
+            excluded = bool(esg.get("exclusions"))
+            stated = "look_through_tolerance" in esg
+        else:
+            return data
+        unanswered = data.get("unanswered", ())
+        if not isinstance(unanswered, list | tuple):
+            return data
+        if not excluded or stated or LOOK_THROUGH_TOLERANCE_PATH in unanswered:
+            return data
+        return {**data, "unanswered": (*unanswered, LOOK_THROUGH_TOLERANCE_PATH)}
 
 
 class SuitabilityAssessment(BaseModel):

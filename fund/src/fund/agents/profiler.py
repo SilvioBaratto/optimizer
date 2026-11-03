@@ -53,6 +53,7 @@ from fund.schemas.enums import (
     RiskToleranceBand,
 )
 from fund.schemas.questionnaire import (
+    LOOK_THROUGH_TOLERANCE_PATH,
     CapacityAnswers,
     EsgAnswers,
     KnowledgeAnswers,
@@ -196,7 +197,7 @@ _CONSERVATIVE_PLACEHOLDER: dict[str, Any] = {
     "objectives.horizon": Horizon.SHORT,
     "objectives.likert_items": (1,),
     "objectives.loss_reaction": LossReaction.SELL_ALL,
-    "esg.look_through_tolerance": 0.0,
+    LOOK_THROUGH_TOLERANCE_PATH: 0.0,
 }
 
 
@@ -413,6 +414,7 @@ def _inconsistency_flags(
     flags.extend(
         f"{FLAG_UNANSWERED_INPUT}:{datum}"
         for datum in dict.fromkeys(answers.unanswered)
+        if datum != LOOK_THROUGH_TOLERANCE_PATH or answers.esg.exclusions
     )
     if answers.esg.other_preferences:
         flags.append(FLAG_UNENFORCED_ESG_PREFERENCE)
@@ -634,6 +636,9 @@ def _typed_answers(questionnaire: Any) -> MiFIDAnswers | None:
 def _answers_summary(answers: MiFIDAnswers) -> str:
     """One-line rendering of all four pillars for the adviser at the HITL gate."""
     exclusions = ", ".join(s.value for s in answers.esg.exclusions) or "none"
+    if answers.esg.exclusions:
+        share = answers.esg.look_through_tolerance * 100
+        exclusions += f" (fund look-through tolerance {share:g}%)"
     other = "; ".join(answers.esg.other_preferences) or "none"
     likert = ", ".join(str(item) for item in answers.objectives.likert_items)
     return (

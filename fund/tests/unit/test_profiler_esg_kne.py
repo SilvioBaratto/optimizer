@@ -48,7 +48,7 @@ def _answers(
     exclusions: tuple[GicsSector, ...] = (),
     knowledge: KnowledgeLevel = KnowledgeLevel.INFORMED,
     goal: ObjectiveChoice = ObjectiveChoice.GROWTH,
-    look_through_tolerance: float = 0.0,
+    look_through_tolerance: float | None = 0.0,
     unanswered: tuple[str, ...] = (),
 ) -> MiFIDAnswers:
     return MiFIDAnswers(
@@ -62,7 +62,12 @@ def _answers(
             loss_reaction=LossReaction.HOLD,
         ),
         esg=EsgAnswers(
-            exclusions=exclusions, look_through_tolerance=look_through_tolerance
+            exclusions=exclusions,
+            **(
+                {}
+                if look_through_tolerance is None
+                else {"look_through_tolerance": look_through_tolerance}
+            ),
         ),
         unanswered=unanswered,  # type: ignore[arg-type]
     )

@@ -47,7 +47,7 @@ def _valid_answers(**overrides: object) -> MiFIDAnswers:
             likert_items=(5, 6, 4),
             loss_reaction=LossReaction.HOLD,
         ),
-        "esg": EsgAnswers(exclusions=(GicsSector.ENERGY,)),
+        "esg": EsgAnswers(exclusions=(GicsSector.ENERGY,), look_through_tolerance=0.0),
     }
     kwargs.update(overrides)
     return MiFIDAnswers(**kwargs)  # type: ignore[arg-type]
@@ -212,6 +212,76 @@ def test_answers_stored_without_a_look_through_tolerance_still_validate():
     del payload["esg"]["look_through_tolerance"]
 
     assert MiFIDAnswers.model_validate(payload).esg.look_through_tolerance == 0.0
+
+
+_TOLERANCE_PATH = "esg.look_through_tolerance"
+
+
+def _esg_payload(*, exclusions: list[str], **esg: object) -> dict[str, object]:
+    payload = _valid_answers().model_dump(mode="json")
+    payload["esg"] = {"exclusions": exclusions, **esg}
+    payload["unanswered"] = []
+    return payload
+
+
+def test_exclusions_without_a_stated_tolerance_mark_it_unanswered():
+    answers = MiFIDAnswers.model_validate(_esg_payload(exclusions=["energy"]))
+
+    assert answers.unanswered == (_TOLERANCE_PATH,)
+    assert answers.esg.look_through_tolerance == 0.0
+
+
+def test_a_typed_form_that_leaves_the_tolerance_out_marks_it_unanswered():
+    answers = _valid_answers(esg=EsgAnswers(exclusions=(GicsSector.ENERGY,)))
+
+    assert answers.unanswered == (_TOLERANCE_PATH,)
+
+
+@pytest.mark.parametrize("figure", [0.0, 0.05])
+def test_a_stated_tolerance_including_an_explicit_zero_is_not_flagged(figure: float):
+    payload = _esg_payload(exclusions=["energy"], look_through_tolerance=figure)
+
+    assert MiFIDAnswers.model_validate(payload).unanswered == ()
+
+
+@pytest.mark.parametrize("esg", [{}, {"look_through_tolerance": 0.2}])
+def test_no_exclusions_means_no_unanswered_tolerance(esg: dict[str, object]):
+    payload = _esg_payload(exclusions=[], **esg)
+
+    assert MiFIDAnswers.model_validate(payload).unanswered == ()
+
+
+def test_the_unanswered_tolerance_is_not_listed_twice():
+    payload = _esg_payload(exclusions=["energy"])
+    payload["unanswered"] = [_TOLERANCE_PATH]
+
+    assert MiFIDAnswers.model_validate(payload).unanswered == (_TOLERANCE_PATH,)
+
+
+def test_the_unanswered_tolerance_is_appended_to_other_unanswered_data():
+    payload = _esg_payload(exclusions=["energy"])
+    payload["unanswered"] = ["capacity.buffer_months"]
+
+    assert MiFIDAnswers.model_validate(payload).unanswered == (
+        "capacity.buffer_months",
+        _TOLERANCE_PATH,
+    )
+
+
+def test_the_flag_survives_a_json_round_trip_of_the_validated_answers():
+    answers = MiFIDAnswers.model_validate(_esg_payload(exclusions=["energy"]))
+
+    again = MiFIDAnswers.model_validate_json(answers.model_dump_json())
+
+    assert again == answers
+    assert again.unanswered == (_TOLERANCE_PATH,)
+
+
+def test_the_tolerance_check_leaves_malformed_input_to_the_normal_errors():
+    with pytest.raises(pydantic.ValidationError):
+        MiFIDAnswers.model_validate({"esg": "energy"})
+    with pytest.raises(pydantic.ValidationError):
+        MiFIDAnswers.model_validate(["not", "a", "mapping"])
 
 
 def test_look_through_tolerance_is_a_valid_unanswered_datum():

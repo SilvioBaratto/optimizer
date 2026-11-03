@@ -195,10 +195,14 @@ def test_resume_profiler_accepts_a_run_paused_before_the_look_through_tolerance(
 ) -> None:
     import json
 
+    from fund.schemas.enums import GicsSector
+
     pid = uuid.uuid4()
     saver, store = MemorySaver(), InMemoryStore()
     run = _run_to_gate(
-        make_model(make_answers(), portfolio_id=str(pid)),
+        make_model(
+            make_answers(exclusions=(GicsSector.ENERGY,)), portfolio_id=str(pid)
+        ),
         db_session,
         saver,
         store,
@@ -209,6 +213,7 @@ def test_resume_profiler_accepts_a_run_paused_before_the_look_through_tolerance(
     )
     payload = json.loads(logged.llm_response)
     del payload["esg"]["look_through_tolerance"]
+    payload["unanswered"] = []
     logged.llm_response = json.dumps(payload)
     db_session.flush()
 
@@ -223,6 +228,7 @@ def test_resume_profiler_accepts_a_run_paused_before_the_look_through_tolerance(
 
     active = MifidProfileRepository(db_session).get_active(pid)
     assert active.constraint_set["esg"]["look_through_tolerance"] == 0.0
+    assert active.constraint_set["esg"]["exclusions"] == ["energy"]
 
 
 def test_resume_profiler_keeps_the_base_currency_override_the_adviser_reviewed(
