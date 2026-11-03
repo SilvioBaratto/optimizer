@@ -55,6 +55,7 @@ from portopt_db.models.orders.nav_history import NavHistory
 from portopt_db.models.orders.paper_order import PaperOrder
 from portopt_db.models.orders.portfolio_journal import PortfolioJournal
 from portopt_db.models.orders.position import Position
+from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Exchange, Instrument
 
 __all__ = [
@@ -92,6 +93,7 @@ __all__ = [
     "MutualFundHolder",
     "NavHistory",
     "PaperOrder",
+    "PinnedInstrument",
     "PortfolioJournal",
     "PortfolioMandate",
     "Position",

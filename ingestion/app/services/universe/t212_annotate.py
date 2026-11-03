@@ -16,6 +16,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from portopt_db.repositories.universe.pinned_instrument_repository import (
+    PinnedInstrumentRepository,
+)
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
 from app.database import database_manager
@@ -169,9 +172,14 @@ def run_t212_annotate(
         isin_lookup: ``ticker -> ISIN`` resolver (defaults to a yfinance lookup).
         on_progress: Optional progress callback.
 
+    Pinned instruments are left out entirely: their ``t212_ticker`` is set by the
+    operator (``add-instrument --t212-ticker``), and the ISIN match that drives
+    this step would clear it for lack of an ISIN or pick a wrong-currency twin.
+
     Returns:
         ``{"annotated": int, "total": int, "skipped": bool, "lookup_errors": int,
-        "cleared": int}``; ``cleared`` counts stale T212 tickers removed.
+        "cleared": int, "pinned_skipped": int}``; ``cleared`` counts stale T212
+        tickers removed, ``total`` excludes the ``pinned_skipped`` rows.
 
     Raises:
         IsinLookupError: Too many ISIN lookups failed in a row; annotations made
@@ -197,10 +205,18 @@ def run_t212_annotate(
     # the row locks of every UPDATE so far) across thousands of network calls would
     # block concurrent writers on ``instruments``.
     with database_manager.get_session() as session:
+        pinned = PinnedInstrumentRepository(session).pinned_tickers()
+        active = UniverseRepository(session).get_active_instruments()
         targets = [
             _Target(i.ticker, i.exchange_id, i.isin, i.currency_code, i.t212_ticker)
-            for i in UniverseRepository(session).get_active_instruments()
+            for i in active
+            if i.yfinance_ticker not in pinned
         ]
+        pinned_skipped = len(active) - len(targets)
+    if pinned_skipped:
+        logger.info(
+            "t212_annotate: left %d pinned instruments untouched", pinned_skipped
+        )
     total = len(targets)
 
     annotated = 0
@@ -255,6 +271,7 @@ def run_t212_annotate(
         "skipped": False,
         "lookup_errors": lookup_errors,
         "cleared": cleared,
+        "pinned_skipped": pinned_skipped,
     }
     on_progress(status="completed", result=summary)
     return summary

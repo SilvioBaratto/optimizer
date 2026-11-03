@@ -30,6 +30,19 @@ class TestStockAndReject:
     @pytest.mark.parametrize(
         "name",
         [
+            "iShares Physical Gold ETC",
+            "Invesco Physical Gold A",
+            "WisdomTree Physical Silver",
+            "Amundi Bloomberg Commodity ex-Agriculture",
+        ],
+    )
+    def test_commodity_named_etf_still_classifies_to_none(self, name: str) -> None:
+        """Commodity rows enter only through add-instrument, never the Screener build."""
+        assert classify_instrument(name, "ETF") is None
+
+    @pytest.mark.parametrize(
+        "name",
+        [
             "Leverage Shares -5x Short 7-10 Year Treasury Bond",
             "GraniteShares 3x Long Natural Gas",
             "WisdomTree Bund 10Y 3x Daily Leveraged",

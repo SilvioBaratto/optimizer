@@ -882,3 +882,42 @@ def test_real_security_without_fundamentals_fields_is_kept_on_shares_and_price(
     )
     src, _ = _source([{"quotes": [seqi]}, {"quotes": []}], monkeypatch)
     assert [i["ticker"] for i in src.get_instruments()] == ["SEQI.L"]
+
+
+@pytest.mark.parametrize(
+    ("code", "name"),
+    [
+        ("GER", "Deutsche Börse Xetra"),
+        ("AMS", "Euronext Amsterdam"),
+        ("LSE", "London Stock Exchange"),
+        ("IOB", "London Stock Exchange"),
+        ("MIL", "Borsa Italiana"),
+        ("ger", "Deutsche Börse Xetra"),
+        (" MIL ", "Borsa Italiana"),
+    ],
+)
+def test_resolve_exchange_name_maps_known_yahoo_codes(code: str, name: str) -> None:
+    """The public resolver exposes the same table the screener build uses."""
+    assert yfinance_source.resolve_exchange_name(code) == name
+
+
+@pytest.mark.parametrize("code", ["BTS", "", "   "])
+def test_resolve_exchange_name_returns_none_for_unmapped_code(code: str) -> None:
+    """A venue outside the covered set resolves to None, never a guess."""
+    assert yfinance_source.resolve_exchange_name(code) is None
+
+
+def test_supported_exchange_names_is_the_sorted_distinct_value_set() -> None:
+    """The error-message list matches the mapping values, without duplicates."""
+    names = yfinance_source.supported_exchange_names()
+
+    assert names == sorted(set(_CODE_TO_CONFIG_NAME.values()))
+    assert names.count("London Stock Exchange") == 1
+
+
+def test_supported_exchange_names_does_not_expose_the_private_table() -> None:
+    """Mutating the returned list leaves the next call unchanged."""
+    names = yfinance_source.supported_exchange_names()
+    names.clear()
+
+    assert yfinance_source.supported_exchange_names() != []

@@ -7,16 +7,32 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, exists, func, literal_column, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, joinedload
 
 from portopt_db.models.market_data.yfinance_data import TickerProfile
+from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repository import RepositoryBase
 
 logger = logging.getLogger(__name__)
+
+
+def _row_is_pinned() -> Any:
+    """Correlated predicate: the instrument row being written is pinned.
+
+    The outer column is a literal reference, not ``Instrument.yfinance_ticker``:
+    inside an ``INSERT ... ON CONFLICT DO UPDATE`` SQLAlchemy does not correlate
+    the target table, so the ORM column would be added to the subquery's FROM and
+    the predicate would match whenever any pin exists. Both the upsert and the
+    UPDATE that use this write ``instruments`` unaliased, so the name resolves to
+    the row being written.
+    """
+    return exists().where(
+        PinnedInstrument.ticker == literal_column("instruments.yfinance_ticker")
+    )
 
 
 class UniverseRepository(RepositoryBase):
@@ -59,6 +75,17 @@ class UniverseRepository(RepositoryBase):
             .execution_options(populate_existing=True)
         ).scalar_one()
 
+    def get_exchange_by_name(self, name: str) -> Exchange | None:
+        """Return the exchange with this exact name, or ``None``.
+
+        A pure read. ``save_exchange`` is an upsert that writes ``t212_id = NULL``
+        over a stored value when called with only a name, so callers that merely
+        need to resolve an existing venue must not use it.
+        """
+        return self.session.execute(
+            select(Exchange).where(Exchange.name == name)
+        ).scalar_one_or_none()
+
     def save_instruments_batch(
         self, instruments_data: list[dict[str, Any]], exchange_id: Any
     ) -> int:
@@ -72,6 +99,13 @@ class UniverseRepository(RepositoryBase):
         exists on another exchange is first re-homed onto ``exchange_id`` (see
         :meth:`_rehome_moved_symbols`) so a venue change never yields a second
         row. The session is flushed but not committed.
+
+        Rows pinned in ``pinned_instruments`` are operator-managed: their
+        ``asset_class``, ``fi_subclass``, ``duration_bucket``, ``currency_code``
+        and ``yfinance_ticker`` keep the stored value, because the Screener's
+        defaults (``equity``, its own listing currency) would otherwise
+        downgrade a hand-classified instrument such as a commodity ETF. A stored
+        NULL ``currency_code`` is still filled from the batch.
 
         Args:
             instruments_data: Raw attribute dicts as returned by the T212 API.
@@ -105,6 +139,7 @@ class UniverseRepository(RepositoryBase):
         self._rehome_moved_symbols([row["ticker"] for row in rows], exchange_id)
 
         stmt = pg_insert(Instrument).values(rows)
+        pinned = _row_is_pinned()
         stmt = stmt.on_conflict_do_update(
             constraint="uq_instrument_ticker_exchange",
             set_={
@@ -115,13 +150,33 @@ class UniverseRepository(RepositoryBase):
                 "name": func.coalesce(stmt.excluded.name, Instrument.name),
                 "isin": func.coalesce(stmt.excluded.isin, Instrument.isin),
                 "instrument_type": stmt.excluded.instrument_type,
-                "currency_code": func.coalesce(
-                    stmt.excluded.currency_code, Instrument.currency_code
+                "currency_code": case(
+                    (
+                        pinned,
+                        func.coalesce(
+                            Instrument.currency_code, stmt.excluded.currency_code
+                        ),
+                    ),
+                    else_=func.coalesce(
+                        stmt.excluded.currency_code, Instrument.currency_code
+                    ),
                 ),
-                "yfinance_ticker": stmt.excluded.yfinance_ticker,
-                "asset_class": stmt.excluded.asset_class,
-                "fi_subclass": stmt.excluded.fi_subclass,
-                "duration_bucket": stmt.excluded.duration_bucket,
+                "yfinance_ticker": case(
+                    (pinned, Instrument.yfinance_ticker),
+                    else_=stmt.excluded.yfinance_ticker,
+                ),
+                "asset_class": case(
+                    (pinned, Instrument.asset_class),
+                    else_=stmt.excluded.asset_class,
+                ),
+                "fi_subclass": case(
+                    (pinned, Instrument.fi_subclass),
+                    else_=stmt.excluded.fi_subclass,
+                ),
+                "duration_bucket": case(
+                    (pinned, Instrument.duration_bucket),
+                    else_=stmt.excluded.duration_bucket,
+                ),
                 # Re-activating an instrument clears its delisting status.
                 "delisted_at": None,
                 "delisting_return": None,
@@ -145,7 +200,9 @@ class UniverseRepository(RepositoryBase):
 
         A symbol is left alone when it already has a row on ``exchange_id`` (the
         move would violate the unique key) or when several rows exist elsewhere
-        (no way to tell which one is the predecessor).
+        (no way to tell which one is the predecessor). A pinned row is never
+        moved: the operator chose its venue, and the Screener listing the same
+        symbol elsewhere gets its own row instead.
         """
         homed_here = set(
             self.session.execute(
@@ -171,6 +228,7 @@ class UniverseRepository(RepositoryBase):
             self.session.execute(
                 update(Instrument)
                 .where(Instrument.id.in_(moved_ids))
+                .where(~_row_is_pinned())
                 .values(exchange_id=exchange_id)
             )
 
@@ -186,6 +244,8 @@ class UniverseRepository(RepositoryBase):
         Being absent from a universe snapshot is also what a still-trading name
         looks like after a screener floor change, a truncated page or a flipped
         canonical listing, so this method never invents a terminal return.
+        A pinned instrument (see ``pinned_instruments``) is never marked, so no
+        caller can delist a row an operator asked to keep.
 
         Args:
             ticker: Ticker of the instrument within ``exchange_id``.
@@ -199,17 +259,37 @@ class UniverseRepository(RepositoryBase):
 
         Returns:
             True if the row was updated, False if no matching active instrument
-            was found.
+            was found or the instrument is pinned.
         """
         result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
             update(Instrument)
             .where(Instrument.ticker == ticker)
             .where(Instrument.exchange_id == exchange_id)
             .where(Instrument.delisted_at.is_(None))  # only if not already marked
+            .where(~_row_is_pinned())
             .values(delisted_at=delisted_at, delisting_return=delisting_return)
         )
         self.session.flush()
         return bool(result.rowcount)
+
+    def get_pinned_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
+        """Return the ``Instrument.ticker`` of pinned rows on an exchange.
+
+        Same ticker space and ``instrument_type`` scoping as
+        :meth:`get_active_tickers`, so the universe build can subtract the result
+        from its pre-build snapshot. The pin itself is keyed by the Yahoo symbol
+        (``yfinance_ticker``), which may differ from the row's own ticker.
+        """
+        stmt = (
+            select(Instrument.ticker)
+            .where(Instrument.exchange_id == exchange_id)
+            .where(_row_is_pinned())
+        )
+        if instrument_type is not None:
+            stmt = stmt.where(Instrument.instrument_type == instrument_type)
+        return set(self.session.execute(stmt).scalars())
 
     def get_active_tickers(
         self, exchange_id: Any, instrument_type: str | None = None
