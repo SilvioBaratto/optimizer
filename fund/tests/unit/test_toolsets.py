@@ -1683,6 +1683,142 @@ def test_optimize_refuses_a_universe_holding_an_esg_excluded_name(db_session) ->
     )
 
 
+# --- the model-typed universes are held to the portfolio's eligible universe ----
+
+
+def _restricted_context(db_session, *, store: InMemoryStore | None = None):
+    """A context whose allowlist holds AAA and BBB; CCC was barred by the resolver."""
+    _seed_panel(db_session)
+    ctx = _make_context(db_session, store=store, universe=[])
+    from fund.tools.eligibility import Eligibility
+
+    return dataclasses.replace(
+        ctx,
+        eligible=Eligibility(allowed=("AAA", "BBB"), barred=(("CCC", "esg:energy"),)),
+    )
+
+
+def _allocator_decisions(db_session) -> list:
+    return list(
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "allocator")
+        )
+        .scalars()
+        .all()
+    )
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arg"),
+    [
+        ("universe_filter", "universe"),
+        ("estimate_moments", "universe"),
+        ("optimize_portfolio", "universe"),
+    ],
+)
+def test_a_model_typed_universe_outside_the_allowlist_is_refused_with_every_reason(
+    db_session, tool_name: str, arg: str
+) -> None:
+    ctx = _restricted_context(db_session)
+    tool = _find(bind_toolset("allocator", ctx), tool_name)
+
+    result = tool.invoke({arg: ["AAA", "CCC", "SPY"]})
+
+    assert result["ok"] is False
+    assert "outside the portfolio's eligible universe" in result["error"]
+    assert "CCC (esg:energy)" in result["error"]
+    assert "SPY (not_in_allowlist)" in result["error"]
+    assert "AAA" not in result["error"].split(":", 1)[1]
+
+
+def test_a_refused_optimize_writes_no_decision_and_no_universe(db_session) -> None:
+    ctx = _restricted_context(db_session)
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": ["AAA", "SPY"]})
+
+    assert result["ok"] is False
+    assert _allocator_decisions(db_session) == []
+    assert AgentRunRepository(db_session).get_run(ctx.run_id).universe == []
+
+
+def test_a_universe_inside_the_allowlist_optimizes_as_before(db_session) -> None:
+    ctx = _restricted_context(db_session)
+    optimize = _find(bind_toolset("allocator", ctx), "optimize_portfolio")
+
+    result = optimize.invoke({"universe": ["AAA", "BBB"]})
+
+    assert result["ok"] is True
+    assert set(result["data"]["weights"]) == {"AAA", "BBB"}
+    assert len(_allocator_decisions(db_session)) == 1
+
+
+def test_universe_filter_and_moments_inside_the_allowlist_behave_as_before(
+    db_session,
+) -> None:
+    ctx = _restricted_context(db_session)
+    tools = bind_toolset("allocator", ctx)
+
+    filtered = _find(tools, "universe_filter").invoke({"universe": ["AAA", "BBB"]})
+    moments = _find(tools, "estimate_moments").invoke({"universe": ["AAA", "BBB"]})
+
+    assert filtered["ok"] is True
+    assert set(filtered["data"]) <= {"AAA", "BBB"}
+    assert moments["ok"] is True
+    assert moments["data"]["assets"] == ["AAA", "BBB"]
+
+
+def test_an_esg_excluded_name_inside_the_allowlist_still_drops_softly(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    _classify(db_session, "AAA", sector="Energy")
+    _classify(db_session, "BBB", sector="Technology")
+    _classify(db_session, "CCC", sector="Technology")
+    from fund.tools.eligibility import Eligibility
+
+    ctx = dataclasses.replace(
+        _make_context(db_session, store=_store_with_cs(_energy_exclusion())),
+        eligible=Eligibility(allowed=("AAA", "BBB", "CCC"), barred=()),
+    )
+    ufilter = _find(bind_toolset("allocator", ctx), "universe_filter")
+
+    result = ufilter.invoke({"universe": _UNIVERSE})
+
+    assert result["ok"] is True
+    assert result["mandate_excluded"] == {"AAA": ["esg_exclusion"]}
+
+
+def test_without_an_allowlist_any_universe_reaches_the_tools(db_session) -> None:
+    _seed_panel(db_session)
+    ctx = _make_context(db_session)
+    ufilter = _find(bind_toolset("allocator", ctx), "universe_filter")
+
+    result = ufilter.invoke({"universe": [*_UNIVERSE, "SPY"]})
+
+    assert result["ok"] is True
+
+
+def test_market_context_tools_stay_unrestricted(db_session) -> None:
+    ctx = _restricted_context(db_session)
+    get_prices = _find(bind_toolset("economist", ctx), "get_prices")
+
+    result = get_prices.invoke({"tickers": ["CCC", "SPY"]})
+
+    assert result["ok"] is True
+
+
+def test_the_allocator_tools_tell_the_model_about_the_eligible_universe(
+    db_session,
+) -> None:
+    ctx = _make_context(db_session)
+    tools = bind_toolset("allocator", ctx)
+
+    for name in ("universe_filter", "optimize_portfolio"):
+        description = " ".join(_find(tools, name).description.split())
+        assert "eligible universe" in description, name
+
+
 def test_risk_check_fails_a_held_esg_excluded_name(db_session) -> None:
     _classify_all(
         db_session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Utilities"}

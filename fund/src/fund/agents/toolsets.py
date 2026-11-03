@@ -19,6 +19,10 @@ The bound closures also carry the load-bearing invariant into the audit trail:
   ``risk_check`` receives the same effective bounds. The decision logs the config
   that was actually applied, and the client's mapped intent stays auditable in the
   decision's ``constraint_set``;
+* the mandate's eligible-universe allowlist (``RunContext.eligible``, resolved once
+  per run) binds the model-typed universes: ``universe_filter``, ``estimate_moments``
+  and ``optimize_portfolio`` refuse a ticker outside it, naming each with its
+  reason, and ``list_universe`` returns exactly the allowed set;
 * the mandate's ESG sector exclusions and low-K&E instrument restrictions are
   screened in code (:func:`fund.tools.mandate.mandate_breaches`): ``universe_filter``
   drops offending names, ``optimize_portfolio`` refuses a universe holding one,
@@ -56,7 +60,7 @@ import functools
 import hashlib
 import json
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec
 
@@ -121,6 +125,25 @@ def _days_out_of_range(
     if low <= value <= high:
         return None
     return err(f"{name} must be between {low} and {high} days (got {value})")
+
+
+def _ineligible(ctx: RunContext, tickers: Sequence[str]) -> ToolResult | None:
+    """An error envelope naming every ticker the portfolio may not hold.
+
+    A no-op when the mandate sets no allowlist. The model types these universes, so an
+    outside name (one remembered from training, say) is refused with its reason
+    rather than silently dropped: the model would not learn the constraint and could
+    return a different universe than the one it reasoned about.
+    """
+    if ctx.eligible is None:
+        return None
+    offenders = ctx.eligible.offenders(tickers)
+    if not offenders:
+        return None
+    return err(
+        "universe contains tickers outside the portfolio's eligible universe: "
+        f"{_describe_barred(offenders.items())}; remove these names and retry"
+    )
 
 
 @dataclass(frozen=True)
@@ -405,6 +428,8 @@ def _list_universe_impl(
 @tool_envelope
 @_serialised
 def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
+    if (bad := _ineligible(ctx, universe)) is not None:
+        return bad
     cs = _resolve_constraint_set(ctx)
     excluded: dict[str, list[str]] = {}
     if cs is not None:
@@ -412,11 +437,11 @@ def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
             kinds = excluded.setdefault(breach["asset"], [])
             if breach["type"] not in kinds:
                 kinds.append(breach["type"])
-    allowed = [ticker for ticker in universe if ticker not in excluded]
+    survivors = [ticker for ticker in universe if ticker not in excluded]
     result = _tools.universe_filter(
         ctx.session,
         ctx.asof,
-        allowed,
+        survivors,
         base_currency=ctx.base_currency,
     )
     if excluded and result.get("ok"):
@@ -427,6 +452,8 @@ def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 @tool_envelope
 @_serialised
 def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
+    if (bad := _ineligible(ctx, universe)) is not None:
+        return bad
     # ``ctx.lookback_days`` is recorded on the run but inert here — the frozen
     # ``estimate_moments`` takes no start bound, so moments use full history up to
     # ``asof``.
@@ -438,6 +465,10 @@ def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 @tool_envelope
 @_serialised
 def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
+    # Before anything runs: a refused call must reach neither the allocator decision
+    # nor ``set_universe``, which only an ``ok`` result writes.
+    if (bad := _ineligible(ctx, universe)) is not None:
+        return bad
     cs = _resolve_constraint_set(ctx)
     if cs is not None:
         breaches = _instrument_breaches(ctx, cs, universe)
@@ -823,9 +854,11 @@ def _bind_universe_filter(ctx: RunContext) -> BaseTool:
         """Prune ``universe`` (tickers taken from ``list_universe``) with the
         pre-selection stack, dropping any name the client's mandate forbids
         (ESG-excluded sector, complex or leveraged product for a restricted client,
-        or an unclassifiable instrument). Returns the ``{ok, data}`` envelope with
-        the surviving tickers, in requested order, and ``mandate_excluded`` naming
-        each dropped ticker and why."""
+        or an unclassifiable instrument). Fails, naming each offender and why, if
+        the portfolio has an eligible universe and ``universe`` holds a name outside
+        it. Returns the ``{ok, data}`` envelope with the surviving tickers, in
+        requested order, and ``mandate_excluded`` naming each dropped ticker and
+        why."""
         return _universe_filter_impl(ctx, universe)
 
     return universe_filter
@@ -837,7 +870,9 @@ def _bind_estimate_moments(ctx: RunContext) -> BaseTool:
     @tool
     def estimate_moments(universe: list[str]) -> ToolResult:
         """Estimate ``(mu, cov)`` for ``universe`` as of the run date (Ledoit-Wolf
-        covariance + empirical mean). Returns the ``{ok, data}`` envelope."""
+        covariance + empirical mean). Fails, naming each offender and why, if the
+        portfolio has an eligible universe and ``universe`` holds a name outside it.
+        Returns the ``{ok, data}`` envelope."""
         return _estimate_moments_impl(ctx, universe)
 
     return estimate_moments
@@ -851,8 +886,9 @@ def _bind_optimize(ctx: RunContext) -> BaseTool:
         """Compute long-only portfolio weights for ``universe`` as of the run date.
         skfolio computes the weights from the run's risk profile — you never emit a
         weight. Fails, naming the offenders, if ``universe`` holds a name the
-        client's mandate forbids or is too small for the position cap. Returns the
-        ``{ok, data}`` envelope with ``weights`` and in-sample ``metrics``."""
+        client's mandate forbids, a name outside the portfolio's eligible universe,
+        or is too small for the position cap. Returns the ``{ok, data}`` envelope
+        with ``weights`` and in-sample ``metrics``."""
         return _optimize_impl(ctx, universe)
 
     return optimize_portfolio
