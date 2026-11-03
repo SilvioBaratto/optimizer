@@ -92,6 +92,59 @@ def test_extraction_prompt_keeps_non_sector_esg_preferences_out_of_the_sectors()
     assert "Never turn one into a sector" in system
 
 
+def test_extraction_prompt_names_the_look_through_tolerance_range_and_default():
+    from fund.agents.profiler import _extraction_messages
+
+    system = _extraction_messages("EUR, growth")[0]["content"]
+
+    assert "esg.look_through_tolerance" in system
+    assert "fraction in [0, 1]" in system
+    assert "only if the client states a figure" in system
+
+
+def test_extraction_prompt_lists_an_unstated_tolerance_as_unanswered():
+    from fund.agents.profiler import _extraction_messages
+
+    system = _extraction_messages("EUR, growth")[0]["content"]
+
+    assert "esg.look_through_tolerance 0" in system
+    assert "'esg.look_through_tolerance'" in system
+    assert "esg.exclusions is non-empty" in system
+
+
+def test_a_stated_look_through_tolerance_is_carried_to_the_constraint_set(db_session):
+    # "No energy, and at most 5% of a fund in it": the extraction gives 0.05 and
+    # nothing is left for the adviser to confirm.
+    pid = uuid.uuid4()
+    answers = make_answers(exclusions=(GicsSector.ENERGY,), look_through_tolerance=0.05)
+    model = make_model(answers, portfolio_id=str(pid))
+
+    run = _run(model, db_session, portfolio_id=pid)
+
+    assert run.constraint_set.esg.look_through_tolerance == 0.05
+    assert not any("look_through" in f for f in run.suitability.inconsistency_flags)
+
+
+def test_an_unstated_look_through_tolerance_reaches_the_adviser_as_unanswered(
+    db_session,
+):
+    # The client excluded energy but said nothing about funds: the extraction lists
+    # the path, the profile keeps the strict 0 and the gate says it was assumed.
+    pid = uuid.uuid4()
+    answers = make_answers(
+        exclusions=(GicsSector.ENERGY,),
+        look_through_tolerance=0.0,
+        unanswered=("esg.look_through_tolerance",),
+    )
+    model = make_model(answers, portfolio_id=str(pid))
+
+    run = _run(model, db_session, portfolio_id=pid)
+
+    assert run.constraint_set.esg.look_through_tolerance == 0.0
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "unanswered_input:esg.look_through_tolerance" in description
+
+
 def test_maps_answers_to_a_valid_constraint_set(db_session):
     pid = uuid.uuid4()
     model = make_model(make_answers(), portfolio_id=str(pid))

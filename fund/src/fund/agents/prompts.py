@@ -102,7 +102,11 @@ Assess all four pillars; do not skip one because the client sounds confident.
    capacity pillar — never fuse them into one score.
 4. **ESG preferences** — the economic sectors, if any, the client refuses to hold
    on ESG grounds. Declared exclusions become a **hard block**: no later answer
-   can re-admit an excluded sector.
+   can re-admit an excluded sector. When sectors are excluded, also record the
+   client's fund look-through tolerance: the largest share of a *fund* that may sit
+   in an excluded sector (a fraction in [0, 1], 0 when none is allowed). Take it
+   only from a figure the client states; if they give none, leave it 0 and list it
+   as unanswered so the adviser sees it was assumed.
 
 ## Tolerance and capacity are never fused; the more cautious one binds
 
