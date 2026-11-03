@@ -842,6 +842,62 @@ def test_prepare_fund_run_binds_the_resolved_eligibility_to_the_run_context(
     assert eligible.barred == (("NOPE", "no_instrument"),)
 
 
+def test_prepare_fund_run_seeds_the_pm_with_the_eligible_universe(
+    db_session, monkeypatch
+):
+    """The PM learns the eligible set up front, rendered from the resolver's answer."""
+    from _fund_fakes import make_mandate, seed_panel
+
+    seed_panel(db_session)
+    monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: None)
+    mandate = make_mandate().model_copy(
+        update={"eligible_tickers": ("BBB", "AAA", "NOPE")}
+    )
+
+    setup = graph._prepare_fund_run(
+        object(),
+        mandate,
+        portfolio_id=_PORTFOLIO_ID,
+        asof=_ASOF,
+        session=db_session,
+        checkpointer="CKPT",
+        store=_store_with_cs(),
+        config=settings,
+        fallback=None,
+        thread_id=None,
+        seed=1,
+    )
+
+    (message,) = setup.seed_input["messages"]
+    assert "BBB, AAA" in message["content"]
+    assert "NOPE (no_instrument)" in message["content"]
+
+
+def test_prepare_fund_run_seed_has_no_eligible_block_for_an_unrestricted_mandate(
+    db_session, monkeypatch
+):
+    from _fund_fakes import make_mandate
+
+    monkeypatch.setattr(graph, "build_fund_agent", lambda *a, **k: None)
+
+    setup = graph._prepare_fund_run(
+        object(),
+        make_mandate(),
+        portfolio_id=_PORTFOLIO_ID,
+        asof=_ASOF,
+        session=db_session,
+        checkpointer="CKPT",
+        store=_store_with_cs(),
+        config=settings,
+        fallback=None,
+        thread_id=None,
+        seed=1,
+    )
+
+    (message,) = setup.seed_input["messages"]
+    assert "Eligible universe" not in message["content"]
+
+
 def test_prepare_fund_run_resolves_eligibility_under_the_runs_constraint_set(
     db_session, monkeypatch
 ):

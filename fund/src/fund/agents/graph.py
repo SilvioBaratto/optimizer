@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from fund.agents.toolsets import RunContext
     from fund.schemas import ConstraintSet
     from fund.schemas.mandate import PortfolioMandate
+    from fund.tools.eligibility import Eligibility
     from fund.tui.stream import StreamEvent
 
 __all__ = [
@@ -939,6 +940,48 @@ def _directives_block(
     )
 
 
+_ELIGIBLE_ALLOWED_BUDGET = 1400
+_ELIGIBLE_BARRED_BUDGET = 700
+
+
+def _eligible_block(eligible: Eligibility | None) -> str:
+    """Render the portfolio's eligible universe for the PM, or ``""`` when unrestricted.
+
+    Rendered from the resolver's answer, never model-authored. The tools enforce the
+    allowlist, so this is guidance that saves the allocator calls it would be refused
+    for, not a control. Both lists are fitted to a budget with whole entries and a
+    stated "+N more", and because a truncated allowlist would otherwise read as the
+    whole of it, the text says ``list_universe`` returns the full set.
+    """
+    if eligible is None:
+        return ""
+    barred = _fit_entries(
+        "Barred and unavailable: ",
+        [f"{ticker} ({reason})" for ticker, reason in eligible.barred],
+        _ELIGIBLE_BARRED_BUDGET,
+    )
+    if eligible.allowed:
+        intro = (
+            "Eligible universe (resolved by the system from the client's mandate and "
+            "enforced by the tools): the portfolio may hold only the tickers below. "
+            "list_universe returns the full set, in this order, and the allocator "
+            "tools refuse any other ticker, so pass this to the allocator and have it "
+            "take its candidates from list_universe."
+        )
+        allowed = _fit_entries(
+            "Allowed: ", list(eligible.allowed), _ELIGIBLE_ALLOWED_BUDGET
+        )
+    else:
+        intro = (
+            "Eligible universe: the client's mandate lists tickers, but no eligible "
+            "ticker can be held on this date, so list_universe will report an error "
+            "and there is nothing to allocate. Tell the adviser instead of proposing "
+            "names outside the list."
+        )
+        allowed = ""
+    return " ".join(part for part in (intro, allowed, barred) if part) + "\n\n"
+
+
 def _constraint_digest(constraint_set: ConstraintSet) -> str:
     """One-line read-only digest of the limits the PM must relay to its subagents.
 
@@ -973,6 +1016,7 @@ def _run_instruction(
     history_summary: str = "",
     *,
     constraint_set: ConstraintSet | None = None,
+    eligible: Eligibility | None = None,
 ) -> str:
     """The human turn that drives the PM through one paper rebalance.
 
@@ -983,14 +1027,16 @@ def _run_instruction(
     saved them to steer every later round, including unattended scheduled ones. The
     mandate line carries the drift band and HITL gates, and a given ``constraint_set``
     adds its limits digest, so the PM can pass real numbers to the subagents rather
-    than guessing them.
+    than guessing them. A given ``eligible`` universe is stated after the directives;
+    ``None`` (no allowlist) leaves the seed exactly as it was.
     """
     benchmark = f", benchmark {mandate.benchmark}" if mandate.benchmark else ""
     history = f"{history_summary}\n\n" if history_summary else ""
     gates = ", ".join(mandate.hitl_gates) or "none"
     limits = f" {_constraint_digest(constraint_set)}" if constraint_set else ""
     return (
-        f"{history}{_directives_block(mandate)}Produce an allocation for portfolio "
+        f"{history}{_directives_block(mandate)}{_eligible_block(eligible)}"
+        f"Produce an allocation for portfolio "
         f"{portfolio_id} as of {asof.isoformat()}. Mandate: capital {mandate.capital} "
         f"{mandate.base_currency}{benchmark}, no-trade band (drift band (L1)) "
         f"{mandate.drift_l1_threshold}, HITL gates {gates}.{limits} Delegate in "
@@ -1770,6 +1816,7 @@ def _prepare_fund_run(
                         asof,
                         _history_summary(session, pid_uuid, asof),
                         constraint_set=constraint_set,
+                        eligible=eligible,
                     ),
                 }
             ]
