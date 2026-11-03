@@ -59,6 +59,17 @@ class UniverseRepository(RepositoryBase):
             .execution_options(populate_existing=True)
         ).scalar_one()
 
+    def get_exchange_by_name(self, name: str) -> Exchange | None:
+        """Return the exchange with this exact name, or ``None``.
+
+        A pure read. ``save_exchange`` is an upsert that writes ``t212_id = NULL``
+        over a stored value when called with only a name, so callers that merely
+        need to resolve an existing venue must not use it.
+        """
+        return self.session.execute(
+            select(Exchange).where(Exchange.name == name)
+        ).scalar_one_or_none()
+
     def save_instruments_batch(
         self, instruments_data: list[dict[str, Any]], exchange_id: Any
     ) -> int:
