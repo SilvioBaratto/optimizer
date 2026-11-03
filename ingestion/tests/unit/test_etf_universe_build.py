@@ -47,7 +47,7 @@ def _builder(**kw) -> UniverseBuilder:
 
 
 class TestPrepareExchangeETFs:
-    def test_selects_fi_and_multiasset_dedups_and_excludes(self) -> None:
+    def test_selects_etfs_dedups_and_excludes_leveraged(self) -> None:
         exchanges = [
             {"name": "Deutsche Börse Xetra", "workingSchedules": [{"id": 1}]},
             {"name": "Borsa Italiana", "workingSchedules": [{"id": 2}]},
@@ -68,7 +68,7 @@ class TestPrepareExchangeETFs:
                 "workingScheduleId": 2,
                 "shortName": "AGGH",
             },
-            # equity ETF -> excluded
+            # equity ETF -> kept as an equity fund
             {
                 "type": "ETF",
                 "name": "Vanguard FTSE All-World",
@@ -97,10 +97,10 @@ class TestPrepareExchangeETFs:
         result = b._prepare_exchange_etfs(exchanges)
 
         flat = [(ex["name"], i) for ex, insts in result for i in insts]
-        assert len(flat) == 1
-        exch, inst = flat[0]
-        assert inst["isin"] == "IE1"
-        assert exch == "Deutsche Börse Xetra"
+        assert {(exch, i["isin"]) for exch, i in flat} == {
+            ("Deutsche Börse Xetra", "IE1"),
+            ("Deutsche Börse Xetra", "IE2"),
+        }
 
 
 class TestProcessSingleInstrumentTagging:
@@ -137,7 +137,7 @@ class TestProcessSingleInstrumentTagging:
 class TestBuildEndToEnd:
     def test_build_processes_stocks_and_etfs_tagged(self) -> None:
         """Full build(): stocks saved equity, FI ETFs saved fixed_income, equity
-        ETFs excluded, each type through its own pipeline."""
+        ETFs saved equity, each type through its own pipeline."""
         exchanges = [
             {"name": "NASDAQ", "workingSchedules": [{"id": 1}]},
             {"name": "Deutsche Börse Xetra", "workingSchedules": [{"id": 2}]},
@@ -158,7 +158,7 @@ class TestBuildEndToEnd:
                 "isin": "IE9",
                 "workingScheduleId": 2,
             },
-            # equity ETF -> excluded by the classifier
+            # equity ETF -> admitted as an equity fund
             {
                 "type": "ETF",
                 "name": "Vanguard FTSE All-World",
@@ -196,8 +196,8 @@ class TestBuildEndToEnd:
         by_ac = {d["ticker"]: d["assetClass"] for d in saved}
         assert by_ac.get("AAPL_US") == "equity"
         assert by_ac.get("JAGA") == "fixed_income"
-        assert "VWCE" not in by_ac  # equity ETF excluded by classification
-        assert result.instruments_saved == 2
+        assert by_ac.get("VWCE") == "equity"
+        assert result.instruments_saved == 3
 
     def test_etf_pass_does_not_delist_stocks_on_shared_exchange(self) -> None:
         """Review-critical regression: NASDAQ carries both a stock and a bond ETF;

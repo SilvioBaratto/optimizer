@@ -344,6 +344,94 @@ class UniverseRepository(RepositoryBase):
         self.session.flush()
         return bool(result.rowcount)
 
+    def set_t212_tradeable(
+        self, *, ticker: str, exchange_id: Any, tradeable: bool
+    ) -> bool:
+        """Record whether the Trading 212 catalogue carries an instrument.
+
+        Matched by ``(ticker, exchange_id)`` like :meth:`set_t212_ticker`, but
+        independent of it: a name can be tradeable on the broker while the choice
+        among several broker lines stays ambiguous, so ``t212_ticker`` may remain
+        empty. Only the annotation step writes this; the universe build's upsert
+        leaves the column alone so a weekly rebuild keeps what the overlay learned.
+
+        Args:
+            ticker: Ticker of the instrument within ``exchange_id``.
+            exchange_id: UUID of the exchange the instrument belongs to.
+            tradeable: ``True`` when the catalogue carries the instrument,
+                ``False`` when it was matched against the catalogue and is absent.
+
+        Returns:
+            ``True`` if a row was updated, ``False`` if none matched.
+        """
+        result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
+            update(Instrument)
+            .where(Instrument.ticker == ticker)
+            .where(Instrument.exchange_id == exchange_id)
+            .values(is_t212_tradeable=tradeable)
+        )
+        self.session.flush()
+        return bool(result.rowcount)
+
+    def get_t212_tradeable_tickers(self) -> list[str] | None:
+        """Return the Yahoo symbols of active instruments the broker can trade.
+
+        The allowlist hook for a run that must be executable at Trading 212: a
+        caller restricts its universe to the result and otherwise keeps the full
+        multi-region one. ``None`` is not an empty allowlist. It means the overlay
+        has not evaluated a single instrument (Trading 212 unconfigured, or the
+        annotation step never ran), so there is nothing to restrict to and the
+        caller must keep the full universe. An empty list means the overlay ran
+        and matched nothing.
+
+        Returns:
+            Sorted, de-duplicated ``yfinance_ticker`` values of non-delisted rows
+            flagged tradeable; rows without a Yahoo symbol are skipped. ``None``
+            when no row has been evaluated.
+        """
+        evaluated = self.session.execute(
+            select(exists().where(Instrument.is_t212_tradeable.is_not(None)))
+        ).scalar_one()
+        if not evaluated:
+            return None
+        rows = self.session.execute(
+            select(Instrument.yfinance_ticker)
+            .where(Instrument.is_t212_tradeable.is_(True))
+            .where(Instrument.delisted_at.is_(None))
+            .where(Instrument.yfinance_ticker.is_not(None))
+            .distinct()
+            .order_by(Instrument.yfinance_ticker)
+        ).scalars()
+        # The WHERE already drops NULLs; the comprehension narrows the column type.
+        return [ticker for ticker in rows if ticker is not None]
+
+    def set_isin_if_missing(self, *, ticker: str, exchange_id: Any, isin: str) -> bool:
+        """Store an ISIN on an instrument that has none yet.
+
+        Matched by ``(ticker, exchange_id)``. A stored ISIN is never replaced, for
+        the same reason :meth:`backfill_isin_from_profiles` leaves one alone: an
+        identifier already pinned to the row is more likely right than a later
+        lookup.
+
+        Args:
+            ticker: Ticker of the instrument within ``exchange_id``.
+            exchange_id: UUID of the exchange the instrument belongs to.
+            isin: The ISIN to store; the caller has already vetted it.
+
+        Returns:
+            ``True`` if the ISIN was written, ``False`` if no row matched or the
+            row already had an ISIN.
+        """
+        result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
+            update(Instrument)
+            .where(Instrument.ticker == ticker)
+            .where(Instrument.exchange_id == exchange_id)
+            .where(Instrument.isin.is_(None))
+            .values(isin=isin)
+        )
+        self.session.flush()
+        return bool(result.rowcount)
+
     def backfill_isin_from_profiles(self) -> int:
         """Copy ISIN from ``ticker_profiles`` onto instruments that lack one.
 
@@ -352,16 +440,29 @@ class UniverseRepository(RepositoryBase):
         that value onto the canonical ``instruments.isin`` for rows still missing
         one — a single portable UPDATE (correlated subquery; compiles on both
         PostgreSQL and the SQLite test engine). Never overwrites an existing
-        value. Returns the number of rows filled.
+        value.
+
+        A venue-suffixed symbol (``ASML.AS``, ``7203.T``) is skipped. The ISIN
+        scrape can only be tied to a suffix-less symbol; for a suffixed one it
+        answers with a secondary line of the issuer (a depositary receipt or a
+        preferred share). The fetch no longer stores such codes, but profiles
+        written before that still carry them, and copying one onto the instrument
+        would pin the wrong security to it for good, since a stored ISIN is never
+        overwritten. The same rule as ``has_exchange_suffix`` in ingestion, which
+        this package cannot import.
+
+        Returns the number of rows filled.
         """
         profile_isin = (
             select(TickerProfile.isin)
             .where(TickerProfile.instrument_id == Instrument.id)
             .scalar_subquery()
         )
+        symbol = func.coalesce(Instrument.yfinance_ticker, Instrument.ticker)
         result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
             update(Instrument)
             .where(Instrument.isin.is_(None))
+            .where(symbol.not_like("%.%"))
             .where(
                 Instrument.id.in_(
                     select(TickerProfile.instrument_id).where(

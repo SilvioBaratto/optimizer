@@ -533,9 +533,9 @@ def test_live_line_dropped_by_dedup_gets_no_fabricated_delisting_return(
 def test_live_line_moved_to_an_out_of_scope_venue_gets_no_fabricated_return(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # NYSE Arca -> Cboe BZX ("BTS" is not a mapped code): the symbol is still
+    # The symbol moved to Fukuoka ("FKA" is not a mapped code): it is still
     # trading, it just left the covered venues.
-    moved = _quote("MOVED", "BTS")
+    moved = _quote("MOVED", "FKA")
     repo = _RecordingRepo({"NYSE": {"MOVED", "KEEP"}})
     src, _ = _source(
         [{"quotes": [_quote("KEEP", "NYQ"), moved]}, {"quotes": []}], monkeypatch
@@ -901,7 +901,7 @@ def test_resolve_exchange_name_maps_known_yahoo_codes(code: str, name: str) -> N
     assert yfinance_source.resolve_exchange_name(code) == name
 
 
-@pytest.mark.parametrize("code", ["BTS", "", "   "])
+@pytest.mark.parametrize("code", ["FKA", "", "   "])
 def test_resolve_exchange_name_returns_none_for_unmapped_code(code: str) -> None:
     """A venue outside the covered set resolves to None, never a guess."""
     assert yfinance_source.resolve_exchange_name(code) is None

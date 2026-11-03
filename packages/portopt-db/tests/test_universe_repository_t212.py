@@ -156,3 +156,117 @@ def test_backfill_isin_skips_null_profile_isin(db_session) -> None:
     assert filled == 0
     db_session.refresh(inst)
     assert inst.isin is None
+
+
+def _profiled(db_session, ticker: str, profile_isin: str, **kw) -> Instrument:
+    ex = add_and_flush(db_session, Exchange(name=f"EX-{ticker}"))
+    inst = add_and_flush(
+        db_session, Instrument(ticker=ticker, short_name=ticker, exchange=ex, **kw)
+    )
+    add_and_flush(db_session, TickerProfile(instrument_id=inst.id, isin=profile_isin))
+    return inst
+
+
+def test_backfill_isin_skips_suffixed_symbols(db_session) -> None:
+    """Profile ISINs scraped for a venue-suffixed symbol are a secondary line's.
+
+    Before the scrape was restricted to suffix-less symbols, ``ASML.AS`` stored an
+    Argentine CEDEAR's ISIN on its profile. Copying that onto the instrument would
+    pin the wrong security to it permanently, because the backfill never
+    overwrites.
+    """
+    inst = _profiled(
+        db_session,
+        "ASML.AS",
+        "ARDEUT110061",
+        yfinance_ticker="ASML.AS",
+    )
+
+    filled = _repo(db_session).backfill_isin_from_profiles()
+
+    assert filled == 0
+    db_session.refresh(inst)
+    assert inst.isin is None
+
+
+def test_backfill_isin_judges_a_suffix_by_the_yahoo_symbol_over_the_ticker(
+    db_session,
+) -> None:
+    """The Yahoo symbol is the venue-bearing name; the row ticker may be anything."""
+    inst = _profiled(
+        db_session,
+        "VWCE_XETRA",
+        "IE00BK5BQT80",
+        yfinance_ticker="VWCE.DE",
+    )
+
+    assert _repo(db_session).backfill_isin_from_profiles() == 0
+    db_session.refresh(inst)
+    assert inst.isin is None
+
+
+def test_backfill_isin_falls_back_to_the_ticker_when_there_is_no_yahoo_symbol(
+    db_session,
+) -> None:
+    """A row with no Yahoo symbol is still judged by its own ticker."""
+    suffixed = _profiled(db_session, "NESN.SW", "CH0038863350")
+    plain = _profiled(db_session, "AAPL", "US0378331005")
+
+    filled = _repo(db_session).backfill_isin_from_profiles()
+
+    assert filled == 1
+    db_session.refresh(suffixed)
+    db_session.refresh(plain)
+    assert suffixed.isin is None
+    assert plain.isin == "US0378331005"
+
+
+def test_backfill_isin_keeps_filling_dash_class_us_symbols(db_session) -> None:
+    """A dash share class is a US symbol: Yahoo writes ``BRK-B``, not ``BRK.B``."""
+    inst = _profiled(db_session, "BRK-B", "US0846707026", yfinance_ticker="BRK-B")
+
+    assert _repo(db_session).backfill_isin_from_profiles() == 1
+    db_session.refresh(inst)
+    assert inst.isin == "US0846707026"
+
+
+def test_set_isin_if_missing_fills_a_null_isin(db_session) -> None:
+    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
+    inst = add_and_flush(
+        db_session, Instrument(ticker="AAPL", short_name="Apple", exchange=ex)
+    )
+
+    matched = _repo(db_session).set_isin_if_missing(
+        ticker="AAPL", exchange_id=ex.id, isin="US0378331005"
+    )
+
+    db_session.refresh(inst)
+    assert matched is True
+    assert inst.isin == "US0378331005"
+
+
+def test_set_isin_if_missing_never_overwrites_a_stored_isin(db_session) -> None:
+    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
+    inst = add_and_flush(
+        db_session,
+        Instrument(ticker="AAPL", short_name="Apple", exchange=ex, isin="US0378331005"),
+    )
+
+    matched = _repo(db_session).set_isin_if_missing(
+        ticker="AAPL", exchange_id=ex.id, isin="US0000000000"
+    )
+
+    db_session.refresh(inst)
+    assert matched is False
+    assert inst.isin == "US0378331005"
+
+
+def test_set_isin_if_missing_reports_no_match_for_an_unknown_row(db_session) -> None:
+    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
+
+    assert (
+        _repo(db_session).set_isin_if_missing(
+            ticker="NOPE", exchange_id=ex.id, isin="US0378331005"
+        )
+        is False
+    )
