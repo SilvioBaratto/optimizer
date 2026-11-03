@@ -200,8 +200,8 @@ class UniverseBuilder:
         self, exchanges: list[dict[str, Any]]
     ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         """Fixed-income + multi-asset ETFs across the (broader) ETF exchange set,
-        classifiable (equity/leveraged ETFs excluded) and deduped to one listing
-        per ISIN on the most-preferred exchange."""
+        classifiable (equity, commodity and leveraged ETFs excluded) and deduped
+        to one listing per ISIN on the most-preferred exchange."""
         allowed = self.config.get_etf_allowed_exchanges()
         ex_by_name: dict[str, dict[str, Any]] = {}
         candidates: list[tuple[str, dict[str, Any]]] = []
@@ -254,6 +254,15 @@ class UniverseBuilder:
             if hasattr(self.repository, "get_active_tickers"):
                 tickers_before = self.repository.get_active_tickers(
                     exchange_dto.id, instrument_type=instrument_type
+                )
+            # Pinned names (hand-added ETFs the Screener never returns) are
+            # outside the delisting decision, and out of the denominator of the
+            # sanity guard so they cannot make a normal run look truncated.
+            if hasattr(self.repository, "get_pinned_tickers"):
+                tickers_before = tickers_before - set(
+                    self.repository.get_pinned_tickers(
+                        exchange_dto.id, instrument_type=instrument_type
+                    )
                 )
 
             processed = self._process_instruments(

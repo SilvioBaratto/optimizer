@@ -517,6 +517,82 @@ class TestDelistingSanityGuard:
         assert len(repo.delisted) == 5
 
 
+class _PinningRepo(_DelistingRepo):
+    """A delisting repo that also reports which active tickers are pinned."""
+
+    def __init__(self, active: set[str], pinned: set[str]) -> None:
+        super().__init__(active)
+        self._pinned = pinned
+        self.pinned_calls: list[tuple[Any, str | None]] = []
+
+    def get_pinned_tickers(
+        self, exchange_id: Any, instrument_type: str | None = None
+    ) -> set[str]:
+        self.pinned_calls.append((exchange_id, instrument_type))
+        return set(self._pinned)
+
+
+def _pinned_build(
+    *, active: int, returned: int, pinned: set[str]
+) -> tuple[_PinningRepo, Any]:
+    repo = _PinningRepo({f"T{i}_US" for i in range(active)}, pinned)
+    mapper = MagicMock()
+    mapper.discover.side_effect = lambda short, ex: short
+    builder = _make_builder(
+        api_client=_make_api_client(instruments=[_stock(i) for i in range(returned)]),
+        ticker_mapper=mapper,
+        repo=repo,
+    )
+    return repo, builder.build()
+
+
+class TestPinnedInstrumentsAreNeverDelisted:
+    """A pinned ticker absent from the snapshot stays active and is not counted."""
+
+    def test_pinned_absent_ticker_is_not_marked_delisted(self) -> None:
+        """Pinned names missing from the Screener snapshot are left alone."""
+        repo, result = _pinned_build(
+            active=100, returned=98, pinned={"T98_US", "T99_US"}
+        )
+
+        assert repo.delisted == []
+        assert result.errors == []
+
+    def test_unpinned_absent_ticker_is_still_delisted(self) -> None:
+        """Pinning one name does not shield its absent neighbours."""
+        repo, _ = _pinned_build(active=100, returned=97, pinned={"T99_US"})
+
+        assert sorted(repo.delisted) == ["T97_US", "T98_US"]
+
+    def test_guard_counts_only_unpinned_tickers(self) -> None:
+        """58 pinned names missing from 100 must not read as a truncated source."""
+        pinned = {f"T{i}_US" for i in range(42, 100)}
+        repo, result = _pinned_build(active=100, returned=40, pinned=pinned)
+
+        assert sorted(repo.delisted) == ["T40_US", "T41_US"]
+        assert result.errors == []
+
+    def test_guard_still_trips_on_mass_absence_of_unpinned_tickers(self) -> None:
+        """Pins do not disable the truncated-answer protection for the rest."""
+        pinned = {f"T{i}_US" for i in range(90, 100)}
+        repo, result = _pinned_build(active=100, returned=30, pinned=pinned)
+
+        assert repo.delisted == []
+        assert any("delisting" in e for e in result.errors)
+
+    def test_pinned_lookup_is_scoped_to_the_exchange_and_type(self) -> None:
+        """The build asks for pins in the same scope as its active-ticker snapshot."""
+        repo, _ = _pinned_build(active=3, returned=3, pinned=set())
+
+        assert repo.pinned_calls == [("ex-1", "STOCK")]
+
+    def test_repository_without_the_method_still_builds(self) -> None:
+        """Fakes that predate pins keep their strict signatures and behaviour."""
+        repo, _ = _delisting_build(active=100, returned=98)
+
+        assert sorted(repo.delisted) == ["T98_US", "T99_US"]
+
+
 class TestMappingMissIsNotDelisting:
     def test_ticker_the_source_returned_but_mapper_missed_stays_active(self) -> None:
         repo, _ = _delisting_build(

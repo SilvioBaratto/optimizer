@@ -21,8 +21,15 @@ M = "app.services.universe.t212_annotate"
 
 
 @contextmanager
-def _patched(repo: MagicMock, client: MagicMock, events: list[str] | None = None):
+def _patched(
+    repo: MagicMock,
+    client: MagicMock,
+    events: list[str] | None = None,
+    pinned: frozenset[str] = frozenset(),
+):
     sessions: list[MagicMock] = []
+    pin_repo = MagicMock()
+    pin_repo.pinned_tickers.return_value = set(pinned)
     log = events if events is not None else []
 
     @contextmanager
@@ -41,6 +48,7 @@ def _patched(repo: MagicMock, client: MagicMock, events: list[str] | None = None
     with (
         patch(f"{M}.database_manager", dm),
         patch(f"{M}.UniverseRepository", return_value=repo),
+        patch(f"{M}.PinnedInstrumentRepository", return_value=pin_repo),
         patch(f"{M}.build_trading212_client", return_value=client),
     ):
         yield sessions
@@ -53,6 +61,7 @@ def _inst(
     isin: str | None = None,
     currency_code: str | None = None,
     t212_ticker: str | None = None,
+    yfinance_ticker: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         ticker=ticker,
@@ -60,6 +69,7 @@ def _inst(
         isin=isin,
         currency_code=currency_code,
         t212_ticker=t212_ticker,
+        yfinance_ticker=yfinance_ticker or ticker,
     )
 
 
@@ -527,6 +537,116 @@ def test_successful_lookup_resets_the_consecutive_error_streak() -> None:
 
     assert summary["total"] == len(tickers)
     assert summary["lookup_errors"] == len(tickers) - 2
+
+
+class TestPinnedRowsAreOperatorManaged:
+    """A pinned row's T212 ticker is set by the operator; the step leaves it alone."""
+
+    def test_stored_t212_ticker_survives_a_known_isin_with_no_match(self) -> None:
+        """The clear-stale rule would erase it; the pin prevents that."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst("VWCE", yfinance_ticker="VWCE.DE", t212_ticker="VWCEd_EQ")
+        ]
+        client = _client([{"ticker": "OTHER_EQ", "isin": "IE00BK5BQT80"}])
+
+        with _patched(repo, client, pinned=frozenset({"VWCE.DE"})):
+            summary = t212_annotate.run_t212_annotate(
+                isin_lookup=lambda t: "IE00BK5BQT80"
+            )
+
+        repo.set_t212_ticker.assert_not_called()
+        assert summary["cleared"] == 0
+
+    def test_stored_t212_ticker_is_not_overwritten_by_a_twin_line(self) -> None:
+        """A matching T212 line of another listing cannot replace the operator's."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst(
+                "IBCI",
+                yfinance_ticker="IBCI.AS",
+                currency_code="EUR",
+                t212_ticker="IBCId_EQ",
+            )
+        ]
+        client = _client([{"ticker": "IBCIl_EQ", "isin": "IE00B0M62X26"}])
+
+        with _patched(repo, client, pinned=frozenset({"IBCI.AS"})):
+            summary = t212_annotate.run_t212_annotate(
+                isin_lookup=lambda t: "IE00B0M62X26"
+            )
+
+        repo.set_t212_ticker.assert_not_called()
+        assert summary["annotated"] == 0
+
+    def test_pinned_row_is_not_looked_up_or_counted(self) -> None:
+        """Skipping happens before the ISIN lookup, so it costs no Yahoo request."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst("VWCE", yfinance_ticker="VWCE.DE"),
+            _inst("AAPL"),
+        ]
+        repo.set_t212_ticker.return_value = True
+        client = _client([{"ticker": "AAPL_US_EQ", "isin": "US123"}])
+        looked_up: list[str] = []
+
+        def lookup(ticker: str) -> str:
+            looked_up.append(ticker)
+            return "US123"
+
+        with _patched(repo, client, pinned=frozenset({"VWCE.DE"})):
+            summary = t212_annotate.run_t212_annotate(isin_lookup=lookup)
+
+        assert looked_up == ["AAPL"]
+        assert summary["total"] == 1
+        assert summary["pinned_skipped"] == 1
+
+    def test_unpinned_rows_are_annotated_exactly_as_before(self) -> None:
+        """Two rows in the same state: only the pinned one is left untouched."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst("PIN", yfinance_ticker="PIN.DE", t212_ticker="OLD_EQ"),
+            _inst("FREE", yfinance_ticker="FREE.DE", t212_ticker="OLD_EQ"),
+        ]
+        repo.set_t212_ticker.return_value = True
+        client = _client([{"ticker": "OTHER_EQ", "isin": "US999"}])
+
+        with _patched(repo, client, pinned=frozenset({"PIN.DE"})):
+            summary = t212_annotate.run_t212_annotate(isin_lookup=lambda t: "US123")
+
+        repo.set_t212_ticker.assert_called_once_with(
+            ticker="FREE", exchange_id=1, t212_ticker=None
+        )
+        assert summary["cleared"] == 1
+
+    def test_logs_one_line_with_the_skipped_count(self, caplog) -> None:
+        """The operator can see how many rows were held back."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst("A", yfinance_ticker="A.DE"),
+            _inst("B", yfinance_ticker="B.DE"),
+        ]
+        client = _client([])
+
+        with caplog.at_level("INFO", logger=M):
+            with _patched(repo, client, pinned=frozenset({"A.DE", "B.DE"})):
+                t212_annotate.run_t212_annotate(isin_lookup=lambda t: None)
+
+        lines = [r.getMessage() for r in caplog.records if "pinned" in r.getMessage()]
+        assert len(lines) == 1
+        assert "2" in lines[0]
+
+    def test_no_pins_reports_zero_skipped(self) -> None:
+        """Without pins the summary carries a zero and nothing is filtered."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [_inst("AAPL")]
+        client = _client([])
+
+        with _patched(repo, client):
+            summary = t212_annotate.run_t212_annotate(isin_lookup=lambda t: None)
+
+        assert summary["pinned_skipped"] == 0
+        assert summary["total"] == 1
 
 
 def test_skips_cleanly_when_trading212_not_configured() -> None:

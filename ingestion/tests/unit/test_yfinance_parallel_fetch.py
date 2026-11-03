@@ -228,6 +228,111 @@ class TestSharedEmptyFetchMemory:
         assert service_cls.call_args.kwargs["empty_fetches"] is svc.SHARED_EMPTY_FETCHES
 
 
+class TestInstrumentTypePlumbing:
+    """Every sweep path hands the instrument type to ``fetch_and_store``."""
+
+    def test_serial_sweep_forwards_the_instrument_type(self):
+        """The serial loop reads the type off the instrument row."""
+        tracker = _SessionTracker()
+        request = SimpleNamespace(workers=1, period="5y", mode="incremental")
+        etf = _make_instrument("VWCE.DE")
+        etf.instrument_type = "ETF"
+        seen: list[Any] = []
+
+        def fetch(**kwargs: Any) -> dict[str, Any]:
+            seen.append(kwargs["instrument_type"])
+            return _ok_result()
+
+        repo_p, service_p, db_p = _patch_module([etf], tracker, fetch)
+        with (
+            repo_p,
+            service_p,
+            db_p,
+            patch.object(svc, "_backfill_instrument_isin_from_profiles"),
+            patch("app.config.settings") as settings,
+        ):
+            settings.yfinance_request_timeout_seconds = 30
+            svc.run_bulk_yfinance_fetch(request, MagicMock())
+
+        assert seen == ["ETF"]
+
+    def test_serial_sweep_tolerates_a_row_without_instrument_type(self):
+        """A bare namespace (no attribute) reads as an unknown type, not an error."""
+        tracker = _SessionTracker()
+        request = SimpleNamespace(workers=1, period="5y", mode="incremental")
+        seen: list[Any] = []
+
+        def fetch(**kwargs: Any) -> dict[str, Any]:
+            seen.append(kwargs["instrument_type"])
+            return _ok_result()
+
+        repo_p, service_p, db_p = _patch_module(
+            [_make_instrument("AAA")], tracker, fetch
+        )
+        with (
+            repo_p,
+            service_p,
+            db_p,
+            patch.object(svc, "_backfill_instrument_isin_from_profiles"),
+            patch("app.config.settings") as settings,
+        ):
+            settings.yfinance_request_timeout_seconds = 30
+            svc.run_bulk_yfinance_fetch(request, MagicMock())
+
+        assert seen == [None]
+
+    def test_instrument_spec_defaults_the_type_to_none(self):
+        """Existing constructions without the new field keep working."""
+        spec = svc._InstrumentSpec(
+            instrument_id=uuid4(),
+            yfinance_ticker="AAA",
+            exchange_name="NASDAQ",
+            currency_code="USD",
+        )
+
+        assert spec.instrument_type is None
+
+    def test_load_instrument_specs_carries_the_type(self):
+        """Specs detached for worker threads keep the instrument type."""
+        etf = _make_instrument("VWCE.DE")
+        etf.instrument_type = "ETF"
+        tracker = _SessionTracker()
+        repo_p, _, db_p = _patch_module([etf], tracker, lambda **_: _ok_result())
+
+        with repo_p, db_p:
+            from app.database import database_manager
+
+            specs = svc._load_instrument_specs(database_manager)
+
+        assert [s.instrument_type for s in specs] == ["ETF"]
+
+    def test_fetch_one_ticker_forwards_the_type(self):
+        """The per-thread fetch passes the spec's type to the service."""
+        tracker = _SessionTracker()
+        spec = svc._InstrumentSpec(
+            instrument_id=uuid4(),
+            yfinance_ticker="VWCE.DE",
+            exchange_name="Xetra",
+            currency_code="EUR",
+            asset_class="equity",
+            instrument_type="ETF",
+        )
+        request = SimpleNamespace(workers=2, period="5y", mode="full")
+        seen: list[Any] = []
+
+        def fetch(**kwargs: Any) -> dict[str, Any]:
+            seen.append(kwargs["instrument_type"])
+            return _ok_result()
+
+        _, service_p, db_p = _patch_module([], tracker, fetch)
+        with service_p, db_p:
+            from app.database import database_manager
+
+            svc._fetch_one_ticker(spec, request, MagicMock(), database_manager)
+
+        assert seen == ["ETF"]
+
+
 class TestParallelCancellation:
     """A reaped step must not keep fetching its queued tickers in the pool."""
 

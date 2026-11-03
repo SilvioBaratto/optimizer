@@ -11,10 +11,12 @@ from __future__ import annotations
 import datetime as dt
 import math
 import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 
 from portopt_db.models.market_data.etf_metadata import (
     ETFAssetClass,
@@ -26,7 +28,24 @@ from portopt_db.models.market_data.etf_metadata import (
     ETFMetadata,
     ETFSectorWeight,
 )
+from portopt_db.models.universe.universe import Instrument
 from portopt_db.repository import RepositoryBase
+
+
+@dataclass(frozen=True)
+class SectorSnapshot:
+    """One ETF's sector allocation as of a single snapshot date.
+
+    Attributes:
+        as_of: Snapshot date shared by every weight.
+        weights: Yahoo snake_case sector label (``basic_materials``,
+            ``realestate``, ...) to weight fraction, exactly as stored. A NULL
+            weight is ``None`` and a zero weight stays ``0.0``; nothing is
+            normalised, so the consumer decides what an incomplete snapshot means.
+    """
+
+    as_of: dt.date
+    weights: dict[str, float | None]
 
 
 def _pick(metrics: dict[str, float], *keys: str) -> float | None:
@@ -476,3 +495,61 @@ class ETFMetadataRepository(RepositoryBase):
             .order_by(ETFAssetClass.as_of.desc())
             .limit(1)
         ).scalar_one_or_none()
+
+    def get_latest_sector_weights(
+        self, tickers: Sequence[str]
+    ) -> dict[str, SectorSnapshot]:
+        """Return each ETF's newest sector-weight snapshot, keyed by ticker.
+
+        One query regardless of ``len(tickers)``: the newest ``as_of`` per
+        instrument is picked in a subquery and joined back on
+        ``(instrument_id, as_of)``, which the sector-weights unique constraint
+        indexes. If two instruments share a ``yfinance_ticker``, the one with
+        the newer snapshot wins.
+
+        Args:
+            tickers: Yahoo tickers matched exactly against
+                ``Instrument.yfinance_ticker``.
+
+        Returns:
+            Ticker to :class:`SectorSnapshot`. Tickers with no instrument, or
+            whose instrument has no sector rows, are absent. Empty input
+            returns ``{}`` without touching the database.
+        """
+        wanted = {t for t in tickers if t}
+        if not wanted:
+            return {}
+        newest = (
+            select(
+                ETFSectorWeight.instrument_id.label("instrument_id"),
+                func.max(ETFSectorWeight.as_of).label("as_of"),
+            )
+            .join(Instrument, Instrument.id == ETFSectorWeight.instrument_id)
+            .where(Instrument.yfinance_ticker.in_(wanted))
+            .group_by(ETFSectorWeight.instrument_id)
+            .subquery()
+        )
+        rows = self.session.execute(
+            select(
+                Instrument.yfinance_ticker,
+                ETFSectorWeight.as_of,
+                ETFSectorWeight.sector,
+                ETFSectorWeight.weight,
+            )
+            .join(Instrument, Instrument.id == ETFSectorWeight.instrument_id)
+            .join(
+                newest,
+                and_(
+                    newest.c.instrument_id == ETFSectorWeight.instrument_id,
+                    newest.c.as_of == ETFSectorWeight.as_of,
+                ),
+            )
+        ).all()
+        snapshots: dict[str, SectorSnapshot] = {}
+        for ticker, as_of, sector, weight in rows:
+            current = snapshots.get(ticker)
+            if current is None or as_of > current.as_of:
+                current = snapshots[ticker] = SectorSnapshot(as_of=as_of, weights={})
+            if as_of == current.as_of:
+                current.weights[sector] = None if weight is None else float(weight)
+        return snapshots

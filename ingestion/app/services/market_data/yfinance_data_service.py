@@ -204,6 +204,19 @@ _EVENT_MARKER_CATEGORIES: dict[str, tuple[str, ...]] = {
 _UNSET: Any = object()
 
 
+def _is_etf_fund(instrument_type: str | None, asset_class: str | None) -> bool:
+    """Whether the instrument has ETF fund data (sectors, holdings) to fetch.
+
+    The instrument type decides when it is known, so equity and commodity ETFs
+    qualify. ``asset_class == "equity"`` cannot stand in for it: every STOCK
+    carries that value too. Callers that do not know the type keep the legacy
+    rule, under which only bond and multi-asset funds qualified.
+    """
+    if instrument_type is not None:
+        return instrument_type.upper() == "ETF"
+    return asset_class in ("fixed_income", "multi_asset")
+
+
 def _prices_are_current(
     price_max_date: date | None,
     exchange_name: str | None,
@@ -599,6 +612,7 @@ class YFinanceDataService:
         currency_code: str | None = None,
         asset_class: str | None = None,
         staleness: Any = _UNSET,
+        instrument_type: str | None = None,
     ) -> dict[str, Any]:
         """Fetch all data categories for a single ticker and store.
 
@@ -617,8 +631,14 @@ class YFinanceDataService:
                 as the price unit; its major unit (e.g. "GBP") labels the
                 market-cap based valuation rows. Financial statements are
                 labelled with Yahoo's ``financialCurrency`` instead.
-            asset_class: Instrument asset class. When "fixed_income" or
-                "multi_asset" (i.e. an ETF), the ETF fund-metadata branch runs.
+            asset_class: Instrument asset class. Only consulted when
+                ``instrument_type`` is unknown: "fixed_income" or "multi_asset"
+                then mark an ETF.
+            staleness: Pre-fetched staleness info for incremental mode.
+            instrument_type: Instrument type ("ETF", "STOCK", ...). When
+                "ETF", the ETF fund-metadata branch runs whatever the asset
+                class, so equity and commodity ETFs get sector weights too.
+                ``None`` keeps the legacy ``asset_class`` rule.
 
         Returns:
             Dict with ``counts`` per category, ``errors``, ``skipped``
@@ -638,6 +658,7 @@ class YFinanceDataService:
                 currency_code=currency_code,
                 asset_class=asset_class,
                 staleness=staleness,
+                instrument_type=instrument_type,
             )
         result["transport_failures"] = len(outcomes.failures)
         result["requests_answered"] = outcomes.answered
@@ -659,6 +680,7 @@ class YFinanceDataService:
         currency_code: str | None,
         asset_class: str | None,
         staleness: Any,
+        instrument_type: str | None,
     ) -> dict[str, Any]:
         counts: dict[str, int] = {}
         errors: list[str] = []
@@ -1616,8 +1638,8 @@ class YFinanceDataService:
             errors.append(f"news: {e}")
             logger.warning("Failed news for %s: %s", yfinance_ticker, e)
 
-        # --- ETF fund metadata (fixed_income / multi_asset instruments only) ---
-        if asset_class in ("fixed_income", "multi_asset"):
+        # --- ETF fund metadata (every ETF) ---
+        if _is_etf_fund(instrument_type, asset_class):
             self._fetch_etf_metadata(
                 instrument_id,
                 yfinance_ticker,
@@ -1935,6 +1957,7 @@ def run_bulk_yfinance_fetch(
                         if request.mode == "incremental"
                         else _UNSET
                     ),
+                    instrument_type=getattr(instrument, "instrument_type", None),
                 )
 
                 for k, v in result["counts"].items():
@@ -2003,6 +2026,7 @@ class _InstrumentSpec:
     exchange_name: str | None
     currency_code: str | None
     asset_class: str | None = None
+    instrument_type: str | None = None
 
 
 def _load_instrument_specs(database_manager: Any) -> list[_InstrumentSpec]:
@@ -2016,6 +2040,7 @@ def _load_instrument_specs(database_manager: Any) -> list[_InstrumentSpec]:
                 exchange_name=inst.exchange_name,
                 currency_code=inst.currency_code,
                 asset_class=getattr(inst, "asset_class", None),
+                instrument_type=getattr(inst, "instrument_type", None),
             )
             for inst in repo.get_instruments_with_yfinance_ticker()
         ]
@@ -2050,6 +2075,7 @@ def _fetch_one_ticker(
                 currency_code=spec.currency_code,
                 asset_class=spec.asset_class,
                 staleness=staleness,
+                instrument_type=spec.instrument_type,
             )
             session.commit()
             return result

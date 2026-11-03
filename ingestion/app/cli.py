@@ -1,9 +1,11 @@
 """Manual ingestion runs: ``python -m app.cli <command>``.
 
-Every command runs the same step function the scheduler runs, through the same
-``BackgroundJobService`` lifecycle — so a manual run claims a job slot, writes
-heartbeats, lands in ``background_jobs``, and is refused if the scheduler is
-already running that step.
+Every step command runs the same step function the scheduler runs, through the
+same ``BackgroundJobService`` lifecycle — so a manual run claims a job slot,
+writes heartbeats, lands in ``background_jobs``, and is refused if the scheduler
+is already running that step. Two commands claim no slot because they work on a
+bounded input in seconds: ``add-instrument`` (one ticker) and
+``daily-events --backfill``.
 
     python -m app.cli daily                       # full daily pipeline
     python -m app.cli refetch-all                 # universe + yfinance + macro + fred
@@ -17,6 +19,7 @@ already running that step.
     python -m app.cli calendars                    # earnings/IPO/splits/economic
     python -m app.cli market-summary               # regional market summaries
     python -m app.cli options                      # full option chains
+    python -m app.cli add-instrument VWCE.DE --asset-class equity --pin
     python -m app.cli daily-events                  # today's market_journal digest
     python -m app.cli daily-events --backfill 2026-01-01:2026-09-30
 
@@ -33,8 +36,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import importlib
 import logging
 import os
+from collections.abc import Callable
 from enum import Enum
 from typing import NoReturn
 
@@ -360,6 +365,199 @@ def _run_daily_events_backfill(spec: str, *, force: bool = False) -> bool:
         f"daily-events backfill: built {built}/{total} digest(s) for {spec}{suffix}."
     )
     return not failures
+
+
+def _choice_check(enum_path: str, label: str) -> Callable[[str | None], str | None]:
+    """Build a Typer callback rejecting a value outside an enum, before booting.
+
+    Args:
+        enum_path: ``module:Class`` of the enum, imported lazily so the CLI's
+            startup stays light.
+        label: Option name used in the error message.
+    """
+
+    def check(value: str | None) -> str | None:
+        if value is None:
+            return None
+        module_name, class_name = enum_path.split(":")
+        enum_type = getattr(importlib.import_module(module_name), class_name)
+        choices = [member.value for member in enum_type]
+        if value not in choices:
+            raise typer.BadParameter(
+                f"{value!r} is not a valid {label} (choose one of: "
+                f"{', '.join(choices)})"
+            )
+        return value
+
+    return check
+
+
+_ENUMS = "app.services.universe.trading212.enums"
+
+
+@app.command(name="add-instrument")
+def add_instrument_command(
+    yahoo_ticker: str = typer.Argument(
+        ..., metavar="YAHOO_TICKER", help="Yahoo symbol, e.g. VWCE.DE or EGLN.L."
+    ),
+    asset_class: str | None = typer.Option(
+        None,
+        "--asset-class",
+        callback=_choice_check(f"{_ENUMS}:AssetClass", "asset class"),
+        help="equity, fixed_income, multi_asset or commodity. Required for an ETF.",
+    ),
+    isin: str | None = typer.Option(None, "--isin", help="ISIN to store."),
+    fi_subclass: str | None = typer.Option(
+        None,
+        "--fi-subclass",
+        callback=_choice_check(f"{_ENUMS}:FiSubclass", "fixed-income subclass"),
+        help="Fixed-income subclass; only with --asset-class fixed_income.",
+    ),
+    duration_bucket: str | None = typer.Option(
+        None,
+        "--duration-bucket",
+        callback=_choice_check(f"{_ENUMS}:DurationBucket", "duration bucket"),
+        help="Duration bucket; only with --asset-class fixed_income.",
+    ),
+    t212_ticker: str | None = typer.Option(
+        None, "--t212-ticker", help="Trading 212 ticker to store."
+    ),
+    exchange: str | None = typer.Option(
+        None,
+        "--exchange",
+        help="Exchange name overriding the one Yahoo's exchange code resolves to.",
+    ),
+    name: str | None = typer.Option(
+        None, "--name", help="Display name overriding Yahoo's."
+    ),
+    pin: bool = typer.Option(
+        False,
+        "--pin",
+        help="Keep the instrument through the weekly universe build (source 'manual').",
+    ),
+) -> None:
+    """Add one instrument by hand, fetch 5y of prices and ETF data, optionally pin it."""
+    _boot()
+    _exit(
+        _run_add_instrument(
+            yahoo_ticker=yahoo_ticker,
+            asset_class=asset_class,
+            isin=isin,
+            fi_subclass=fi_subclass,
+            duration_bucket=duration_bucket,
+            t212_ticker=t212_ticker,
+            exchange=exchange,
+            name=name,
+            pin=pin,
+        )
+    )
+
+
+def _run_add_instrument(
+    *,
+    yahoo_ticker: str,
+    asset_class: str | None,
+    isin: str | None,
+    fi_subclass: str | None,
+    duration_bucket: str | None,
+    t212_ticker: str | None,
+    exchange: str | None,
+    name: str | None,
+    pin: bool,
+) -> bool:
+    """Validate and store one instrument, then fetch its 5-year data.
+
+    Claims no job slot: it handles one ticker in seconds, like the
+    ``daily-events --backfill`` path. The row (and pin) are committed before the
+    fetch, because the fetch opens its own session and must see the row.
+
+    Args:
+        yahoo_ticker: Yahoo symbol to add.
+        asset_class: ``AssetClass`` value; required for an ETF.
+        isin: ISIN to store, if known.
+        fi_subclass: ``FiSubclass`` value, only with ``fixed_income``.
+        duration_bucket: ``DurationBucket`` value, only with ``fixed_income``.
+        t212_ticker: Trading 212 ticker to store.
+        exchange: Exchange name overriding the Yahoo-derived one.
+        name: Display name overriding Yahoo's.
+        pin: Also pin the ticker under source ``manual``.
+
+    Returns:
+        ``True`` when the instrument was stored and its prices fetched; ``False``
+        when validation refused it, or the row is stored but no prices arrived.
+    """
+    from portopt_db.models.universe.universe import Instrument
+    from portopt_db.repositories.universe.pinned_instrument_repository import (
+        PinnedInstrumentRepository,
+    )
+
+    from app.database import database_manager
+    from app.schemas.market_data.yfinance_data import YFinanceSingleFetchRequest
+    from app.services.market_data.yfinance import get_yfinance_client
+    from app.services.market_data.yfinance_data_service import (
+        _fetch_one_ticker,
+        _InstrumentSpec,
+    )
+    from app.services.universe.add_instrument import AddInstrumentError, add_instrument
+
+    yf_client = get_yfinance_client()
+    with database_manager.get_session() as session:
+        try:
+            result = add_instrument(
+                session,
+                yf_client,
+                yahoo_ticker=yahoo_ticker,
+                asset_class=asset_class,
+                isin=isin,
+                fi_subclass=fi_subclass,
+                duration_bucket=duration_bucket,
+                t212_ticker=t212_ticker,
+                exchange=exchange,
+                name=name,
+            )
+        except AddInstrumentError as exc:
+            session.rollback()
+            typer.echo(f"add-instrument: {exc}", err=True)
+            return False
+        row = session.get(Instrument, result.instrument_id)
+        if row is None:
+            raise RuntimeError("add_instrument returned an id with no row")
+        symbol = row.yfinance_ticker or ""
+        spec = _InstrumentSpec(
+            instrument_id=row.id,
+            yfinance_ticker=symbol,
+            exchange_name=row.exchange.name,
+            currency_code=row.currency_code,
+            asset_class=row.asset_class,
+            instrument_type=row.instrument_type,
+        )
+        if pin:
+            PinnedInstrumentRepository(session).pin(symbol, "manual")
+        session.commit()
+
+    state = "added" if result.created else "already present, refreshed"
+    typer.echo(
+        f"add-instrument: {symbol} {state} on {spec.exchange_name} "
+        f"as {spec.asset_class} {spec.instrument_type}"
+        + ("; pinned" if pin else "")
+        + "."
+    )
+    for warning in result.warnings:
+        typer.echo(f"  warning: {warning}", err=True)
+
+    outcome = _fetch_one_ticker(
+        spec,
+        YFinanceSingleFetchRequest(mode="full", period="5y"),
+        yf_client,
+        database_manager,
+        request_timeout=float(settings.yfinance_request_timeout_seconds),
+    )
+    prices = outcome["counts"].get("prices", 0)
+    typer.echo(f"  fetched {prices} price rows and the ETF/fundamental data.")
+    price_errors = [e for e in outcome["errors"] if e.startswith("prices")]
+    for error in outcome["errors"]:
+        typer.echo(f"  warning: {error}", err=True)
+    return not price_errors
 
 
 @app.command()
