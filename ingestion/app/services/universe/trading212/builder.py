@@ -255,6 +255,15 @@ class UniverseBuilder:
                 tickers_before = self.repository.get_active_tickers(
                     exchange_dto.id, instrument_type=instrument_type
                 )
+            # Pinned names (hand-added ETFs the Screener never returns) are
+            # outside the delisting decision, and out of the denominator of the
+            # sanity guard so they cannot make a normal run look truncated.
+            if hasattr(self.repository, "get_pinned_tickers"):
+                tickers_before = tickers_before - set(
+                    self.repository.get_pinned_tickers(
+                        exchange_dto.id, instrument_type=instrument_type
+                    )
+                )
 
             processed = self._process_instruments(
                 instruments,
