@@ -24,6 +24,7 @@ from portopt_db.models.market_data.etf_metadata import (
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
+    SectorSnapshot,
 )
 
 _AS_OF = dt.date(2026, 8, 25)
@@ -364,3 +365,172 @@ def test_failed_upsert_rolls_back_to_a_savepoint_and_spares_the_transaction(
     assert meta is not None
     assert float(meta.aum) == 1_000_000_000.0
     assert repo.get_asset_classes(inst.id) is not None
+
+
+def _etf(
+    db_session, yfinance_ticker: str, *, exchange: str = "Xetra Test"
+) -> Instrument:
+    """An ETF instrument whose yfinance symbol is ``yfinance_ticker``."""
+    ex = db_session.query(Exchange).filter_by(name=exchange).one_or_none()
+    if ex is None:
+        ex = Exchange(name=exchange)
+        db_session.add(ex)
+        db_session.flush()
+    inst = Instrument(
+        ticker=yfinance_ticker.split(".")[0],
+        short_name=yfinance_ticker,
+        yfinance_ticker=yfinance_ticker,
+        exchange_id=ex.id,
+        instrument_type="ETF",
+        asset_class="equity",
+    )
+    db_session.add(inst)
+    db_session.flush()
+    return inst
+
+
+def _record_statements(db_session) -> tuple[list[str], object]:
+    """Start capturing every SQL statement on the session's connection.
+
+    Returns the capture list and the listener to pass to ``_stop_recording``.
+    """
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany) -> None:
+        statements.append(statement)
+
+    event.listen(db_session.get_bind(), "before_cursor_execute", record)
+    return statements, record
+
+
+def _stop_recording(db_session, record) -> None:
+    event.remove(db_session.get_bind(), "before_cursor_execute", record)
+
+
+class TestGetLatestSectorWeights:
+    """``get_latest_sector_weights`` reads the newest sector snapshot per ETF."""
+
+    def test_returns_only_the_newest_snapshot(self, db_session) -> None:
+        """An older as_of for the same instrument is ignored."""
+        repo = ETFMetadataRepository(db_session)
+        inst = _etf(db_session, "VWCE.DE")
+        repo.upsert_sector_weights(
+            inst.id, dt.date(2026, 7, 1), {"technology": 0.9, "energy": 0.1}
+        )
+        repo.upsert_sector_weights(
+            inst.id, dt.date(2026, 9, 1), {"technology": 0.3, "healthcare": 0.7}
+        )
+        db_session.flush()
+
+        result = repo.get_latest_sector_weights(["VWCE.DE"])
+
+        assert set(result) == {"VWCE.DE"}
+        assert result["VWCE.DE"].as_of == dt.date(2026, 9, 1)
+        assert result["VWCE.DE"].weights == {"technology": 0.3, "healthcare": 0.7}
+
+    def test_each_instrument_uses_its_own_newest_as_of(self, db_session) -> None:
+        """Snapshots of different ETFs are compared per instrument, not globally."""
+        repo = ETFMetadataRepository(db_session)
+        a = _etf(db_session, "AAA.DE")
+        b = _etf(db_session, "BBB.DE")
+        repo.upsert_sector_weights(a.id, dt.date(2026, 6, 1), {"energy": 1.0})
+        repo.upsert_sector_weights(b.id, dt.date(2026, 9, 1), {"utilities": 1.0})
+        db_session.flush()
+
+        result = repo.get_latest_sector_weights(["AAA.DE", "BBB.DE"])
+
+        assert result["AAA.DE"].as_of == dt.date(2026, 6, 1)
+        assert result["AAA.DE"].weights == {"energy": 1.0}
+        assert result["BBB.DE"].as_of == dt.date(2026, 9, 1)
+
+    def test_unknown_ticker_and_etf_without_sectors_are_absent(
+        self, db_session
+    ) -> None:
+        """A ticker with no instrument, or an ETF with no sector rows, is omitted."""
+        repo = ETFMetadataRepository(db_session)
+        with_rows = _etf(db_session, "VWCE.DE")
+        _etf(db_session, "EGLN.L", exchange="LSE Test")
+        repo.upsert_sector_weights(with_rows.id, _AS_OF, {"energy": 1.0})
+        db_session.flush()
+
+        result = repo.get_latest_sector_weights(["VWCE.DE", "EGLN.L", "NOPE.DE"])
+
+        assert set(result) == {"VWCE.DE"}
+
+    def test_empty_input_returns_empty_dict_without_a_query(self, db_session) -> None:
+        """No tickers means no database round trip."""
+        repo = ETFMetadataRepository(db_session)
+        statements, record = _record_statements(db_session)
+        try:
+            assert repo.get_latest_sector_weights([]) == {}
+        finally:
+            _stop_recording(db_session, record)
+
+        assert statements == []
+
+    def test_zero_kept_and_null_preserved(self, db_session) -> None:
+        """Yahoo's 0.0 for an empty sector stays 0.0; a NULL weight stays None."""
+        repo = ETFMetadataRepository(db_session)
+        inst = _etf(db_session, "VWCE.DE")
+        repo.upsert_sector_weights(
+            inst.id,
+            _AS_OF,
+            {"technology": 0.25, "energy": 0.0, "utilities": None},  # type: ignore[dict-item]
+        )
+        db_session.flush()
+
+        weights = repo.get_latest_sector_weights(["VWCE.DE"])["VWCE.DE"].weights
+
+        assert weights["energy"] == 0.0
+        assert weights["utilities"] is None
+        assert weights["technology"] == 0.25
+        assert isinstance(weights["technology"], float)
+
+    def test_weights_are_not_normalised(self, db_session) -> None:
+        """Weights come back as stored even when they do not sum to one."""
+        repo = ETFMetadataRepository(db_session)
+        inst = _etf(db_session, "VWCE.DE")
+        repo.upsert_sector_weights(inst.id, _AS_OF, {"technology": 0.2, "energy": 0.1})
+        db_session.flush()
+
+        weights = repo.get_latest_sector_weights(["VWCE.DE"])["VWCE.DE"].weights
+
+        assert sum(w for w in weights.values() if w is not None) == pytest.approx(0.3)
+
+    def test_runs_as_one_query_for_many_tickers(self, db_session) -> None:
+        """The read costs a single statement regardless of how many tickers."""
+        repo = ETFMetadataRepository(db_session)
+        tickers = [f"T{i}.DE" for i in range(6)]
+        for t in tickers:
+            repo.upsert_sector_weights(_etf(db_session, t).id, _AS_OF, {"energy": 1.0})
+        db_session.flush()
+        statements, record = _record_statements(db_session)
+        try:
+            result = repo.get_latest_sector_weights(tickers)
+        finally:
+            _stop_recording(db_session, record)
+
+        assert set(result) == set(tickers)
+        assert len(statements) == 1
+
+    def test_shared_yfinance_ticker_keeps_the_newer_instrument_snapshot(
+        self, db_session
+    ) -> None:
+        """Two instrument rows sharing a symbol never mix their sector weights."""
+        repo = ETFMetadataRepository(db_session)
+        old = _etf(db_session, "DUP.DE", exchange="Venue A")
+        new = _etf(db_session, "DUP.DE", exchange="Venue B")
+        repo.upsert_sector_weights(old.id, dt.date(2026, 6, 1), {"energy": 1.0})
+        repo.upsert_sector_weights(new.id, dt.date(2026, 9, 1), {"utilities": 1.0})
+        db_session.flush()
+
+        snapshot = repo.get_latest_sector_weights(["DUP.DE"])["DUP.DE"]
+
+        assert snapshot.as_of == dt.date(2026, 9, 1)
+        assert snapshot.weights == {"utilities": 1.0}
+
+    def test_snapshot_is_immutable(self) -> None:
+        """``SectorSnapshot`` is a frozen dataclass."""
+        snap = SectorSnapshot(as_of=_AS_OF, weights={"energy": 1.0})
+        with pytest.raises(AttributeError):
+            snap.as_of = dt.date(2026, 1, 1)  # type: ignore[misc]
