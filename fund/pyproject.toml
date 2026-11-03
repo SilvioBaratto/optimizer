@@ -41,8 +41,8 @@ dependencies = [
 # shared venv resolves one pytest/pytest-cov. pytest-asyncio covers the async
 # agent/worker paths.
 test = [
-    "pytest==9.1.1",
-    "pytest-asyncio==1.4.0",
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1",
     "pytest-cov==7.1.0",
 ]
 
