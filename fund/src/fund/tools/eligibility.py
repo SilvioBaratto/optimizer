@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from portopt_db.models.universe.universe import Instrument
 from sqlalchemy import select
 
+from fund.tools.mandate import held_tickers
 from fund.tools.universe import UNCLASSIFIED, esg_barred, uninvestable_reasons
 
 if TYPE_CHECKING:
@@ -214,10 +215,36 @@ def resolve_mandate_eligibility(
     )
 
 
+def not_eligible_violations(
+    eligible: Eligibility | None, weights: Mapping[str, float]
+) -> list[dict[str, str]]:
+    """Violation records for the held names of ``weights`` the portfolio may not hold.
+
+    The one record shape the risk gate (``risk_check``) and the cockpit read-out both
+    report, so the two cannot disagree. Only a real holding counts: solver dust and a
+    zero weight are not held, so a name the allocator dropped does not block the book.
+
+    Args:
+        eligible: The run's resolved eligibility, or ``None`` when unrestricted.
+        weights: The ``{ticker: weight}`` vector being checked.
+
+    Returns:
+        One ``{type: "not_eligible", asset, reason}`` record per offending held ticker,
+        in the order ``weights`` holds them; empty when unrestricted or all allowed.
+    """
+    if eligible is None:
+        return []
+    return [
+        {"type": "not_eligible", "asset": ticker, "reason": reason}
+        for ticker, reason in eligible.offenders(held_tickers(weights)).items()
+    ]
+
+
 __all__ = [
     "ESG_UNCLASSIFIED",
     "NOT_IN_ALLOWLIST",
     "Eligibility",
+    "not_eligible_violations",
     "resolve_eligibility",
     "resolve_mandate_eligibility",
 ]

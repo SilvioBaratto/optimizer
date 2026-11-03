@@ -23,6 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from fund.agents.toolsets import _bounds_args, _optimizer_constraints
 from fund.config import DEFAULT_LOOKBACK_DAYS
 from fund.schemas import ConstraintSet
+from fund.tools.eligibility import not_eligible_violations, resolve_mandate_eligibility
 from fund.tools.mandate import constraint_set_breaches, held_tickers
 from fund.tools.optimize import optimize_portfolio
 from fund.tools.risk import backtest, risk_check
@@ -32,6 +33,9 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from sqlalchemy.orm import Session
+
+    from fund.schemas.mandate import PortfolioMandate
+    from fund.tools.eligibility import Eligibility
 
 
 @dataclass(frozen=True)
@@ -204,18 +208,45 @@ def compute_results(
     )
 
 
+def resolve_eligible(
+    session: Session,
+    mandate: PortfolioMandate | None,
+    asof: dt.date,
+    constraint_set: Mapping[str, Any] | None,
+) -> Eligibility | None:
+    """Resolve the mandate's allowlist for the read-out, under the recorded set.
+
+    The read-out replays the live gate, which resolves the allowlist from the current
+    mandate under the portfolio's ConstraintSet; here that set is the one recorded on
+    the allocator step. A recorded set that no longer validates leaves the ESG screen
+    off, since :func:`compute_risk` reports that failure itself.
+
+    Args:
+        session: An open read-only DB session.
+        mandate: The portfolio's current mandate, or ``None`` when it has none.
+        asof: The run's decision bar.
+        constraint_set: The recorded ``ConstraintSet.model_dump``.
+
+    Returns:
+        The resolved eligibility, or ``None`` when the portfolio is unrestricted.
+    """
+    cs, _ = _rehydrate(constraint_set)
+    return resolve_mandate_eligibility(session, mandate, asof, constraint_set=cs)
+
+
 def compute_risk(
     weights: Mapping[str, float],
     constraint_set: Mapping[str, Any] | None,
     sector_mapping: Mapping[str, str] | None = None,
     *,
     session: Session,
+    eligible: Eligibility | None = None,
 ) -> RiskCompute:
     """Recompute the risk read-out: the live ``risk_check`` verdict + sector exposures.
 
     Applies what the live gate applies: the bounds tightened to the K&E position cap
     and, on every held name, the ESG sector exclusions and K&E instrument restrictions
-    (an instrument it cannot classify fails closed).
+    (an instrument it cannot classify fails closed) and the eligible universe.
 
     Args:
         weights: The held allocation to check and roll up.
@@ -223,6 +254,9 @@ def compute_risk(
         sector_mapping: ``ticker -> sector``; ``None``/empty yields ``unavailable``.
         session: An open read-only DB session for the instrument screen; untouched
             when the constraint set carries no ESG or K&E restriction.
+        eligible: The portfolio's resolved eligibility (see :func:`resolve_eligible`),
+            resolved by the caller on its worker thread; a held name outside it is a
+            ``not_eligible`` violation, as in the live gate. ``None`` is unrestricted.
 
     Returns:
         A :class:`RiskCompute`. When ``risk_check`` returns ``ok=False``, the recorded
@@ -261,6 +295,9 @@ def compute_risk(
         if breaches:
             passed = False
             violations.extend(breaches)
+    if outside := not_eligible_violations(eligible, weights):
+        passed = False
+        violations.extend(outside)
     return RiskCompute(
         passed=passed,
         violations=tuple(violations),

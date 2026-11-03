@@ -249,6 +249,8 @@ _HARD = frozenset(
         "unclassified_sector",
         "leveraged_instrument",
         "complex_instrument",
+        # A holding outside the portfolio's eligible universe is equally forbidden.
+        "not_eligible",
         # Gate violations from ``risk_check``: a drawdown past the hard ceiling or
         # absolute stop, or one that could not be measured, blocks the allocation.
         "drawdown_nu2",
@@ -279,6 +281,8 @@ def risk_verdict(violations: list[dict[str, Any]]) -> RiskVerdict:
 def _violation_line(violation: Mapping[str, Any]) -> str:
     """One readable line for a ``risk_check`` violation (type, asset/target, value)."""
     kind = str(violation.get("type", "?"))
+    if kind == "not_eligible":
+        return f"{kind} · {violation.get('asset')} ({violation.get('reason')})"
     if kind == "budget":
         value = _pct2(violation.get("value"))
         return f"budget · {value} vs {_pct2(violation.get('target'))}"

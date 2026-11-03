@@ -4434,6 +4434,45 @@ async def test_deliberation_expand_renders_recomputed_risk_verdict(
 
 
 @pytest.mark.asyncio
+async def test_deliberation_risk_expand_resolves_the_mandates_allowlist_on_the_worker(
+    shell_env, monkeypatch
+) -> None:
+    """The read-out must show the same ``not_eligible`` verdict the gate persisted, so
+    the worker resolves the current mandate's allowlist and hands it to the compute."""
+    from fund import readouts_compute
+
+    captured: dict[str, Any] = {}
+
+    def _capture(*_args, **kwargs):
+        captured.update(kwargs)
+        return readouts_compute.RiskCompute(
+            passed=True, violations=(), sector_exposures=None, error=None
+        )
+
+    monkeypatch.setattr(readouts_compute, "compute_risk", _capture)
+    with shell_env.get_session() as session:
+        run_id = _seed_allocator_run(session)
+        MandateRepository(session).upsert(
+            make_mandate(_PID_A).model_copy(update={"eligible_tickers": ("AAA",)})
+        )
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_deliberation(app, pilot)
+        view.select_run(run_id)
+        await pilot.pause()
+        view.select_step(1)  # the risk step
+        await pilot.pause()
+        app.action_expand_readout()
+        await pilot.pause()
+        worker = app.last_worker
+        assert worker is not None
+        await worker.wait()
+        await pilot.pause()
+    assert captured["eligible"].barred == (("AAA", "no_instrument"),)
+
+
+@pytest.mark.asyncio
 async def test_deliberation_expand_replaces_recomputing_status_when_done(
     shell_env, monkeypatch
 ) -> None:

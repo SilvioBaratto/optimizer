@@ -402,3 +402,35 @@ def test_resolver_list_universe_and_mandate_screen_differ_on_an_unplaceable_sect
     assert resolved is not None
     assert resolved.barred == (("ODD.S", "esg_unclassified"),)
     assert breaches == []
+
+
+# --- the violation records the risk gate and the cockpit read-out share ---------
+
+
+def test_not_eligible_violations_name_every_held_outside_ticker_and_reason() -> None:
+    from fund.tools.eligibility import not_eligible_violations
+
+    eligibility = Eligibility(allowed=("A", "B"), barred=(("C", "delisted"),))
+
+    records = not_eligible_violations(
+        eligibility, {"A": 0.5, "C": 0.3, "Z": 0.2, "B": 0.0}
+    )
+
+    assert records == [
+        {"type": "not_eligible", "asset": "C", "reason": "delisted"},
+        {"type": "not_eligible", "asset": "Z", "reason": "not_in_allowlist"},
+    ]
+
+
+def test_not_eligible_violations_ignore_solver_dust_and_zero_weights() -> None:
+    from fund.tools.eligibility import not_eligible_violations
+
+    eligibility = Eligibility(allowed=("A",), barred=())
+
+    assert not_eligible_violations(eligibility, {"A": 1.0, "Z": 1e-9, "Y": 0.0}) == []
+
+
+def test_not_eligible_violations_are_empty_without_an_allowlist() -> None:
+    from fund.tools.eligibility import not_eligible_violations
+
+    assert not_eligible_violations(None, {"Z": 1.0}) == []

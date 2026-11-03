@@ -67,6 +67,7 @@ from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec
 from fund import tools as _tools
 from fund.config import DEFAULT_LOOKBACK_DAYS
 from fund.tools._base import ToolResult, err, ok, tool_envelope
+from fund.tools.eligibility import not_eligible_violations
 from fund.tools.mandate import HELD_TOL, constraint_set_breaches, held_tickers
 
 if TYPE_CHECKING:
@@ -144,17 +145,6 @@ def _ineligible(ctx: RunContext, tickers: Sequence[str]) -> ToolResult | None:
         "universe contains tickers outside the portfolio's eligible universe: "
         f"{_describe_barred(offenders.items())}; remove these names and retry"
     )
-
-
-def _held_ineligible(ctx: RunContext, weights: dict[str, float]) -> dict[str, str]:
-    """The held tickers of ``weights`` the portfolio may not hold, with the reason.
-
-    Only a real holding counts: solver dust and a zero weight are not held, so a
-    name the allocator dropped does not block the book.
-    """
-    if ctx.eligible is None:
-        return {}
-    return ctx.eligible.offenders(held_tickers(weights))
 
 
 @dataclass(frozen=True)
@@ -594,11 +584,7 @@ def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResul
         return result
     # A violation, not an error: an error would skip the persisted verdict, and
     # ``place_orders`` would then refuse with only "the risk gate has not passed".
-    outside = [
-        {"type": "not_eligible", "asset": ticker, "reason": reason}
-        for ticker, reason in _held_ineligible(ctx, weights).items()
-    ]
-    if not outside:
+    if not (outside := not_eligible_violations(ctx.eligible, weights)):
         return result
     data = result["data"]
     return ok({**data, "passed": False, "violations": [*data["violations"], *outside]})
@@ -729,11 +715,11 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
     audited = _audited_weights(ctx)
     # Checked first so the refusal names the real cause: a verdict that failed on an
     # ineligible name would otherwise surface as the unexplained "gate has not passed".
-    if outside := _held_ineligible(ctx, audited):
+    if outside := not_eligible_violations(ctx.eligible, audited):
         return err(
             "audited weights hold tickers outside the portfolio's eligible universe: "
-            f"{_describe_barred(outside.items())}; send the proposal back to the "
-            "allocator"
+            f"{_describe_barred((v['asset'], v['reason']) for v in outside)}; send "
+            "the proposal back to the allocator"
         )
     # The risk gate is blocking, not advisory: it is enforced here because prompt
     # text alone cannot stop a PM that skips the step or is steered past a failure.

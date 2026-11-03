@@ -23,6 +23,7 @@ from _fund_fakes import (
     classify_instruments,
     make_constraint_set,
     make_energy_exclusion_constraint_set,
+    make_mandate,
     seed_panel,
 )
 from portopt_db.models import Base
@@ -735,6 +736,121 @@ def test_compute_risk_fails_a_held_esg_excluded_name(priced_session: Session) ->
     assert [(v["type"], v["asset"]) for v in result.violations] == [
         ("esg_exclusion", "AAA")
     ]
+
+
+def _eligibility(allowed, barred=()):
+    from fund.tools.eligibility import Eligibility
+
+    return Eligibility(allowed=tuple(allowed), barred=tuple(barred))
+
+
+def test_compute_risk_fails_a_held_name_outside_the_eligible_universe(
+    priced_session: Session,
+) -> None:
+    """The gate persists a ``not_eligible`` violation; the cockpit must not read ok."""
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+        constraint_set,
+        None,
+        session=priced_session,
+        eligible=_eligibility(["AAA", "BBB"], [("CCC", "delisted")]),
+    )
+
+    assert result.passed is False
+    assert list(result.violations) == [
+        {"type": "not_eligible", "asset": "CCC", "reason": "delisted"}
+    ]
+
+
+def test_compute_risk_enforces_eligibility_without_a_constraint_set(
+    priced_session: Session,
+) -> None:
+    from fund.readouts_compute import compute_risk
+
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.5},
+        None,
+        None,
+        session=priced_session,
+        eligible=_eligibility(["AAA"]),
+    )
+
+    assert result.passed is False
+    assert [(v["type"], v["asset"]) for v in result.violations] == [
+        ("not_eligible", "BBB")
+    ]
+
+
+def test_compute_risk_without_an_allowlist_is_unchanged(
+    priced_session: Session,
+) -> None:
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+    weights = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+
+    with_none = compute_risk(
+        weights, constraint_set, None, session=priced_session, eligible=None
+    )
+    default = compute_risk(weights, constraint_set, None, session=priced_session)
+
+    assert with_none == default
+    assert with_none.passed is True
+
+
+def test_compute_risk_ignores_an_outside_name_held_at_zero(
+    priced_session: Session,
+) -> None:
+    from fund.readouts_compute import compute_risk
+
+    constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
+
+    result = compute_risk(
+        {"AAA": 0.5, "BBB": 0.5, "CCC": 0.0},
+        constraint_set,
+        None,
+        session=priced_session,
+        eligible=_eligibility(["AAA", "BBB"]),
+    )
+
+    assert result.passed is True
+    assert result.violations == ()
+
+
+def test_resolve_eligible_applies_the_mandate_allowlist_under_the_recorded_set(
+    priced_session: Session,
+) -> None:
+    from fund.readouts_compute import resolve_eligible
+
+    classify_instruments(
+        priced_session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Technology"}
+    )
+    mandate = make_mandate().model_copy(
+        update={"eligible_tickers": ("AAA", "BBB", "CCC")}
+    )
+
+    eligible = resolve_eligible(
+        priced_session, mandate, START + dt.timedelta(days=39), _energy_exclusion()
+    )
+
+    assert eligible is not None
+    assert eligible.allowed == ("BBB", "CCC")
+    assert eligible.barred == (("AAA", "esg:energy"),)
+
+
+def test_resolve_eligible_is_none_without_a_mandate_or_an_allowlist(
+    priced_session: Session,
+) -> None:
+    from fund.readouts_compute import resolve_eligible
+
+    asof = START + dt.timedelta(days=39)
+
+    assert resolve_eligible(priced_session, None, asof, None) is None
+    assert resolve_eligible(priced_session, make_mandate(), asof, None) is None
 
 
 def test_compute_risk_ignores_an_excluded_name_held_at_zero(

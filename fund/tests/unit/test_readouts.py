@@ -61,6 +61,16 @@ def test_risk_verdict_reads_a_mandate_screen_violation_as_a_breach(kind):
     assert verdict.label == "breach"
 
 
+def test_risk_verdict_reads_an_ineligible_holding_as_a_breach_and_says_why():
+    """The ``not_eligible`` violation is a hard stop, with its reason on the line."""
+    verdict = risk_verdict(
+        [{"type": "not_eligible", "asset": "CCC", "reason": "esg:energy"}]
+    )
+
+    assert verdict.label == "breach"
+    assert verdict.lines == ("not_eligible · CCC (esg:energy)",)
+
+
 def _results_compute() -> readouts_compute.ResultsCompute:
     """A recompute carrying realistic annualised, small-magnitude figures."""
     return readouts_compute.ResultsCompute(
