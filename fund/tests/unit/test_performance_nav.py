@@ -1207,6 +1207,13 @@ def test_resolve_benchmark_matches_a_stored_ticker_ignoring_case(db_session):
     assert performance.resolve_benchmark(db_session, "QQQ") is None
 
 
+def test_priced_tickers_keeps_only_those_with_a_stored_close(db_session):
+    _seed_usd_floats(db_session, {"SPY": dict.fromkeys(_DAYS, 500.0)})
+
+    assert performance.priced_tickers(db_session, ["SPY", "QQQ"]) == {"SPY"}
+    assert performance.priced_tickers(db_session, []) == set()
+
+
 def test_nav_series_warns_when_a_ticket_line_cannot_be_priced(db_session, caplog):
     """A line with no usable price is reported, not silently dropped from the book."""
     _seed_usd_floats(db_session, {"A": dict.fromkeys(_DAYS, 100.0)})

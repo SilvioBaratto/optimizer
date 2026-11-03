@@ -36,6 +36,8 @@ from fund.config import FundConfig, settings
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from portopt_db.models import HumanAuditLog
     from sqlalchemy.orm import Session
 
@@ -1076,6 +1078,71 @@ def _check_benchmark(session: Session, mandate: Any) -> tuple[Any, list[str]]:
     return mandate, []
 
 
+def _normalised_tickers(tickers: Iterable[str]) -> tuple[str, ...]:
+    """Strip, upper-case and de-duplicate in order, dropping blanks.
+
+    ``model_copy(update=...)`` skips the mandate's validators, so a list reaching a
+    save cannot be assumed normalised.
+    """
+    return tuple(
+        dict.fromkeys(t for raw in tickers if (t := raw.strip().upper()) != "")
+    )
+
+
+def _check_eligible(session: Session, mandate: Any) -> list[str]:
+    """One warning naming the eligible tickers that have no priced instrument.
+
+    The allowlist is saved anyway: onboarding sets the mandate first and adds the
+    instrument second, so a hard error would block the documented order. The
+    resolver bars such a name at run time (``not_priced`` / ``no_instrument``), and
+    this tells the adviser before then.
+    """
+    tickers = _normalised_tickers(mandate.eligible_tickers)
+    if not tickers:
+        return []
+    from fund.performance import priced_tickers
+
+    priced = priced_tickers(session, tickers)
+    unpriced = [t for t in tickers if t not in priced]
+    if not unpriced:
+        return []
+    warning = (
+        f"eligible tickers without a priced instrument: {', '.join(unpriced)}; "
+        "they stay barred from the portfolio until prices are loaded "
+        "(portopt add-instrument)"
+    )
+    logger.warning("actions: %s", warning)
+    return [warning]
+
+
+def _check_mandate(session: Session, mandate: Any) -> tuple[Any, list[str]]:
+    """Canonicalise the benchmark and collect every warning a mandate save reports."""
+    checked, warnings = _check_benchmark(session, mandate)
+    return checked, [*warnings, *_check_eligible(session, checked)]
+
+
+def _sync_pins(session: Session, mandate: Any) -> None:
+    """Make the portfolio's ``mandate:<id>`` pins equal its eligible tickers.
+
+    Without the pins the weekly universe build can delist a hand-added instrument
+    and the resolver would then bar it. Idempotent, so the save that every co-pilot
+    directive triggers re-syncs harmlessly, and it only flushes: the caller owns the
+    transaction. It writes no audit row of its own; the saved mandate JSON that the
+    audit row carries already records ``eligible_tickers``.
+
+    Known limits: a replayed idempotent action returns before reaching the save, so it
+    does not re-sync; code that calls ``MandateRepository.upsert`` directly bypasses it.
+    """
+    from portopt_db.repositories.universe.pinned_instrument_repository import (
+        PinnedInstrumentRepository,
+    )
+
+    source = f"mandate:{uuid.UUID(mandate.portfolio_id)}"
+    PinnedInstrumentRepository(session).replace_pins(
+        source, _normalised_tickers(mandate.eligible_tickers)
+    )
+
+
 def _with_warnings(message: str, warnings: list[str]) -> str:
     return "; ".join([message, *(f"warning: {w}" for w in warnings)])
 
@@ -1101,8 +1168,9 @@ def _apply_mandate_edit(
         raise ValueError("'mandate_edit' requires a mandate")
     from fund.audit.mandate_repository import MandateRepository
 
-    checked, warnings = _check_benchmark(session, mandate)
+    checked, warnings = _check_mandate(session, mandate)
     MandateRepository(session).upsert(checked)
+    _sync_pins(session, checked)
     pid = portfolio_id if portfolio_id is not None else uuid.UUID(checked.portfolio_id)
     row = _append_audit(
         session,
@@ -1195,8 +1263,9 @@ def _apply_new_portfolio(
         raise ValueError("'new_portfolio' requires a mandate")
     from fund.audit.mandate_repository import MandateRepository
 
-    checked, warnings = _check_benchmark(session, mandate)
+    checked, warnings = _check_mandate(session, mandate)
     MandateRepository(session).upsert(checked)
+    _sync_pins(session, checked)
     pid = portfolio_id if portfolio_id is not None else uuid.UUID(checked.portfolio_id)
     row = _append_audit(
         session,

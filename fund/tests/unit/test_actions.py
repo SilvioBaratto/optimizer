@@ -47,9 +47,13 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import Base, FundAutonomyState, PaperOrder
 from portopt_db.models.market_data.yfinance_data import PriceHistory
+from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Exchange, Instrument
+from portopt_db.repositories.universe.pinned_instrument_repository import (
+    PinnedInstrumentRepository,
+)
 from pydantic import Field
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -920,6 +924,187 @@ def test_a_benchmark_with_no_price_history_is_saved_with_a_warning(
     stored = observe.get_mandate(clean_db, PORTFOLIO_ID)
     assert stored is not None
     assert stored.benchmark == "SPY"
+
+
+def _pins(session) -> dict[str, set[str]]:
+    """``{source: {ticker}}`` for every row of ``pinned_instruments``."""
+    pins: dict[str, set[str]] = {}
+    for row in session.execute(select(PinnedInstrument)).scalars():
+        pins.setdefault(row.source, set()).add(row.ticker)
+    return pins
+
+
+@pytest.mark.parametrize("action", ["mandate_edit", "new_portfolio"])
+def test_unpriced_eligible_tickers_are_saved_with_one_aggregated_warning(
+    clean_db, action
+) -> None:
+    """Onboarding adds the mandate first and the instrument second, so it warns."""
+    seed_panel(clean_db)
+    proposed = make_mandate().model_copy(
+        update={"eligible_tickers": ("AAA", "NEWETF.L", "OTHER.DE")}
+    )
+
+    result = apply_action(
+        action, session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+    clean_db.commit()
+
+    assert result.detail is not None
+    (warning,) = result.detail["warnings"]
+    assert "NEWETF.L" in warning
+    assert "OTHER.DE" in warning
+    assert "AAA" not in warning
+    assert "NEWETF.L" in result.message
+    stored = observe.get_mandate(clean_db, PORTFOLIO_ID)
+    assert stored is not None
+    assert stored.eligible_tickers == ("AAA", "NEWETF.L", "OTHER.DE")
+
+
+def test_priced_eligible_tickers_raise_no_warning(clean_db) -> None:
+    seed_panel(clean_db)
+    proposed = make_mandate().model_copy(update={"eligible_tickers": ("AAA", "BBB")})
+
+    result = apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+
+    assert not (result.detail or {}).get("warnings")
+
+
+def test_unpriced_benchmark_and_eligible_tickers_each_get_a_warning(clean_db) -> None:
+    seed_panel(clean_db)
+    proposed = make_mandate().model_copy(
+        update={"benchmark": "SPY", "eligible_tickers": ("NEWETF.L",)}
+    )
+
+    result = apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+
+    assert result.detail is not None
+    benchmark_warning, eligible_warning = result.detail["warnings"]
+    assert "SPY" in benchmark_warning
+    assert "NEWETF.L" in eligible_warning
+
+
+@pytest.mark.parametrize("action", ["mandate_edit", "new_portfolio"])
+def test_a_mandate_save_pins_exactly_the_eligible_tickers(clean_db, action) -> None:
+    proposed = make_mandate().model_copy(
+        update={"eligible_tickers": ("AAA", "NEWETF.L")}
+    )
+
+    apply_action(action, session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed)
+    clean_db.commit()
+
+    assert _pins(clean_db) == {f"mandate:{PORTFOLIO_ID}": {"AAA", "NEWETF.L"}}
+
+
+def test_removing_a_ticker_unpins_only_that_ticker_and_only_this_portfolio(
+    clean_db,
+) -> None:
+    other = uuid.uuid4()
+    PinnedInstrumentRepository(clean_db).pin("AAA", f"mandate:{other}")
+    PinnedInstrumentRepository(clean_db).pin("AAA", "manual")
+    first = make_mandate().model_copy(update={"eligible_tickers": ("AAA", "BBB")})
+    apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=first
+    )
+
+    second = first.model_copy(update={"eligible_tickers": ("AAA",)})
+    apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=second
+    )
+    clean_db.commit()
+
+    assert _pins(clean_db) == {
+        f"mandate:{PORTFOLIO_ID}": {"AAA"},
+        f"mandate:{other}": {"AAA"},
+        "manual": {"AAA"},
+    }
+
+
+def test_clearing_the_allowlist_releases_every_pin_of_the_portfolio(clean_db) -> None:
+    first = make_mandate().model_copy(update={"eligible_tickers": ("AAA", "BBB")})
+    apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=first
+    )
+
+    apply_action(
+        "mandate_edit",
+        session=clean_db,
+        portfolio_id=PORTFOLIO_ID,
+        mandate=first.model_copy(update={"eligible_tickers": ()}),
+    )
+    clean_db.commit()
+
+    assert _pins(clean_db) == {}
+
+
+def test_saving_the_same_allowlist_twice_changes_no_pin(clean_db) -> None:
+    proposed = make_mandate().model_copy(update={"eligible_tickers": ("AAA", "BBB")})
+    apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+    clean_db.commit()
+    before = {
+        (r.ticker, r.source, r.id)
+        for r in clean_db.execute(select(PinnedInstrument)).scalars()
+    }
+
+    apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+    clean_db.commit()
+
+    after = {
+        (r.ticker, r.source, r.id)
+        for r in clean_db.execute(select(PinnedInstrument)).scalars()
+    }
+    assert after == before
+
+
+def test_the_pin_sync_renormalises_a_list_that_skipped_the_validators(
+    clean_db,
+) -> None:
+    """``model_copy(update=...)`` skips validation, so the list is not trusted."""
+    proposed = make_mandate().model_copy(
+        update={"eligible_tickers": (" aaa ", "AAA", "")}
+    )
+
+    apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+
+    assert _pins(clean_db) == {f"mandate:{PORTFOLIO_ID}": {"AAA"}}
+
+
+def test_the_pin_sync_adds_no_audit_row(clean_db) -> None:
+    proposed = make_mandate().model_copy(update={"eligible_tickers": ("AAA",)})
+
+    apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+    clean_db.commit()
+
+    assert len(HumanAuditLogRepository(clean_db).list_recent()) == 1
+
+
+def test_a_pin_revives_a_delisted_instrument_of_the_allowlist(clean_db) -> None:
+    seed_panel(clean_db)
+    instrument = clean_db.execute(
+        select(Instrument).where(Instrument.yfinance_ticker == "AAA")
+    ).scalar_one()
+    instrument.delisted_at = dt.date(2026, 1, 1)
+    clean_db.flush()
+    proposed = make_mandate().model_copy(update={"eligible_tickers": ("AAA",)})
+
+    apply_action(
+        "mandate_edit", session=clean_db, portfolio_id=PORTFOLIO_ID, mandate=proposed
+    )
+    clean_db.commit()
+
+    clean_db.refresh(instrument)
+    assert instrument.delisted_at is None
 
 
 def test_mandate_edit_rejects_a_base_currency_change_once_nav_exists(clean_db) -> None:

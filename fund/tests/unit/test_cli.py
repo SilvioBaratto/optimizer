@@ -1208,6 +1208,20 @@ def test_mandate_set_warns_about_a_benchmark_it_cannot_price(harness) -> None:
     assert _stored_mandate(harness).benchmark == "SPY"
 
 
+def test_mandate_set_warns_about_an_eligible_ticker_it_cannot_price(harness) -> None:
+    _seed(harness)
+
+    res = harness.runner.invoke(
+        cli.app,
+        [*_mandate_set_args("AAA"), "--eligible", "AAA", "--eligible", "NEWETF.L"],
+    )
+
+    assert res.exit_code == 0, res.output
+    assert "warning" in res.output.lower()
+    assert "NEWETF.L" in res.output
+    assert _stored_mandate(harness).eligible_tickers == ("AAA", "NEWETF.L")
+
+
 def test_mandate_set_stores_a_known_benchmark_in_its_canonical_case(harness) -> None:
     _seed(harness)
 

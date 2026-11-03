@@ -333,6 +333,24 @@ def resolve_benchmark(session: Any, benchmark: str) -> str | None:
     return None
 
 
+def priced_tickers(session: Any, tickers: Iterable[str]) -> set[str]:
+    """The ``tickers`` that name an instrument with at least one stored close.
+
+    The same lookup the screening gate and the NAV mark use, so a ticker reported
+    unpriced here is one those would skip. Case is exact: Yahoo symbols are stored
+    upper case and callers normalise before asking.
+
+    Args:
+        session: Open SQLAlchemy session.
+        tickers: yfinance tickers to test.
+
+    Returns:
+        The subset with price history; empty when none (or no ticker) qualifies.
+    """
+    prices, _ = _load_price_frame(session, list(dict.fromkeys(tickers)), newest=1)
+    return {str(ticker) for ticker in prices.columns}
+
+
 def _load_fx_rates_frame(
     session: Any,
     base: str,
