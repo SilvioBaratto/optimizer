@@ -7,19 +7,25 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import yfinance as yf
+from yfinance.exceptions import YFDataException
 
 from .._base import fetch_with_resilience
 from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
+from .feed_health import TickerFeedHealth
 
 logger = logging.getLogger(__name__)
+
+TICKER_FEED_HEALTH = TickerFeedHealth()
 
 
 def _search_news(symbol: str, count: int) -> list[dict[str, Any]]:
     """Fetch articles from Yahoo's search endpoint.
 
     ``Ticker.news`` requests ``/xhr/ncp``, which Yahoo now answers with 404, so it
-    returns an empty list for every symbol. The search endpoint still serves the
-    same flat article shape (``uuid``/``link``/``providerPublishTime``).
+    yields nothing for every symbol: an empty list, or a raised
+    ``YFDataException`` when the error page carries yfinance's "right back" text.
+    The search endpoint still serves the same flat article shape
+    (``uuid``/``link``/``providerPublishTime``).
     """
     return list(yf.Search(symbol, max_results=0, news_count=count).news or [])
 
@@ -28,20 +34,44 @@ def fetch_yahoo_news(
     symbol: str,
     yf_client: YFinanceClientProtocol,
     count: int = 10,
+    *,
+    feed: TickerFeedHealth | None = None,
 ) -> list[dict[str, Any]] | None:
     """Fetch a ticker's news, falling back to the search endpoint.
+
+    The search endpoint is used when the ticker feed is empty and also when it
+    fails with ``YFDataException``, the error yfinance raises for any non-JSON
+    answer, including the 404 page of the retired route. After repeated failures
+    the feed is skipped for a while so a sweep does not pay for a dead route on
+    every ticker. Rate limits and network errors are not caught: they belong to the
+    caller's retry and circuit-breaker logic.
 
     Args:
         symbol: Yahoo Finance ticker symbol.
         yf_client: Client used to obtain the ``Ticker`` object.
         count: Maximum articles requested from the search fallback.
+        feed: Memory of whether the ticker feed answers; defaults to the
+            process-wide :data:`TICKER_FEED_HEALTH`.
 
     Returns:
-        Article dicts from the ticker feed, else from search. When both are
-        empty, the ticker feed's own empty value (``[]`` or ``None``) is
-        returned so callers keep seeing the signal they always did.
+        Article dicts from the ticker feed, else from search. When both come back
+        empty, the ticker feed's own empty value (``[]`` or ``None``) is returned
+        so callers keep seeing the signal they always did; ``None`` when the feed
+        failed.
+
+    Raises:
+        YFDataException: The search fallback failed as well.
     """
-    news = yf_client.get_ticker(symbol).news
+    health = feed if feed is not None else TICKER_FEED_HEALTH
+    news: list[dict[str, Any]] | None = None
+    if health.allows_request():
+        try:
+            news = yf_client.get_ticker(symbol).news
+        except YFDataException as exc:
+            health.record_failure()
+            logger.debug("ticker news feed failed for %s: %s", symbol, exc)
+        else:
+            health.record_success()
     if news:
         return news
     return _search_news(symbol, count) or news
