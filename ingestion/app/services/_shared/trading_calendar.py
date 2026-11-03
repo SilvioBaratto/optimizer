@@ -28,6 +28,27 @@ EXCHANGE_NAME_TO_MIC = {
     "SIX Swiss Exchange": "XSWX",
     "Wiener Börse": "XWBO",
     "Toronto Stock Exchange": "XTSE",
+    "Tokyo Stock Exchange": "XTKS",
+    "Australian Securities Exchange": "XASX",
+    "Hong Kong Stock Exchange": "XHKG",
+    "Shanghai Stock Exchange": "XSHG",
+    "Taiwan Stock Exchange": "XTAI",
+    "Taipei Exchange": "XTAI",
+    "Korea Exchange": "XKRX",
+    "KOSDAQ": "XKRX",
+    "Singapore Exchange": "XSES",
+    "Bolsa Mexicana de Valores": "XMEX",
+    "B3 Brasil Bolsa Balcão": "BVMF",
+    "Tel Aviv Stock Exchange": "XTAE",
+    "Nasdaq Copenhagen": "XCSE",
+    "Nasdaq Stockholm": "XSTO",
+    "Nasdaq Helsinki": "XHEL",
+    "Oslo Børs": "XOSL",
+    # exchange_calendars has no calendar of its own for these: Shenzhen follows the
+    # Shanghai sessions, Cboe Canada the TSX holidays and OTC Markets the NYSE's.
+    "Shenzhen Stock Exchange": "XSHG",
+    "Cboe Canada": "XTSE",
+    "OTC Markets": "XNYS",
 }
 
 _UNMAPPED_LOGGED: set[str] = set()

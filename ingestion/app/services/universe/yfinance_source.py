@@ -105,6 +105,31 @@ _CODE_TO_CONFIG_NAME: dict[str, str] = {
     "MAD": "Bolsa de Madrid",
     # Canada
     "TOR": "Toronto Stock Exchange",
+    "NEO": "Cboe Canada",
+    # Asia-Pacific
+    "JPX": "Tokyo Stock Exchange",
+    "ASX": "Australian Securities Exchange",
+    "HKG": "Hong Kong Stock Exchange",
+    "SHH": "Shanghai Stock Exchange",
+    "SHZ": "Shenzhen Stock Exchange",
+    "TAI": "Taiwan Stock Exchange",
+    "TWO": "Taipei Exchange",
+    "KSC": "Korea Exchange",
+    "KOE": "KOSDAQ",
+    "SES": "Singapore Exchange",
+    # Latin America / Israel
+    "MEX": "Bolsa Mexicana de Valores",
+    "SAO": "B3 Brasil Bolsa Balcão",
+    "TLV": "Tel Aviv Stock Exchange",
+    # Nordics
+    "CPH": "Nasdaq Copenhagen",
+    "STO": "Nasdaq Stockholm",
+    "HEL": "Nasdaq Helsinki",
+    "OSL": "Oslo Børs",
+    # US over-the-counter (foreign ordinaries and ADRs)
+    "PNK": "OTC Markets",
+    "OQB": "OTC Markets",
+    "OQX": "OTC Markets",
 }
 
 
@@ -159,6 +184,27 @@ _CODE_TO_REGION: dict[str, str] = {
     "MCE": "es",
     "MAD": "es",
     "TOR": "ca",
+    "NEO": "ca",
+    "JPX": "jp",
+    "ASX": "au",
+    "HKG": "hk",
+    "SHH": "cn",
+    "SHZ": "cn",
+    "TAI": "tw",
+    "TWO": "tw",
+    "KSC": "kr",
+    "KOE": "kr",
+    "SES": "sg",
+    "MEX": "mx",
+    "SAO": "br",
+    "TLV": "il",
+    "CPH": "dk",
+    "STO": "se",
+    "HEL": "fi",
+    "OSL": "no",
+    "PNK": "us",
+    "OQB": "us",
+    "OQX": "us",
 }
 
 
@@ -186,6 +232,30 @@ _EXCHANGE_PREF: tuple[str, ...] = (
     "IOB",
     "MUN",
     "MAD",
+    # Added venues rank after the original ones, so a tie on liquidity never
+    # moves an incumbent line; OTC comes last because a depositary line is the
+    # secondary listing of its home-venue entity.
+    "JPX",
+    "HKG",
+    "ASX",
+    "SHH",
+    "SHZ",
+    "TAI",
+    "KSC",
+    "SES",
+    "TWO",
+    "KOE",
+    "CPH",
+    "STO",
+    "HEL",
+    "OSL",
+    "MEX",
+    "SAO",
+    "TLV",
+    "NEO",
+    "PNK",
+    "OQX",
+    "OQB",
 )
 
 

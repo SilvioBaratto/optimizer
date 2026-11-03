@@ -5,7 +5,7 @@ Ingestion applies no investability filtering, so this config carries no size /
 price / liquidity / history thresholds. The universe scope is exactly the set of
 exchanges in ``yahoo_suffix_map`` — an instrument is discoverable iff its exchange
 has a Yahoo suffix here (so every persisted row can resolve a real yfinance
-ticker). Unmapped venues (e.g. OTC Markets) are skipped entirely.
+ticker). Unmapped venues are skipped entirely.
 """
 
 from dataclasses import dataclass, field
@@ -35,6 +35,25 @@ class UniverseBuilderConfig:
             "SIX Swiss Exchange": ".SW",
             "Wiener Börse": ".VI",
             "Toronto Stock Exchange": ".TO",
+            "Cboe Canada": ".NE",
+            "Tokyo Stock Exchange": ".T",
+            "Australian Securities Exchange": ".AX",
+            "Hong Kong Stock Exchange": ".HK",
+            "Shanghai Stock Exchange": ".SS",
+            "Shenzhen Stock Exchange": ".SZ",
+            "Taiwan Stock Exchange": ".TW",
+            "Taipei Exchange": ".TWO",
+            "Korea Exchange": ".KS",
+            "KOSDAQ": ".KQ",
+            "Singapore Exchange": ".SI",
+            "Bolsa Mexicana de Valores": ".MX",
+            "B3 Brasil Bolsa Balcão": ".SA",
+            "Tel Aviv Stock Exchange": ".TA",
+            "Nasdaq Copenhagen": ".CO",
+            "Nasdaq Stockholm": ".ST",
+            "Nasdaq Helsinki": ".HE",
+            "Oslo Børs": ".OL",
+            "OTC Markets": "",
         }
     )
 
