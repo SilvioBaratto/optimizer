@@ -1930,6 +1930,149 @@ def test_place_orders_refuses_weights_that_breach_the_current_mandate(
     )
 
 
+# --- held names outside the eligible universe: a violation, then a hard refusal ---
+
+
+def _with_eligibility(ctx: RunContext, *, allowed, barred=()) -> RunContext:
+    from fund.tools.eligibility import Eligibility
+
+    return dataclasses.replace(
+        ctx, eligible=Eligibility(allowed=tuple(allowed), barred=tuple(barred))
+    )
+
+
+def _eligible_risk_check(
+    db_session, weights: dict[str, float], *, with_constraint_set: bool = True
+) -> tuple[dict, RunContext]:
+    _seed_panel(db_session)
+    store = _store_with_cs(_constraint_set()) if with_constraint_set else None
+    ctx = _with_eligibility(
+        _make_context(db_session, store=store),
+        allowed=["AAA", "BBB"],
+        barred=[("CCC", "delisted")],
+    )
+    _audit_proposal(ctx, weights)
+    return _find(bind_toolset("risk", ctx), "risk_check").invoke({}), ctx
+
+
+def test_risk_check_fails_a_held_name_outside_the_eligible_universe(db_session) -> None:
+    result, ctx = _eligible_risk_check(db_session, _WEIGHTS)
+
+    assert result["ok"] is True
+    assert result["data"]["passed"] is False
+    (violation,) = result["data"]["violations"]
+    assert violation == {"type": "not_eligible", "asset": "CCC", "reason": "delisted"}
+    # The verdict is persisted, so the approval gate shows why and place_orders can
+    # require it.
+    gate = AgentRunRepository(db_session).risk_gate(ctx.run_id, _WEIGHTS)
+    assert gate["status"] == "failed"
+    assert gate["violations"] == [violation]
+
+
+def test_risk_check_reports_an_unlisted_held_name_as_not_in_the_allowlist(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    ctx = _with_eligibility(
+        _make_context(db_session, store=_store_with_cs(_constraint_set())),
+        allowed=["AAA", "BBB"],
+    )
+    _audit_proposal(ctx, _WEIGHTS)
+
+    result = _find(bind_toolset("risk", ctx), "risk_check").invoke({})
+
+    (violation,) = result["data"]["violations"]
+    assert violation["reason"] == "not_in_allowlist"
+
+
+def test_eligibility_is_enforced_without_a_constraint_set(db_session) -> None:
+    result, _ = _eligible_risk_check(db_session, _WEIGHTS, with_constraint_set=False)
+
+    assert result["ok"] is True
+    assert result["data"]["passed"] is False
+    assert [v["type"] for v in result["data"]["violations"]] == ["not_eligible"]
+
+
+def test_risk_check_ignores_an_outside_name_held_at_zero(db_session) -> None:
+    result, _ = _eligible_risk_check(db_session, {"AAA": 0.6, "BBB": 0.4, "CCC": 0.0})
+
+    assert result["ok"] is True
+    assert result["data"]["passed"] is True
+    assert result["data"]["violations"] == []
+
+
+def test_risk_check_passes_weights_held_inside_the_allowlist(db_session) -> None:
+    result, _ = _eligible_risk_check(db_session, {"AAA": 0.6, "BBB": 0.4})
+
+    assert result["data"]["passed"] is True
+
+
+def test_place_orders_refuses_an_outside_name_even_behind_a_stale_pass(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    store = _store_with_cs(_constraint_set())
+    ctx = _make_context(db_session, store=store)
+    _audit_proposal(ctx, _WEIGHTS)
+    # A stale pass: the risk gate cleared the vector before the allowlist narrowed.
+    assert _find(bind_toolset("risk", ctx), "risk_check").invoke({})["data"]["passed"]
+    narrowed = _with_eligibility(ctx, allowed=["AAA", "BBB"])
+    place = _find(bind_toolset("orchestrator", narrowed), "place_orders")
+
+    result = place.invoke({})
+
+    assert result["ok"] is False
+    assert "eligible universe" in result["error"]
+    assert "CCC (not_in_allowlist)" in result["error"]
+    assert (
+        db_session.execute(
+            select(AgentDecision).where(AgentDecision.agent == "executor")
+        )
+        .scalars()
+        .all()
+        == []
+    )
+
+
+def test_place_orders_names_the_eligibility_failure_rather_than_the_risk_gate(
+    db_session,
+) -> None:
+    result_check, ctx = _eligible_risk_check(db_session, _WEIGHTS)
+    assert result_check["data"]["passed"] is False
+    place = _find(bind_toolset("orchestrator", ctx), "place_orders")
+
+    result = place.invoke({})
+
+    assert result["ok"] is False
+    assert "eligible universe" in result["error"]
+    assert "risk gate" not in result["error"]
+
+
+def test_place_orders_places_weights_held_inside_the_eligible_universe(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    ctx = _with_eligibility(
+        _make_context(db_session, store=_store_with_cs(_constraint_set())),
+        allowed=["AAA", "BBB", "CCC"],
+    )
+    _audit_proposal(ctx, _WEIGHTS)
+    assert _find(bind_toolset("risk", ctx), "risk_check").invoke({})["data"]["passed"]
+
+    result = _find(bind_toolset("orchestrator", ctx), "place_orders").invoke({})
+
+    assert result["ok"] is True
+
+
+def test_risk_check_and_place_orders_tell_the_model_about_eligibility(
+    db_session,
+) -> None:
+    ctx = _make_context(db_session)
+    for role, name in (("risk", "risk_check"), ("orchestrator", "place_orders")):
+        description = " ".join(_find(bind_toolset(role, ctx), name).description.split())
+        assert "eligible universe" in description, name
+
+
 # --- one Session shared by every bound tool of a run ------------------------
 
 

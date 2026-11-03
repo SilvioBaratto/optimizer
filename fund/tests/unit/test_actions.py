@@ -741,6 +741,50 @@ def test_edit_without_a_persisted_mandate_binds_no_eligibility(
     assert [c.eligible for c in contexts] == [None]
 
 
+def _narrow_the_allowlist_to(env, tickers) -> None:
+    """The mandate stops listing a name the paused run's allocator proposed."""
+    with env.get_session() as session:
+        MandateRepository(session).upsert(
+            make_mandate().model_copy(update={"eligible_tickers": tuple(tickers)})
+        )
+        session.commit()
+
+
+def test_edit_into_a_name_outside_the_eligible_universe_is_rejected_and_commits_nothing(
+    paused_env,
+) -> None:
+    """The adviser removed CCC from the allowlist after the proposal; an edit that
+    still holds it is refused up front, exactly like any other risk breach."""
+    env = paused_env
+    _narrow_the_allowlist_to(env, ("AAA", "BBB"))
+
+    _assert_edit_refused_and_run_still_paused(env, {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3})
+
+
+def test_edit_that_drops_the_name_outside_the_eligible_universe_goes_through(
+    paused_env,
+) -> None:
+    env = paused_env
+    _narrow_the_allowlist_to(env, ("AAA", "BBB"))
+
+    with env.get_session() as session:
+        result = apply_action(
+            "edit",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            new_value={"AAA": 0.6, "BBB": 0.4, "CCC": 0.0},
+        )
+        session.commit()
+
+    assert result.action == "edit"
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "completed"
+
+
 def test_edit_requires_a_run_id(db_session) -> None:
     """Edit without a ``run_id`` raises before touching the DB."""
     with pytest.raises(ValueError, match="requires a run_id"):

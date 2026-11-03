@@ -146,6 +146,17 @@ def _ineligible(ctx: RunContext, tickers: Sequence[str]) -> ToolResult | None:
     )
 
 
+def _held_ineligible(ctx: RunContext, weights: dict[str, float]) -> dict[str, str]:
+    """The held tickers of ``weights`` the portfolio may not hold, with the reason.
+
+    Only a real holding counts: solver dust and a zero weight are not held, so a
+    name the allocator dropped does not block the book.
+    """
+    if ctx.eligible is None:
+        return {}
+    return ctx.eligible.offenders(held_tickers(weights))
+
+
 @dataclass(frozen=True)
 class RunContext:
     """Immutable per-run binding context for the toolset closures.
@@ -246,7 +257,12 @@ def _describe_breaches(breaches: list[dict[str, Any]]) -> str:
     """A one-line, model-readable summary of structured mandate breaches."""
     parts = []
     for breach in breaches:
-        detail = breach.get("sector") or breach.get("instrument_type") or ""
+        detail = (
+            breach.get("sector")
+            or breach.get("instrument_type")
+            or breach.get("reason")
+            or ""
+        )
         parts.append(
             f"{breach['asset']} ({breach['type']}{': ' + detail if detail else ''})"
         )
@@ -531,9 +547,11 @@ def _risk_gate_summary(ctx: RunContext, weights: dict[str, float]) -> dict[str, 
     return AgentRunRepository(ctx.session).risk_gate(ctx.run_id, weights)
 
 
-@tool_envelope
-@_serialised
-def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
+def _check_weights_against_constraint_set(
+    ctx: RunContext, weights: dict[str, float]
+) -> ToolResult:
+    """The risk verdict on ``weights`` under the run's ConstraintSet (bounds only
+    without one)."""
     cs = _resolve_constraint_set(ctx)
     if cs is None:
         return _tools.risk_check(weights)
@@ -566,6 +584,24 @@ def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResul
             "violations": [*data["violations"], *breaches],
         }
     return ok(data)
+
+
+@tool_envelope
+@_serialised
+def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
+    result = _check_weights_against_constraint_set(ctx, weights)
+    if not result.get("ok"):
+        return result
+    # A violation, not an error: an error would skip the persisted verdict, and
+    # ``place_orders`` would then refuse with only "the risk gate has not passed".
+    outside = [
+        {"type": "not_eligible", "asset": ticker, "reason": reason}
+        for ticker, reason in _held_ineligible(ctx, weights).items()
+    ]
+    if not outside:
+        return result
+    data = result["data"]
+    return ok({**data, "passed": False, "violations": [*data["violations"], *outside]})
 
 
 @tool_envelope
@@ -691,6 +727,14 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
     from fund.audit import AgentRunRepository
 
     audited = _audited_weights(ctx)
+    # Checked first so the refusal names the real cause: a verdict that failed on an
+    # ineligible name would otherwise surface as the unexplained "gate has not passed".
+    if outside := _held_ineligible(ctx, audited):
+        return err(
+            "audited weights hold tickers outside the portfolio's eligible universe: "
+            f"{_describe_barred(outside.items())}; send the proposal back to the "
+            "allocator"
+        )
     # The risk gate is blocking, not advisory: it is enforced here because prompt
     # text alone cannot stop a PM that skips the step or is steered past a failure.
     if audited and not AgentRunRepository(ctx.session).risk_passed(ctx.run_id, audited):
@@ -901,7 +945,9 @@ def _bind_risk_check(ctx: RunContext) -> BaseTool:
     def risk_check() -> ToolResult:
         """Validate the allocator's latest audited proposal against the run's risk
         profile: weight bounds and position cap, ESG sector exclusions and low-K&E
-        instrument restrictions on every held name. Takes no weights: the optimizer's
+        instrument restrictions on every held name, and any held name outside the
+        portfolio's eligible universe (a ``not_eligible`` violation with its
+        ``reason``). Takes no weights: the optimizer's
         audited vector is checked, so the verdict covers exactly what would be placed.
         Returns the ``{ok, data}`` envelope with ``passed`` and structured
         ``violations``."""
@@ -937,8 +983,9 @@ def _bind_place_orders(ctx: RunContext) -> BaseTool:
         proposal, filled at the next close after the run date. Takes no weights. This
         call is what pauses the run for the human adviser's approval, so call it once
         and do not wait for approval or ask for it in text first; it is refused unless
-        the risk gate has passed that proposal. Returns the ``{ok, data}`` envelope
-        with the order ticket."""
+        the risk gate has passed that proposal, and refused outright if the proposal
+        holds a name outside the portfolio's eligible universe. Returns the
+        ``{ok, data}`` envelope with the order ticket."""
         return _place_orders_impl(ctx)
 
     return place_orders
