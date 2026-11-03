@@ -344,11 +344,129 @@ def test_run_start_writes_empty_scheduler_env_when_unconfigured(
     assert patched["env_scheduler_path"].read_text(encoding="utf-8") == ""
 
 
-def test_run_start_brings_up_fund_and_ingestion(patched: dict) -> None:
-    """run_start brings up BOTH the fund engine and the persistent ingestion daemon
-    (every compose service is profile-gated, so a bare `up` would start nothing)."""
+def _configure_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    config: dict[str, object],
+    secrets: dict[str, str],
+) -> None:
+    monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: dict(config))
+    monkeypatch.setattr(
+        lifecycle.secret_store, "load_secrets", lambda passphrase, **kw: dict(secrets)
+    )
+
+
+def test_run_start_brings_up_fund_and_ingestion_when_an_llm_is_configured(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With an LLM backend run_start brings up BOTH the fund engine and the
+    persistent ingestion daemon (every compose service is profile-gated, so a bare
+    `up` would start nothing)."""
+    _configure_llm(monkeypatch, config={}, secrets={"ollama_api_key": "k"})
     lifecycle.run_start("pw")
     assert patched["build_profiles"] == ("fund", "ingestion")
+
+
+def test_run_start_with_a_local_ollama_brings_up_the_fund_without_a_key(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A keyless local backend is a configured one."""
+    _configure_llm(
+        monkeypatch,
+        config={"llm_provider": "ollama", "llm_base_url": "http://localhost:11434"},
+        secrets={},
+    )
+    lifecycle.run_start("pw")
+    assert patched["build_profiles"] == ("fund", "ingestion")
+
+
+def test_run_start_skips_the_fund_when_no_llm_is_configured(patched: dict) -> None:
+    """The fund worker cannot build its model without a backend, so its container
+    would never turn healthy and `up --wait` would hang on it. The data pipeline
+    still comes up."""
+    lifecycle.run_start("pw")
+    assert patched["build_profiles"] == ("ingestion",)
+    assert patched["compose"] == ["up"]
+
+
+def test_run_start_skips_the_fund_when_the_provider_key_is_missing(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A provider chosen in config.toml whose key was never stored is unusable."""
+    _configure_llm(
+        monkeypatch,
+        config={"llm_provider": "openai", "llm_model": "gpt-4o"},
+        secrets={"fred_api_key": "fk"},
+    )
+    lifecycle.run_start("pw")
+    assert patched["build_profiles"] == ("ingestion",)
+
+
+def test_run_start_skips_the_fund_for_a_non_ollama_provider_without_a_model(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker refuses the built-in Ollama model id on any other provider."""
+    _configure_llm(
+        monkeypatch,
+        config={"llm_provider": "openai"},
+        secrets={"openai_api_key": "k"},
+    )
+    lifecycle.run_start("pw")
+    assert patched["build_profiles"] == ("ingestion",)
+
+
+def test_run_start_says_when_it_leaves_the_fund_off(
+    patched: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The skip is announced in one line that names the way to turn it on."""
+    lifecycle.run_start("pw")
+    out = capsys.readouterr().out
+    assert out.count(lifecycle.FUND_SKIPPED_NOTICE) == 1
+    assert len(lifecycle.FUND_SKIPPED_NOTICE.splitlines()) == 1
+    assert "no LLM backend" in lifecycle.FUND_SKIPPED_NOTICE
+    assert "portopt setup" in lifecycle.FUND_SKIPPED_NOTICE
+
+
+def test_run_start_is_quiet_about_the_fund_when_an_llm_is_configured(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing to announce when both profiles start."""
+    _configure_llm(monkeypatch, config={}, secrets={"ollama_api_key": "k"})
+    lifecycle.run_start("pw")
+    assert lifecycle.FUND_SKIPPED_NOTICE not in capsys.readouterr().out
+
+
+def test_run_start_announces_the_skip_only_once_the_stack_is_up(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failed `up` must not be preceded by a claim that the stack is running."""
+
+    def _boom(**kw: object) -> list[str]:
+        raise lifecycle.docker_bootstrap.DockerError("up failed")
+
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", _boom)
+    with pytest.raises(lifecycle.docker_bootstrap.DockerError):
+        lifecycle.run_start("pw")
+    assert lifecycle.FUND_SKIPPED_NOTICE not in capsys.readouterr().out
+
+
+def test_run_start_brings_the_fund_back_once_an_llm_is_configured(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Configure later, start again: the same call now includes the fund profile."""
+    lifecycle.run_start("pw")
+    assert patched["build_profiles"] == ("ingestion",)
+    _configure_llm(monkeypatch, config={}, secrets={"ollama_api_key": "k"})
+    lifecycle.run_start("pw")
+    assert patched["build_profiles"] == ("fund", "ingestion")
+
+
+def test_run_start_still_renders_the_fund_env_when_the_fund_is_skipped(
+    patched: dict,
+) -> None:
+    """The env file stays resolvable for a later plain `docker compose up`."""
+    lifecycle.run_start("pw")
+    assert patched["env_fund_path"].read_text(encoding="utf-8") == ""
 
 
 def test_run_start_defaults_to_reusing_images(patched: dict) -> None:

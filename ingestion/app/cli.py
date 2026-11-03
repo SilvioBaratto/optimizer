@@ -720,7 +720,10 @@ def start(
         help="Rebuild images before starting, to pick up code / migration changes.",
     ),
 ) -> None:
-    """Boot Docker if it is down, decrypt secrets, and launch the whole stack."""
+    """Boot Docker if it is down, decrypt secrets, and launch the stack.
+
+    The fund engine starts only when an LLM backend is configured.
+    """
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
     install_secret_redaction()
     from app.setup import lifecycle

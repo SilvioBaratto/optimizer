@@ -174,12 +174,18 @@ It seeds no data. Re-run any time with `portopt setup`.
 Lifecycle:
 
 ```bash
-portopt start     # decrypt secrets → render as compose secrets → docker compose --profile fund up -d --wait
+portopt start     # decrypt secrets → render as compose secrets → docker compose up -d --wait (ingestion always, fund when an LLM backend is configured)
 portopt stop      # stop the fund engine + delete its plaintext LLM keys (daemon + db keep running)
 portopt stop --all  # stop the whole stack + delete every rendered plaintext secret
 portopt status    # report Docker + service health (non-zero exit if anything is down)
 ```
 
+> `portopt start` brings up the fund engine only when an LLM backend is configured
+> (a local Ollama base URL, or the selected provider's key plus an explicit model
+> id; Ollama Cloud is the default provider). Without one it starts the data
+> pipeline alone and prints one line saying so; run `portopt setup --reconfigure`
+> to add a backend, then `portopt start` again.
+>
 > `portopt start` renders the encrypted secrets into git-ignored
 > `./secrets/<name>` files. `portopt stop` deletes the LLM keys only the fund
 > mounts, but keeps the three the ingestion daemon mounts (Trading 212 key and

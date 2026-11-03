@@ -1,8 +1,8 @@
 """Runtime lifecycle for portopt: start / stop / status (SPEC D6/D10).
 
 `run_start` boots a stopped Docker runtime, decrypts `~/.portopt/secrets.enc`,
-renders the compose secret files, and brings the full stack up (the fund engine +
-the persistent ingestion daemon).
+renders the compose secret files, and brings the stack up: the persistent ingestion
+daemon always, plus the fund engine when an LLM backend is configured.
 `run_stop` stops only the fund engine, leaving the scheduler + db running, and
 `run_stop(all_services=True)` takes the whole stack down.
 `run_status` reports Docker + service health.
@@ -15,8 +15,15 @@ from app.setup import (
     compose_secrets,
     config_file,
     docker_bootstrap,
+    llm_backend,
     path_install,
     secret_store,
+)
+
+FUND_SKIPPED_NOTICE = (
+    "fund decision engine not started: no LLM backend is configured "
+    "(the data pipeline is running). "
+    "Run `portopt setup --reconfigure` to configure one, then `portopt start`."
 )
 
 
@@ -25,14 +32,17 @@ class LifecycleError(RuntimeError):
 
 
 def run_start(passphrase: str, *, rebuild: bool = False) -> None:
-    """Decrypt secrets, render compose secret files, and bring the full stack up.
+    """Decrypt secrets, render compose secret files, and bring the stack up.
 
     Boots the local Docker runtime first when its daemon is down (Colima, OrbStack,
-    Docker Desktop), so a start works from a cold machine. Brings up both the fund
-    decision engine and the persistent ingestion daemon so the scheduler is never
-    left down by a start. A running service whose mounted secret was rotated since
-    the last render is restarted first, so it picks up the new key instead of
-    keeping the one it read at startup.
+    Docker Desktop), so a start works from a cold machine. Always brings up the
+    persistent ingestion daemon so the scheduler is never left down by a start. The
+    fund decision engine comes up with it only when :func:`llm_backend.is_configured`
+    says its worker can build a model; otherwise its container would restart forever
+    without turning healthy, so it is left off and ``FUND_SKIPPED_NOTICE`` is
+    printed. A running service whose mounted secret was rotated since the last
+    render is restarted first, so it picks up the new key instead of keeping the one
+    it read at startup.
 
     Args:
         passphrase: The master passphrase that decrypts the secret store.
@@ -70,14 +80,21 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
         stale &= docker_bootstrap.running_services(repo=repo)
         if stale:
             docker_bootstrap.restart_services(sorted(stale), repo=repo)
-    # Every service is profile-gated (a bare `up` starts nothing). Bring up BOTH
-    # the fund profile (db + decision engine) AND the ingestion profile (the
-    # scheduler daemon): the scheduler must stay up for the daily/macro/news jobs,
-    # so a `portopt start` must never leave the data pipeline down. Images build on
+    # Every service is profile-gated (a bare `up` starts nothing). The ingestion
+    # profile (db + the scheduler daemon) always comes up: the scheduler must stay up
+    # for the daily/macro/news jobs, so a `portopt start` must never leave the data
+    # pipeline down. The fund profile joins it only with a usable LLM backend: its
+    # worker builds the model before the first heartbeat, so without one the container
+    # never passes its healthcheck and `up --wait` would block on it. Images build on
     # first run; `up --wait` blocks on each service's healthcheck.
+    fund_enabled = llm_backend.is_configured(config, secrets)
     docker_bootstrap.build_and_up(
-        profiles=("fund", "ingestion"), force_build=rebuild, repo=repo
+        profiles=("fund", "ingestion") if fund_enabled else ("ingestion",),
+        force_build=rebuild,
+        repo=repo,
     )
+    if not fund_enabled:
+        print(FUND_SKIPPED_NOTICE)
 
 
 def run_stop(*, all_services: bool = False, force: bool = False) -> None:
