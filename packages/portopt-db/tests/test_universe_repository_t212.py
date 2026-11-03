@@ -270,3 +270,29 @@ def test_set_isin_if_missing_reports_no_match_for_an_unknown_row(db_session) -> 
         )
         is False
     )
+
+
+def test_has_active_instruments_is_false_on_an_empty_table(db_session) -> None:
+    assert _repo(db_session).has_active_instruments() is False
+
+
+def test_has_active_instruments_is_true_with_a_live_row(db_session) -> None:
+    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
+    add_and_flush(
+        db_session, Instrument(ticker="AAPL", short_name="Apple", exchange=ex)
+    )
+    assert _repo(db_session).has_active_instruments() is True
+
+
+def test_has_active_instruments_ignores_delisted_rows(db_session) -> None:
+    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
+    add_and_flush(
+        db_session,
+        Instrument(
+            ticker="OLD",
+            short_name="Old",
+            exchange=ex,
+            delisted_at=date(2020, 1, 1),
+        ),
+    )
+    assert _repo(db_session).has_active_instruments() is False

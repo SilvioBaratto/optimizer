@@ -485,6 +485,18 @@ class UniverseRepository(RepositoryBase):
             .all()
         )
 
+    def has_active_instruments(self) -> bool:
+        """Return whether at least one non-delisted instrument exists.
+
+        An ``EXISTS`` probe, so the cost stays flat however large the universe
+        grows; ``get_active_instruments`` would load every row just to be counted.
+        """
+        return bool(
+            self.session.execute(
+                select(exists().where(Instrument.delisted_at.is_(None)))
+            ).scalar()
+        )
+
     def clear_all(self) -> tuple[int, int]:
         """Delete all instruments and exchanges, returning pre-deletion counts.
 
