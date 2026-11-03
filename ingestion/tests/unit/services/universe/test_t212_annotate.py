@@ -62,6 +62,7 @@ def _inst(
     currency_code: str | None = None,
     t212_ticker: str | None = None,
     yfinance_ticker: str | None = None,
+    is_t212_tradeable: bool | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         ticker=ticker,
@@ -70,6 +71,7 @@ def _inst(
         currency_code=currency_code,
         t212_ticker=t212_ticker,
         yfinance_ticker=yfinance_ticker or ticker,
+        is_t212_tradeable=is_t212_tradeable,
     )
 
 
@@ -649,6 +651,148 @@ class TestPinnedRowsAreOperatorManaged:
         assert summary["total"] == 1
 
 
+class TestTradabilityOverlay:
+    """The step flags which universe instruments the broker can actually trade.
+
+    The flag is the overlay's answer to "is this ISIN in the Trading 212
+    catalogue", independent of which broker line ``t212_ticker`` ends up naming.
+    """
+
+    _AAPL_LINE = {"ticker": "AAPL_US_EQ", "isin": "US123", "currencyCode": "USD"}
+
+    def test_an_isin_in_the_catalogue_is_flagged_tradeable(self) -> None:
+        """A matched instrument gets both its broker ticker and the flag."""
+        repo, summary = _annotate_one(_inst("AAPL"), [self._AAPL_LINE], "US123")
+
+        repo.set_t212_tradeable.assert_called_once_with(
+            ticker="AAPL", exchange_id=1, tradeable=True
+        )
+        assert summary["tradeable"] == 1
+        assert summary["untradeable"] == 0
+
+    def test_an_isin_missing_from_the_catalogue_is_flagged_untradeable(self) -> None:
+        """Absent from the broker's offering is recorded, not left unknown."""
+        repo, summary = _annotate_one(_inst("VOO"), [self._AAPL_LINE], "US999")
+
+        repo.set_t212_tradeable.assert_called_once_with(
+            ticker="VOO", exchange_id=1, tradeable=False
+        )
+        repo.set_t212_ticker.assert_not_called()
+        assert summary["untradeable"] == 1
+        assert summary["tradeable"] == 0
+
+    def test_an_ambiguous_line_choice_is_still_tradeable(self) -> None:
+        """Several broker lines in one currency leave t212_ticker empty, not the flag."""
+        lines = [
+            {"ticker": "A_EQ", "isin": "IE1", "currencyCode": "EUR"},
+            {"ticker": "B_EQ", "isin": "IE1", "currencyCode": "EUR"},
+        ]
+        repo, _ = _annotate_one(_inst("X.DE", currency_code="EUR"), lines, "IE1")
+
+        repo.set_t212_ticker.assert_not_called()
+        repo.set_t212_tradeable.assert_called_once_with(
+            ticker="X.DE", exchange_id=1, tradeable=True
+        )
+
+    def test_a_flag_that_is_already_right_is_not_rewritten(self) -> None:
+        """Re-running the weekly step writes nothing for an unchanged answer."""
+        repo, _ = _annotate_one(
+            _inst("VOO", is_t212_tradeable=False), [self._AAPL_LINE], "US999"
+        )
+
+        repo.set_t212_tradeable.assert_not_called()
+
+    def test_an_instrument_that_left_the_catalogue_flips_to_untradeable(
+        self,
+    ) -> None:
+        """A stale True is corrected together with the stale broker ticker."""
+        repo, summary = _annotate_one(
+            _inst("AAPL", t212_ticker="AAPL_US_EQ", is_t212_tradeable=True),
+            [{"ticker": "OTHER_EQ", "isin": "US999", "currencyCode": "USD"}],
+            "US123",
+        )
+
+        repo.set_t212_tradeable.assert_called_once_with(
+            ticker="AAPL", exchange_id=1, tradeable=False
+        )
+        assert summary["cleared"] == 1
+
+    def test_no_isin_leaves_the_flag_unknown(self) -> None:
+        """Yahoo having no ISIN proves nothing about the broker's catalogue."""
+        repo, summary = _annotate_one(
+            _inst("AAPL", is_t212_tradeable=True), [self._AAPL_LINE], None
+        )
+
+        repo.set_t212_tradeable.assert_not_called()
+        assert summary["tradeable"] == 0
+        assert summary["untradeable"] == 0
+
+    def test_a_failed_lookup_leaves_the_flag_alone(self) -> None:
+        """A lost request is not evidence either."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [_inst("AAPL")]
+
+        def lookup(ticker: str) -> str:
+            raise t212_annotate.IsinLookupError("throttled")
+
+        with _patched(repo, _client([self._AAPL_LINE])):
+            t212_annotate.run_t212_annotate(isin_lookup=lookup)
+
+        repo.set_t212_tradeable.assert_not_called()
+
+    def test_an_empty_catalogue_flags_nothing(self) -> None:
+        """A catalogue that came back empty must not read as 'nothing is tradeable'."""
+        repo, summary = _annotate_one(_inst("AAPL"), [], "US123")
+
+        repo.set_t212_tradeable.assert_not_called()
+        assert summary["untradeable"] == 0
+
+    def test_a_pinned_row_keeps_whatever_flag_the_operator_gave_it(self) -> None:
+        """Pinned rows are operator-managed and skipped before any evaluation."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst("VWCE", yfinance_ticker="VWCE.DE", is_t212_tradeable=True)
+        ]
+
+        with _patched(repo, _client([self._AAPL_LINE]), pinned=frozenset({"VWCE.DE"})):
+            summary = t212_annotate.run_t212_annotate(isin_lookup=lambda t: "US999")
+
+        repo.set_t212_tradeable.assert_not_called()
+        assert summary["untradeable"] == 0
+
+    def test_flag_writes_are_committed_with_the_batch(self) -> None:
+        """The flag rides in the same short transaction as the ticker write."""
+        events: list[str] = []
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [_inst("AAPL")]
+        repo.set_t212_ticker.side_effect = lambda **_: events.append("ticker") or True
+        repo.set_t212_tradeable.side_effect = lambda **_: events.append("flag") or True
+
+        with _patched(repo, _client([self._AAPL_LINE]), events):
+            t212_annotate.run_t212_annotate(isin_lookup=lambda t: "US123")
+
+        assert events[-5:] == ["open", "ticker", "flag", "commit", "close"]
+
+    def test_the_summary_reports_the_state_even_when_nothing_is_rewritten(
+        self,
+    ) -> None:
+        """In steady state no flag changes, yet the run still says how many are tradeable."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst("AAPL", t212_ticker="AAPL_US_EQ", is_t212_tradeable=True),
+            _inst("VOO", is_t212_tradeable=False),
+        ]
+        repo.set_t212_ticker.return_value = True
+        isins = {"AAPL": "US123", "VOO": "US999"}
+
+        with _patched(repo, _client([self._AAPL_LINE])):
+            summary = t212_annotate.run_t212_annotate(isin_lookup=lambda t: isins[t])
+
+        repo.set_t212_tradeable.assert_not_called()
+        assert summary["tradeable"] == 1
+        assert summary["untradeable"] == 1
+
+
 def test_skips_cleanly_when_trading212_not_configured() -> None:
     from app.services.universe.universe_build_service import (
         Trading212NotConfiguredError,
@@ -662,3 +806,24 @@ def test_skips_cleanly_when_trading212_not_configured() -> None:
 
     assert summary["skipped"] is True
     assert summary["annotated"] == 0
+
+
+def test_unconfigured_run_never_touches_the_database() -> None:
+    """Without Trading 212 the flag column is untouched and the universe stays whole."""
+    from app.services.universe.universe_build_service import (
+        Trading212NotConfiguredError,
+    )
+
+    repo = MagicMock()
+    with (
+        patch(f"{M}.UniverseRepository", return_value=repo),
+        patch(f"{M}.database_manager") as database_manager,
+        patch(
+            f"{M}.build_trading212_client",
+            side_effect=Trading212NotConfiguredError("no key"),
+        ),
+    ):
+        t212_annotate.run_t212_annotate(isin_lookup=lambda t: "US123")
+
+    database_manager.get_session.assert_not_called()
+    repo.set_t212_tradeable.assert_not_called()

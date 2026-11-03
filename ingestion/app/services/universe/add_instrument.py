@@ -251,6 +251,10 @@ def add_instrument(
     row.name = _first_non_empty(name, info.get("longName"), row.name)
     row.isin = isin or row.isin
     row.t212_ticker = t212_ticker or row.t212_ticker
+    # A pinned row is skipped by the T212 annotation step, so the broker line the
+    # operator names is the only evidence its tradability flag will ever get.
+    if row.t212_ticker:
+        row.is_t212_tradeable = True
     row.instrument_type = instrument_type
     row.currency_code = currency or row.currency_code
     row.yfinance_ticker = symbol

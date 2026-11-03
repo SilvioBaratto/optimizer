@@ -1,11 +1,19 @@
 """Trading 212 annotation step (SPEC D14).
 
-Runs *after* the yfinance universe build. Trading 212 is an add-on: this step
-attaches each T212 ticker to the matching yfinance instrument by ISIN. Because
-the Screener build carries no ISIN, ISIN is fetched lazily here (only for instruments
-without a stored one) and matched against T212's ``isin -> ticker`` metadata.
+Runs *after* the yfinance universe build. Trading 212 is a tradability overlay on
+that universe, never its source: this step attaches each T212 ticker to the
+matching yfinance instrument by ISIN and records in ``is_t212_tradeable`` whether
+the broker's catalogue carries the instrument at all. Because the Screener build
+carries no ISIN, ISIN is fetched lazily here (only for instruments without a
+stored one) and matched against T212's ``isin -> ticker`` metadata.
 
-Skips cleanly when Trading 212 is not configured.
+The flag is tri-state. An instrument whose ISIN is unknown keeps whatever it had
+(NULL, "not evaluated"), because Yahoo having no ISIN says nothing about the
+broker. The universe itself is never narrowed here; a run that must be executable
+at the broker restricts itself with
+``UniverseRepository.get_t212_tradeable_tickers``.
+
+Skips cleanly when Trading 212 is not configured, leaving every flag untouched.
 """
 
 from __future__ import annotations
@@ -59,15 +67,27 @@ class _Target:
     isin: str | None
     currency_code: str | None
     t212_ticker: str | None
+    is_t212_tradeable: bool | None
 
 
 @dataclass(frozen=True)
 class _Update:
-    """One pending ``instruments.t212_ticker`` write; ``None`` clears the value."""
+    """The pending writes for one instrument.
+
+    Attributes:
+        ticker: Instrument ticker within its exchange.
+        exchange_id: Owning exchange row id.
+        t212_ticker: Value for ``instruments.t212_ticker``; ``None`` clears it.
+        write_ticker: Whether ``t212_ticker`` is written at all.
+        tradeable: Value for ``instruments.is_t212_tradeable``; ``None`` leaves the
+            flag as it is.
+    """
 
     ticker: str
     exchange_id: Any
     t212_ticker: str | None
+    write_ticker: bool
+    tradeable: bool | None
 
 
 def _default_isin_lookup(ticker: str) -> str | None:
@@ -128,12 +148,37 @@ def _plan_update(
 ) -> _Update | None:
     if not isin:
         return None
-    t212_ticker = _pick_t212_ticker(isin_to_t212.get(isin, {}), target.currency_code)
+    lines = isin_to_t212.get(isin, {})
+    t212_ticker = _pick_t212_ticker(lines, target.currency_code)
     # A known ISIN with no unambiguous T212 line proves a stored cross-reference
     # stale; a missing ISIN proves nothing.
-    if t212_ticker is None and target.t212_ticker is None:
+    write_ticker = not (t212_ticker is None and target.t212_ticker is None)
+    tradeable = _is_tradeable(isin, isin_to_t212)
+    write_flag = tradeable is not None and target.is_t212_tradeable is not tradeable
+    if not write_ticker and not write_flag:
         return None
-    return _Update(target.ticker, target.exchange_id, t212_ticker)
+    return _Update(
+        target.ticker,
+        target.exchange_id,
+        t212_ticker,
+        write_ticker,
+        tradeable if write_flag else None,
+    )
+
+
+def _is_tradeable(
+    isin: str, isin_to_t212: dict[str, dict[str, str | None]]
+) -> bool | None:
+    """Whether the broker catalogue carries ``isin``, or ``None`` if it proves nothing.
+
+    Any line counts, even when the choice among several stays ambiguous: the
+    instrument is tradeable, only its ``t212_ticker`` is unknown. A catalogue with
+    no ISIN-bearing line at all (an empty answer) cannot show that anything is
+    absent, so it flags nothing rather than marking the whole universe untradeable.
+    """
+    if not isin_to_t212:
+        return None
+    return isin in isin_to_t212
 
 
 def _apply_updates(updates: list[_Update]) -> tuple[int, int]:
@@ -148,7 +193,7 @@ def _apply_updates(updates: list[_Update]) -> tuple[int, int]:
     with database_manager.get_session() as session:
         repo = UniverseRepository(session)
         for update in updates:
-            if repo.set_t212_ticker(
+            if update.write_ticker and repo.set_t212_ticker(
                 ticker=update.ticker,
                 exchange_id=update.exchange_id,
                 t212_ticker=update.t212_ticker,
@@ -157,6 +202,12 @@ def _apply_updates(updates: list[_Update]) -> tuple[int, int]:
                     cleared += 1
                 else:
                     annotated += 1
+            if update.tradeable is not None:
+                repo.set_t212_tradeable(
+                    ticker=update.ticker,
+                    exchange_id=update.exchange_id,
+                    tradeable=update.tradeable,
+                )
         session.commit()
     return annotated, cleared
 
@@ -166,7 +217,7 @@ def run_t212_annotate(
     isin_lookup: IsinLookup | None = None,
     on_progress: ProgressCallback = _noop,
 ) -> dict[str, Any]:
-    """Attach T212 tickers to yfinance instruments by ISIN.
+    """Attach T212 tickers to yfinance instruments by ISIN and flag tradability.
 
     Args:
         isin_lookup: ``ticker -> ISIN`` resolver (defaults to a yfinance lookup).
@@ -178,8 +229,11 @@ def run_t212_annotate(
 
     Returns:
         ``{"annotated": int, "total": int, "skipped": bool, "lookup_errors": int,
-        "cleared": int, "pinned_skipped": int}``; ``cleared`` counts stale T212
-        tickers removed, ``total`` excludes the ``pinned_skipped`` rows.
+        "cleared": int, "pinned_skipped": int, "tradeable": int, "untradeable":
+        int}``; ``cleared`` counts stale T212 tickers removed, ``total`` excludes
+        the ``pinned_skipped`` rows. ``tradeable`` and ``untradeable`` count the
+        instruments whose ISIN was matched against the catalogue this run, whether
+        or not their flag changed; the rest of ``total`` is "not evaluated".
 
     Raises:
         IsinLookupError: Too many ISIN lookups failed in a row; annotations made
@@ -208,7 +262,14 @@ def run_t212_annotate(
         pinned = PinnedInstrumentRepository(session).pinned_tickers()
         active = UniverseRepository(session).get_active_instruments()
         targets = [
-            _Target(i.ticker, i.exchange_id, i.isin, i.currency_code, i.t212_ticker)
+            _Target(
+                i.ticker,
+                i.exchange_id,
+                i.isin,
+                i.currency_code,
+                i.t212_ticker,
+                i.is_t212_tradeable,
+            )
             for i in active
             if i.yfinance_ticker not in pinned
         ]
@@ -221,6 +282,8 @@ def run_t212_annotate(
 
     annotated = 0
     cleared = 0
+    tradeable = 0
+    untradeable = 0
     lookup_errors = 0
     consecutive_errors = 0
     pending: list[_Update] = []
@@ -241,6 +304,11 @@ def run_t212_annotate(
         update = _plan_update(target, isin, isin_to_t212)
         if update is not None:
             pending.append(update)
+        verdict = _is_tradeable(isin, isin_to_t212) if isin else None
+        if verdict is True:
+            tradeable += 1
+        elif verdict is False:
+            untradeable += 1
         if i % _COMMIT_EVERY == 0:
             done, dropped = _apply_updates(pending)
             annotated += done
@@ -259,10 +327,13 @@ def run_t212_annotate(
         raise IsinLookupError(msg)
 
     logger.info(
-        "t212_annotate: annotated %d/%d instruments, cleared %d (%d lookup errors)",
+        "t212_annotate: annotated %d/%d instruments, cleared %d, %d tradeable, "
+        "%d not on the broker (%d lookup errors)",
         annotated,
         total,
         cleared,
+        tradeable,
+        untradeable,
         lookup_errors,
     )
     summary = {
@@ -272,6 +343,8 @@ def run_t212_annotate(
         "lookup_errors": lookup_errors,
         "cleared": cleared,
         "pinned_skipped": pinned_skipped,
+        "tradeable": tradeable,
+        "untradeable": untradeable,
     }
     on_progress(status="completed", result=summary)
     return summary

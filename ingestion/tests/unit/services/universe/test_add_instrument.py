@@ -163,6 +163,22 @@ class TestCreatesTheRow:
         assert row.isin == "IE00BK5BQT80"
         assert row.name == "Vanguard All-World"
 
+    def test_a_given_t212_ticker_flags_the_row_tradeable(self, db_session) -> None:
+        """The operator naming the broker line is the evidence the overlay needs."""
+        xetra = _exchange(db_session)
+
+        _add(db_session, _client(_etf_info()), t212_ticker="VWCEd_EQ")
+
+        assert _row(db_session, "VWCE.DE", xetra).is_t212_tradeable is True
+
+    def test_without_a_t212_ticker_the_flag_stays_unknown(self, db_session) -> None:
+        """No broker line given means nothing was evaluated, not 'not tradeable'."""
+        xetra = _exchange(db_session)
+
+        _add(db_session, _client(_etf_info()))
+
+        assert _row(db_session, "VWCE.DE", xetra).is_t212_tradeable is None
+
     def test_history_is_probed_and_the_session_is_not_committed(
         self, db_session, monkeypatch
     ) -> None:

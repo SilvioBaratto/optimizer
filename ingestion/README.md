@@ -34,7 +34,7 @@ uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 |-----|---------|--------------|
 | `daily_pipeline` | `0 7 * * *` | fx → yfinance → macro → daily FRED series → news → digest |
 | `midday_news` | `0 14 * * *` | news (afternoon refresh) |
-| `universe_build` | `0 2 * * sat` | instrument universe from the yfinance Screener, then Trading 212 tickers via `t212_annotate` when keyed (Saturday) |
+| `universe_build` | `0 2 * * sat` | instrument universe from the yfinance Screener, then Trading 212 tickers and the `is_t212_tradeable` flag via `t212_annotate` when keyed (Saturday) |
 | `weekly_refetch` | `0 3 * * sat` | full yfinance + macro rebuild (5y), Saturday after Friday close |
 | `weekly_market_wide` | `0 4 * * sat` | sector/industry structure, calendars, market summaries, full option chains |
 | `fred_monthly` | `0 8 1 * *` | every FRED series (daily-frequency ones also run in `daily_pipeline`) |
@@ -127,7 +127,10 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
   (the follow-on to `universe_build`) skips without claiming a job slot; Basic auth needs
   both. That is a configuration state, not a failure: `universe_build` itself needs neither
   and keeps refreshing `instruments` from the yfinance Screener, only the T212 ticker
-  mapping goes stale.
+  mapping goes stale. Trading 212 narrows nothing: `t212_annotate` only records in
+  `instruments.is_t212_tradeable` whether the broker carries each instrument (NULL until
+  evaluated), and `UniverseRepository.get_t212_tradeable_tickers()` hands that allowlist to a
+  run that must be executable at the broker, or `None` when the overlay never ran.
 - **Migration `d1e2f3a4b5c6` is one-way.** It drops the 17 non-ingestion tables and its
   `downgrade()` raises. Restore from a dump taken before the upgrade.
 
