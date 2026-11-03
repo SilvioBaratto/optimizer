@@ -141,12 +141,45 @@ def test_accepts_known_gics_sector_in_esg_exclusions():
     assert GicsSector.ENERGY in esg.exclusions
 
 
+def test_look_through_tolerance_defaults_to_strict_zero():
+    assert EsgPolicy().look_through_tolerance == 0.0
+
+
+@pytest.mark.parametrize("tolerance", [0.0, 0.05, 1.0])
+def test_look_through_tolerance_accepts_a_share_of_a_fund(tolerance: float):
+    policy = EsgPolicy(
+        exclusions=(GicsSector.ENERGY,), look_through_tolerance=tolerance
+    )
+    assert policy.look_through_tolerance == tolerance
+
+
+@pytest.mark.parametrize("tolerance", [-0.01, 1.01])
+def test_look_through_tolerance_outside_the_unit_interval_is_rejected(
+    tolerance: float,
+):
+    with pytest.raises(pydantic.ValidationError):
+        EsgPolicy(look_through_tolerance=tolerance)
+
+
+def test_constraint_set_stored_without_a_look_through_tolerance_still_validates():
+    payload = _valid_constraint_set(
+        esg=EsgPolicy(exclusions=(GicsSector.ENERGY,))
+    ).model_dump(mode="json")
+    del payload["esg"]["look_through_tolerance"]
+
+    restored = ConstraintSet.model_validate(payload)
+
+    assert restored.esg.look_through_tolerance == 0.0
+    assert restored.esg.exclusions == (GicsSector.ENERGY,)
+
+
 def test_json_round_trip():
     cs = _valid_constraint_set(
         esg=EsgPolicy(
             exclusions=(GicsSector.ENERGY,),
             min_taxonomy=0.3,
             pai_flags=("carbon",),
+            look_through_tolerance=0.05,
         ),
         universe_filters=UniverseFilters(no_complex=True, no_leverage=True),
         bounds=Bounds(min_weights=0.01, max_weights=0.1),

@@ -79,6 +79,7 @@ UnansweredDatum = Literal[
     "objectives.likert_items",
     "objectives.loss_reaction",
     "esg.exclusions",
+    "esg.look_through_tolerance",
 ]
 
 _Pillar = Literal["knowledge", "capacity", "objectives", "esg"]
@@ -191,7 +192,12 @@ class EsgAnswers(BaseModel):
     refuses to hold; the profiler turns them into a HARD ``EsgPolicy`` block.
     ``exclusions`` has no default: "no preference" is an explicit empty tuple, so an
     omitted answer cannot pass as one. ``other_preferences`` keeps the stated
-    preferences no sector expresses so the adviser sees them."""
+    preferences no sector expresses so the adviser sees them.
+
+    ``look_through_tolerance`` is how much of a *fund* may sit in an excluded sector.
+    A fund has no single sector, so without a stated share the only fund screen is
+    the strictest one (0.0); it defaults to that, which keeps records stored before
+    the field existed valid."""
 
     model_config = _ANSWERS_CONFIG
 
@@ -208,6 +214,17 @@ class EsgAnswers(BaseModel):
             "ESG preferences the client stated that are NOT a GICS sector (e.g. "
             "'no tobacco', 'no weapons'), verbatim. Never map one onto an arbitrary "
             "sector; they are surfaced to the adviser, not enforced."
+        ),
+    )
+    look_through_tolerance: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Largest share of a FUND's weight allowed in an excluded sector, as a "
+            "FRACTION in [0, 1] (0.05 means 5%). 0 means none at all. Set it only "
+            "from a figure the client stated; otherwise leave 0 and list "
+            "'esg.look_through_tolerance' in unanswered."
         ),
     )
 
@@ -334,5 +351,14 @@ QUESTION_BANK: tuple[MiFIDQuestion, ...] = (
         text="Which economic sectors, if any, do you wish to exclude on ESG grounds?",
         kind="multi_choice",
         options=tuple(sector.value for sector in GicsSector),
+    ),
+    MiFIDQuestion(
+        id="esg_2",
+        pillar="esg",
+        text=(
+            "What share of a fund may sit in an excluded sector, as a percentage "
+            "of the fund?"
+        ),
+        kind="numeric",
     ),
 )

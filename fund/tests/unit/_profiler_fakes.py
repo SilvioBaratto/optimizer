@@ -135,6 +135,7 @@ def make_answers(
     currency: str = "EUR",
     exclusions: tuple[Any, ...] = (),
     other_preferences: tuple[str, ...] = (),
+    look_through_tolerance: float = 0.0,
     unanswered: tuple[Any, ...] = (),
 ) -> MiFIDAnswers:
     """A valid ``MiFIDAnswers`` (defaults land in the Balanced band, no flags)."""
@@ -148,7 +149,11 @@ def make_answers(
             likert_items=likert,
             loss_reaction=reaction,
         ),
-        esg=EsgAnswers(exclusions=exclusions, other_preferences=other_preferences),
+        esg=EsgAnswers(
+            exclusions=exclusions,
+            other_preferences=other_preferences,
+            look_through_tolerance=look_through_tolerance,
+        ),
         unanswered=unanswered,
     )
 

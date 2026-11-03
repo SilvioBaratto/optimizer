@@ -196,6 +196,7 @@ _CONSERVATIVE_PLACEHOLDER: dict[str, Any] = {
     "objectives.horizon": Horizon.SHORT,
     "objectives.likert_items": (1,),
     "objectives.loss_reaction": LossReaction.SELL_ALL,
+    "esg.look_through_tolerance": 0.0,
 }
 
 
@@ -316,7 +317,9 @@ def _esg_policy(esg: EsgAnswers) -> EsgPolicy:
         raise SuitabilityBreachError(
             "ESG exclusions remove every GICS sector — no investable universe."
         )
-    return EsgPolicy(exclusions=exclusions)
+    return EsgPolicy(
+        exclusions=exclusions, look_through_tolerance=esg.look_through_tolerance
+    )
 
 
 # Low K&E (none/basic) → complex/leverage banned + a tightened per-position cap;

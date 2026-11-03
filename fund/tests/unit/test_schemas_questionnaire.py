@@ -189,6 +189,36 @@ def test_unanswered_marker_rejects_a_datum_the_questionnaire_does_not_have():
         _valid_answers(unanswered=("capacity.salary",))
 
 
+def test_look_through_tolerance_defaults_to_strict_zero():
+    assert EsgAnswers(exclusions=()).look_through_tolerance == 0.0
+
+
+@pytest.mark.parametrize("tolerance", [0.0, 0.05, 1.0])
+def test_look_through_tolerance_accepts_a_share_of_a_fund(tolerance: float):
+    esg = EsgAnswers(exclusions=(GicsSector.ENERGY,), look_through_tolerance=tolerance)
+    assert esg.look_through_tolerance == tolerance
+
+
+@pytest.mark.parametrize("tolerance", [-0.01, 1.01, 5.0])
+def test_look_through_tolerance_outside_the_unit_interval_is_rejected(
+    tolerance: float,
+):
+    with pytest.raises(pydantic.ValidationError):
+        EsgAnswers(exclusions=(), look_through_tolerance=tolerance)
+
+
+def test_answers_stored_without_a_look_through_tolerance_still_validate():
+    payload = _valid_answers().model_dump(mode="json")
+    del payload["esg"]["look_through_tolerance"]
+
+    assert MiFIDAnswers.model_validate(payload).esg.look_through_tolerance == 0.0
+
+
+def test_look_through_tolerance_is_a_valid_unanswered_datum():
+    a = _valid_answers(unanswered=("esg.look_through_tolerance",))
+    assert a.unanswered == ("esg.look_through_tolerance",)
+
+
 def test_legacy_answers_without_the_unanswered_key_still_validate():
     payload = _valid_answers().model_dump(mode="json")
     payload.pop("unanswered", None)
@@ -280,7 +310,10 @@ def test_suitability_rejects_non_positive_a_gamma(bad_gamma: float):
 
 def test_answers_json_round_trip():
     a = _valid_answers(
-        esg=EsgAnswers(exclusions=(GicsSector.ENERGY, GicsSector.UTILITIES)),
+        esg=EsgAnswers(
+            exclusions=(GicsSector.ENERGY, GicsSector.UTILITIES),
+            look_through_tolerance=0.05,
+        ),
     )
     assert MiFIDAnswers.model_validate(a.model_dump(mode="json")) == a
 
@@ -307,6 +340,14 @@ def test_suitability_embeds_per_pillar_inputs():
 def test_question_bank_covers_the_four_pillars():
     pillars = {q.pillar for q in QUESTION_BANK}
     assert pillars == {"knowledge", "capacity", "objectives", "esg"}
+
+
+def test_question_bank_asks_what_share_of_a_fund_may_sit_in_an_excluded_sector():
+    (question,) = (q for q in QUESTION_BANK if q.id == "esg_2")
+
+    assert question.pillar == "esg"
+    assert question.kind == "numeric"
+    assert "fund" in question.text
 
 
 def test_question_bank_ids_are_unique():
