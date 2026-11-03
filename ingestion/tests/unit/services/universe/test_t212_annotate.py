@@ -651,6 +651,81 @@ class TestPinnedRowsAreOperatorManaged:
         assert summary["total"] == 1
 
 
+class TestLookedUpIsinsAreKept:
+    """An ISIN fetched for matching is stored, not thrown away after the run.
+
+    Dropping it made the step repeat the same one-second Yahoo request for every
+    instrument without an ISIN on every run, and left ``instruments.isin`` NULL, so
+    ISIN-keyed cross-listing checks could not see the instrument.
+    """
+
+    _OTHER_LINE = {"ticker": "OTHER_EQ", "isin": "US999", "currencyCode": "USD"}
+
+    def test_a_looked_up_isin_is_stored_on_the_row(self) -> None:
+        """Even with no broker match, the ISIN Yahoo gave is persisted."""
+        repo, summary = _annotate_one(_inst("AAPL"), [self._OTHER_LINE], "US0378331005")
+
+        repo.set_isin_if_missing.assert_called_once_with(
+            ticker="AAPL", exchange_id=1, isin="US0378331005"
+        )
+        assert summary["isin_stored"] == 1
+
+    def test_a_stored_isin_is_neither_looked_up_nor_rewritten(self) -> None:
+        """Only instruments that lacked an ISIN get one written."""
+        repo, summary = _annotate_one(
+            _inst("AAPL", isin="US0378331005"), [self._OTHER_LINE], None
+        )
+
+        repo.set_isin_if_missing.assert_not_called()
+        assert summary["isin_stored"] == 0
+
+    def test_no_isin_from_yahoo_stores_nothing(self) -> None:
+        """A symbol Yahoo has no ISIN for stays NULL."""
+        repo, _ = _annotate_one(_inst("AAPL"), [self._OTHER_LINE], None)
+
+        repo.set_isin_if_missing.assert_not_called()
+
+    def test_the_isin_is_stored_together_with_the_match(self) -> None:
+        """One short transaction carries the ISIN, the broker ticker and the flag."""
+        events: list[str] = []
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [_inst("AAPL")]
+        repo.set_isin_if_missing.side_effect = lambda **_: events.append("isin") or True
+        repo.set_t212_ticker.side_effect = lambda **_: events.append("ticker") or True
+        repo.set_t212_tradeable.side_effect = lambda **_: events.append("flag") or True
+
+        line = {"ticker": "AAPL_US_EQ", "isin": "US0378331005", "currencyCode": "USD"}
+        with _patched(repo, _client([line]), events):
+            t212_annotate.run_t212_annotate(isin_lookup=lambda t: "US0378331005")
+
+        assert events[-6:] == ["open", "isin", "ticker", "flag", "commit", "close"]
+
+    def test_a_row_the_write_did_not_match_is_not_counted(self) -> None:
+        """A concurrent change between snapshot and write must not inflate the tally."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [_inst("AAPL")]
+        repo.set_isin_if_missing.return_value = False
+
+        with _patched(repo, _client([self._OTHER_LINE])):
+            summary = t212_annotate.run_t212_annotate(
+                isin_lookup=lambda t: "US0378331005"
+            )
+
+        assert summary["isin_stored"] == 0
+
+    def test_a_pinned_row_is_left_without_an_isin_write(self) -> None:
+        """Pinned rows are operator-managed and never reach the lookup."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst("VWCE", yfinance_ticker="VWCE.DE")
+        ]
+
+        with _patched(repo, _client([self._OTHER_LINE]), pinned=frozenset({"VWCE.DE"})):
+            t212_annotate.run_t212_annotate(isin_lookup=lambda t: "IE00BK5BQT80")
+
+        repo.set_isin_if_missing.assert_not_called()
+
+
 class TestTradabilityOverlay:
     """The step flags which universe instruments the broker can actually trade.
 

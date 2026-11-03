@@ -22,7 +22,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from portopt_db.repositories.universe.pinned_instrument_repository import (
     PinnedInstrumentRepository,
@@ -81,6 +81,8 @@ class _Update:
         write_ticker: Whether ``t212_ticker`` is written at all.
         tradeable: Value for ``instruments.is_t212_tradeable``; ``None`` leaves the
             flag as it is.
+        new_isin: ISIN looked up for a row that had none, to be stored; ``None``
+            when there is nothing to store.
     """
 
     ticker: str
@@ -88,6 +90,15 @@ class _Update:
     t212_ticker: str | None
     write_ticker: bool
     tradeable: bool | None
+    new_isin: str | None
+
+
+class _Written(NamedTuple):
+    """Row counts for one batch of writes."""
+
+    annotated: int
+    cleared: int
+    isin_stored: int
 
 
 def _default_isin_lookup(ticker: str) -> str | None:
@@ -155,7 +166,10 @@ def _plan_update(
     write_ticker = not (t212_ticker is None and target.t212_ticker is None)
     tradeable = _is_tradeable(isin, isin_to_t212)
     write_flag = tradeable is not None and target.is_t212_tradeable is not tradeable
-    if not write_ticker and not write_flag:
+    # An ISIN the row did not have is one Yahoo just supplied; keep it so the next
+    # run neither repeats the request nor leaves ISIN-keyed checks blind to the row.
+    new_isin = None if target.isin else isin
+    if not (write_ticker or write_flag or new_isin):
         return None
     return _Update(
         target.ticker,
@@ -163,6 +177,7 @@ def _plan_update(
         t212_ticker,
         write_ticker,
         tradeable if write_flag else None,
+        new_isin,
     )
 
 
@@ -181,18 +196,24 @@ def _is_tradeable(
     return isin in isin_to_t212
 
 
-def _apply_updates(updates: list[_Update]) -> tuple[int, int]:
+def _apply_updates(updates: list[_Update]) -> _Written:
     """Write one batch in its own short transaction.
 
     Returns:
-        ``(annotated, cleared)`` row counts for the batch.
+        The ``annotated``, ``cleared`` and ``isin_stored`` row counts for the batch.
     """
     if not updates:
-        return 0, 0
-    annotated = cleared = 0
+        return _Written(0, 0, 0)
+    annotated = cleared = isin_stored = 0
     with database_manager.get_session() as session:
         repo = UniverseRepository(session)
         for update in updates:
+            if update.new_isin and repo.set_isin_if_missing(
+                ticker=update.ticker,
+                exchange_id=update.exchange_id,
+                isin=update.new_isin,
+            ):
+                isin_stored += 1
             if update.write_ticker and repo.set_t212_ticker(
                 ticker=update.ticker,
                 exchange_id=update.exchange_id,
@@ -209,7 +230,7 @@ def _apply_updates(updates: list[_Update]) -> tuple[int, int]:
                     tradeable=update.tradeable,
                 )
         session.commit()
-    return annotated, cleared
+    return _Written(annotated, cleared, isin_stored)
 
 
 def run_t212_annotate(
@@ -230,10 +251,12 @@ def run_t212_annotate(
     Returns:
         ``{"annotated": int, "total": int, "skipped": bool, "lookup_errors": int,
         "cleared": int, "pinned_skipped": int, "tradeable": int, "untradeable":
-        int}``; ``cleared`` counts stale T212 tickers removed, ``total`` excludes
-        the ``pinned_skipped`` rows. ``tradeable`` and ``untradeable`` count the
-        instruments whose ISIN was matched against the catalogue this run, whether
-        or not their flag changed; the rest of ``total`` is "not evaluated".
+        int, "isin_stored": int}``; ``cleared`` counts stale T212 tickers removed,
+        ``total`` excludes the ``pinned_skipped`` rows. ``tradeable`` and
+        ``untradeable`` count the instruments whose ISIN was matched against the
+        catalogue this run, whether or not their flag changed; the rest of
+        ``total`` is "not evaluated". ``isin_stored`` counts ISINs looked up for
+        rows that had none and written onto them.
 
     Raises:
         IsinLookupError: Too many ISIN lookups failed in a row; annotations made
@@ -282,6 +305,7 @@ def run_t212_annotate(
 
     annotated = 0
     cleared = 0
+    isin_stored = 0
     tradeable = 0
     untradeable = 0
     lookup_errors = 0
@@ -310,14 +334,16 @@ def run_t212_annotate(
         elif verdict is False:
             untradeable += 1
         if i % _COMMIT_EVERY == 0:
-            done, dropped = _apply_updates(pending)
-            annotated += done
-            cleared += dropped
+            written = _apply_updates(pending)
+            annotated += written.annotated
+            cleared += written.cleared
+            isin_stored += written.isin_stored
             pending = []
         on_progress(current=i, total=total, current_stock=target.ticker)
-    done, dropped = _apply_updates(pending)
-    annotated += done
-    cleared += dropped
+    written = _apply_updates(pending)
+    annotated += written.annotated
+    cleared += written.cleared
+    isin_stored += written.isin_stored
 
     if consecutive_errors >= _MAX_CONSECUTIVE_LOOKUP_ERRORS:
         msg = (
@@ -327,11 +353,12 @@ def run_t212_annotate(
         raise IsinLookupError(msg)
 
     logger.info(
-        "t212_annotate: annotated %d/%d instruments, cleared %d, %d tradeable, "
-        "%d not on the broker (%d lookup errors)",
+        "t212_annotate: annotated %d/%d instruments, cleared %d, stored %d ISINs, "
+        "%d tradeable, %d not on the broker (%d lookup errors)",
         annotated,
         total,
         cleared,
+        isin_stored,
         tradeable,
         untradeable,
         lookup_errors,
@@ -345,6 +372,7 @@ def run_t212_annotate(
         "pinned_skipped": pinned_skipped,
         "tradeable": tradeable,
         "untradeable": untradeable,
+        "isin_stored": isin_stored,
     }
     on_progress(status="completed", result=summary)
     return summary
