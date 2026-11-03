@@ -56,13 +56,40 @@ universe build keeps the instruments. Add an instrument the Screener never retur
 `portopt add-instrument` (see the ingestion README).
 
 A name is barred with one reason: `no_instrument`, `delisted`, `not_priced`,
-`esg:<gics sector>` or `esg_unclassified`. Under ESG exclusions a stock is judged by its
+`not_t212_tradeable`, `esg:<gics sector>` or `esg_unclassified`. Under ESG exclusions a stock is judged by its
 stored sector and an ETF by look-through of its latest `etf_sector_weights` snapshot
 against the client's `look_through_tolerance` (strict 0 by default): commodity and
 government / inflation-linked bond ETFs pass, any other fund needs a snapshot no older
 than `FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS` (180) that sums to one within 0.05, or it is
 barred `esg_unclassified`. Most corporate and aggregate bond ETFs stay barred, because
 their sector data is sparse.
+
+### Broker scope (`tradeable_only`)
+
+`PortfolioMandate.tradeable_only` (default off, stored in the mandate JSON, so no
+migration and existing mandates are unchanged) scopes a portfolio to what the Trading
+212 catalogue carries, for runs whose orders must be executable at the broker. Set it
+with `fund mandate set <portfolio_id> --tradeable-only` (`--no-tradeable-only` lifts it)
+or the Mandate view's "Tradeable on Trading 212 only" box; `fund mandate show` prints it.
+
+It composes with the allowlist, so both must hold, and the same `Eligibility` enforces
+it in every tool above. The resolver reads `instruments.is_t212_tradeable` through
+`UniverseRepository.get_t212_untradeable_tickers`, a tri-state:
+
+- an explicit False (matched against the catalogue and absent) is barred
+  `not_t212_tradeable`;
+- NULL on a row (never evaluated) is not barred;
+- when no instrument has been evaluated at all (Trading 212 unconfigured, or the
+  annotation step never ran) nothing is restricted, and `Eligibility.notes` says so in
+  the PM seed and the mandate-save warning instead of emptying the universe;
+- when everything evaluated is False the universe is honestly empty, each name with its
+  reason.
+
+With no allowlist the scope still engages as a refusal list over the whole universe
+(`Eligibility.has_allowlist` is False): `list_universe` keeps its market-cap paging but
+drops the explicit False rows, the weighting tools refuse them, and ETF ESG screening
+is unchanged. Research and benchmarking leave the flag off and keep the full
+multi-region universe.
 
 ## TUI (`fund-tui`)
 
