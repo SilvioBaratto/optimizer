@@ -761,6 +761,260 @@ class TestCredentialRedactionInLogs:
         assert leaked not in caplog.text
 
 
+class TestAddInstrument:
+    """`add-instrument` validates one ticker, stores 5y of prices and can pin it."""
+
+    _SERVICE = "app.services.universe.add_instrument.add_instrument"
+    _FETCH = "app.services.market_data.yfinance_data_service._fetch_one_ticker"
+    _SESSION = "app.database.database_manager.get_session"
+    _PIN_REPO = (
+        "portopt_db.repositories.universe.pinned_instrument_repository."
+        "PinnedInstrumentRepository"
+    )
+    _CLIENT = "app.services.market_data.yfinance.get_yfinance_client"
+
+    @staticmethod
+    def _wiring(*, created: bool = True, warnings: list[str] | None = None):
+        """Patch every collaborator; return the mocks and the shared call log."""
+        from contextlib import ExitStack, contextmanager
+        from unittest.mock import MagicMock
+        from uuid import uuid4
+
+        from app.services.universe.add_instrument import AddInstrumentResult
+
+        calls: list[str] = []
+        session = MagicMock(name="session")
+        session.commit.side_effect = lambda: calls.append("commit")
+        row = MagicMock()
+        row.id = uuid4()
+        row.yfinance_ticker = "VWCE.DE"
+        row.exchange.name = "Deutsche Börse Xetra"
+        row.currency_code = "EUR"
+        row.asset_class = "equity"
+        row.instrument_type = "ETF"
+        session.get.return_value = row
+
+        @contextmanager
+        def get_session():
+            yield session
+
+        service = MagicMock(
+            return_value=AddInstrumentResult(row.id, created, warnings or [])
+        )
+        service.side_effect = lambda *a, **k: (
+            calls.append("service"),
+            service.return_value,
+        )[1]
+        fetch = MagicMock(
+            side_effect=lambda *a, **k: (
+                calls.append("fetch"),
+                {"counts": {"prices": 1250}, "errors": [], "skipped": []},
+            )[1]
+        )
+        pin_repo = MagicMock()
+        pin_repo.return_value.pin.side_effect = lambda *a: calls.append("pin")
+
+        stack = ExitStack()
+        patched = {
+            "service": stack.enter_context(patch(TestAddInstrument._SERVICE, service)),
+            "fetch": stack.enter_context(patch(TestAddInstrument._FETCH, fetch)),
+            "pin_repo": stack.enter_context(
+                patch(TestAddInstrument._PIN_REPO, pin_repo)
+            ),
+            "session": session,
+            "row": row,
+            "calls": calls,
+        }
+        stack.enter_context(patch(TestAddInstrument._SESSION, get_session))
+        stack.enter_context(patch(TestAddInstrument._CLIENT))
+        return stack, patched
+
+    def test_adds_pins_commits_then_fetches_five_years(self) -> None:
+        """The row is committed before the fetch opens its own session."""
+        stack, w = self._wiring()
+        with stack:
+            result = runner.invoke(
+                app, ["add-instrument", "VWCE.DE", "--asset-class", "equity", "--pin"]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert w["calls"] == ["service", "pin", "commit", "fetch"]
+        kwargs = w["service"].call_args.kwargs
+        assert kwargs["yahoo_ticker"] == "VWCE.DE"
+        assert kwargs["asset_class"] == "equity"
+        w["pin_repo"].return_value.pin.assert_called_once_with("VWCE.DE", "manual")
+        spec, request = w["fetch"].call_args.args[:2]
+        assert (request.mode, request.period) == ("full", "5y")
+        assert spec.yfinance_ticker == "VWCE.DE"
+        assert spec.instrument_id == w["row"].id
+        assert spec.exchange_name == "Deutsche Börse Xetra"
+        assert (spec.asset_class, spec.instrument_type) == ("equity", "ETF")
+        assert spec.currency_code == "EUR"
+        assert "VWCE.DE" in result.output
+
+    def test_without_pin_nothing_is_pinned(self) -> None:
+        """--pin is opt-in."""
+        stack, w = self._wiring()
+        with stack:
+            result = runner.invoke(
+                app, ["add-instrument", "VWCE.DE", "--asset-class", "equity"]
+            )
+
+        assert result.exit_code == 0, result.output
+        w["pin_repo"].assert_not_called()
+        assert w["calls"] == ["service", "commit", "fetch"]
+
+    def test_every_option_reaches_the_service(self) -> None:
+        """Flags map one-to-one onto the service's keyword arguments."""
+        stack, w = self._wiring()
+        with stack:
+            result = runner.invoke(
+                app,
+                [
+                    "add-instrument",
+                    "IEGA.DE",
+                    "--asset-class",
+                    "fixed_income",
+                    "--isin",
+                    "IE00B3F81K65",
+                    "--fi-subclass",
+                    "government",
+                    "--duration-bucket",
+                    "long",
+                    "--t212-ticker",
+                    "IEGAd_EQ",
+                    "--exchange",
+                    "Deutsche Börse Xetra",
+                    "--name",
+                    "iShares Euro Govt",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        kwargs = w["service"].call_args.kwargs
+        assert kwargs == {
+            "yahoo_ticker": "IEGA.DE",
+            "asset_class": "fixed_income",
+            "isin": "IE00B3F81K65",
+            "fi_subclass": "government",
+            "duration_bucket": "long",
+            "t212_ticker": "IEGAd_EQ",
+            "exchange": "Deutsche Börse Xetra",
+            "name": "iShares Euro Govt",
+        }
+
+    def test_rerun_reports_the_existing_row_and_exits_zero(self) -> None:
+        """A second run changes nothing visible and succeeds."""
+        stack, w = self._wiring(created=False)
+        with stack:
+            result = runner.invoke(
+                app, ["add-instrument", "VWCE.DE", "--asset-class", "equity"]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "already" in result.output.lower()
+
+    def test_service_warnings_are_shown(self) -> None:
+        """Non-fatal findings reach the operator."""
+        stack, _ = self._wiring(warnings=["ISIN IE1 is also carried by IBCI.AS"])
+        with stack:
+            result = runner.invoke(
+                app, ["add-instrument", "IBCI.L", "--asset-class", "equity"]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "IBCI.AS" in result.output
+
+    @pytest.mark.parametrize(
+        "flag", ["--asset-class", "--fi-subclass", "--duration-bucket"]
+    )
+    def test_bad_enum_value_fails_before_booting(self, flag: str) -> None:
+        """Typos exit 2 with the valid choices, without touching the database."""
+        with patch("app.cli._boot") as boot:
+            result = runner.invoke(app, ["add-instrument", "VWCE.DE", flag, "bogus"])
+
+        assert result.exit_code == 2
+        boot.assert_not_called()
+        assert "bogus" in result.output
+
+    def test_commodity_is_an_accepted_asset_class(self) -> None:
+        """The value added for gold ETCs is a valid --asset-class."""
+        stack, w = self._wiring()
+        with stack:
+            result = runner.invoke(
+                app, ["add-instrument", "EGLN.L", "--asset-class", "commodity"]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert w["service"].call_args.kwargs["asset_class"] == "commodity"
+
+    def test_validation_error_exits_one_with_the_message(self) -> None:
+        """An unsupported venue or empty history is actionable and writes nothing."""
+        from app.services.universe.add_instrument import AddInstrumentError
+
+        stack, w = self._wiring()
+        w["service"].side_effect = AddInstrumentError("exchange code 'BTS' unsupported")
+        with stack:
+            result = runner.invoke(
+                app, ["add-instrument", "XYZ", "--asset-class", "equity", "--pin"]
+            )
+
+        assert result.exit_code == 1
+        assert "BTS" in result.output
+        w["fetch"].assert_not_called()
+        w["pin_repo"].assert_not_called()
+        w["session"].commit.assert_not_called()
+
+    def test_price_fetch_failure_exits_one_after_the_row_is_saved(self) -> None:
+        """The row stays; the exit code tells the shell the prices are missing."""
+        stack, w = self._wiring()
+        w["fetch"].side_effect = lambda *a, **k: {
+            "counts": {},
+            "errors": ["prices: boom"],
+            "skipped": [],
+        }
+        with stack:
+            result = runner.invoke(
+                app, ["add-instrument", "VWCE.DE", "--asset-class", "equity"]
+            )
+
+        assert result.exit_code == 1
+        assert "prices: boom" in result.output
+        w["session"].commit.assert_called_once()
+
+    def test_other_category_errors_are_warnings_only(self) -> None:
+        """A failed news or holders fetch does not fail the command."""
+        stack, w = self._wiring()
+        w["fetch"].side_effect = lambda *a, **k: {
+            "counts": {"prices": 10},
+            "errors": ["news: timeout"],
+            "skipped": [],
+        }
+        with stack:
+            result = runner.invoke(
+                app, ["add-instrument", "VWCE.DE", "--asset-class", "equity"]
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "news: timeout" in result.output
+
+    def test_claims_no_job_slot(self) -> None:
+        """Like `daily-events --backfill`, no background_jobs row is created."""
+        stack, _ = self._wiring()
+        with (
+            stack,
+            patch(
+                "app.services.jobs.background_job.BackgroundJobService"
+            ) as job_service,
+        ):
+            result = runner.invoke(
+                app, ["add-instrument", "VWCE.DE", "--asset-class", "equity"]
+            )
+
+        assert result.exit_code == 0, result.output
+        job_service.assert_not_called()
+
+
 def _registered_commands() -> set[str]:
     return set(typer.main.get_command(app).commands)  # type: ignore[attr-defined]
 

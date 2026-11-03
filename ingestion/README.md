@@ -65,9 +65,20 @@ docker compose exec scheduler python -m app.cli market-structure
 docker compose exec scheduler python -m app.cli calendars
 docker compose exec scheduler python -m app.cli market-summary
 docker compose exec scheduler python -m app.cli options
+docker compose exec scheduler python -m app.cli add-instrument VWCE.DE --asset-class equity --pin
 docker compose exec scheduler python -m app.cli daily-events
 docker compose exec scheduler python -m app.cli daily-events --backfill 2026-01-01:2026-09-30
 ```
+
+`add-instrument` is the way to put an ETF the Screener never returns into the universe. It
+checks the ticker on Yahoo (type, venue, price history), stores the instrument row, fetches 5y
+of prices and the ETF fund data, and with `--pin` records the ticker in `pinned_instruments`
+under source `manual` so the weekly universe build keeps it, leaves its classification and
+`t212_ticker` alone, and never marks it delisted. An ETF needs an explicit `--asset-class`.
+Unlike the step commands it claims no job slot, like `daily-events --backfill`. The host
+`portopt` shim runs a non-editable snapshot of `app/`, so the command appears there only after
+`uv tool install --reinstall --from ./ingestion portopt`; in the container it needs an image
+rebuild (`portopt start --rebuild`).
 
 Single-step commands exit non-zero when the step did not complete, so shell drivers can gate
 on them. The composite commands `daily` and `refetch-all` always exit 0, even when a step
