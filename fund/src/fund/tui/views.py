@@ -21,6 +21,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import re
 import uuid
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -666,6 +667,7 @@ _SAVED_FIELDS: tuple[tuple[str, str], ...] = (
     ("base_currency", "base_currency"),
     ("drift", "drift_l1_threshold"),
     ("benchmark", "benchmark"),
+    ("eligible", "eligible_tickers"),
     ("gate", "hitl_gates"),
     ("directives", "remembered_directives"),
 )
@@ -675,8 +677,9 @@ class MandateView(ShellView):
     """Per-portfolio policy editor: run-policy (persisted) + guardrails (audit-only).
 
     RUN POLICY mirrors the editable ``PortfolioMandate`` fields (capital, base currency,
-    drift threshold, benchmark); saving upserts through the unified action path
-    (``mandate_edit``). GUARDRAILS are read from the active MiFID profile — the
+    drift threshold, benchmark, eligible tickers); saving upserts through the unified
+    action path (``mandate_edit``), which also warns about an unpriced eligible ticker.
+    GUARDRAILS are read from the active MiFID profile — the
     suitability ``band`` is the ceiling, and proposing a *riskier* band logs a
     ``guardrail_override`` flagged ⚠ (audit-only this phase; enforcement is
     ``03-copilot``). The HITL gates mirror what a run actually pauses at: the config
@@ -742,6 +745,10 @@ class MandateView(ShellView):
                 yield Input(placeholder="base currency", id="mandate-base-currency")
                 yield Input(placeholder="drift L1 threshold (0-2)", id="mandate-drift")
                 yield Input(placeholder="benchmark", id="mandate-benchmark")
+                yield Input(
+                    placeholder="eligible tickers (comma-separated)",
+                    id="mandate-eligible",
+                )
                 yield Static(
                     "", id="mandate-triggers", classes="mandate-readonly", markup=False
                 )
@@ -769,7 +776,8 @@ class MandateView(ShellView):
                 yield Label("REMEMBERED DIRECTIVES", classes="mandate-section")
                 yield ListView(id="mandate-directives", classes="mandate-directives")
         yield Static(
-            "ctrl+s save · o override guardrail · x remove directive",
+            "ctrl+s save · o override guardrail · x remove directive · "
+            "eligible tickers: blank = unrestricted",
             id="mandate-hint",
             classes="mandate-hint",
         )
@@ -834,10 +842,20 @@ class MandateView(ShellView):
             "base_currency": base_currency,
             "drift_l1_threshold": self.query_one("#mandate-drift", Input).value,
             "benchmark": self.query_one("#mandate-benchmark", Input).value or None,
+            "eligible_tickers": self._proposed_eligible(),
             "hitl_gates": self._proposed_gates(),
             "remembered_directives": list(self._directives),
         }
         return PortfolioMandate.model_validate(data)
+
+    def _proposed_eligible(self) -> list[str]:
+        """The typed eligible tickers: comma- or space-separated, a blank field empty.
+
+        Normalisation (case, duplicates) and the width limit are the mandate schema's,
+        so a bad entry surfaces as the same validation error as any other field.
+        """
+        raw = self.query_one("#mandate-eligible", Input).value
+        return [ticker for ticker in re.split(r"[,\s]+", raw.upper()) if ticker]
 
     def _proposed_gates(self) -> list[str]:
         """The mandate's gates with ``place_orders`` set from the checkbox.
@@ -991,12 +1009,14 @@ class MandateView(ShellView):
         base_currency = self.query_one("#mandate-base-currency", Input)
         drift = self.query_one("#mandate-drift", Input)
         benchmark = self.query_one("#mandate-benchmark", Input)
+        eligible = self.query_one("#mandate-eligible", Input)
         triggers = self.query_one("#mandate-triggers", Static)
         persisted = (
             ("capital", capital, ""),
             ("base_currency", base_currency, ""),
             ("drift", drift, ""),
             ("benchmark", benchmark, ""),
+            ("eligible", eligible, ""),
         )
         if mandate is not None:
             persisted = (
@@ -1004,6 +1024,7 @@ class MandateView(ShellView):
                 ("base_currency", base_currency, mandate.base_currency),
                 ("drift", drift, str(mandate.drift_l1_threshold)),
                 ("benchmark", benchmark, mandate.benchmark or ""),
+                ("eligible", eligible, ", ".join(mandate.eligible_tickers)),
             )
         for key, field, text in persisted:
             if self._take_persisted(key, field.value, text):
