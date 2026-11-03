@@ -51,6 +51,11 @@ deliberately ahead of `weekly_refetch`). Now built from the yfinance source, so 
 (fresh universe); `delisting_return` stays NULL (unknown) when a ticker merely drops out of a
 universe build — only a caller that knows the terminal return passes one (−1.0 = bankruptcy).
 
+### Universe protection (1, no FK; added by `e3a5c7d9b1f4`)
+| Table | Model | Unique On | Purpose |
+|-------|-------|-----------|---------|
+| `pinned_instruments` | PinnedInstrument | (ticker, source) | Claims that keep a ticker in the universe: `source` is `manual` (`portopt add-instrument --pin`) or `mandate:<portfolio_uuid>` (synced from `eligible_tickers` on every mandate save). Keyed by ticker text, not `instruments.id`, so a pin can precede its row. A pinned instrument is never marked delisted, keeps its classification and `t212_ticker` through the Screener upsert and `t212_annotate`. `asset_class = commodity` is also valid on `instruments` |
+
 ### Per-ticker — Prices & Actions (4, FK → `instruments.id` CASCADE)
 | Table | Model | Rows | Unique On | Purpose |
 |-------|-------|-----:|-----------|---------|

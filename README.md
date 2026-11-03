@@ -313,6 +313,37 @@ Two more entry points ship with it:
   and lands in the audit log; **Ask** answers questions about the fund in plain
   language. Press `?` for the key map.
 
+#### Restricting a portfolio to a set of instruments
+
+A portfolio can be limited to a hand-picked list (an ETF-only book, say). The list is
+a hard allowlist: the fund tools only list, optimise, risk-check and order tickers on
+it, and an empty list (the default) leaves the portfolio unrestricted. To set one up:
+
+```bash
+# 1. put each ticker in the universe (validates it on Yahoo, stores 5y of prices and the
+#    ETF fund data; --pin keeps it through the weekly universe build)
+portopt add-instrument VWCE.DE --asset-class equity --pin
+portopt add-instrument IBGS.L --asset-class fixed_income --fi-subclass government --pin
+
+# 2. allowlist them on the portfolio's mandate (repeatable; replaces the list)
+fund mandate set <portfolio_id> --eligible VWCE.DE --eligible IBGS.L
+fund mandate set <portfolio_id> --clear-eligible   # back to unrestricted
+```
+
+The same field is on the TUI Mandate view ("eligible tickers", comma-separated, saved
+with `ctrl+s`). A ticker with no priced instrument yet is accepted with a warning, so
+the mandate can be written before the instrument exists; until it has prices the
+ticker stays barred. Saving the mandate also pins the tickers (source
+`mandate:<portfolio_id>`) so the weekly build cannot delist them.
+
+With ESG exclusions in the client's profile, a fund is allowed by look-through: its
+latest sector snapshot must keep the excluded share within the client's tolerance
+(`look_through_tolerance`, strict 0 by default). Commodity funds and government or
+inflation-linked bond funds pass; any other fund whose snapshot is missing, older than
+`FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS` (180) or incomplete is barred, so most corporate
+and aggregate bond ETFs are out under exclusions. The PM's instruction names every
+barred ticker with its reason.
+
 ---
 
 ## Dependencies

@@ -100,6 +100,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **api**: `universe_build` promoted to a scheduled job (Sun 02:00, ahead of
   `weekly_refetch` — every other step iterates the `instruments` table, so a
   stale universe silently caps what yfinance fetches)
+- **fund / portopt-db / ingestion**: the **eligible universe**, so a portfolio can
+  be restricted to a hand-picked set of instruments (the first real ETF portfolio
+  could not run: its ETFs ranked below 7,000 by market cap, had no sector and
+  failed every ESG exclusion)
+  - `PortfolioMandate.eligible_tickers` — a hard allowlist, empty meaning
+    unrestricted; set with `fund mandate set --eligible T ... | --clear-eligible`
+    or the TUI Mandate view's "eligible tickers" field. Saving warns once about
+    tickers without a priced instrument and syncs the portfolio's pins
+  - `fund.tools.eligibility` resolves the allowlist once per run (run, resume and
+    the adviser edit) into `RunContext.eligible`; `list_universe` returns only the
+    allowed set (with `instrument_type` / `asset_class`), `universe_filter`,
+    `estimate_moments` and `optimize_portfolio` refuse an outside ticker,
+    `risk_check` records a `not_eligible` violation, and `place_orders` and the
+    adviser edit refuse it. The PM seed lists the eligible and barred names
+  - ESG look-through for ETFs: a fund is judged by its latest `etf_sector_weights`
+    snapshot against the client's new `look_through_tolerance` (strict 0 by
+    default); commodity and government / inflation-linked bond ETFs pass, other
+    funds with a missing, stale (`FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS`, 180
+    days), partial or unmappable snapshot are barred `esg_unclassified`. Under an
+    allowlist the stored-sector screen leaves ETFs to the resolver
+  - `pinned_instruments` table (Alembic `e3a5c7d9b1f4`) and
+    `PinnedInstrumentRepository`: a pinned ticker is never marked delisted by the
+    universe build and keeps its classification and `t212_ticker`
+  - `portopt add-instrument <TICKER> [--asset-class ...] [--pin]` validates one
+    Yahoo ticker, stores the instrument with 5y of prices and the ETF fund data,
+    and takes no job slot; ETF fund data is now fetched for every ETF, and
+    `commodity` is a new asset class
+  - `ETFMetadataRepository.get_latest_sector_weights` batches the latest sector
+    snapshots for a list of tickers
 
 ### Changed
 
