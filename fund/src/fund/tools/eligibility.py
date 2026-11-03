@@ -6,9 +6,10 @@ computed once per run (``RunContext.eligible``) rather than inside each tool cal
 where repeated queries could answer differently within one run.
 
 The resolver is deliberately **not** a bound tool and is not exported from
-``fund.tools``: the model never chooses its own eligibility. Callers import it lazily
-inside a function — the package pulls the ``optimizer`` stack in through
-``fund.tools.universe``, which ``fund.observe`` and ``fund.tui`` must stay free of.
+``fund.tools``: the model never chooses its own eligibility. The agent-stack-light
+callers (``fund.agents.graph``, ``fund.actions``) import it lazily inside a function,
+since the package pulls the ``optimizer`` stack in through ``fund.tools.universe``,
+which ``fund.observe`` and ``fund.tui`` must stay free of.
 """
 
 from __future__ import annotations
