@@ -4,7 +4,9 @@ Scheduled jobs:
   1. **daily_pipeline** (CronTrigger, default 07:00 UTC) — sequential data
      pipeline: fx → yfinance → macro → daily FRED series → news → daily-events
      digest (the digest summarises the day's ingested data into
-     ``market_journal``).
+     ``market_journal``). On an empty ``instruments`` table (a fresh install) it
+     first builds the universe, so prices arrive on day one instead of waiting
+     for the Saturday build.
   2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
      (catch afternoon market news).
   3. **universe_build** (CronTrigger, default Saturday 02:00 UTC) — instrument-
@@ -52,6 +54,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import STATE_PAUSED, STATE_STOPPED
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
 from app.config import settings
 from app.database import database_manager
@@ -654,8 +657,62 @@ def run_t212_annotate_step(*, attempt: int = 0) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _universe_is_empty() -> bool:
+    """Return whether the ``instruments`` table holds no active (non-delisted) row.
+
+    A database fault reads as "not empty": the answer is unknown, and guessing
+    wrong would start a multi-minute universe rebuild on a populated database.
+    The pipeline's own steps will surface a real outage.
+    """
+    try:
+        with database_manager.get_session() as session:
+            return not UniverseRepository(session).has_active_instruments()
+    except Exception:
+        logger.warning(
+            "daily_pipeline: could not check whether the universe is populated"
+            " — skipping the first-run bootstrap",
+            exc_info=True,
+        )
+        return False
+
+
+def _bootstrap_universe_if_empty() -> bool:
+    """Build the instrument universe when none exists yet.
+
+    A fresh install has an empty ``instruments`` table and every price step
+    iterates it, so without this the first daily run would succeed with zero
+    prices until the Saturday ``universe_build``. Failure to build is never fatal
+    here: the remaining steps behave exactly as they did before this existed (the
+    yfinance sweep over an empty table is a no-op).
+
+    Returns:
+        ``True`` only when the universe was empty and the build completed.
+    """
+    if not _universe_is_empty():
+        return False
+
+    logger.info("daily_pipeline: no active instruments — building the universe first")
+    try:
+        built = run_universe_step()
+    except Exception:
+        logger.exception("daily_pipeline: universe bootstrap raised")
+        built = False
+
+    if not built:
+        logger.warning(
+            "daily_pipeline: universe bootstrap did not complete — continuing"
+            " without it; prices stay empty until the Saturday universe build"
+            " or a manual `universe` run"
+        )
+    return built
+
+
 def run_daily_pipeline() -> None:
     """Sequential pipeline: fx → yfinance → macro → daily FRED → news → digest.
+
+    An empty universe is built first (see ``_bootstrap_universe_if_empty``), so a
+    fresh install gets prices on its first run rather than after the next
+    Saturday build.
 
     News depends on yfinance (it fetches article content for the fetched
     tickers), so a failed yfinance step skips news rather than scraping against
@@ -672,8 +729,16 @@ def run_daily_pipeline() -> None:
     """
     logger.info("daily_pipeline: starting")
 
+    bootstrapped = _bootstrap_universe_if_empty()
+
     run_fx_step()
 
+    if bootstrapped:
+        logger.info(
+            "daily_pipeline: first run builds the universe, so yfinance now"
+            " downloads full history for every new instrument; this bootstrap can"
+            " take many hours (~14 h reported for ~8,700 tickers)"
+        )
     yf_ok = run_yfinance_step(mode="incremental")
 
     run_macro_step()

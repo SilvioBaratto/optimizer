@@ -195,6 +195,16 @@ portopt status    # report Docker + service health (non-zero exit if anything is
 > the fund container, because stopping it would kill that round mid-flight; add
 > `--force` to stop anyway.
 
+**First run.** Setup seeds no data, so a fresh database has an empty `instruments`
+table. The first `daily_pipeline` (07:00, or run it straight away with
+`docker compose exec scheduler python -m app.cli daily`) therefore builds the
+universe first, a multi-minute yfinance Screener sweep, and then downloads prices
+and fundamentals for every instrument it found. Plan for many hours: about 8,700
+tickers on 14 exchanges took roughly 14 hours on the first reported install. The
+scheduler logs a notice when it starts that download, later daily runs are
+incremental and short, and an interrupted bootstrap resumes on the next run
+because already-fresh data is skipped.
+
 ### 3. Developer setup (all four packages)
 
 ```bash
@@ -264,7 +274,9 @@ It schedules seven jobs with APScheduler in-process (a `SQLAlchemyJobStore`):
 | `orphan_reaper` | on an interval |
 
 `universe_build` runs **before** `weekly_refetch` (a stale universe caps
-yfinance). The reaper is a pure **heartbeat lease**: it fails any active
+yfinance). `daily_pipeline` additionally builds the universe itself when
+`instruments` has no active rows (a fresh install), so prices do not wait for the
+first Saturday. The reaper is a pure **heartbeat lease**: it fails any active
 (`pending`/`running`) job whose `last_heartbeat_at` is NULL or older than the
 lease TTL — so **run exactly one daemon per database**.
 
