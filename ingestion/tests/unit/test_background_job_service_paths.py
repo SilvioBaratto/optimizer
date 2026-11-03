@@ -206,16 +206,50 @@ class TestHeartbeatTick:
         assert not stop.is_set()
 
     def test_when_row_reaped_then_signals_cancel_and_stops(
-        self, svc: BackgroundJobService
+        self, svc: BackgroundJobService, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The reaper failed the row; the worker must learn it is orphaned."""
         stop = threading.Event()
 
-        with _repo() as repo:
+        with _repo() as repo, caplog.at_level("WARNING", logger=M):
             repo.update_heartbeat.return_value = False
+            repo.get.return_value.status = "failed"
             assert svc._tick_heartbeat(uuid.UUID(JOB_ID), stop) is False
 
         assert stop.is_set()
+        assert "heartbeat reaped row" in caplog.text
+
+    def test_when_row_is_gone_then_treated_as_reaped(
+        self, svc: BackgroundJobService
+    ) -> None:
+        """A purged row cannot be told apart from a reaped one; stay on the cancel path."""
+        stop = threading.Event()
+
+        with _repo() as repo:
+            repo.update_heartbeat.return_value = False
+            repo.get.return_value = None
+            assert svc._tick_heartbeat(uuid.UUID(JOB_ID), stop) is False
+
+        assert stop.is_set()
+
+    def test_when_row_already_completed_then_stops_quietly_without_cancel(
+        self, svc: BackgroundJobService, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A step marks its own row completed before post-sweep work returns.
+
+        The stamp then finds a finished row, which is not an orphan: no warning, and
+        no cancel signal that would abort the remaining post-completion work.
+        """
+        stop = threading.Event()
+
+        with _repo() as repo, caplog.at_level("DEBUG", logger=M):
+            repo.update_heartbeat.return_value = False
+            repo.get.return_value.status = "completed"
+            assert svc._tick_heartbeat(uuid.UUID(JOB_ID), stop) is False
+
+        assert not stop.is_set()
+        assert "reaped" not in caplog.text
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
 
     def test_transient_db_error_keeps_the_loop_alive(
         self, svc: BackgroundJobService

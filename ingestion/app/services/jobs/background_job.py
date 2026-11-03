@@ -282,8 +282,8 @@ class BackgroundJobService:
     ) -> None:
         """Refresh ``last_heartbeat_at`` on each cadence tick.
 
-        Stops when *stop_event* is set, when the row has been reaped
-        (``update_heartbeat`` returns False) or when a DB error occurs.
+        Stops when *stop_event* is set, when the row is no longer ``running``
+        (reaped, or completed by the step itself) or when a DB error occurs.
         DB errors are logged at WARNING and swallowed so a transient DB
         hiccup does not kill the worker.
 
@@ -309,11 +309,25 @@ class BackgroundJobService:
         job_id: uuid.UUID,
         stop_event: threading.Event,
     ) -> bool:
-        """Single heartbeat tick. Returns False if loop should exit."""
+        """Single heartbeat tick. Returns False if loop should exit.
+
+        ``update_heartbeat`` only matches a ``running`` row, so a ``False`` means
+        either the reaper took the row or the step already marked it
+        ``completed`` and is still finishing post-sweep work. Only the first is an
+        orphan: a completed row ends the loop quietly and leaves *stop_event*
+        alone, because that event doubles as the cancel signal and setting it
+        would abort work the step is entitled to finish.
+        """
         try:
             with self._get_session_context_manager() as session:
                 repo = BackgroundJobRepository(session)
                 ok = repo.update_heartbeat(job_id)
+                # Resolved inside the session so the check never depends on the ORM
+                # instance outliving it.
+                finished = False
+                if not ok:
+                    row = repo.get(job_id)
+                    finished = row is not None and row.status == "completed"
                 session.commit()
         except Exception:
             # Best-effort liveness tick (see method docstring): a transient DB
@@ -322,6 +336,9 @@ class BackgroundJobService:
             logger.warning("heartbeat update failed for %s", job_id, exc_info=True)
             return True
         if not ok:
+            if finished:
+                logger.debug("heartbeat stopped: job %s already completed", job_id)
+                return False
             logger.warning("heartbeat reaped row %s — signalling cancel", job_id)
             stop_event.set()
             return False
