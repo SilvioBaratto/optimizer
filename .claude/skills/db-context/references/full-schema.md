@@ -58,6 +58,28 @@ true = the broker catalogue carries the instrument, false = matched and absent.
 | created_at | timestamp with time zone | no |
 | updated_at | timestamp with time zone | no |
 
+### pinned_instruments — created by `e3a5c7d9b1f4` (not in the live snapshot above)
+- PK: `id`
+- Unique: `uq_pinned_instruments_ticker_source` (ticker, source)
+- Index: `ix_pinned_instruments_source` (source)
+- FK: none. Keyed by the Yahoo ticker text, not by `instruments.id`: a mandate may list a
+  ticker before its instrument row exists, and the protection has to start the moment the
+  row appears.
+- Purpose: an owner's claim that a ticker must stay in the investable universe. `source` is
+  `manual` (`portopt add-instrument --pin`) or `mandate:<portfolio_uuid>` (synced from the
+  mandate's `eligible_tickers`). A pinned ticker is never marked delisted by the universe
+  build, its classification is not overwritten by the Screener upsert, and its `t212_ticker`
+  is not cleared or overwritten by `t212_annotate`. A ticker stays protected until the last
+  source releases it.
+
+| Column | Type | Nullable |
+|--------|------|----------|
+| ticker | character varying(100) | no |
+| source | character varying(64) | no |
+| id | uuid | no |
+| created_at | timestamp with time zone | no |
+| updated_at | timestamp with time zone | no |
+
 ---
 
 ## Prices & Actions

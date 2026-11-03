@@ -239,8 +239,14 @@ def _optimizer_constraints(cs: ConstraintSet) -> dict[str, Any]:
 def _instrument_breaches(
     ctx: RunContext, cs: ConstraintSet, tickers: list[str]
 ) -> list[dict[str, Any]]:
-    """ESG-sector and K&E instrument breaches among ``tickers`` (empty if none)."""
-    return constraint_set_breaches(ctx.session, cs, tickers)
+    """ESG-sector and K&E instrument breaches among ``tickers`` (empty if none).
+
+    With an allowlist bound to the run the resolver judges an ETF's ESG standing by
+    look-through, which the stored-sector screen cannot, so funds are left to it.
+    """
+    return constraint_set_breaches(
+        ctx.session, cs, tickers, funds_by_look_through=ctx.eligible is not None
+    )
 
 
 def _describe_breaches(breaches: list[dict[str, Any]]) -> str:

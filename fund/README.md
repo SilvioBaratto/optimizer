@@ -37,6 +37,33 @@ fund-tui      # watch terminal -> fund.tui.app:main
 fund-worker   # daemon         -> fund.worker:main
 ```
 
+## Eligible universe
+
+`PortfolioMandate.eligible_tickers` is a hard per-portfolio allowlist; empty means
+unrestricted. `fund.tools.eligibility` resolves it once per run (on run, resume and the
+adviser edit, from the current mandate) into `Eligibility(allowed, barred)` on
+`RunContext.eligible`, and the weighting tools enforce it: `list_universe` returns only
+the allowed set, `universe_filter` / `estimate_moments` / `optimize_portfolio` refuse an
+outside ticker, `risk_check` records a `not_eligible` violation and `place_orders` and
+the adviser edit refuse it. `get_prices` and `get_regime_stats` stay unrestricted. The
+benchmark is not automatically eligible.
+
+Set it with `fund mandate set <portfolio_id> --eligible T [--eligible T ...]`
+(`--clear-eligible` to lift it) or the Mandate view's "eligible tickers" field. Saving
+goes through `apply_action`, which warns once about tickers without a priced instrument
+and syncs the portfolio's `mandate:<id>` pins in `pinned_instruments`, so the weekly
+universe build keeps the instruments. Add an instrument the Screener never returns with
+`portopt add-instrument` (see the ingestion README).
+
+A name is barred with one reason: `no_instrument`, `delisted`, `not_priced`,
+`esg:<gics sector>` or `esg_unclassified`. Under ESG exclusions a stock is judged by its
+stored sector and an ETF by look-through of its latest `etf_sector_weights` snapshot
+against the client's `look_through_tolerance` (strict 0 by default): commodity and
+government / inflation-linked bond ETFs pass, any other fund needs a snapshot no older
+than `FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS` (180) that sums to one within 0.05, or it is
+barred `esg_unclassified`. Most corporate and aggregate bond ETFs stay barred, because
+their sector data is sparse.
+
 ## TUI (`fund-tui`)
 
 The supervisor's read-first oversight cockpit (Textual): a left nav rail over one

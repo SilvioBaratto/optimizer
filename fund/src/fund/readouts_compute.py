@@ -246,7 +246,9 @@ def compute_risk(
 
     Applies what the live gate applies: the bounds tightened to the K&E position cap
     and, on every held name, the ESG sector exclusions and K&E instrument restrictions
-    (an instrument it cannot classify fails closed) and the eligible universe.
+    (an instrument it cannot classify fails closed) and the eligible universe. Under an
+    allowlist a held ETF's ESG standing is the resolver's, carried by ``eligible``, so
+    the stored-sector screen (which cannot place a fund) leaves ETFs to it.
 
     Args:
         weights: The held allocation to check and roll up.
@@ -284,7 +286,12 @@ def compute_risk(
     violations: list[dict[str, Any]] = list(data.get("violations") or ())
     if cs is not None:
         try:
-            breaches = constraint_set_breaches(session, cs, held_tickers(weights))
+            breaches = constraint_set_breaches(
+                session,
+                cs,
+                held_tickers(weights),
+                funds_by_look_through=eligible is not None,
+            )
         except SQLAlchemyError as exc:
             return RiskCompute(
                 passed=None,

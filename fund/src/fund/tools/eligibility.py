@@ -5,6 +5,26 @@ PM seed all need the same answer to "which of these may the portfolio hold", so 
 computed once per run (``RunContext.eligible``) rather than inside each tool call,
 where repeated queries could answer differently within one run.
 
+ESG exclusions are sectors. A single stock sits in one and is judged by it. An ETF has
+no sector, so it is judged by look-through of its latest ``etf_sector_weights``
+snapshot, in order:
+
+1. a commodity fund passes (its stored weights describe collateral, not exposure);
+2. a government or inflation-linked bond fund passes;
+3. every other fund (equity, multi-asset, corporate / aggregate / high-yield / EM /
+   unclassified bonds) needs a snapshot no older than
+   ``FundConfig.esg_sector_weights_max_age_days`` at the decision bar, whose non-null
+   weights sum to one within five points and whose labels all map to a GICS sector.
+   Otherwise it is barred ``esg_unclassified``;
+4. its exposure is the weight in excluded sectors; it is barred ``esg:<sector>``
+   (the excluded sector with the largest weight) when that is strictly above the
+   client's ``look_through_tolerance``. The default 0.0 is strict.
+
+Honest consequence: under ESG exclusions most corporate and aggregate bond ETFs stay
+barred, because their sector data is sparse (government 6 of 265, corporate 27 of 471,
+aggregate 70 of 969 funds carry any). That is intended: no data cannot show a fund is
+clean.
+
 The resolver is deliberately **not** a bound tool and is not exported from
 ``fund.tools``: the model never chooses its own eligibility. The agent-stack-light
 callers (``fund.agents.graph``, ``fund.actions``) import it lazily inside a function,
@@ -20,12 +40,24 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from portopt_db.models.universe.universe import Instrument
+from portopt_db.repositories.market_data.etf_metadata_repository import (
+    ETFMetadataRepository,
+)
 from sqlalchemy import select
 
+from fund.config import settings
 from fund.tools.mandate import held_tickers
-from fund.tools.universe import UNCLASSIFIED, esg_barred, uninvestable_reasons
+from fund.tools.universe import (
+    UNCLASSIFIED,
+    _resolve_sector,
+    esg_barred,
+    uninvestable_reasons,
+)
 
 if TYPE_CHECKING:
+    from portopt_db.repositories.market_data.etf_metadata_repository import (
+        SectorSnapshot,
+    )
     from sqlalchemy.orm import Session
 
     from fund.schemas.constraint_set import ConstraintSet
@@ -35,6 +67,21 @@ if TYPE_CHECKING:
 NOT_IN_ALLOWLIST = "not_in_allowlist"
 ESG_UNCLASSIFIED = "esg_unclassified"
 _ETF = "ETF"
+_COMMODITY = "commodity"
+_FIXED_INCOME = "fixed_income"
+_COMPANY_FREE_FI_SUBCLASSES = frozenset({"government", "inflation_linked"})
+
+# A snapshot's non-null weights must sum to one within this much, since Yahoo rounds
+# each sector and omits tiny ones; a bigger gap means a missing or double-counted slice.
+_SNAPSHOT_SUM_TOLERANCE = 0.05
+
+# Weights are sums of floats, so ``0.1 + 0.2`` must compare equal to a tolerance of
+# ``0.3``; the profiler snaps band edges to the same nine decimals.
+_SNAP_DECIMALS = 9
+
+
+def _snap(x: float) -> float:
+    return round(x, _SNAP_DECIMALS)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -101,17 +148,57 @@ def _normalise(allowlist: Iterable[str]) -> tuple[str, ...]:
     )
 
 
-def _instrument_types(session: Session, tickers: Iterable[str]) -> dict[str, str]:
-    """The upper-cased ``instrument_type`` of each ticker, ``""`` when unknown."""
-    rows = session.execute(
-        select(Instrument.yfinance_ticker, Instrument.instrument_type).where(
-            Instrument.yfinance_ticker.in_(list(tickers))
+@dataclasses.dataclass(frozen=True)
+class _InstrumentFacts:
+    """What the look-through needs to know about an instrument, case-folded."""
+
+    instrument_type: str
+    asset_class: str
+    fi_subclass: str
+
+    @property
+    def is_etf(self) -> bool:
+        return self.instrument_type == _ETF
+
+    @property
+    def holds_no_company_exposure(self) -> bool:
+        """Commodity and government-type bond funds cannot sit in an excluded sector.
+
+        A commodity fund's stored sector weights describe its collateral, not what it
+        owns (a gold fund can show a third of its book in basic materials), so they
+        are not read. A government or inflation-linked bond fund holds sovereign paper.
+        """
+        if self.asset_class == _COMMODITY:
+            return True
+        return (
+            self.asset_class == _FIXED_INCOME
+            and self.fi_subclass in _COMPANY_FREE_FI_SUBCLASSES
         )
+
+
+def _instrument_facts(
+    session: Session, tickers: Iterable[str]
+) -> dict[str, _InstrumentFacts]:
+    """The classification of each ticker's instrument, in one query."""
+    rows = session.execute(
+        select(
+            Instrument.yfinance_ticker,
+            Instrument.instrument_type,
+            Instrument.asset_class,
+            Instrument.fi_subclass,
+        ).where(Instrument.yfinance_ticker.in_(list(tickers)))
     ).all()
-    types: dict[str, str] = {}
-    for ticker, instrument_type in rows:
-        types.setdefault(ticker, (instrument_type or "").strip().upper())
-    return types
+    facts: dict[str, _InstrumentFacts] = {}
+    for ticker, instrument_type, asset_class, fi_subclass in rows:
+        facts.setdefault(
+            ticker,
+            _InstrumentFacts(
+                instrument_type=(instrument_type or "").strip().upper(),
+                asset_class=(asset_class or "").strip().lower(),
+                fi_subclass=(fi_subclass or "").strip().lower(),
+            ),
+        )
+    return facts
 
 
 def _stock_esg_reasons(
@@ -130,22 +217,114 @@ def _stock_esg_reasons(
     }
 
 
+def _look_through(
+    snapshot: SectorSnapshot | None,
+    exclusions: frozenset[GicsSector],
+    tolerance: float,
+    *,
+    asof: dt.date,
+    max_age_days: int,
+) -> str | None:
+    """The ESG bar of one fund judged by its sector snapshot, or ``None`` if it passes.
+
+    Fails closed (``esg_unclassified``) whenever the snapshot cannot show the fund is
+    clean: absent, older than ``max_age_days`` at the decision bar, a label outside the
+    eleven GICS sectors, or non-null weights that do not sum to one. A NULL weight is
+    skipped rather than read as zero, so the completeness check is what catches a
+    snapshot missing the sector that matters.
+    """
+    if snapshot is None or (asof - snapshot.as_of).days > max_age_days:
+        return ESG_UNCLASSIFIED
+    by_sector: dict[GicsSector, float] = {}
+    total = 0.0
+    for label, weight in snapshot.weights.items():
+        if weight is None:
+            continue
+        sector = _resolve_sector(label)
+        if sector is None:
+            return ESG_UNCLASSIFIED
+        total += weight
+        by_sector[sector] = by_sector.get(sector, 0.0) + weight
+    if _snap(abs(total - 1.0)) > _SNAPSHOT_SUM_TOLERANCE:
+        return ESG_UNCLASSIFIED
+    # A short position in an excluded sector must not offset a long one.
+    exposed = {
+        sector: max(weight, 0.0)
+        for sector, weight in by_sector.items()
+        if sector in exclusions
+    }
+    if _snap(sum(exposed.values())) <= _snap(tolerance):
+        return None
+    dominant = max(exposed, key=lambda sector: (exposed[sector], sector.value))
+    return f"esg:{dominant.value}"
+
+
+def _fund_esg_reasons(
+    session: Session,
+    tickers: list[str],
+    exclusions: frozenset[GicsSector],
+    tolerance: float,
+    *,
+    asof: dt.date,
+    max_age_days: int,
+) -> dict[str, str]:
+    """ESG bars for funds, by the look-through of their latest sector snapshot.
+
+    An ETF has no single sector, so it is judged by the share of its snapshot that
+    sits in an excluded sector against the client's tolerance. The snapshots of all
+    ``tickers`` are fetched in one query however many there are.
+    """
+    if not tickers:
+        return {}
+    snapshots = ETFMetadataRepository(session).get_latest_sector_weights(tickers)
+    reasons: dict[str, str] = {}
+    for ticker in tickers:
+        reason = _look_through(
+            snapshots.get(ticker),
+            exclusions,
+            tolerance,
+            asof=asof,
+            max_age_days=max_age_days,
+        )
+        if reason is not None:
+            reasons[ticker] = reason
+    return reasons
+
+
 def _esg_reasons(
-    session: Session, tickers: list[str], constraint_set: ConstraintSet | None
+    session: Session,
+    tickers: list[str],
+    constraint_set: ConstraintSet | None,
+    *,
+    asof: dt.date,
+    max_age_days: int,
 ) -> dict[str, str]:
     """ESG bars among the investable ``tickers``; empty with no exclusions to apply.
 
-    Anything that is not an ETF is screened as a single stock, so an instrument of an
-    unrecognised type cannot slip past a hard exclusion.
+    ETFs are judged by look-through; anything else is screened as a single stock, so
+    an instrument of an unrecognised type cannot slip past a hard exclusion.
     """
     if constraint_set is None or not tickers:
         return {}
     exclusions = frozenset(constraint_set.esg.exclusions)
     if not exclusions:
         return {}
-    types = _instrument_types(session, tickers)
-    stocks = [t for t in tickers if types.get(t) != _ETF]
-    return _stock_esg_reasons(session, stocks, exclusions)
+    facts = _instrument_facts(session, tickers)
+    funds = [t for t in tickers if t in facts and facts[t].is_etf]
+    stocks = [t for t in tickers if t not in funds]
+    judged_funds = [t for t in funds if not facts[t].holds_no_company_exposure]
+    reasons = _stock_esg_reasons(session, stocks, exclusions)
+    reasons.update(
+        _fund_esg_reasons(
+            session,
+            judged_funds,
+            exclusions,
+            constraint_set.esg.look_through_tolerance,
+            asof=asof,
+            max_age_days=max_age_days,
+        )
+    )
+    return reasons
 
 
 def resolve_eligibility(
@@ -154,6 +333,7 @@ def resolve_eligibility(
     asof: dt.date,
     *,
     constraint_set: ConstraintSet | None = None,
+    max_sector_age_days: int | None = None,
 ) -> Eligibility | None:
     """Resolve ``allowlist`` into the tickers that may be held on ``asof``.
 
@@ -164,22 +344,35 @@ def resolve_eligibility(
             :func:`fund.tools.universe.list_universe`.
         constraint_set: The client's active constraints. Its ESG exclusions bar
             allowlisted stocks in an excluded or unplaceable sector, failing closed
-            like ``list_universe``. ``None`` (or no exclusions) applies no ESG screen.
+            like ``list_universe``, and ETFs by look-through (see the module
+            docstring). ``None`` (or no exclusions) applies no ESG screen.
+        max_sector_age_days: How old, at ``asof``, an ETF's sector snapshot may be
+            before it no longer counts. ``None`` reads
+            ``FundConfig.esg_sector_weights_max_age_days``.
 
     Returns:
         ``None`` when the allowlist is empty: the portfolio is unrestricted and
         callers apply no check. Otherwise an :class:`Eligibility` whose ``allowed``
         and ``barred`` follow the mandate's order. A name that fails the data checks
         keeps that reason and is not screened for ESG. The data checks cost a constant
-        number of queries however long the list is; the ESG screen costs a few per
-        screened ticker, which is why the result is resolved once per run.
+        number of queries however long the list is, the ETF look-through adds a
+        constant number more, and the stock screen costs a few per screened ticker,
+        which is why the result is resolved once per run.
     """
     tickers = _normalise(allowlist)
     if not tickers:
         return None
+    if max_sector_age_days is None:
+        max_sector_age_days = settings.esg_sector_weights_max_age_days
     barred = uninvestable_reasons(session, tickers, asof)
     barred.update(
-        _esg_reasons(session, [t for t in tickers if t not in barred], constraint_set)
+        _esg_reasons(
+            session,
+            [t for t in tickers if t not in barred],
+            constraint_set,
+            asof=asof,
+            max_age_days=max_sector_age_days,
+        )
     )
     return Eligibility(
         allowed=tuple(t for t in tickers if t not in barred),
@@ -193,6 +386,7 @@ def resolve_mandate_eligibility(
     asof: dt.date,
     *,
     constraint_set: ConstraintSet | None = None,
+    max_sector_age_days: int | None = None,
 ) -> Eligibility | None:
     """Resolve the allowlist of ``mandate``, if the portfolio has one.
 
@@ -204,6 +398,7 @@ def resolve_mandate_eligibility(
         mandate: The portfolio's current mandate, or ``None`` when it has none.
         asof: Decision bar of the run.
         constraint_set: The run's active constraints, for the ESG screen.
+        max_sector_age_days: See :func:`resolve_eligibility`.
 
     Returns:
         ``None`` without a mandate or an allowlist; otherwise the resolved
@@ -212,7 +407,11 @@ def resolve_mandate_eligibility(
     if mandate is None:
         return None
     return resolve_eligibility(
-        session, mandate.eligible_tickers, asof, constraint_set=constraint_set
+        session,
+        mandate.eligible_tickers,
+        asof,
+        constraint_set=constraint_set,
+        max_sector_age_days=max_sector_age_days,
     )
 
 

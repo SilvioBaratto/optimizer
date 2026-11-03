@@ -2630,6 +2630,201 @@ async def test_mandate_edit_made_after_a_save_is_still_protected(shell_env) -> N
         assert drift.value == "0.35"
 
 
+# --- Mandate view: the eligible-tickers allowlist field -----------------------
+
+
+def _seed_mandate_with_allowlist(env, *tickers: str) -> None:
+    with env.get_session() as session:
+        MandateRepository(session).upsert(
+            make_mandate().model_copy(update={"eligible_tickers": tuple(tickers)})
+        )
+        session.commit()
+
+
+async def _save_mandate(app, pilot) -> None:
+    app.action_save_mandate()
+    await pilot.pause()
+    await app.last_worker.wait()
+    await pilot.pause()
+
+
+def _stored_allowlist(env) -> tuple[str, ...]:
+    with env.get_session() as session:
+        mandate = observe.get_mandate(session, PORTFOLIO_ID)
+        assert mandate is not None
+        return mandate.eligible_tickers
+
+
+@pytest.mark.asyncio
+async def test_mandate_eligible_field_shows_the_persisted_allowlist(shell_env) -> None:
+    _seed_mandate_with_allowlist(shell_env, "VWCE.DE", "IBGS.L")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+
+        field = view.query_one("#mandate-eligible", Input)
+
+        assert field.value == "VWCE.DE, IBGS.L"
+        assert field.placeholder == "eligible tickers (comma-separated)"
+
+
+@pytest.mark.asyncio
+async def test_mandate_eligible_field_is_empty_for_an_unrestricted_mandate(
+    shell_env,
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+
+        assert view.query_one("#mandate-eligible", Input).value == ""
+
+
+@pytest.mark.asyncio
+async def test_mandate_eligible_edit_saves_normalised_through_the_audited_path(
+    shell_env,
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-eligible", Input).value = "vwce.de, ibgs.l  AAA,,"
+
+        await _save_mandate(app, pilot)
+
+    assert _stored_allowlist(shell_env) == ("VWCE.DE", "IBGS.L", "AAA")
+    with shell_env.get_session() as session:
+        (row,) = HumanAuditLogRepository(session).list_recent(action="mandate_edit")
+        assert row.new_value["eligible_tickers"] == ["VWCE.DE", "IBGS.L", "AAA"]
+
+
+@pytest.mark.asyncio
+async def test_mandate_blank_eligible_field_clears_the_allowlist(shell_env) -> None:
+    _seed_mandate_with_allowlist(shell_env, "AAA", "BBB")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-eligible", Input).value = "  "
+
+        await _save_mandate(app, pilot)
+
+    assert _stored_allowlist(shell_env) == ()
+
+
+@pytest.mark.asyncio
+async def test_mandate_eligible_entry_over_the_width_limit_saves_nothing(
+    shell_env,
+) -> None:
+    _seed_mandate_with_allowlist(shell_env, "AAA")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-eligible", Input).value = "A" * 33
+        app.action_save_mandate()
+        await pilot.pause()
+
+        assert app.last_status.startswith("invalid mandate")
+        assert "eligible_tickers" in app.last_status
+
+    assert _stored_allowlist(shell_env) == ("AAA",)
+    with shell_env.get_session() as session:
+        assert HumanAuditLogRepository(session).list_recent(action="mandate_edit") == []
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_reports_the_unpriced_eligible_ticker_in_the_status_bar(
+    shell_env,
+) -> None:
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-eligible", Input).value = "NEWETF.L"
+
+        await _save_mandate(app, pilot)
+
+        assert "warning" in app.last_status
+        assert "NEWETF.L" in app.last_status
+        shown = app.query_one("#status-bar", Static).visual.plain
+        assert "NEWETF.L" in shown
+
+
+@pytest.mark.asyncio
+async def test_mandate_poll_keeps_an_unsaved_eligible_edit(shell_env) -> None:
+    _seed_mandate_with_allowlist(shell_env, "AAA")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        field = view.query_one("#mandate-eligible", Input)
+        field.value = "AAA, BBB"
+
+        await pilot.pause(_SETTLE)
+        app._poll()
+        await pilot.pause()
+
+        assert field.value == "AAA, BBB"
+        assert view.proposed_mandate().eligible_tickers == ("AAA", "BBB")
+
+
+@pytest.mark.asyncio
+async def test_mandate_save_ack_releases_the_eligible_field_it_persisted(
+    shell_env,
+) -> None:
+    _seed_mandate_with_allowlist(shell_env, "AAA")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-eligible", Input).value = "aaa,  bbb"
+        assert "eligible" in view._painted
+
+        view.mark_saved(view.proposed_mandate())
+
+        assert "eligible" not in view._painted
+
+
+@pytest.mark.asyncio
+async def test_mandate_saved_eligible_edit_is_released_so_external_changes_show(
+    shell_env,
+) -> None:
+    _seed_mandate_with_allowlist(shell_env, "AAA")
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID, poll_interval=_FAST_POLL)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        field = view.query_one("#mandate-eligible", Input)
+        field.value = "aaa,bbb"
+        await _save_mandate(app, pilot)
+        await pilot.pause(_SETTLE)
+        assert field.value == "AAA, BBB"
+
+        with shell_env.get_session() as session:
+            external = observe.get_mandate(session, PORTFOLIO_ID).model_copy(
+                update={"eligible_tickers": ("CCC",)}
+            )
+            MandateRepository(session).upsert(external)
+            session.commit()
+        await pilot.pause(_SETTLE)
+
+        assert field.value == "CCC"
+
+
+@pytest.mark.asyncio
+async def test_mandate_unsaved_eligible_edit_does_not_leak_to_another_portfolio(
+    shell_env,
+) -> None:
+    with shell_env.get_session() as session:
+        MandateRepository(session).upsert(make_mandate(_PID_A))
+        MandateRepository(session).upsert(make_mandate(_PID_B))
+        session.commit()
+    app = _make_shell(shell_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        view.query_one("#mandate-eligible", Input).value = "AAA"
+        app.focus_portfolio(_PID_B)
+        await pilot.pause()
+
+        assert view.query_one("#mandate-eligible", Input).value == ""
+
+
 # --- Posture view: fund roster + fund strip + focused detail (T6) -------------
 
 _PID_C = uuid.UUID("cccc0003-0000-4000-8000-000000000003")

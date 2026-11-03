@@ -173,6 +173,13 @@ class FundConfig:
     # The default matches the weekly ``fund_rebalance_cron``. ---
     approval_max_age_days: int = 7
 
+    # --- Eligibility ESG look-through: how old a fund's latest ``etf_sector_weights``
+    # snapshot may be, at the decision bar, and still show it is clean. Fund holdings
+    # drift slowly and Yahoo refreshes them irregularly, so half a year is the point
+    # past which the numbers no longer describe the fund; an older snapshot fails
+    # closed like a missing one. ---
+    esg_sector_weights_max_age_days: int = 180
+
     # --- Phase-9 agent hardening: annual re-profiling marker + summarization
     # override. ``summary_token_threshold=None`` keeps deepagents' model-aware
     # default (a fraction of the model's context, else 170000 tokens); a value pins
@@ -401,6 +408,12 @@ def load_config(
         ),
         approval_max_age_days=int(
             env.get("FUND_APPROVAL_MAX_AGE_DAYS", defaults.approval_max_age_days)
+        ),
+        esg_sector_weights_max_age_days=int(
+            env.get(
+                "FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS",
+                defaults.esg_sector_weights_max_age_days,
+            )
         ),
         reprofile_interval_days=int(
             env.get("FUND_REPROFILE_INTERVAL_DAYS", defaults.reprofile_interval_days)

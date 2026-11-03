@@ -10,10 +10,16 @@ the LLM.
 ## Eligible universe
 A mandate can carry an allowlist, resolved once per run into the eligible universe
 (`allowed` tickers in mandate order, `barred` ones with a reason such as `delisted`,
-`not_priced`, `no_instrument`, `esg:<sector>`). With one, `list_universe` returns
-exactly the allowed set (not the market-cap ranking, which buries every ETF) and
-`universe_filter`, `estimate_moments` and `optimize_portfolio` refuse a ticker outside
-it. Without one nothing changes.
+`not_priced`, `no_instrument`, `esg:<sector>`, `esg_unclassified`). With one,
+`list_universe` returns exactly the allowed set (not the market-cap ranking, which
+buries every ETF) and `universe_filter`, `estimate_moments` and `optimize_portfolio`
+refuse a ticker outside it. Without one nothing changes.
+
+Under ESG exclusions a stock is judged by its sector and an ETF by look-through of its
+latest sector snapshot against the client's fund tolerance. Commodity and government or
+inflation-linked bond funds pass; any other fund with a stale, partial or missing
+snapshot is barred `esg_unclassified`, which is why many corporate and aggregate bond
+ETFs are absent from the list.
 
 ## Stages the filter applies (fixed defaults)
 
