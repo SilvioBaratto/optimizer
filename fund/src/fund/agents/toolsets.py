@@ -19,6 +19,10 @@ The bound closures also carry the load-bearing invariant into the audit trail:
   ``risk_check`` receives the same effective bounds. The decision logs the config
   that was actually applied, and the client's mapped intent stays auditable in the
   decision's ``constraint_set``;
+* the mandate's eligible-universe allowlist (``RunContext.eligible``, resolved once
+  per run) binds the model-typed universes: ``universe_filter``, ``estimate_moments``
+  and ``optimize_portfolio`` refuse a ticker outside it, naming each with its
+  reason, and ``list_universe`` returns exactly the allowed set;
 * the mandate's ESG sector exclusions and low-K&E instrument restrictions are
   screened in code (:func:`fund.tools.mandate.mandate_breaches`): ``universe_filter``
   drops offending names, ``optimize_portfolio`` refuses a universe holding one,
@@ -56,13 +60,14 @@ import functools
 import hashlib
 import json
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec
 
 from fund import tools as _tools
 from fund.config import DEFAULT_LOOKBACK_DAYS
 from fund.tools._base import ToolResult, err, ok, tool_envelope
+from fund.tools.eligibility import not_eligible_violations
 from fund.tools.mandate import HELD_TOL, constraint_set_breaches, held_tickers
 
 if TYPE_CHECKING:
@@ -75,6 +80,7 @@ if TYPE_CHECKING:
 
     from fund.config import FundConfig
     from fund.schemas import ConstraintSet
+    from fund.tools.eligibility import Eligibility
 
 # Canonical role → tool-name map. Keys are the ``skills.SKILLS_BY_AGENT`` role
 # keys verbatim; the values **partition** the real ``fund.tools`` exports
@@ -122,6 +128,25 @@ def _days_out_of_range(
     return err(f"{name} must be between {low} and {high} days (got {value})")
 
 
+def _ineligible(ctx: RunContext, tickers: Sequence[str]) -> ToolResult | None:
+    """An error envelope naming every ticker the portfolio may not hold.
+
+    A no-op when the mandate sets no allowlist. The model types these universes, so an
+    outside name (one remembered from training, say) is refused with its reason
+    rather than silently dropped: the model would not learn the constraint and could
+    return a different universe than the one it reasoned about.
+    """
+    if ctx.eligible is None:
+        return None
+    offenders = ctx.eligible.offenders(tickers)
+    if not offenders:
+        return None
+    return err(
+        "universe contains tickers outside the portfolio's eligible universe: "
+        f"{_describe_barred(offenders.items())}; remove these names and retry"
+    )
+
+
 @dataclass(frozen=True)
 class RunContext:
     """Immutable per-run binding context for the toolset closures.
@@ -136,7 +161,10 @@ class RunContext:
     (``None`` keeps listing currency — only sound for a single-currency universe).
     ``notional`` is the paper book the target weights scale — the mandate's capital —
     so a ticket is sized at what the adviser configured; ``None`` leaves
-    ``place_orders`` on its own default.
+    ``place_orders`` on its own default. ``eligible`` is the portfolio's resolved
+    allowlist, bound from the *current* mandate at every construction (run, resume
+    and the adviser edit) and never chosen by the model; ``None`` means the mandate
+    sets no allowlist, so no tool restricts tickers.
     """
 
     session: Session
@@ -154,6 +182,7 @@ class RunContext:
     lookback_days: int = DEFAULT_LOOKBACK_DAYS
     base_currency: str | None = None
     notional: float | None = None
+    eligible: Eligibility | None = None
     # Held for the whole body of every bound tool: the parallel tool calls of one
     # model turn run on worker threads, but ``session`` is not thread-safe.
     lock: threading.RLock = field(
@@ -218,11 +247,21 @@ def _describe_breaches(breaches: list[dict[str, Any]]) -> str:
     """A one-line, model-readable summary of structured mandate breaches."""
     parts = []
     for breach in breaches:
-        detail = breach.get("sector") or breach.get("instrument_type") or ""
+        detail = (
+            breach.get("sector")
+            or breach.get("instrument_type")
+            or breach.get("reason")
+            or ""
+        )
         parts.append(
             f"{breach['asset']} ({breach['type']}{': ' + detail if detail else ''})"
         )
     return "; ".join(parts)
+
+
+def _describe_barred(barred: Iterable[tuple[str, str]]) -> str:
+    """A one-line, model-readable summary of ``(ticker, reason)`` eligibility bars."""
+    return "; ".join(f"{ticker} ({reason})" for ticker, reason in barred)
 
 
 def _effective_optimizer_config(
@@ -363,6 +402,22 @@ def _get_macro_impl(ctx: RunContext, names: list[str]) -> ToolResult:
 def _list_universe_impl(
     ctx: RunContext, sector: str | None = None, limit: int = 100, offset: int = 0
 ) -> ToolResult:
+    if ctx.eligible is not None:
+        # The portfolio's allowlist, already screened for ESG by the resolver, is the
+        # whole universe: the market-cap ranking would bury every fund below it.
+        if not ctx.eligible.allowed:
+            return err(
+                "none of the portfolio's eligible tickers can be held: "
+                f"{_describe_barred(ctx.eligible.barred)}"
+            )
+        return _tools.list_universe(
+            ctx.session,
+            ctx.asof,
+            tickers=ctx.eligible.allowed,
+            sector=sector,
+            limit=limit,
+            offset=offset,
+        )
     # The ESG exclusions are bound from the run's ConstraintSet, never chosen by the
     # model: a listed name is one the client may hold.
     cs = _resolve_constraint_set(ctx)
@@ -379,6 +434,8 @@ def _list_universe_impl(
 @tool_envelope
 @_serialised
 def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
+    if (bad := _ineligible(ctx, universe)) is not None:
+        return bad
     cs = _resolve_constraint_set(ctx)
     excluded: dict[str, list[str]] = {}
     if cs is not None:
@@ -386,11 +443,11 @@ def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
             kinds = excluded.setdefault(breach["asset"], [])
             if breach["type"] not in kinds:
                 kinds.append(breach["type"])
-    allowed = [ticker for ticker in universe if ticker not in excluded]
+    survivors = [ticker for ticker in universe if ticker not in excluded]
     result = _tools.universe_filter(
         ctx.session,
         ctx.asof,
-        allowed,
+        survivors,
         base_currency=ctx.base_currency,
     )
     if excluded and result.get("ok"):
@@ -401,6 +458,8 @@ def _universe_filter_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 @tool_envelope
 @_serialised
 def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
+    if (bad := _ineligible(ctx, universe)) is not None:
+        return bad
     # ``ctx.lookback_days`` is recorded on the run but inert here — the frozen
     # ``estimate_moments`` takes no start bound, so moments use full history up to
     # ``asof``.
@@ -412,6 +471,10 @@ def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
 @tool_envelope
 @_serialised
 def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
+    # Before anything runs: a refused call must reach neither the allocator decision
+    # nor ``set_universe``, which only an ``ok`` result writes.
+    if (bad := _ineligible(ctx, universe)) is not None:
+        return bad
     cs = _resolve_constraint_set(ctx)
     if cs is not None:
         breaches = _instrument_breaches(ctx, cs, universe)
@@ -474,9 +537,11 @@ def _risk_gate_summary(ctx: RunContext, weights: dict[str, float]) -> dict[str, 
     return AgentRunRepository(ctx.session).risk_gate(ctx.run_id, weights)
 
 
-@tool_envelope
-@_serialised
-def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
+def _check_weights_against_constraint_set(
+    ctx: RunContext, weights: dict[str, float]
+) -> ToolResult:
+    """The risk verdict on ``weights`` under the run's ConstraintSet (bounds only
+    without one)."""
     cs = _resolve_constraint_set(ctx)
     if cs is None:
         return _tools.risk_check(weights)
@@ -513,6 +578,20 @@ def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResul
 
 @tool_envelope
 @_serialised
+def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
+    result = _check_weights_against_constraint_set(ctx, weights)
+    if not result.get("ok"):
+        return result
+    # A violation, not an error: an error would skip the persisted verdict, and
+    # ``place_orders`` would then refuse with only "the risk gate has not passed".
+    if not (outside := not_eligible_violations(ctx.eligible, weights)):
+        return result
+    data = result["data"]
+    return ok({**data, "passed": False, "violations": [*data["violations"], *outside]})
+
+
+@tool_envelope
+@_serialised
 def _risk_check_impl(ctx: RunContext) -> ToolResult:
     from fund.audit import AgentRunRepository
 
@@ -531,6 +610,18 @@ def _risk_check_impl(ctx: RunContext) -> ToolResult:
             violations=data["violations"],
         )
     return result
+
+
+def active_constraint_set(ctx: RunContext) -> ConstraintSet | None:
+    """The run's active ``ConstraintSet``, for a caller outside the agent loop.
+
+    The adviser ``edit`` resolves the allowlist under the same set the live tools
+    read, so an ESG exclusion bars the same names in both.
+
+    Returns:
+        The portfolio's cached set, or ``None`` with no store or nothing cached.
+    """
+    return _resolve_constraint_set(ctx)
 
 
 def mandate_bounds(ctx: RunContext) -> dict[str, Any] | None:
@@ -622,6 +713,14 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
     from fund.audit import AgentRunRepository
 
     audited = _audited_weights(ctx)
+    # Checked first so the refusal names the real cause: a verdict that failed on an
+    # ineligible name would otherwise surface as the unexplained "gate has not passed".
+    if outside := not_eligible_violations(ctx.eligible, audited):
+        return err(
+            "audited weights hold tickers outside the portfolio's eligible universe: "
+            f"{_describe_barred((v['asset'], v['reason']) for v in outside)}; send "
+            "the proposal back to the allocator"
+        )
     # The risk gate is blocking, not advisory: it is enforced here because prompt
     # text alone cannot stop a PM that skips the step or is steered past a failure.
     if audited and not AgentRunRepository(ctx.session).risk_passed(ctx.run_id, audited):
@@ -752,13 +851,18 @@ def _bind_list_universe(ctx: RunContext) -> BaseTool:
         sector: str | None = None, limit: int = 100, offset: int = 0
     ) -> ToolResult:
         """List one page of the investable universe, largest market cap first, as
-        ``{ticker, name, sector, market_cap}`` rows. Names in the client's
+        ``{ticker, name, sector, market_cap, instrument_type, asset_class}`` rows
+        (``instrument_type`` tells an ETF from a stock). Names in the client's
         ESG-excluded sectors are already removed (a complex or leveraged product is
         dropped later, by ``universe_filter``). Which names are listed is judged on
         the run date, but ``sector`` and ``market_cap`` are the latest snapshot, so
-        for a past run date the size ranking is today's, not that date's. Page with
-        ``offset`` / ``limit`` (at most 500); ``total`` counts the whole list. Narrow
-        with ``sector``: one of Basic Materials, Communication Services, Consumer
+        for a past run date the size ranking is today's, not that date's. When the
+        portfolio has an eligible universe, this returns exactly that set, in the
+        mandate's order, instead of the market-cap ranking: take all of it as your
+        candidates (an ETF has no sector, so a ``sector`` filter never returns one).
+        Page with ``offset`` / ``limit`` (at most 500); ``total`` counts the whole
+        list. Narrow with ``sector``: one of Basic Materials, Communication Services,
+        Consumer
         Cyclical, Consumer Defensive, Energy, Financial Services, Healthcare,
         Industrials, Real Estate, Technology, Utilities, or the GICS name energy,
         materials, industrials, consumer_discretionary, consumer_staples,
@@ -780,9 +884,11 @@ def _bind_universe_filter(ctx: RunContext) -> BaseTool:
         """Prune ``universe`` (tickers taken from ``list_universe``) with the
         pre-selection stack, dropping any name the client's mandate forbids
         (ESG-excluded sector, complex or leveraged product for a restricted client,
-        or an unclassifiable instrument). Returns the ``{ok, data}`` envelope with
-        the surviving tickers, in requested order, and ``mandate_excluded`` naming
-        each dropped ticker and why."""
+        or an unclassifiable instrument). Fails, naming each offender and why, if
+        the portfolio has an eligible universe and ``universe`` holds a name outside
+        it. Returns the ``{ok, data}`` envelope with the surviving tickers, in
+        requested order, and ``mandate_excluded`` naming each dropped ticker and
+        why."""
         return _universe_filter_impl(ctx, universe)
 
     return universe_filter
@@ -794,7 +900,9 @@ def _bind_estimate_moments(ctx: RunContext) -> BaseTool:
     @tool
     def estimate_moments(universe: list[str]) -> ToolResult:
         """Estimate ``(mu, cov)`` for ``universe`` as of the run date (Ledoit-Wolf
-        covariance + empirical mean). Returns the ``{ok, data}`` envelope."""
+        covariance + empirical mean). Fails, naming each offender and why, if the
+        portfolio has an eligible universe and ``universe`` holds a name outside it.
+        Returns the ``{ok, data}`` envelope."""
         return _estimate_moments_impl(ctx, universe)
 
     return estimate_moments
@@ -808,8 +916,9 @@ def _bind_optimize(ctx: RunContext) -> BaseTool:
         """Compute long-only portfolio weights for ``universe`` as of the run date.
         skfolio computes the weights from the run's risk profile — you never emit a
         weight. Fails, naming the offenders, if ``universe`` holds a name the
-        client's mandate forbids or is too small for the position cap. Returns the
-        ``{ok, data}`` envelope with ``weights`` and in-sample ``metrics``."""
+        client's mandate forbids, a name outside the portfolio's eligible universe,
+        or is too small for the position cap. Returns the ``{ok, data}`` envelope
+        with ``weights`` and in-sample ``metrics``."""
         return _optimize_impl(ctx, universe)
 
     return optimize_portfolio
@@ -822,7 +931,9 @@ def _bind_risk_check(ctx: RunContext) -> BaseTool:
     def risk_check() -> ToolResult:
         """Validate the allocator's latest audited proposal against the run's risk
         profile: weight bounds and position cap, ESG sector exclusions and low-K&E
-        instrument restrictions on every held name. Takes no weights: the optimizer's
+        instrument restrictions on every held name, and any held name outside the
+        portfolio's eligible universe (a ``not_eligible`` violation with its
+        ``reason``). Takes no weights: the optimizer's
         audited vector is checked, so the verdict covers exactly what would be placed.
         Returns the ``{ok, data}`` envelope with ``passed`` and structured
         ``violations``."""
@@ -858,8 +969,9 @@ def _bind_place_orders(ctx: RunContext) -> BaseTool:
         proposal, filled at the next close after the run date. Takes no weights. This
         call is what pauses the run for the human adviser's approval, so call it once
         and do not wait for approval or ask for it in text first; it is refused unless
-        the risk gate has passed that proposal. Returns the ``{ok, data}`` envelope
-        with the order ticket."""
+        the risk gate has passed that proposal, and refused outright if the proposal
+        holds a name outside the portfolio's eligible universe. Returns the
+        ``{ok, data}`` envelope with the order ticket."""
         return _place_orders_impl(ctx)
 
     return place_orders

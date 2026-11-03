@@ -57,7 +57,7 @@ from fund.tools.prices import load_price_frame
 if TYPE_CHECKING:
     import pandas as pd
     from sklearn.pipeline import Pipeline
-    from sqlalchemy import Select
+    from sqlalchemy import ColumnElement, Select
     from sqlalchemy.orm import Session
 
 # ``PreSelectionConfig`` field names; the other criterion the tool applies is
@@ -68,7 +68,7 @@ _CONFIG_FIELDS: frozenset[str] = frozenset(
 _EXCLUSIONS_KEY = "exclusions"
 _APPLIED_CRITERIA: frozenset[str] = _CONFIG_FIELDS | {_EXCLUSIONS_KEY}
 
-_UNCLASSIFIED = "unclassified"
+UNCLASSIFIED = "unclassified"
 
 # Longest run of missing bars carried forward as a stale price. It covers a venue
 # closed for a holiday week (Golden Week, Lunar New Year) so a live ticker is not
@@ -99,12 +99,23 @@ _SECTOR_NAME_BY_GICS: dict[GicsSector, str] = {
 # The same names normalised to snake case, the form ``_gics_sector`` looks labels up
 # in. A GICS-named label that is not in this table still resolves by its value.
 _YAHOO_SECTOR_TO_GICS: dict[str, GicsSector] = {
-    "_".join(name.lower().split()): gics for gics, name in _SECTOR_NAME_BY_GICS.items()
+    **{
+        "_".join(name.lower().split()): gics
+        for gics, name in _SECTOR_NAME_BY_GICS.items()
+    },
+    # Yahoo's fund sector weights (the ETF labels) spell it without the underscore.
+    "realestate": GicsSector.REAL_ESTATE,
 }
 
 # One page never exceeds this, so a single call cannot flood the model's context
 # with the whole (~9k-name) universe.
 _MAX_PAGE_SIZE = 500
+
+# Stable reason strings of :func:`uninvestable_reasons`; tests and the eligibility
+# resolver compare against them.
+NO_INSTRUMENT = "no_instrument"
+DELISTED = "delisted"
+NOT_PRICED = "not_priced"
 
 
 def _label(name: str) -> str:
@@ -178,15 +189,30 @@ def _gics_sector(session: Session, ticker: str) -> GicsSector | None:
         return None
 
 
-def _esg_barred(
-    session: Session, tickers: Sequence[str], exclusions: frozenset[GicsSector]
+def esg_barred(
+    session: Session, tickers: Sequence[str], exclusions: Collection[GicsSector]
 ) -> dict[str, str]:
-    """Map each ticker that may not be held to the sector (or ``unclassified``)."""
+    """Map each ticker that may not be held to the sector (or ``unclassified``).
+
+    Fails closed: a ticker whose sector is unknown, or is a label outside the eleven
+    GICS sectors, cannot be shown to sit outside ``exclusions`` and is barred as
+    ``unclassified``. Costs two queries per ticker, which is fine for an allowlist
+    resolved once per run but must never run per tool call.
+
+    Args:
+        session: A sync ``portopt_db`` session; the function does not own it.
+        tickers: yfinance tickers to screen.
+        exclusions: The GICS sectors the client refuses to hold.
+
+    Returns:
+        ``{ticker: sector value or "unclassified"}`` for every ticker that may not be
+        held; absent for the rest.
+    """
     barred: dict[str, str] = {}
     for ticker in tickers:
         sector = _gics_sector(session, ticker)
         if sector is None:
-            barred[ticker] = _UNCLASSIFIED
+            barred[ticker] = UNCLASSIFIED
         elif sector in exclusions:
             barred[ticker] = sector.value
     return barred
@@ -268,7 +294,7 @@ def universe_filter(
         return _result([], ignored, {})
 
     frame, _ = load_price_frame(session, asof, universe, base_currency=base_currency)
-    barred = _esg_barred(session, list(frame.columns), exclusions) if exclusions else {}
+    barred = esg_barred(session, list(frame.columns), exclusions) if exclusions else {}
     frame = frame.drop(columns=list(barred))
     # No priced assets, or too little history to derive returns: an empty
     # investable set is a valid answer, not an error.
@@ -295,8 +321,21 @@ def universe_filter(
     )
 
 
+def _active_on(asof: dt.date) -> ColumnElement[bool]:
+    """Not delisted by ``asof``: a later delisting does not make it uninvestable."""
+    return or_(Instrument.delisted_at.is_(None), Instrument.delisted_at > asof)
+
+
+def _priced_by(asof: dt.date) -> ColumnElement[bool]:
+    """Has a price bar on or before ``asof``."""
+    return exists().where(
+        PriceHistory.instrument_id == Instrument.id, PriceHistory.date <= asof
+    )
+
+
 def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Select[Any]:
-    """Select ``(ticker, name, sector, market_cap)`` of every investable instrument.
+    """Select every investable instrument as ``(ticker, name, sector, market_cap,
+    instrument_type, asset_class)``.
 
     Investable on ``asof`` means: it has a yfinance ticker, it had not been delisted
     by that bar (a later delisting does not retroactively make it uninvestable) and
@@ -306,21 +345,20 @@ def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Sele
     and market cap come from the latest ``ticker_profiles`` snapshot, not from
     ``asof``.
     """
-    priced = exists().where(
-        PriceHistory.instrument_id == Instrument.id, PriceHistory.date <= asof
-    )
     stmt = (
         select(
             Instrument.yfinance_ticker,
             func.coalesce(Instrument.name, Instrument.short_name),
             TickerProfile.sector,
             TickerProfile.market_cap,
+            Instrument.instrument_type,
+            Instrument.asset_class,
         )
         .outerjoin(TickerProfile, TickerProfile.instrument_id == Instrument.id)
         .where(
             Instrument.yfinance_ticker.is_not(None),
-            or_(Instrument.delisted_at.is_(None), Instrument.delisted_at > asof),
-            priced,
+            _active_on(asof),
+            _priced_by(asof),
         )
     )
     if exclusions:
@@ -337,12 +375,65 @@ def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Sele
     return stmt
 
 
+def uninvestable_reasons(
+    session: Session, tickers: Collection[str], asof: dt.date
+) -> dict[str, str]:
+    """Why each of ``tickers`` is not investable on ``asof``, in one query.
+
+    Applies the same predicates as :func:`list_universe` (a yfinance ticker, not
+    delisted by the bar, a price on or before it), so the two cannot disagree about
+    who is investable.
+
+    Args:
+        session: A sync ``portopt_db`` session; the function does not own it.
+        tickers: yfinance tickers to classify.
+        asof: Decision bar; delistings and prices after it are ignored.
+
+    Returns:
+        ``{ticker: reason}`` for every ticker that is not investable, absent for the
+        rest. ``no_instrument``: no instrument row carries the ticker. ``delisted``:
+        every row is delisted by the bar (this wins over a missing price).
+        ``not_priced``: a live row exists but has no price on or before the bar. A
+        ticker carried by several rows is investable when any one of them is.
+    """
+    if not tickers:
+        return {}
+    rows = session.execute(
+        select(
+            Instrument.yfinance_ticker,
+            _active_on(asof).label("active"),
+            _priced_by(asof).label("priced"),
+        ).where(Instrument.yfinance_ticker.in_(list(tickers)))
+    ).all()
+    investable: set[str] = set()
+    live: set[str] = set()
+    seen: set[str] = set()
+    for ticker, active, priced in rows:
+        seen.add(ticker)
+        if active:
+            live.add(ticker)
+            if priced:
+                investable.add(ticker)
+    reasons: dict[str, str] = {}
+    for ticker in tickers:
+        if ticker in investable:
+            continue
+        if ticker not in seen:
+            reasons[ticker] = NO_INSTRUMENT
+        elif ticker not in live:
+            reasons[ticker] = DELISTED
+        else:
+            reasons[ticker] = NOT_PRICED
+    return reasons
+
+
 @tool_envelope
 def list_universe(
     session: Session,
     asof: dt.date | str,
     *,
     exclusions: Collection[GicsSector | str] = (),
+    tickers: Sequence[str] | None = None,
     sector: str | None = None,
     limit: int = 100,
     offset: int = 0,
@@ -358,20 +449,31 @@ def list_universe(
         session: A sync ``portopt_db`` session; the tool does not own it.
         asof: Decision bar; delistings and prices after it are ignored.
         exclusions: The client's ESG-excluded GICS sectors, removed from the list.
+            Ignored when ``tickers`` is given: the caller has already applied them
+            (an ETF has no sector, so the SQL rule would drop every one).
+        tickers: Restrict the list to exactly these yfinance tickers, ordered as given
+            instead of by market cap, so a fund with no market cap is not buried
+            below thousands of stocks. Names the database cannot serve are omitted.
+            ``None`` lists the whole universe; an empty sequence lists nothing.
         sector: Keep only this sector: a stored sector name (``Technology``) or the
-            matching GICS name (``information_technology``), in any case.
+            matching GICS name (``information_technology``), in any case. An ETF has
+            no sector, so a sector filter never returns one.
         limit: Page size, clamped to ``1..500``.
         offset: Rows to skip, for paging.
 
     Returns:
         ``ok`` with ``{total, offset, limit, instruments}``, the instruments ordered
-        by market cap (largest first, unknown last) as ``{ticker, name, sector,
-        market_cap}`` rows. ``err`` naming the valid sectors when ``sector`` is not
-        one of them, so a typo is never read as an empty universe.
+        by market cap (largest first, unknown last), or as ``tickers`` gives them, as
+        ``{ticker, name, sector, market_cap, instrument_type, asset_class}`` rows.
+        ``err`` naming the valid sectors when ``sector`` is not one of them, so a typo
+        is never read as an empty universe.
     """
     page = max(1, min(int(limit), _MAX_PAGE_SIZE))
     start = max(0, int(offset))
-    stmt = _investable(coerce_date(asof), exclusions)
+    restricted = tickers is not None
+    stmt = _investable(coerce_date(asof), () if restricted else exclusions)
+    if tickers is not None:
+        stmt = stmt.where(Instrument.yfinance_ticker.in_(list(tickers)))
     if sector and sector.strip():
         wanted = _resolve_sector(sector)
         if wanted is None:
@@ -386,27 +488,54 @@ def list_universe(
         )
         stmt = stmt.where(label.in_(_labels_of({wanted})))
 
-    total = session.execute(
-        select(func.count()).select_from(stmt.subquery())
-    ).scalar_one()
-    rows = session.execute(
-        stmt.order_by(
-            TickerProfile.market_cap.desc().nulls_last(), Instrument.yfinance_ticker
+    if tickers is not None:
+        # An allowlist is a few dozen names, so ordering and paging it here is cheaper
+        # than a SQL ``CASE`` over its positions.
+        position = {ticker: index for index, ticker in enumerate(tickers)}
+        everything = sorted(
+            session.execute(stmt).all(), key=lambda row: position[row[0]]
         )
-        .limit(page)
-        .offset(start)
-    ).all()
+        total = len(everything)
+        rows = everything[start : start + page]
+    else:
+        total = session.execute(
+            select(func.count()).select_from(stmt.subquery())
+        ).scalar_one()
+        rows = session.execute(
+            stmt.order_by(
+                TickerProfile.market_cap.desc().nulls_last(),
+                Instrument.yfinance_ticker,
+            )
+            .limit(page)
+            .offset(start)
+        ).all()
     return ok(
         {
             "total": total,
             "offset": start,
             "limit": page,
             "instruments": [
-                {"ticker": t, "name": n, "sector": sec, "market_cap": cap}
-                for t, n, sec, cap in rows
+                {
+                    "ticker": t,
+                    "name": n,
+                    "sector": sec,
+                    "market_cap": cap,
+                    "instrument_type": kind,
+                    "asset_class": asset_class,
+                }
+                for t, n, sec, cap, kind, asset_class in rows
             ],
         }
     )
 
 
-__all__ = ["list_universe", "universe_filter"]
+__all__ = [
+    "DELISTED",
+    "NOT_PRICED",
+    "NO_INSTRUMENT",
+    "UNCLASSIFIED",
+    "esg_barred",
+    "list_universe",
+    "uninvestable_reasons",
+    "universe_filter",
+]

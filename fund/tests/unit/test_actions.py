@@ -679,6 +679,112 @@ def test_edit_into_an_esg_excluded_name_is_rejected_and_commits_nothing(
     _assert_edit_refused_and_run_still_paused(env, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
 
 
+def _spy_edit_contexts(monkeypatch: pytest.MonkeyPatch) -> list:
+    """Record the ``RunContext`` the edit path validates the typed weights under."""
+    import fund.agents.toolsets as toolsets
+
+    seen: list = []
+    original = toolsets.check_weights_against_mandate
+
+    def _spy(ctx, weights):
+        seen.append(ctx)
+        return original(ctx, weights)
+
+    monkeypatch.setattr(toolsets, "check_weights_against_mandate", _spy)
+    return seen
+
+
+def _edit_to_equal_weights(env) -> None:
+    with env.get_session() as session:
+        apply_action(
+            "edit",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            new_value={"AAA": 0.4, "BBB": 0.3, "CCC": 0.3},
+        )
+        session.commit()
+
+
+def test_edit_binds_the_eligibility_of_the_persisted_mandate(
+    paused_env, monkeypatch
+) -> None:
+    """The edit path resolves the allowlist from the stored mandate."""
+    env = paused_env
+    with env.get_session() as session:
+        MandateRepository(session).upsert(
+            make_mandate().model_copy(
+                update={"eligible_tickers": ("AAA", "BBB", "CCC", "NOPE")}
+            )
+        )
+        session.commit()
+    contexts = _spy_edit_contexts(monkeypatch)
+
+    _edit_to_equal_weights(env)
+
+    (ctx,) = contexts
+    assert ctx.eligible is not None
+    assert ctx.eligible.allowed == ("AAA", "BBB", "CCC")
+    assert ctx.eligible.barred == (("NOPE", "no_instrument"),)
+
+
+def test_edit_without_a_persisted_mandate_binds_no_eligibility(
+    paused_env, monkeypatch
+) -> None:
+    contexts = _spy_edit_contexts(monkeypatch)
+
+    _edit_to_equal_weights(paused_env)
+
+    assert [c.eligible for c in contexts] == [None]
+
+
+def _narrow_the_allowlist_to(env, tickers) -> None:
+    """The mandate stops listing a name the paused run's allocator proposed."""
+    with env.get_session() as session:
+        MandateRepository(session).upsert(
+            make_mandate().model_copy(update={"eligible_tickers": tuple(tickers)})
+        )
+        session.commit()
+
+
+def test_edit_into_a_name_outside_the_eligible_universe_is_rejected_and_commits_nothing(
+    paused_env,
+) -> None:
+    """The adviser removed CCC from the allowlist after the proposal; an edit that
+    still holds it is refused up front, exactly like any other risk breach."""
+    env = paused_env
+    _narrow_the_allowlist_to(env, ("AAA", "BBB"))
+
+    _assert_edit_refused_and_run_still_paused(env, {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3})
+
+
+def test_edit_that_drops_the_name_outside_the_eligible_universe_goes_through(
+    paused_env,
+) -> None:
+    env = paused_env
+    _narrow_the_allowlist_to(env, ("AAA", "BBB"))
+
+    with env.get_session() as session:
+        result = apply_action(
+            "edit",
+            session=session,
+            run_id=env.run_id,
+            portfolio_id=PORTFOLIO_ID,
+            checkpointer=env.saver,
+            store=env.store,
+            model=env.model_factory(),
+            new_value={"AAA": 0.6, "BBB": 0.4, "CCC": 0.0},
+        )
+        session.commit()
+
+    assert result.action == "edit"
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "completed"
+
+
 def test_edit_requires_a_run_id(db_session) -> None:
     """Edit without a ``run_id`` raises before touching the DB."""
     with pytest.raises(ValueError, match="requires a run_id"):

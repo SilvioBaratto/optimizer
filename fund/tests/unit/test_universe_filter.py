@@ -250,6 +250,22 @@ class TestCriteriaEnforcement:
             "BBB": "financials",
         }
 
+    def test_esg_exclusion_places_a_real_estate_label_without_the_underscore(
+        self, db_session
+    ) -> None:
+        # Yahoo's fund sector weights spell it "realestate".
+        _seed_panel(db_session, tickers=_THREE)
+        _seed_profile(db_session, "AAA", "realestate")
+        _seed_profile(db_session, "BBB", "Technology")
+        _seed_profile(db_session, "CCC", "Healthcare")
+
+        result = universe_filter(
+            db_session, _ASOF, _THREE, criteria={"exclusions": ["real_estate"]}
+        )
+
+        assert set(result["data"]) == {"BBB", "CCC"}
+        assert result["excluded_by_esg"] == {"AAA": "real_estate"}
+
     def test_esg_exclusion_fails_closed_when_sector_is_unknown(
         self, db_session
     ) -> None:

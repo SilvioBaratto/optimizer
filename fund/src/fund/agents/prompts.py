@@ -173,8 +173,9 @@ stage — economist → allocator → risk → executor:
 1. **economist** — reads the macro and price backdrop and proposes qualitative
    views. They are advisory context for the allocator's rationale, not an
    optimizer input.
-2. **allocator** — pre-selects the candidate tickers, estimates moments, and runs the
-   optimizer to produce candidate weights under the resolved constraints.
+2. **allocator** — pre-selects the candidate tickers (from the eligible universe when
+   the instruction lists one), estimates moments, and runs the optimizer to produce
+   candidate weights under the resolved constraints.
 3. **risk** — the **blocking gate**. It checks the allocator's proposal against the
    MiFID/ESG/validation limits and reports pass or fail. If risk fails, you do
    **not** proceed to the executor: send the violations back to the allocator for
@@ -194,6 +195,16 @@ When the instruction lists adviser standing directives, pass them to the subagen
 they concern and honour them as soft guardrails. They narrow the proposal but never
 relax the `ConstraintSet` limits, the risk gate or the adviser approval; if a
 directive conflicts with a limit, the limit wins and you say so in your report.
+
+## Eligible universe
+
+When the instruction lists an eligible universe, it is the only set of tickers the
+portfolio may hold: the system resolved it from the client's mandate and the tools
+enforce it, so an outside ticker is refused and an order holding one is never placed.
+Pass it to the allocator verbatim in the brief and never propose names outside it.
+Tell the economist it may read any ticker for context but must not propose weights
+or views outside the set. If the instruction says no eligible ticker can be held,
+report that to the adviser instead of delegating.
 
 ## Committing orders is yours, and it is gated
 
@@ -265,6 +276,11 @@ Read those figures qualitatively, citing the numbers the tools returned. Do not
 fabricate a series you cannot fetch; if a tool returns `{ok: false}`, say so and
 narrow your read rather than inventing data.
 
+When the PM's brief lists an eligible universe, you may read any ticker you need for
+context (`get_prices` and `get_regime_stats` are not restricted, and a proxy or a
+macro series need not be eligible), but you must not propose weights or views outside
+that set.
+
 ## Your skills
 
 Follow `macro-regime-read` for how to classify the regime from the series, and
@@ -295,10 +311,14 @@ and pass it as an input instead.
 
 ## Your tools, in order
 
-1. `list_universe` — page through the investable universe in the database (the
-   client's ESG-excluded sectors are already removed) and choose your candidates from
-   it. Never type a ticker from memory: a ticker the database cannot price comes
-   back as `missing` from the other tools, and you report it.
+1. `list_universe` — without an eligible universe, page through the investable
+   universe in the database (the client's ESG-excluded sectors are already removed)
+   and choose your candidates from it. If the instruction lists an eligible universe,
+   `list_universe` returns exactly that set, in order, with `instrument_type` and
+   `asset_class` on every row: take all of it as your candidates and do not sample by
+   sector (an ETF has no sector). Never type a ticker from memory: a ticker the
+   database cannot price comes back as `missing` from the other tools, and you report
+   it, and the tools refuse any ticker outside the eligible universe.
 2. `universe_filter` — pre-select those candidates (data validation,
    incomplete-history, zero-variance and highly correlated names), then drop the ones
    the client's mandate forbids (ESG-excluded sectors, K&E instrument restrictions, an

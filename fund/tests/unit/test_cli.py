@@ -196,6 +196,7 @@ def _rich_mandate(base_currency: str = "USD") -> PortfolioMandate:
         triggers=RunTriggers(cron=True, drift=False),
         benchmark="SPY",
         remembered_directives=("no EM", "cap tech 20%"),
+        eligible_tickers=tuple(UNIVERSE),
     )
 
 
@@ -246,6 +247,15 @@ def test_cli_exposes_the_seven_commands() -> None:
     names = set(click_app.commands)  # type: ignore[attr-defined]
     assert {"profile", "run", "approve", "reject", "status", "report"} <= names
     assert set(click_app.commands["mandate"].commands) >= {"set", "show"}  # type: ignore[attr-defined]
+
+
+def test_mandate_set_exposes_the_eligible_options() -> None:
+    click_app = typer.main.get_command(cli.app)
+    command = click_app.commands["mandate"].commands["set"]  # type: ignore[attr-defined]
+    options = {opt for param in command.params for opt in param.opts}
+    assert {"--eligible", "--clear-eligible"} <= options
+    eligible = next(p for p in command.params if "--eligible" in p.opts)
+    assert eligible.multiple is True
 
 
 def test_nav_mark_command_forwards_the_rebuild_flag(monkeypatch) -> None:
@@ -309,6 +319,86 @@ def test_mandate_set_can_change_a_single_non_capital_field(harness) -> None:
     assert _stored_mandate(harness) == seeded.model_copy(
         update={"drift_l1_threshold": 0.2}
     )
+
+
+def test_mandate_set_eligible_stores_the_repeated_flags_in_order(harness) -> None:
+    _set_mandate(harness)
+
+    res = harness.runner.invoke(
+        cli.app,
+        [
+            *["mandate", "set", str(PORTFOLIO_ID)],
+            *["--eligible", "vwce.de", "--eligible", "IBGS.L"],
+        ],
+    )
+
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness).eligible_tickers == ("VWCE.DE", "IBGS.L")
+
+
+def test_mandate_set_eligible_replaces_rather_than_appends(harness) -> None:
+    _persist_mandate(harness, _rich_mandate())
+
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--eligible", "CCC"]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness).eligible_tickers == ("CCC",)
+
+
+def test_mandate_set_clear_eligible_empties_the_allowlist(harness) -> None:
+    _persist_mandate(harness, _rich_mandate())
+
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--clear-eligible"]
+    )
+
+    assert res.exit_code == 0, res.output
+    assert _stored_mandate(harness).eligible_tickers == ()
+
+
+def test_mandate_set_rejects_eligible_together_with_clear_eligible(harness) -> None:
+    seeded = _rich_mandate()
+    _persist_mandate(harness, seeded)
+
+    res = harness.runner.invoke(
+        cli.app,
+        ["mandate", "set", str(PORTFOLIO_ID), "--eligible", "CCC", "--clear-eligible"],
+    )
+
+    assert res.exit_code != 0
+    assert "--clear-eligible" in res.output
+    assert _stored_mandate(harness) == seeded
+
+
+def test_mandate_set_surfaces_an_invalid_eligible_ticker_cleanly(harness) -> None:
+    _persist_mandate(harness, _rich_mandate())
+
+    res = harness.runner.invoke(
+        cli.app, ["mandate", "set", str(PORTFOLIO_ID), "--eligible", "X" * 33]
+    )
+
+    assert res.exit_code != 0
+    assert "eligible_tickers" in res.output
+
+
+def test_mandate_show_lists_the_eligible_tickers(harness) -> None:
+    _persist_mandate(harness, _rich_mandate())
+
+    res = harness.runner.invoke(cli.app, ["mandate", "show", str(PORTFOLIO_ID)])
+
+    assert res.exit_code == 0, res.output
+    assert "eligible:   AAA, BBB, CCC" in res.output
+
+
+def test_mandate_show_prints_a_dash_for_an_unrestricted_mandate(harness) -> None:
+    _set_mandate(harness)
+
+    res = harness.runner.invoke(cli.app, ["mandate", "show", str(PORTFOLIO_ID)])
+
+    assert res.exit_code == 0, res.output
+    assert "eligible:   -" in res.output
 
 
 def test_mandate_set_without_capital_needs_an_existing_mandate(harness) -> None:
@@ -461,7 +551,7 @@ def test_run_frozen_mid_round_fails_without_claiming_a_gate(
         assert AgentRunRepository(session).list_paused_runs(PORTFOLIO_ID) == []
 
 
-def test_run_with_override_flags_keeps_remembered_directives(
+def test_run_with_override_flags_keeps_remembered_directives_and_eligible_tickers(
     harness, monkeypatch
 ) -> None:
     expected = _seed(harness)

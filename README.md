@@ -293,7 +293,7 @@ a provider's SDK with the matching extra (`uv sync --package portopt-fund
 | Command | What it does |
 |---|---|
 | `fund profile <portfolio_id>` | Build/refresh an investor profile from a questionnaire |
-| `fund mandate set <portfolio_id>` / `fund mandate show <portfolio_id>` | Write or display a portfolio's mandate (capital, base currency, drift threshold, benchmark) |
+| `fund mandate set <portfolio_id>` / `fund mandate show <portfolio_id>` | Write or display a portfolio's mandate (capital, base currency, drift threshold, benchmark, eligible tickers via repeatable `--eligible` / `--clear-eligible`) |
 | `fund run <portfolio_id> --asof <date>` | Run a decision round for a rebalance bar |
 | `fund approve <run_id>` / `fund reject <run_id>` | Resolve a paused (human-in-the-loop) run |
 | `fund status [portfolio_id]` | Show the paused-run queue |

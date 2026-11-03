@@ -27,7 +27,8 @@ universe.
    gives the optimizer family each objective implies.
 2. Call `optimize_portfolio(universe)`. The run date, the portfolio, the base currency
    and the ConstraintSet are bound by the tool; any extra argument is silently
-   dropped.
+   dropped. It refuses a universe holding a ticker outside the portfolio's eligible
+   universe, naming each offender.
 3. Describe the result as what was applied (next section) and cite the
    `risk_aversion` the tool reports having run with.
 4. Hand weights + metrics to `risk-limits-check` BEFORE any execution.

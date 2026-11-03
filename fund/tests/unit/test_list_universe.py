@@ -104,6 +104,8 @@ def test_lists_active_priced_instruments_largest_market_cap_first(db_session) ->
         "name": "TECH Inc",
         "sector": "Technology",
         "market_cap": 300,
+        "instrument_type": "STOCK",
+        "asset_class": "equity",
     }
 
 
@@ -197,3 +199,107 @@ def test_limit_is_clamped_so_one_call_cannot_dump_the_whole_universe(db_session)
     result = list_universe(db_session, _ASOF, limit=10_000)
 
     assert result["data"]["limit"] == 500
+
+
+# --- restricted to an eligible universe ---------------------------------------
+#
+# With an allowlist the listing is exactly that set, in the mandate's order: ETFs
+# have neither sector nor market cap, so the market-cap ranking would bury them.
+
+
+def _seed_etf(db_session, ticker: str, *, asset_class: str = "equity") -> None:
+    _seed(db_session, ticker, sector=None, cap=None, profile=False)
+    instrument = (
+        db_session.query(Instrument).filter(Instrument.yfinance_ticker == ticker).one()
+    )
+    instrument.instrument_type = "ETF"
+    instrument.asset_class = asset_class
+    db_session.flush()
+
+
+def test_tickers_restrict_the_listing_to_exactly_that_set_in_the_given_order(
+    db_session,
+) -> None:
+    _seed_catalogue(db_session)
+    _seed_etf(db_session, "VWCE")
+    _seed_etf(db_session, "IGLO", asset_class="fixed_income")
+
+    result = list_universe(db_session, _ASOF, tickers=["IGLO", "TECH", "VWCE", "PHRM"])
+
+    assert _tickers(result) == ["IGLO", "TECH", "VWCE", "PHRM"]
+    assert result["data"]["total"] == 4
+
+
+def test_a_restricted_listing_tells_etfs_from_stocks(db_session) -> None:
+    _seed_catalogue(db_session)
+    _seed_etf(db_session, "IGLO", asset_class="fixed_income")
+
+    rows = list_universe(db_session, _ASOF, tickers=["IGLO", "TECH"])["data"][
+        "instruments"
+    ]
+
+    assert [(r["ticker"], r["instrument_type"], r["asset_class"]) for r in rows] == [
+        ("IGLO", "ETF", "fixed_income"),
+        ("TECH", "STOCK", "equity"),
+    ]
+
+
+def test_a_restricted_listing_leaves_the_sql_esg_filter_to_the_resolver(
+    db_session,
+) -> None:
+    _seed_catalogue(db_session)
+    _seed_etf(db_session, "VWCE")
+
+    result = list_universe(
+        db_session,
+        _ASOF,
+        exclusions=(GicsSector.ENERGY,),
+        tickers=["VWCE", "OIL"],
+    )
+
+    # The SQL rule fails closed on a missing sector and would drop every ETF; the
+    # resolver already applied the exclusions to the tickers it hands over.
+    assert _tickers(result) == ["VWCE", "OIL"]
+
+
+def test_a_restricted_listing_pages_the_given_order(db_session) -> None:
+    _seed_catalogue(db_session)
+    names = ["PHRM", "TECH", "OIL", "NOCAP", "LATE"]
+
+    page = list_universe(db_session, _ASOF, tickers=names, limit=2, offset=1)
+
+    assert _tickers(page) == ["TECH", "OIL"]
+    assert page["data"]["total"] == 5
+    assert (page["data"]["limit"], page["data"]["offset"]) == (2, 1)
+
+
+def test_a_sector_filter_narrows_within_the_restricted_listing(db_session) -> None:
+    _seed_catalogue(db_session)
+    _seed_etf(db_session, "VWCE")
+
+    result = list_universe(
+        db_session, _ASOF, tickers=["VWCE", "LATE", "OIL", "TECH"], sector="Technology"
+    )
+
+    assert _tickers(result) == ["LATE", "TECH"]
+    assert result["data"]["total"] == 2
+
+
+def test_a_restricted_listing_omits_names_the_database_cannot_serve(db_session) -> None:
+    _seed_catalogue(db_session)
+
+    result = list_universe(
+        db_session, _ASOF, tickers=["GONE", "NOPX", "MISSING", "TECH"]
+    )
+
+    assert _tickers(result) == ["TECH"]
+    assert result["data"]["total"] == 1
+
+
+def test_an_empty_ticker_set_lists_nothing_rather_than_everything(db_session) -> None:
+    _seed_catalogue(db_session)
+
+    result = list_universe(db_session, _ASOF, tickers=[])
+
+    assert _tickers(result) == []
+    assert result["data"]["total"] == 0

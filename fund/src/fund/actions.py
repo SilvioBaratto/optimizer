@@ -524,13 +524,18 @@ def _apply_edit(
             has no fill bar.
         LookupError: ``run_id`` names no run.
     """
+    import dataclasses
+
+    from fund import observe
     from fund.agents.graph import resume_run
     from fund.agents.toolsets import (
         RunContext,
+        active_constraint_set,
         check_weights_against_mandate,
         mandate_bounds,
     )
     from fund.audit.repository import AgentRunRepository
+    from fund.tools.eligibility import resolve_mandate_eligibility
     from fund.tools.orders import fill_shortfalls
 
     if run_id is None:
@@ -561,6 +566,17 @@ def _apply_edit(
         config=config,
         run_id=rid,
         portfolio_id=run.portfolio_id,
+    )
+    # The edit has no mandate of its own; without the persisted allowlist it would
+    # let an adviser type the run into a name the portfolio may not hold.
+    ctx = dataclasses.replace(
+        ctx,
+        eligible=resolve_mandate_eligibility(
+            session,
+            observe.get_mandate(session, run.portfolio_id),
+            run.asof,
+            constraint_set=active_constraint_set(ctx),
+        ),
     )
     edited = _absorb_rounding(edited, mandate_bounds(ctx))
     check = check_weights_against_mandate(ctx, edited)

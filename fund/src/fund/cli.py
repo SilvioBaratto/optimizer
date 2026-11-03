@@ -85,6 +85,11 @@ _SOURCE = "cli"
 _INTERRUPT_ON = typer.Option(
     None, "--interrupt-on", help="Gated tool (repeatable); default place_orders."
 )
+_ELIGIBLE = typer.Option(
+    None,
+    "--eligible",
+    help="Ticker the portfolio may hold (repeatable); replaces the list.",
+)
 
 
 # --- boot / exit / error helpers --------------------------------------------
@@ -187,6 +192,8 @@ def _build_mandate(
     drift: float | None,
     benchmark: str | None,
     interrupt_on: list[str] | None,
+    eligible: list[str] | None = None,
+    clear_eligible: bool = False,
 ) -> PortfolioMandate:
     """Merge CLI flags over any ``existing`` mandate into a new ``PortfolioMandate``."""
     if capital is not None:
@@ -215,6 +222,12 @@ def _build_mandate(
     # The adviser saves these from the TUI and no CLI flag can express them, so a
     # rebuild that omitted them would silently erase the persisted source of truth.
     directives = existing.remembered_directives if existing else ()
+    if clear_eligible:
+        eligible_val: tuple[str, ...] = ()
+    elif eligible:
+        eligible_val = tuple(eligible)
+    else:
+        eligible_val = existing.eligible_tickers if existing else ()
     return PortfolioMandate(
         portfolio_id=str(portfolio_id),
         capital=capital_val,
@@ -224,6 +237,7 @@ def _build_mandate(
         triggers=triggers,
         benchmark=benchmark_val,
         remembered_directives=directives,
+        eligible_tickers=eligible_val,
     )
 
 
@@ -272,15 +286,23 @@ def mandate_set(
         None, "--benchmark", help="Tracking benchmark."
     ),
     interrupt_on: list[str] | None = _INTERRUPT_ON,
+    eligible: list[str] | None = _ELIGIBLE,
+    clear_eligible: bool = typer.Option(
+        False, "--clear-eligible", help="Remove the allowlist (unrestricted)."
+    ),
 ) -> None:
     """Upsert the per-portfolio mandate (one row per portfolio).
 
     Only the flags given are changed on an existing mandate; everything else
-    (triggers, gates, benchmark, remembered directives) is carried over.
+    (triggers, gates, benchmark, remembered directives, eligible tickers) is
+    carried over. ``--eligible`` (repeatable) replaces the allowlist of instruments
+    the portfolio may hold; ``--clear-eligible`` empties it, meaning unrestricted.
     """
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
     _check_drift(drift)
+    if eligible and clear_eligible:
+        _fail("--eligible and --clear-eligible are mutually exclusive")
     try:
         with get_session() as session:
             existing = observe.get_mandate(session, pid)
@@ -292,6 +314,8 @@ def mandate_set(
                 drift=drift,
                 benchmark=benchmark,
                 interrupt_on=interrupt_on,
+                eligible=eligible,
+                clear_eligible=clear_eligible,
             )
             saved = _save_mandate(session, pid, existing, mandate)
             session.commit()
@@ -322,6 +346,7 @@ def mandate_show(
                 f"drift_l1:   {mandate.drift_l1_threshold}",
                 f"benchmark:  {mandate.benchmark or '-'}",
                 f"hitl_gates: {', '.join(mandate.hitl_gates)}",
+                f"eligible:   {', '.join(mandate.eligible_tickers) or '-'}",
             ]
         )
     )

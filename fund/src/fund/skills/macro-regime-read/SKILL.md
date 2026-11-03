@@ -25,7 +25,8 @@ Never invent a probability, an expected return, or a weight.
    realised vol, ...). Large frames stay in the tool; read the per-series `stats`
    (last level, 1m/3m/12m change, z-score against its history) and the `latest` and
    `recent` dated values, not the coverage fields alone.
-2. Call `get_regime_stats(tickers)` over broad market proxies and read the
+2. Call `get_regime_stats(tickers)` over broad market proxies (they need not be
+   eligible: the portfolio's eligible universe does not restrict this tool) and read the
    optimizer's turbulence (with its percentile), absorption ratio (with its change
    over a quarter) and mixture stress probability. If it returns `{ok: false}`, say
    the regime statistics are unavailable instead of estimating them.

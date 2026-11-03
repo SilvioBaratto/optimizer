@@ -2454,6 +2454,143 @@ def test_resume_fund_binds_the_persisted_mandate_base_currency(
     assert [c.base_currency for c in contexts] == ["CHF"]
 
 
+# --- the allowlist is re-resolved against the current mandate on every context ----
+
+
+def test_run_fund_binds_the_resolved_eligibility_to_the_run_context(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_panel(db_session)
+    contexts = _spy_run_contexts(monkeypatch)
+    mandate = make_mandate().model_copy(
+        update={"eligible_tickers": (*UNIVERSE, "NOPE")}
+    )
+
+    run_fund(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected_weights(db_session)),
+        mandate,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer=MemorySaver(),
+        store=_store_with_cs(),
+    )
+
+    (ctx,) = contexts
+    assert ctx.eligible is not None
+    assert ctx.eligible.allowed == tuple(UNIVERSE)
+    assert ctx.eligible.barred == (("NOPE", "no_instrument"),)
+
+
+def test_run_fund_binds_no_eligibility_for_an_unrestricted_mandate(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_panel(db_session)
+    contexts = _spy_run_contexts(monkeypatch)
+
+    run_fund(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected_weights(db_session)),
+        make_mandate(),
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer=MemorySaver(),
+        store=_store_with_cs(),
+    )
+
+    assert [c.eligible for c in contexts] == [None]
+
+
+def test_resume_fund_re_resolves_the_allowlist_from_the_current_mandate(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    MandateRepository(db_session).upsert(
+        make_mandate().model_copy(update={"eligible_tickers": ("AAA", "BBB")})
+    )
+    contexts = _spy_run_contexts(monkeypatch)
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    (ctx,) = contexts
+    assert ctx.eligible is not None
+    assert ctx.eligible.allowed == ("AAA", "BBB")
+    assert ctx.eligible.offenders(["CCC"]) == {"CCC": "not_in_allowlist"}
+
+
+def test_resume_fund_without_a_persisted_mandate_binds_no_eligibility(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    contexts = _spy_run_contexts(monkeypatch)
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    assert [c.eligible for c in contexts] == [None]
+
+
+def test_resume_fund_resolves_eligibility_under_the_current_constraint_set(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_panel(db_session)
+    expected = expected_weights(db_session)
+    saver = MemorySaver()
+    store = _store_with_cs()
+    run = _run_to_gate(
+        ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
+    )
+    MandateRepository(db_session).upsert(
+        make_mandate().model_copy(update={"eligible_tickers": tuple(UNIVERSE)})
+    )
+    classify_instruments(db_session, _SECTORS)
+    put_constraint_set(
+        store,
+        make_energy_exclusion_constraint_set(),
+        store_key=settings.constraint_set_store_key,
+    )
+    contexts = _spy_run_contexts(monkeypatch)
+
+    resume_fund(
+        run.run_id,
+        "reject",
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+    )
+
+    (ctx,) = contexts
+    assert ctx.eligible is not None
+    assert ctx.eligible.barred == (("AAA", "esg:energy"),)
+    assert ctx.eligible.allowed == ("BBB", "CCC")
+
+
 # --- a mandate refusal inside place_orders must not finalise the run completed ----
 
 

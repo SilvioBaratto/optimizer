@@ -68,6 +68,7 @@ from fund.schemas.enums import (
     RiskMeasureChoice,
 )
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
+from fund.tools.eligibility import Eligibility
 from fund.tools.optimize import optimize_portfolio
 
 _START = dt.date(2023, 11, 1)
@@ -848,6 +849,100 @@ class TestRunInstruction:
 
         assert "ESG exclusions none." in seed
         assert "funds may hold" not in seed
+
+
+class TestEligibleBlock:
+    """``_run_instruction`` tells the PM the eligible universe, rendered from the
+    resolved ``Eligibility`` and never authored by the model."""
+
+    @staticmethod
+    def _seed(eligible, mandate: PortfolioMandate | None = None) -> str:
+        return _run_instruction(
+            mandate or _mandate(), str(_PORTFOLIO_ID), _ASOF, eligible=eligible
+        )
+
+    def test_no_allowlist_leaves_the_seed_byte_for_byte_unchanged(self) -> None:
+        """An unrestricted portfolio's seed is what it was before the feature."""
+        bare = _run_instruction(_mandate(), str(_PORTFOLIO_ID), _ASOF)
+
+        assert self._seed(None) == bare
+        assert bare.startswith("Produce an allocation")
+
+    def test_lists_the_allowed_tickers_in_mandate_order_ahead_of_the_instruction(
+        self,
+    ) -> None:
+        eligible = Eligibility(allowed=("VWCE.DE", "IGLO.L", "SGLN.L"), barred=())
+
+        seed = self._seed(eligible)
+
+        assert "Eligible universe" in seed
+        assert "VWCE.DE, IGLO.L, SGLN.L" in seed
+        assert seed.index("IGLO.L") < seed.index("Produce an allocation")
+
+    def test_states_that_the_tools_enforce_it_and_list_universe_returns_it(
+        self,
+    ) -> None:
+        seed = self._seed(Eligibility(allowed=("VWCE.DE",), barred=()))
+
+        assert "enforced by the tools" in seed
+        assert "list_universe" in seed
+        assert "candidates" in seed
+
+    def test_lists_the_barred_names_with_their_reasons(self) -> None:
+        eligible = Eligibility(
+            allowed=("VWCE.DE",),
+            barred=(("OIL.S", "esg:energy"), ("OLD.X", "delisted")),
+        )
+
+        seed = self._seed(eligible)
+
+        assert "OIL.S (esg:energy)" in seed
+        assert "OLD.X (delisted)" in seed
+
+    def test_a_fully_barred_allowlist_is_stated_explicitly(self) -> None:
+        eligible = Eligibility(allowed=(), barred=(("OIL.S", "esg:energy"),))
+
+        seed = self._seed(eligible)
+
+        assert "no eligible ticker" in seed.lower()
+        assert "OIL.S (esg:energy)" in seed
+        assert "Allowed:" not in seed
+
+    def test_the_block_sits_after_the_adviser_directives(self) -> None:
+        mandate = _mandate().model_copy(
+            update={"remembered_directives": ("Keep 5% cash.",)}
+        )
+
+        seed = self._seed(Eligibility(allowed=("VWCE.DE",), barred=()), mandate)
+
+        assert seed.index("Keep 5% cash.") < seed.index("Eligible universe")
+        assert seed.index("Eligible universe") < seed.index("Produce an allocation")
+
+    def test_does_not_borrow_the_word_reserved_for_adviser_steers(self) -> None:
+        seed = self._seed(
+            Eligibility(allowed=("VWCE.DE",), barred=(("OIL.S", "esg:energy"),))
+        )
+
+        assert "directive" not in seed.lower()
+
+    def test_a_hundred_names_stay_bounded_and_say_where_the_full_set_is(self) -> None:
+        names = tuple(f"ETF{i:03d}.LONGEXCHANGE" for i in range(100))
+        eligible = Eligibility(
+            allowed=names[:70], barred=tuple((n, "not_priced") for n in names[70:])
+        )
+
+        seed = self._seed(eligible)
+
+        assert len(seed) < 4_000
+        assert "Produce an allocation" in seed
+        assert "ETF000.LONGEXCHANGE" in seed
+        assert "more" in seed
+        assert "list_universe returns the full set" in seed
+
+    def test_a_short_list_does_not_claim_to_be_truncated(self) -> None:
+        seed = self._seed(Eligibility(allowed=("A", "B"), barred=()))
+
+        assert "more" not in seed
 
 
 def test_run_fund_seed_exposes_mandate_and_constraint_limits(db_session) -> None:

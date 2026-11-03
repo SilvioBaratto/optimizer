@@ -22,8 +22,10 @@ the ConstraintSet limits and decides pass/block. It never edits weights itself.
 ## Procedure
 1. Call `risk_check()` — it takes no arguments and judges the allocator's latest audited
    proposal → passed + violations (weight bounds and position cap, ESG sector
-   exclusions, complex/leveraged-instrument restrictions; an instrument it cannot
-   classify is a violation, not a pass), and the drawdown ceilings: it backtests the
+   exclusions, complex/leveraged-instrument restrictions, and a held name outside the
+   portfolio's eligible universe, reported as `not_eligible` with its `reason`; an
+   instrument it cannot classify is a violation, not a pass), and the drawdown
+   ceilings: it backtests the
    same weights and a drawdown past nu2 or nu3 is a violation (`drawdown_nu2` /
    `drawdown_nu3`), past nu1 only a `warnings` entry. When the history is too short to
    measure a drawdown the ceilings are not checked and `warnings` carries

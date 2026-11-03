@@ -1959,8 +1959,19 @@ class ShellApp(App[None]):
                         ),
                         None,
                     )
+                    mandate = (
+                        observe.get_mandate(session, run.portfolio_id)
+                        if run.portfolio_id is not None
+                        else None
+                    )
                     result = readouts_compute.compute_risk(
-                        weights, constraint_set, None, session=session
+                        weights,
+                        constraint_set,
+                        None,
+                        session=session,
+                        eligible=readouts_compute.resolve_eligible(
+                            session, mandate, run.asof, constraint_set
+                        ),
                     )
                 session.rollback()
         except Exception as exc:  # surface a clean message, never crash the App

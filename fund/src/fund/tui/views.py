@@ -595,7 +595,7 @@ def _format_risk_gate(gate: Any) -> list[str]:
     violations = gate.get("violations") if gate["status"] == "failed" else None
     for violation in violations or []:
         if isinstance(violation, dict):
-            keys = ("type", "asset", "sector")
+            keys = ("type", "asset", "sector", "reason")
             detail = " ".join(str(violation[k]) for k in keys if k in violation)
             lines.append(f"  - {detail or 'violation'}")
     return lines
