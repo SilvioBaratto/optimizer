@@ -950,6 +950,9 @@ def _constraint_digest(constraint_set: ConstraintSet) -> str:
     """
     bounds = constraint_set.bounds
     exclusions = ", ".join(s.value for s in constraint_set.esg.exclusions) or "none"
+    tolerance = constraint_set.esg.look_through_tolerance
+    if constraint_set.esg.exclusions and tolerance > 0:
+        exclusions += f" (funds may hold up to {tolerance * 100:g}%)"
     position_cap = constraint_set.universe_filters.max_position_cap
     cap = "" if position_cap is None else f", per-name position cap {position_cap}"
     return (
