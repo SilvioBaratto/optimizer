@@ -8,8 +8,12 @@ the PM seed and enforced by ``list_universe``, ``universe_filter``,
 adviser edit. Only the language model is scripted; the tools, the audit trail, the
 approval gate and the paper ticket are the production ones, over in-memory SQLite.
 
-The sector look-through of a fund's holdings is judged by its own tests; the ESG case
-here is the single-stock rule.
+ESG exclusions are exercised on both halves of the allowlist: single stocks by their
+stored sector, and funds by the look-through of their latest sector snapshot against
+the client's tolerance. The resolver's own boundary cases live in ``test_eligibility``;
+the runs here prove a barred fund is also hidden from ``list_universe``, named in the
+PM seed and refused by ``optimize_portfolio``, while commodity and government-bond
+funds stay eligible.
 """
 
 from __future__ import annotations
@@ -38,9 +42,11 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import PaperOrder
+from portopt_db.models.market_data.etf_metadata import ETFSectorWeight
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
 from pydantic import Field
+from sqlalchemy import select
 
 from fund.actions import apply_action
 from fund.agents import graph as graph_mod
@@ -48,6 +54,8 @@ from fund.agents.graph import resume_fund, run_fund
 from fund.audit import AgentRunRepository, MandateRepository, put_constraint_set
 from fund.audit.positions_repository import PositionRepository
 from fund.config import settings
+from fund.schemas.constraint_set import EsgPolicy
+from fund.schemas.enums import GicsSector
 
 # asset_class, first close, phase: distinct series so the covariance is well-posed.
 _ETF_SPECS = {
@@ -56,6 +64,7 @@ _ETF_SPECS = {
     "GLDETF.L": ("commodity", 25.0, 3.1),
 }
 _ETFS = tuple(_ETF_SPECS)
+_FI_SUBCLASS = {"GOVETF.L": "government"}
 
 
 def _seed_etfs(session: Any) -> None:
@@ -71,6 +80,7 @@ def _seed_etfs(session: Any) -> None:
             exchange_id=exchange.id,
             instrument_type="ETF",
             asset_class=asset_class,
+            fi_subclass=_FI_SUBCLASS.get(ticker),
             yfinance_ticker=ticker,
         )
         session.add(instrument)
@@ -84,6 +94,25 @@ def _seed_etfs(session: Any) -> None:
                     volume=1000,
                 )
             )
+    session.flush()
+
+
+def _seed_snapshot(
+    session: Any, ticker: str, weights: dict[str, float], *, age_days: int = 0
+) -> None:
+    """Store ``ticker``'s sector snapshot ``age_days`` before the run's decision bar."""
+    instrument = session.execute(
+        select(Instrument).where(Instrument.yfinance_ticker == ticker)
+    ).scalar_one()
+    for sector, weight in weights.items():
+        session.add(
+            ETFSectorWeight(
+                instrument_id=instrument.id,
+                as_of=ASOF - dt.timedelta(days=age_days),
+                sector=sector,
+                weight=weight,
+            )
+        )
     session.flush()
 
 
@@ -405,6 +434,129 @@ def test_without_exclusions_every_allowlisted_stock_is_listed(db_session) -> Non
 
     listed = _last(model.transcript, "list_universe")["data"]["instruments"]
     assert [row["ticker"] for row in listed] == list(UNIVERSE)
+
+
+# --- 4b. ESG look-through on funds ----------------------------------------------
+
+
+def _energy_policy(tolerance: float = 0.05) -> Any:
+    return make_constraint_set().model_copy(
+        update={
+            "esg": EsgPolicy(
+                exclusions=(GicsSector.ENERGY,), look_through_tolerance=tolerance
+            )
+        }
+    )
+
+
+def _run_with_equity_etf_snapshot(
+    db_session: Any,
+    *,
+    energy: float,
+    age_days: int = 0,
+    constraint_set: Any,
+    steps: list[Any],
+) -> tuple[_ScriptedAllocator, Any]:
+    """Run the three-ETF allowlist with the equity ETF's snapshot ``energy`` heavy.
+
+    The government-bond and commodity ETFs carry no snapshot at all: they pass on their
+    asset class, so any listing of them proves that rule rather than stored data.
+    """
+    seed_panel(db_session)
+    _seed_etfs(db_session)
+    _seed_snapshot(
+        db_session,
+        "EQETF.DE",
+        {"energy": energy, "technology": 1.0 - energy},
+        age_days=age_days,
+    )
+    mandate = _allowlist_mandate(*_ETFS)
+    _persist(db_session, mandate)
+    model = _etf_model(*steps)
+    run = _run_to_gate(
+        db_session, model, mandate, MemorySaver(), _store(constraint_set)
+    )
+    return model, run
+
+
+def _listed(model: _ScriptedAllocator) -> list[str]:
+    rows = _last(model.transcript, "list_universe")["data"]["instruments"]
+    return [row["ticker"] for row in rows]
+
+
+def test_an_equity_etf_within_the_tolerance_stays_listed(db_session, seeds) -> None:
+    """3% energy against a 5% tolerance is allowed; the others pass on asset class."""
+    model, run = _run_with_equity_etf_snapshot(
+        db_session, energy=0.03, constraint_set=_energy_policy(), steps=_FULL_ALLOCATION
+    )
+
+    assert _listed(model) == list(_ETFS)
+    assert "(esg" not in seeds[0]
+    assert run.weights and set(run.weights) <= set(_ETFS)
+
+
+def test_an_equity_etf_over_the_tolerance_is_hidden_named_and_refused(
+    db_session, seeds
+) -> None:
+    """8% energy bars the fund with the dominant sector; the bond and commodity funds
+    are still listed and the allocator is told why the equity fund is gone."""
+    model, run = _run_with_equity_etf_snapshot(
+        db_session,
+        energy=0.08,
+        constraint_set=_energy_policy(),
+        steps=[_optimize("EQETF.DE", "GOVETF.L"), *_FULL_ALLOCATION],
+    )
+
+    assert "EQETF.DE (esg:energy)" in model.transcript[0][1]["error"]
+    assert _listed(model) == ["GOVETF.L", "GLDETF.L"]
+    assert "EQETF.DE (esg:energy)" in seeds[0]
+    assert run.weights and set(run.weights) <= {"GOVETF.L", "GLDETF.L"}
+
+
+def test_an_equity_etf_with_a_stale_snapshot_is_barred_as_unclassified(
+    db_session, seeds
+) -> None:
+    """A snapshot older than the max age cannot show the fund is clean, so it fails
+    closed even though its energy share would have been within the tolerance."""
+    stale = settings.esg_sector_weights_max_age_days + 1
+    model, run = _run_with_equity_etf_snapshot(
+        db_session,
+        energy=0.03,
+        age_days=stale,
+        constraint_set=_energy_policy(),
+        steps=_FULL_ALLOCATION,
+    )
+
+    assert _listed(model) == ["GOVETF.L", "GLDETF.L"]
+    assert "EQETF.DE (esg_unclassified)" in seeds[0]
+    assert "EQETF.DE" not in run.weights or run.weights["EQETF.DE"] < 1e-6
+
+
+def test_with_a_zero_tolerance_any_excluded_weight_bars_the_fund(db_session) -> None:
+    model, _ = _run_with_equity_etf_snapshot(
+        db_session,
+        energy=0.01,
+        constraint_set=_energy_policy(tolerance=0.0),
+        steps=[_list_universe],
+    )
+
+    assert _listed(model) == ["GOVETF.L", "GLDETF.L"]
+
+
+def test_without_exclusions_every_allowlisted_etf_is_listed_whatever_its_snapshot(
+    db_session, seeds
+) -> None:
+    """No ESG exclusion means no look-through: a stale, heavy snapshot is moot."""
+    model, _ = _run_with_equity_etf_snapshot(
+        db_session,
+        energy=0.9,
+        age_days=400,
+        constraint_set=make_constraint_set(),
+        steps=[_list_universe],
+    )
+
+    assert _listed(model) == list(_ETFS)
+    assert "(esg" not in seeds[0]
 
 
 # --- 5. the mandate changes before the gate ------------------------------------
