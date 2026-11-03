@@ -93,6 +93,36 @@ class TestSaveExchange:
         assert again.t212_id == 2
 
 
+class TestGetExchangeByName:
+    """``get_exchange_by_name`` is a pure read that never creates or edits a row."""
+
+    def test_hit_returns_the_exchange(self, db_session):
+        """An existing exchange is returned by its exact name."""
+        existing = _make_exchange(db_session, "Borsa Italiana")
+
+        found = _repo(db_session).get_exchange_by_name("Borsa Italiana")
+
+        assert found is not None
+        assert found.id == existing.id
+
+    def test_miss_returns_none_and_creates_nothing(self, db_session):
+        """An unknown name yields None and leaves the table empty."""
+        repo = _repo(db_session)
+
+        assert repo.get_exchange_by_name("Nowhere") is None
+        assert repo.get_exchange_count() == 0
+
+    def test_lookup_leaves_t212_id_unchanged(self, db_session):
+        """Unlike save_exchange, a lookup does not overwrite a stored t212_id."""
+        existing = add_and_flush(db_session, Exchange(name="LSE", t212_id=42))
+        repo = _repo(db_session)
+
+        repo.get_exchange_by_name("LSE")
+        db_session.refresh(existing)
+
+        assert existing.t212_id == 42
+
+
 class TestCounts:
     def test_exchange_count_zero_when_empty(self, db_session):
         assert _repo(db_session).get_exchange_count() == 0

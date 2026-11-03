@@ -107,6 +107,32 @@ _CODE_TO_CONFIG_NAME: dict[str, str] = {
     "TOR": "Toronto Stock Exchange",
 }
 
+
+def resolve_exchange_name(code: str) -> str | None:
+    """Map a Yahoo exchange code to the ``exchanges.name`` the universe build uses.
+
+    Shares the screener build's own table so a hand-added instrument lands on
+    the same exchange row the Screener would give it.
+
+    Args:
+        code: Yahoo exchange abbreviation such as ``GER`` or ``AMS``; surrounding
+            whitespace and case are ignored.
+
+    Returns:
+        The configured exchange name, or ``None`` when the venue is not covered
+        (for example ``BTS``).
+    """
+    return _CODE_TO_CONFIG_NAME.get(code.strip().upper())
+
+
+def supported_exchange_names() -> list[str]:
+    """Return the distinct exchange names Yahoo codes can resolve to, sorted.
+
+    Intended for error messages that tell an operator which venues are covered.
+    """
+    return sorted(set(_CODE_TO_CONFIG_NAME.values()))
+
+
 # ETFs are not filterable by exchange code on yf.screen (``eq exchange NMS`` returns
 # nothing for funds); they are queried by region. Map each in-scope exchange code to
 # its Yahoo region so ETF coverage tracks the same venue set. Returned ETF quotes are
