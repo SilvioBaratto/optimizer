@@ -547,6 +547,81 @@ def test_bound_list_universe_applies_the_clients_esg_exclusions(db_session) -> N
     assert [row["ticker"] for row in result["data"]["instruments"]] == ["AAA", "CCC"]
 
 
+def _eligible_context(db_session, *, allowed, barred=()) -> RunContext:
+    from fund.tools.eligibility import Eligibility
+
+    ctx = _make_context(db_session)
+    return dataclasses.replace(
+        ctx, eligible=Eligibility(allowed=tuple(allowed), barred=tuple(barred))
+    )
+
+
+def test_bound_list_universe_returns_exactly_the_eligible_set_in_mandate_order(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    _classify(db_session, "AAA", sector="Technology")
+    _classify(db_session, "BBB", instrument_type="ETF")
+    _classify(db_session, "CCC", sector="Energy")
+    ctx = _eligible_context(
+        db_session, allowed=["CCC", "BBB"], barred=[("AAA", "esg:technology")]
+    )
+    list_universe = _find(bind_toolset("allocator", ctx), "list_universe")
+
+    result = list_universe.invoke({})
+
+    assert result["ok"] is True
+    rows = result["data"]["instruments"]
+    assert [row["ticker"] for row in rows] == ["CCC", "BBB"]
+    assert result["data"]["total"] == 2
+    assert {row["ticker"]: row["instrument_type"] for row in rows} == {
+        "CCC": "EQUITY",
+        "BBB": "ETF",
+    }
+    assert all("asset_class" in row for row in rows)
+
+
+def test_bound_list_universe_without_an_allowlist_lists_the_whole_universe(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    ctx = _make_context(db_session)
+    list_universe = _find(bind_toolset("allocator", ctx), "list_universe")
+
+    result = list_universe.invoke({})
+
+    assert {row["ticker"] for row in result["data"]["instruments"]} >= set(_UNIVERSE)
+
+
+def test_bound_list_universe_names_every_barred_ticker_when_none_is_left(
+    db_session,
+) -> None:
+    _seed_panel(db_session)
+    ctx = _eligible_context(
+        db_session,
+        allowed=[],
+        barred=[("AAA", "esg:energy"), ("ZZZ", "no_instrument")],
+    )
+    list_universe = _find(bind_toolset("allocator", ctx), "list_universe")
+
+    result = list_universe.invoke({})
+
+    assert result["ok"] is False
+    assert "AAA (esg:energy)" in result["error"]
+    assert "ZZZ (no_instrument)" in result["error"]
+
+
+def test_bound_list_universe_documents_the_restricted_mode(db_session) -> None:
+    ctx = _make_context(db_session)
+    list_universe = _find(bind_toolset("allocator", ctx), "list_universe")
+
+    description = " ".join(list_universe.description.split())
+
+    assert "eligible" in description
+    assert "instrument_type" in description
+    assert "asset_class" in description
+
+
 def test_bound_list_universe_tells_the_model_the_sector_names_and_the_snapshot(
     db_session,
 ) -> None:

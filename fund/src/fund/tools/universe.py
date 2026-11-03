@@ -334,7 +334,8 @@ def _priced_by(asof: dt.date) -> ColumnElement[bool]:
 
 
 def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Select[Any]:
-    """Select ``(ticker, name, sector, market_cap)`` of every investable instrument.
+    """Select every investable instrument as ``(ticker, name, sector, market_cap,
+    instrument_type, asset_class)``.
 
     Investable on ``asof`` means: it has a yfinance ticker, it had not been delisted
     by that bar (a later delisting does not retroactively make it uninvestable) and
@@ -350,6 +351,8 @@ def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Sele
             func.coalesce(Instrument.name, Instrument.short_name),
             TickerProfile.sector,
             TickerProfile.market_cap,
+            Instrument.instrument_type,
+            Instrument.asset_class,
         )
         .outerjoin(TickerProfile, TickerProfile.instrument_id == Instrument.id)
         .where(
@@ -430,6 +433,7 @@ def list_universe(
     asof: dt.date | str,
     *,
     exclusions: Collection[GicsSector | str] = (),
+    tickers: Sequence[str] | None = None,
     sector: str | None = None,
     limit: int = 100,
     offset: int = 0,
@@ -445,20 +449,31 @@ def list_universe(
         session: A sync ``portopt_db`` session; the tool does not own it.
         asof: Decision bar; delistings and prices after it are ignored.
         exclusions: The client's ESG-excluded GICS sectors, removed from the list.
+            Ignored when ``tickers`` is given: the caller has already applied them
+            (an ETF has no sector, so the SQL rule would drop every one).
+        tickers: Restrict the list to exactly these yfinance tickers, ordered as given
+            instead of by market cap, so a fund with no market cap is not buried
+            below thousands of stocks. Names the database cannot serve are omitted.
+            ``None`` lists the whole universe; an empty sequence lists nothing.
         sector: Keep only this sector: a stored sector name (``Technology``) or the
-            matching GICS name (``information_technology``), in any case.
+            matching GICS name (``information_technology``), in any case. An ETF has
+            no sector, so a sector filter never returns one.
         limit: Page size, clamped to ``1..500``.
         offset: Rows to skip, for paging.
 
     Returns:
         ``ok`` with ``{total, offset, limit, instruments}``, the instruments ordered
-        by market cap (largest first, unknown last) as ``{ticker, name, sector,
-        market_cap}`` rows. ``err`` naming the valid sectors when ``sector`` is not
-        one of them, so a typo is never read as an empty universe.
+        by market cap (largest first, unknown last), or as ``tickers`` gives them, as
+        ``{ticker, name, sector, market_cap, instrument_type, asset_class}`` rows.
+        ``err`` naming the valid sectors when ``sector`` is not one of them, so a typo
+        is never read as an empty universe.
     """
     page = max(1, min(int(limit), _MAX_PAGE_SIZE))
     start = max(0, int(offset))
-    stmt = _investable(coerce_date(asof), exclusions)
+    restricted = tickers is not None
+    stmt = _investable(coerce_date(asof), () if restricted else exclusions)
+    if tickers is not None:
+        stmt = stmt.where(Instrument.yfinance_ticker.in_(list(tickers)))
     if sector and sector.strip():
         wanted = _resolve_sector(sector)
         if wanted is None:
@@ -473,24 +488,42 @@ def list_universe(
         )
         stmt = stmt.where(label.in_(_labels_of({wanted})))
 
-    total = session.execute(
-        select(func.count()).select_from(stmt.subquery())
-    ).scalar_one()
-    rows = session.execute(
-        stmt.order_by(
-            TickerProfile.market_cap.desc().nulls_last(), Instrument.yfinance_ticker
+    if tickers is not None:
+        # An allowlist is a few dozen names, so ordering and paging it here is cheaper
+        # than a SQL ``CASE`` over its positions.
+        position = {ticker: index for index, ticker in enumerate(tickers)}
+        everything = sorted(
+            session.execute(stmt).all(), key=lambda row: position[row[0]]
         )
-        .limit(page)
-        .offset(start)
-    ).all()
+        total = len(everything)
+        rows = everything[start : start + page]
+    else:
+        total = session.execute(
+            select(func.count()).select_from(stmt.subquery())
+        ).scalar_one()
+        rows = session.execute(
+            stmt.order_by(
+                TickerProfile.market_cap.desc().nulls_last(),
+                Instrument.yfinance_ticker,
+            )
+            .limit(page)
+            .offset(start)
+        ).all()
     return ok(
         {
             "total": total,
             "offset": start,
             "limit": page,
             "instruments": [
-                {"ticker": t, "name": n, "sector": sec, "market_cap": cap}
-                for t, n, sec, cap in rows
+                {
+                    "ticker": t,
+                    "name": n,
+                    "sector": sec,
+                    "market_cap": cap,
+                    "instrument_type": kind,
+                    "asset_class": asset_class,
+                }
+                for t, n, sec, cap, kind, asset_class in rows
             ],
         }
     )

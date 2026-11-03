@@ -56,7 +56,7 @@ import functools
 import hashlib
 import json
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec
 
@@ -230,6 +230,11 @@ def _describe_breaches(breaches: list[dict[str, Any]]) -> str:
     return "; ".join(parts)
 
 
+def _describe_barred(barred: Iterable[tuple[str, str]]) -> str:
+    """A one-line, model-readable summary of ``(ticker, reason)`` eligibility bars."""
+    return "; ".join(f"{ticker} ({reason})" for ticker, reason in barred)
+
+
 def _effective_optimizer_config(
     constraints: dict[str, Any] | None, risk_aversion: float
 ) -> dict[str, Any]:
@@ -368,6 +373,22 @@ def _get_macro_impl(ctx: RunContext, names: list[str]) -> ToolResult:
 def _list_universe_impl(
     ctx: RunContext, sector: str | None = None, limit: int = 100, offset: int = 0
 ) -> ToolResult:
+    if ctx.eligible is not None:
+        # The portfolio's allowlist, already screened for ESG by the resolver, is the
+        # whole universe: the market-cap ranking would bury every fund below it.
+        if not ctx.eligible.allowed:
+            return err(
+                "none of the portfolio's eligible tickers can be held: "
+                f"{_describe_barred(ctx.eligible.barred)}"
+            )
+        return _tools.list_universe(
+            ctx.session,
+            ctx.asof,
+            tickers=ctx.eligible.allowed,
+            sector=sector,
+            limit=limit,
+            offset=offset,
+        )
     # The ESG exclusions are bound from the run's ConstraintSet, never chosen by the
     # model: a listed name is one the client may hold.
     cs = _resolve_constraint_set(ctx)
@@ -769,13 +790,18 @@ def _bind_list_universe(ctx: RunContext) -> BaseTool:
         sector: str | None = None, limit: int = 100, offset: int = 0
     ) -> ToolResult:
         """List one page of the investable universe, largest market cap first, as
-        ``{ticker, name, sector, market_cap}`` rows. Names in the client's
+        ``{ticker, name, sector, market_cap, instrument_type, asset_class}`` rows
+        (``instrument_type`` tells an ETF from a stock). Names in the client's
         ESG-excluded sectors are already removed (a complex or leveraged product is
         dropped later, by ``universe_filter``). Which names are listed is judged on
         the run date, but ``sector`` and ``market_cap`` are the latest snapshot, so
-        for a past run date the size ranking is today's, not that date's. Page with
-        ``offset`` / ``limit`` (at most 500); ``total`` counts the whole list. Narrow
-        with ``sector``: one of Basic Materials, Communication Services, Consumer
+        for a past run date the size ranking is today's, not that date's. When the
+        portfolio has an eligible universe, this returns exactly that set, in the
+        mandate's order, instead of the market-cap ranking: take all of it as your
+        candidates (an ETF has no sector, so a ``sector`` filter never returns one).
+        Page with ``offset`` / ``limit`` (at most 500); ``total`` counts the whole
+        list. Narrow with ``sector``: one of Basic Materials, Communication Services,
+        Consumer
         Cyclical, Consumer Defensive, Energy, Financial Services, Healthcare,
         Industrials, Real Estate, Technology, Utilities, or the GICS name energy,
         materials, industrials, consumer_discretionary, consumer_staples,
