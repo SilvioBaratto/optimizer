@@ -18,7 +18,7 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -701,9 +701,11 @@ def _two_paused_runs(db_session):
         ScriptedFundModel(universe=UNIVERSE, weights=expected), db_session, saver, store
     )
     audit = AgentRunRepository(db_session)
-    # SQLite's CURRENT_TIMESTAMP has one-second resolution, so pin the ordering.
-    audit.get_run(older.run_id).started_at = datetime(2026, 10, 24, 6, 0)
-    audit.get_run(newer.run_id).started_at = datetime(2026, 10, 26, 7, 0)
+    # SQLite's CURRENT_TIMESTAMP has one-second resolution, so pin the ordering. Offsets
+    # from now, not calendar dates: a fixed date ages past the 7-day approval window.
+    now = datetime.now(UTC).replace(tzinfo=None)
+    audit.get_run(older.run_id).started_at = now - timedelta(days=2)
+    audit.get_run(newer.run_id).started_at = now - timedelta(days=1)
     db_session.flush()
     return older.run_id, newer.run_id, expected, saver, store
 
