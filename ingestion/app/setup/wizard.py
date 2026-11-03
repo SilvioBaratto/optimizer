@@ -17,6 +17,7 @@ from app.setup import (
     config_file,
     docker_bootstrap,
     lifecycle,
+    llm_backend,
     path_install,
     secret_store,
     validators,
@@ -41,24 +42,6 @@ _MSG_AZURE_ENDPOINT = "Azure OpenAI endpoint:"
 _MSG_AZURE_API_VERSION = "Azure OpenAI API version:"
 _MSG_AZURE_DEPLOYMENT = "Azure OpenAI deployment name:"
 
-# Provider slug -> compose secret name for its auth key (matches
-# compose_secrets.SECRET_NAMES + fund.config._read_secret). Providers absent here
-# are keyless: `aws` authenticates via the boto3 chain (IAM/region). The env var
-# a key may also arrive in is the secret name upper-cased (e.g. OPENAI_API_KEY).
-_LLM_SECRET_NAMES = {
-    "ollama": "ollama_api_key",
-    "openai": "openai_api_key",
-    "openrouter": "openrouter_api_key",
-    "anthropic": "anthropic_api_key",
-    "google": "google_api_key",
-    "groq": "groq_api_key",
-    "nvidia": "nvidia_api_key",
-    "huggingface": "huggingfacehub_api_token",
-    "microsoft": "azure_openai_api_key",
-}
-
-# A local/self-hosted base_url on this host is the keyless local ollama path.
-_OLLAMA_CLOUD_HOST = "ollama.com"
 # Sensible model default per provider (blank = the operator must type one).
 _LLM_DEFAULT_MODEL = {"ollama": "deepseek-v4.1-flash:cloud"}
 # Config keys that only make sense for the provider that wrote them. Staging a
@@ -276,22 +259,7 @@ def _clean_secret(value: str | None) -> str:
 
 def _llm_key_env(provider: str) -> str:
     """The env var a provider's key may also arrive in (upper-cased secret name)."""
-    return _LLM_SECRET_NAMES[provider].upper()
-
-
-def _llm_needs_key(provider: str, base_url: str | None) -> bool:
-    """Whether ``provider`` requires an auth key given ``base_url``.
-
-    ``aws`` never does (boto3 chain); ``ollama`` only on the cloud host; ``nvidia``
-    only when hosted (a self-hosted NIM ``base_url`` is keyless); all others do.
-    """
-    if provider == "aws":
-        return False
-    if provider == "ollama":
-        return not base_url or _OLLAMA_CLOUD_HOST in base_url
-    if provider == "nvidia":
-        return base_url is None
-    return True
+    return llm_backend.PROVIDER_SECRET_NAMES[provider].upper()
 
 
 def _typed_value(answer: str) -> str:
@@ -377,9 +345,9 @@ def _configure_llm_noninteractive(
     llm_model = _carry_forward(llm_model, stored.get("llm_model"))
     llm_base_url = _carry_forward(llm_base_url, stored.get("llm_base_url"))
     fields = _llm_fields_from_env(llm_provider, llm_base_url)
-    secret_name = _LLM_SECRET_NAMES.get(llm_provider)
+    secret_name = llm_backend.PROVIDER_SECRET_NAMES.get(llm_provider)
     key: str | None = None
-    if secret_name and _llm_needs_key(llm_provider, llm_base_url):
+    if secret_name and llm_backend.needs_key(llm_provider, llm_base_url):
         key = _clean_secret(llm_key) or _clean_secret(
             os.getenv(_llm_key_env(llm_provider))
         )
@@ -530,9 +498,9 @@ def _configure_llm_interactive(
     )
     fields = _prompt_llm_fields(prompter, provider)
 
-    secret_name = _LLM_SECRET_NAMES.get(provider)
+    secret_name = llm_backend.PROVIDER_SECRET_NAMES.get(provider)
     key: str | None = None
-    if secret_name and _llm_needs_key(provider, base_url):
+    if secret_name and llm_backend.needs_key(provider, base_url):
         key = _validate_llm_key_with_retry(
             prompter, provider, base_url, fields, skip_validation=skip_validation
         )
