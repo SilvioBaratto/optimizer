@@ -68,7 +68,7 @@ _CONFIG_FIELDS: frozenset[str] = frozenset(
 _EXCLUSIONS_KEY = "exclusions"
 _APPLIED_CRITERIA: frozenset[str] = _CONFIG_FIELDS | {_EXCLUSIONS_KEY}
 
-_UNCLASSIFIED = "unclassified"
+UNCLASSIFIED = "unclassified"
 
 # Longest run of missing bars carried forward as a stale price. It covers a venue
 # closed for a holiday week (Golden Week, Lunar New Year) so a live ticker is not
@@ -99,7 +99,12 @@ _SECTOR_NAME_BY_GICS: dict[GicsSector, str] = {
 # The same names normalised to snake case, the form ``_gics_sector`` looks labels up
 # in. A GICS-named label that is not in this table still resolves by its value.
 _YAHOO_SECTOR_TO_GICS: dict[str, GicsSector] = {
-    "_".join(name.lower().split()): gics for gics, name in _SECTOR_NAME_BY_GICS.items()
+    **{
+        "_".join(name.lower().split()): gics
+        for gics, name in _SECTOR_NAME_BY_GICS.items()
+    },
+    # Yahoo's fund sector weights (the ETF labels) spell it without the underscore.
+    "realestate": GicsSector.REAL_ESTATE,
 }
 
 # One page never exceeds this, so a single call cannot flood the model's context
@@ -184,15 +189,30 @@ def _gics_sector(session: Session, ticker: str) -> GicsSector | None:
         return None
 
 
-def _esg_barred(
-    session: Session, tickers: Sequence[str], exclusions: frozenset[GicsSector]
+def esg_barred(
+    session: Session, tickers: Sequence[str], exclusions: Collection[GicsSector]
 ) -> dict[str, str]:
-    """Map each ticker that may not be held to the sector (or ``unclassified``)."""
+    """Map each ticker that may not be held to the sector (or ``unclassified``).
+
+    Fails closed: a ticker whose sector is unknown, or is a label outside the eleven
+    GICS sectors, cannot be shown to sit outside ``exclusions`` and is barred as
+    ``unclassified``. Costs two queries per ticker, which is fine for an allowlist
+    resolved once per run but must never run per tool call.
+
+    Args:
+        session: A sync ``portopt_db`` session; the function does not own it.
+        tickers: yfinance tickers to screen.
+        exclusions: The GICS sectors the client refuses to hold.
+
+    Returns:
+        ``{ticker: sector value or "unclassified"}`` for every ticker that may not be
+        held; absent for the rest.
+    """
     barred: dict[str, str] = {}
     for ticker in tickers:
         sector = _gics_sector(session, ticker)
         if sector is None:
-            barred[ticker] = _UNCLASSIFIED
+            barred[ticker] = UNCLASSIFIED
         elif sector in exclusions:
             barred[ticker] = sector.value
     return barred
@@ -274,7 +294,7 @@ def universe_filter(
         return _result([], ignored, {})
 
     frame, _ = load_price_frame(session, asof, universe, base_currency=base_currency)
-    barred = _esg_barred(session, list(frame.columns), exclusions) if exclusions else {}
+    barred = esg_barred(session, list(frame.columns), exclusions) if exclusions else {}
     frame = frame.drop(columns=list(barred))
     # No priced assets, or too little history to derive returns: an empty
     # investable set is a valid answer, not an error.
@@ -480,6 +500,8 @@ __all__ = [
     "DELISTED",
     "NOT_PRICED",
     "NO_INSTRUMENT",
+    "UNCLASSIFIED",
+    "esg_barred",
     "list_universe",
     "uninvestable_reasons",
     "universe_filter",

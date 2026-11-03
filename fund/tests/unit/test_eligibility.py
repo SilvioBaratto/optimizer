@@ -17,11 +17,15 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
-from portopt_db.models.market_data.yfinance_data import PriceHistory
+from _fund_fakes import make_constraint_set, make_energy_exclusion_constraint_set
+from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy import event
 
+from fund.schemas.constraint_set import EsgPolicy
+from fund.schemas.enums import GicsSector
 from fund.tools.eligibility import Eligibility, resolve_eligibility
+from fund.tools.mandate import constraint_set_breaches
 from fund.tools.universe import list_universe
 
 _ASOF = dt.date(2024, 1, 30)
@@ -221,3 +225,180 @@ class TestEligibility:
         assert hash(eligibility) == hash(self._eligibility())
         with pytest.raises(AttributeError):
             eligibility.allowed = ()  # type: ignore[misc]
+
+
+# --- ESG rule for single stocks ---------------------------------------------
+#
+# A stock is judged by its stored sector, failing closed: an excluded sector and a
+# sector the resolver cannot place both bar it, an unrelated sector passes. ETFs are
+# not judged by this rule.
+
+
+def _seed_stock(session, ticker: str, *, sector: str | None, profile: bool = True):
+    _seed(session, ticker, instrument_type="STOCK")
+    if profile:
+        instrument = (
+            session.query(Instrument).filter(Instrument.yfinance_ticker == ticker).one()
+        )
+        session.add(TickerProfile(instrument_id=instrument.id, sector=sector))
+        session.flush()
+
+
+def _esg_constraint_set(*sectors: GicsSector):
+    return make_constraint_set().model_copy(
+        update={"esg": EsgPolicy(exclusions=sectors)}
+    )
+
+
+def test_a_stock_in_an_excluded_sector_is_barred_with_the_sector(db_session) -> None:
+    _seed_stock(db_session, "OIL.S", sector="Energy")
+
+    result = resolve_eligibility(
+        db_session,
+        ("OIL.S",),
+        _ASOF,
+        constraint_set=make_energy_exclusion_constraint_set(),
+    )
+
+    assert result is not None
+    assert result.allowed == ()
+    assert result.barred == (("OIL.S", "esg:energy"),)
+
+
+def test_a_stock_with_no_sector_is_barred_as_unclassified(db_session) -> None:
+    _seed_stock(db_session, "NOPROFILE.S", sector=None, profile=False)
+    _seed_stock(db_session, "BLANK.S", sector=None)
+
+    result = resolve_eligibility(
+        db_session,
+        ("NOPROFILE.S", "BLANK.S"),
+        _ASOF,
+        constraint_set=make_energy_exclusion_constraint_set(),
+    )
+
+    assert result is not None
+    assert result.barred == (
+        ("NOPROFILE.S", "esg_unclassified"),
+        ("BLANK.S", "esg_unclassified"),
+    )
+
+
+def test_a_stock_with_a_sector_outside_the_eleven_labels_fails_closed(
+    db_session,
+) -> None:
+    _seed_stock(db_session, "ODD.S", sector="Crypto Assets")
+
+    result = resolve_eligibility(
+        db_session,
+        ("ODD.S",),
+        _ASOF,
+        constraint_set=make_energy_exclusion_constraint_set(),
+    )
+
+    assert result is not None
+    assert result.barred == (("ODD.S", "esg_unclassified"),)
+
+
+def test_a_stock_outside_every_exclusion_passes(db_session) -> None:
+    _seed_stock(db_session, "TECH.S", sector="Technology")
+    _seed_stock(db_session, "OIL.S", sector="Energy")
+
+    result = resolve_eligibility(
+        db_session,
+        ("TECH.S", "OIL.S"),
+        _ASOF,
+        constraint_set=make_energy_exclusion_constraint_set(),
+    )
+
+    assert result is not None
+    assert result.allowed == ("TECH.S",)
+
+
+def test_a_real_estate_label_without_the_underscore_is_still_real_estate(
+    db_session,
+) -> None:
+    _seed_stock(db_session, "REIT.S", sector="realestate")
+
+    result = resolve_eligibility(
+        db_session,
+        ("REIT.S",),
+        _ASOF,
+        constraint_set=_esg_constraint_set(GicsSector.REAL_ESTATE),
+    )
+
+    assert result is not None
+    assert result.barred == (("REIT.S", "esg:real_estate"),)
+
+
+def test_without_exclusions_nothing_gets_an_esg_reason(db_session) -> None:
+    _seed_stock(db_session, "OIL.S", sector="Energy")
+    _seed_stock(db_session, "NOSECTOR.S", sector=None, profile=False)
+
+    result = resolve_eligibility(
+        db_session,
+        ("OIL.S", "NOSECTOR.S"),
+        _ASOF,
+        constraint_set=make_constraint_set(),
+    )
+
+    assert result is not None
+    assert result.allowed == ("OIL.S", "NOSECTOR.S")
+
+
+def test_without_a_constraint_set_nothing_gets_an_esg_reason(db_session) -> None:
+    _seed_stock(db_session, "OIL.S", sector="Energy")
+
+    result = resolve_eligibility(db_session, ("OIL.S",), _ASOF)
+
+    assert result is not None
+    assert result.allowed == ("OIL.S",)
+
+
+def test_a_data_bar_takes_precedence_over_an_esg_bar(db_session) -> None:
+    _seed_stock(db_session, "OIL.S", sector="Energy")
+    _seed(db_session, "GONEOIL.S", instrument_type="STOCK", delisted_at=_ASOF)
+
+    result = resolve_eligibility(
+        db_session,
+        ("GONEOIL.S", "OIL.S"),
+        _ASOF,
+        constraint_set=make_energy_exclusion_constraint_set(),
+    )
+
+    assert result is not None
+    assert result.barred == (("GONEOIL.S", "delisted"), ("OIL.S", "esg:energy"))
+
+
+def test_an_etf_is_not_judged_by_the_stock_sector_rule(db_session) -> None:
+    _seed(db_session, "FUND.E", instrument_type="ETF")
+
+    result = resolve_eligibility(
+        db_session,
+        ("FUND.E",),
+        _ASOF,
+        constraint_set=make_energy_exclusion_constraint_set(),
+    )
+
+    assert result is not None
+    assert result.allowed == ("FUND.E",)
+
+
+def test_resolver_list_universe_and_mandate_screen_differ_on_an_unplaceable_sector(
+    db_session,
+) -> None:
+    # Pinned on purpose: list_universe and the resolver fail closed on a sector label
+    # outside the eleven, while mandate_breaches waves it through. A future change to
+    # any of the three must be a deliberate decision, not a side effect.
+    _seed_stock(db_session, "ODD.S", sector="Crypto Assets")
+    constraint_set = make_energy_exclusion_constraint_set()
+
+    listed = list_universe(db_session, _ASOF, exclusions=[GicsSector.ENERGY])
+    resolved = resolve_eligibility(
+        db_session, ("ODD.S",), _ASOF, constraint_set=constraint_set
+    )
+    breaches = constraint_set_breaches(db_session, constraint_set, ["ODD.S"])
+
+    assert [row["ticker"] for row in listed["data"]["instruments"]] == []
+    assert resolved is not None
+    assert resolved.barred == (("ODD.S", "esg_unclassified"),)
+    assert breaches == []

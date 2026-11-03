@@ -18,12 +18,20 @@ import datetime as dt
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from fund.tools.universe import uninvestable_reasons
+from portopt_db.models.universe.universe import Instrument
+from sqlalchemy import select
+
+from fund.tools.universe import UNCLASSIFIED, esg_barred, uninvestable_reasons
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
+    from fund.schemas.constraint_set import ConstraintSet
+    from fund.schemas.enums import GicsSector
+
 NOT_IN_ALLOWLIST = "not_in_allowlist"
+ESG_UNCLASSIFIED = "esg_unclassified"
+_ETF = "ETF"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -34,7 +42,7 @@ class Eligibility:
         allowed: Tickers the portfolio may hold, in mandate order.
         barred: ``(ticker, reason)`` for every allowlisted ticker that may not be
             held, in mandate order. Reasons are stable strings: ``no_instrument``,
-            ``delisted``, ``not_priced``.
+            ``delisted``, ``not_priced``, ``esg:<gics sector>``, ``esg_unclassified``.
     """
 
     allowed: tuple[str, ...]
@@ -90,8 +98,59 @@ def _normalise(allowlist: Iterable[str]) -> tuple[str, ...]:
     )
 
 
+def _instrument_types(session: Session, tickers: Iterable[str]) -> dict[str, str]:
+    """The upper-cased ``instrument_type`` of each ticker, ``""`` when unknown."""
+    rows = session.execute(
+        select(Instrument.yfinance_ticker, Instrument.instrument_type).where(
+            Instrument.yfinance_ticker.in_(list(tickers))
+        )
+    ).all()
+    types: dict[str, str] = {}
+    for ticker, instrument_type in rows:
+        types.setdefault(ticker, (instrument_type or "").strip().upper())
+    return types
+
+
+def _stock_esg_reasons(
+    session: Session, tickers: list[str], exclusions: frozenset[GicsSector]
+) -> dict[str, str]:
+    """ESG bars for single stocks, judged by their stored sector and failing closed.
+
+    The client's exclusions are sectors, and a stock sits in exactly one. A fund's
+    exposure is spread over its holdings, so it is not judged here.
+    """
+    if not tickers:
+        return {}
+    return {
+        ticker: ESG_UNCLASSIFIED if sector == UNCLASSIFIED else f"esg:{sector}"
+        for ticker, sector in esg_barred(session, tickers, exclusions).items()
+    }
+
+
+def _esg_reasons(
+    session: Session, tickers: list[str], constraint_set: ConstraintSet | None
+) -> dict[str, str]:
+    """ESG bars among the investable ``tickers``; empty with no exclusions to apply.
+
+    Anything that is not an ETF is screened as a single stock, so an instrument of an
+    unrecognised type cannot slip past a hard exclusion.
+    """
+    if constraint_set is None or not tickers:
+        return {}
+    exclusions = frozenset(constraint_set.esg.exclusions)
+    if not exclusions:
+        return {}
+    types = _instrument_types(session, tickers)
+    stocks = [t for t in tickers if types.get(t) != _ETF]
+    return _stock_esg_reasons(session, stocks, exclusions)
+
+
 def resolve_eligibility(
-    session: Session, allowlist: Iterable[str], asof: dt.date
+    session: Session,
+    allowlist: Iterable[str],
+    asof: dt.date,
+    *,
+    constraint_set: ConstraintSet | None = None,
 ) -> Eligibility | None:
     """Resolve ``allowlist`` into the tickers that may be held on ``asof``.
 
@@ -100,21 +159,34 @@ def resolve_eligibility(
         allowlist: The mandate's ``eligible_tickers``.
         asof: Decision bar; delistings and prices after it are ignored, matching
             :func:`fund.tools.universe.list_universe`.
+        constraint_set: The client's active constraints. Its ESG exclusions bar
+            allowlisted stocks in an excluded or unplaceable sector, failing closed
+            like ``list_universe``. ``None`` (or no exclusions) applies no ESG screen.
 
     Returns:
         ``None`` when the allowlist is empty: the portfolio is unrestricted and
         callers apply no check. Otherwise an :class:`Eligibility` whose ``allowed``
-        and ``barred`` follow the mandate's order. Costs a constant number of queries
-        however long the list is.
+        and ``barred`` follow the mandate's order. A name that fails the data checks
+        keeps that reason and is not screened for ESG. The data checks cost a constant
+        number of queries however long the list is; the ESG screen costs a few per
+        screened ticker, which is why the result is resolved once per run.
     """
     tickers = _normalise(allowlist)
     if not tickers:
         return None
     barred = uninvestable_reasons(session, tickers, asof)
+    barred.update(
+        _esg_reasons(session, [t for t in tickers if t not in barred], constraint_set)
+    )
     return Eligibility(
         allowed=tuple(t for t in tickers if t not in barred),
         barred=tuple((t, barred[t]) for t in tickers if t in barred),
     )
 
 
-__all__ = ["NOT_IN_ALLOWLIST", "Eligibility", "resolve_eligibility"]
+__all__ = [
+    "ESG_UNCLASSIFIED",
+    "NOT_IN_ALLOWLIST",
+    "Eligibility",
+    "resolve_eligibility",
+]
