@@ -3,7 +3,7 @@
 import logging
 import uuid as uuid_mod
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import date
 from typing import Any
 
@@ -404,6 +404,49 @@ class UniverseRepository(RepositoryBase):
         ).scalars()
         # The WHERE already drops NULLs; the comprehension narrows the column type.
         return [ticker for ticker in rows if ticker is not None]
+
+    def get_t212_untradeable_tickers(
+        self, tickers: Collection[str] | None = None
+    ) -> list[str] | None:
+        """Return the Yahoo symbols the overlay found absent from the broker.
+
+        The refusal side of the tri-state behind :meth:`get_t212_tradeable_tickers`.
+        A run scoped to the broker drops exactly these names: a row the overlay never
+        evaluated (NULL) is not refused, so a deployment without Trading 212 keeps its
+        universe, and a symbol carried by several rows is refused only when every
+        row is flagged False. Delisting is not judged here; the caller's own
+        investability check owns that, point in time.
+
+        Args:
+            tickers: Restrict the answer to these Yahoo symbols. ``None`` asks about
+                every instrument; an empty collection asks about none.
+
+        Returns:
+            Sorted, de-duplicated ``yfinance_ticker`` values flagged False on every
+            row, or ``None`` when no row has been evaluated at all, meaning there is
+            nothing to refuse and the caller must keep its universe unrestricted.
+        """
+        evaluated = self.session.execute(
+            select(exists().where(Instrument.is_t212_tradeable.is_not(None)))
+        ).scalar_one()
+        if not evaluated:
+            return None
+        if tickers is not None and not tickers:
+            return []
+        stmt = (
+            select(Instrument.yfinance_ticker)
+            .where(Instrument.yfinance_ticker.is_not(None))
+            .group_by(Instrument.yfinance_ticker)
+            .having(
+                func.max(case((Instrument.is_t212_tradeable.is_(False), 0), else_=1))
+                == 0
+            )
+            .order_by(Instrument.yfinance_ticker)
+        )
+        if tickers is not None:
+            stmt = stmt.where(Instrument.yfinance_ticker.in_(list(tickers)))
+        # The WHERE already drops NULLs; the comprehension narrows the column type.
+        return [t for t in self.session.execute(stmt).scalars() if t is not None]
 
     def set_isin_if_missing(self, *, ticker: str, exchange_id: Any, isin: str) -> bool:
         """Store an ISIN on an instrument that has none yet.

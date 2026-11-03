@@ -222,3 +222,80 @@ class TestRebuildKeepsTheOverlay:
         sql = str(statements[0].compile(dialect=postgresql.dialect()))
         assert "ON CONFLICT" in sql
         assert "is_t212_tradeable" not in sql.split("DO UPDATE SET")[1]
+
+
+class TestUntradeableTickers:
+    """``get_t212_untradeable_tickers`` names only the explicit refusals.
+
+    The complement of the tradeable allowlist under the tri-state: a row the overlay
+    has not evaluated (NULL) is not refused, only one matched against the catalogue and
+    found absent (False) is.
+    """
+
+    def test_is_none_until_the_overlay_has_evaluated_something(
+        self, db_session
+    ) -> None:
+        """Nothing evaluated means nothing to refuse, and the caller must know that."""
+        ex = _exchange(db_session)
+        _instrument(db_session, ex, "AAPL")
+
+        assert _repo(db_session).get_t212_untradeable_tickers() is None
+        assert _repo(db_session).get_t212_untradeable_tickers(["AAPL"]) is None
+
+    def test_lists_only_explicit_false_not_null_or_true(self, db_session) -> None:
+        """NULL (not evaluated) and True (carried) are never refused."""
+        ex = _exchange(db_session)
+        _instrument(db_session, ex, "AAPL", is_t212_tradeable=True)
+        _instrument(db_session, ex, "VOO", is_t212_tradeable=False)
+        _instrument(db_session, ex, "GLD")
+        _instrument(db_session, ex, "ARKK", is_t212_tradeable=False)
+
+        assert _repo(db_session).get_t212_untradeable_tickers() == ["ARKK", "VOO"]
+
+    def test_restricts_to_the_tickers_asked_about(self, db_session) -> None:
+        """A caller with an allowlist pays only for its own names."""
+        ex = _exchange(db_session)
+        _instrument(db_session, ex, "VOO", is_t212_tradeable=False)
+        _instrument(db_session, ex, "ARKK", is_t212_tradeable=False)
+        _instrument(db_session, ex, "AAPL", is_t212_tradeable=True)
+
+        repo = _repo(db_session)
+
+        assert repo.get_t212_untradeable_tickers(["VOO", "AAPL", "MISSING"]) == ["VOO"]
+        assert repo.get_t212_untradeable_tickers([]) == []
+
+    def test_is_empty_when_everything_evaluated_is_tradeable(self, db_session) -> None:
+        """An evaluated universe with no refusal is an empty list, not None."""
+        ex = _exchange(db_session)
+        _instrument(db_session, ex, "AAPL", is_t212_tradeable=True)
+
+        assert _repo(db_session).get_t212_untradeable_tickers() == []
+
+    def test_a_symbol_with_one_non_false_row_is_not_refused(self, db_session) -> None:
+        """Two lines of one Yahoo symbol: the broker carrying either one is enough."""
+        nasdaq = _exchange(db_session, "NASDAQ")
+        nyse = _exchange(db_session, "NYSE")
+        _instrument(db_session, nasdaq, "XYZ", is_t212_tradeable=False)
+        _instrument(db_session, nyse, "XYZ", is_t212_tradeable=True)
+        _instrument(db_session, nasdaq, "UVW", is_t212_tradeable=False)
+        _instrument(db_session, nyse, "UVW")
+        _instrument(db_session, nasdaq, "ABC", is_t212_tradeable=False)
+        _instrument(db_session, nyse, "ABC", is_t212_tradeable=False)
+
+        assert _repo(db_session).get_t212_untradeable_tickers() == ["ABC"]
+
+    def test_uses_the_yahoo_symbol_and_skips_rows_without_one(self, db_session) -> None:
+        """The refusals speak Yahoo symbols, the fund layer's ticker space."""
+        ex = _exchange(db_session)
+        _instrument(
+            db_session,
+            ex,
+            "VWCE_XETRA",
+            yfinance_ticker="VWCE.DE",
+            is_t212_tradeable=False,
+        )
+        _instrument(
+            db_session, ex, "NOYAHOO", yfinance_ticker=None, is_t212_tradeable=False
+        )
+
+        assert _repo(db_session).get_t212_untradeable_tickers() == ["VWCE.DE"]
