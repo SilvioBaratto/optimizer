@@ -151,23 +151,63 @@ def mandate_breaches(
 
 
 def constraint_set_breaches(
-    session: Session, constraint_set: ConstraintSet, tickers: Iterable[str]
+    session: Session,
+    constraint_set: ConstraintSet,
+    tickers: Iterable[str],
+    *,
+    funds_by_look_through: bool = False,
 ) -> list[dict[str, Any]]:
     """The ``constraint_set``'s ESG and K&E breaches among ``tickers``.
 
     The one translation of a ``ConstraintSet`` into :func:`mandate_breaches`
     arguments, shared by the bound toolsets and the TUI recompute so the live gate and
     the cockpit's read-out cannot disagree about what the mandate forbids.
+
+    Args:
+        session: A sync ``portopt_db`` session; the function does not own it.
+        constraint_set: The client's active constraints.
+        tickers: yfinance tickers to screen.
+        funds_by_look_through: ``True`` for a portfolio with an allowlist, where the
+            eligibility resolver judges an ETF's ESG standing from its sector
+            weights. The stored-sector screen cannot place a fund, which has no
+            sector, and would bar every ETF the resolver cleared, so ETFs are exempt
+            from it; stocks are still screened by sector, and the K&E restrictions
+            apply to everything.
     """
-    return mandate_breaches(
+    excluded = [YAHOO_SECTOR_BY_GICS[s] for s in constraint_set.esg.exclusions]
+    no_complex = constraint_set.universe_filters.no_complex
+    no_leverage = constraint_set.universe_filters.no_leverage
+    names = list(tickers)
+    funds = _etf_tickers(session, names) if funds_by_look_through and excluded else []
+    if not funds:
+        return mandate_breaches(
+            session,
+            names,
+            excluded_sectors=excluded,
+            no_complex=no_complex,
+            no_leverage=no_leverage,
+        )
+    position = {ticker: index for index, ticker in enumerate(names)}
+    breaches = mandate_breaches(
         session,
-        tickers,
-        excluded_sectors=[
-            YAHOO_SECTOR_BY_GICS[s] for s in constraint_set.esg.exclusions
-        ],
-        no_complex=constraint_set.universe_filters.no_complex,
-        no_leverage=constraint_set.universe_filters.no_leverage,
-    )
+        [t for t in names if t not in funds],
+        excluded_sectors=excluded,
+        no_complex=no_complex,
+        no_leverage=no_leverage,
+    ) + mandate_breaches(session, funds, no_complex=no_complex, no_leverage=no_leverage)
+    return sorted(breaches, key=lambda breach: position[breach["asset"]])
+
+
+def _etf_tickers(session: Session, tickers: Iterable[str]) -> list[str]:
+    """The distinct ``tickers`` whose instrument is an ETF."""
+    repo = YFinanceRepository(session)
+    funds: list[str] = []
+    for ticker in dict.fromkeys(tickers):
+        instrument = repo.get_instrument_by_yfinance_ticker(ticker)
+        kind = instrument.instrument_type if instrument is not None else None
+        if (kind or "").strip().upper() == "ETF":
+            funds.append(ticker)
+    return funds
 
 
 # A weight above this is a real holding; the optimizer's solver noise sits far

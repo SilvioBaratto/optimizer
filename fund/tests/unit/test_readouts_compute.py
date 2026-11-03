@@ -766,6 +766,42 @@ def test_compute_risk_fails_a_held_name_outside_the_eligible_universe(
     ]
 
 
+def test_compute_risk_leaves_the_esg_judgement_to_the_resolver_under_an_allowlist(
+    priced_session: Session,
+) -> None:
+    """With an allowlist the resolver has already judged a held ETF's ESG standing by
+    look-through, so the sector screen, which cannot place a fund and would bar it,
+    must not second-guess it. A held stock is still screened by its sector."""
+    from fund.readouts_compute import compute_risk
+
+    classify_instruments(priced_session, {"BBB": "Energy"})
+    aaa = priced_session.execute(
+        select(Instrument).where(Instrument.yfinance_ticker == "AAA")
+    ).scalar_one()
+    aaa.instrument_type = "ETF"
+    priced_session.flush()
+    weights = {"AAA": 0.5, "BBB": 0.5}
+
+    unrestricted = compute_risk(
+        weights, _energy_exclusion(), None, session=priced_session
+    )
+    allowlisted = compute_risk(
+        weights,
+        _energy_exclusion(),
+        None,
+        session=priced_session,
+        eligible=_eligibility(["AAA", "BBB"]),
+    )
+
+    assert {(v["type"], v["asset"]) for v in unrestricted.violations} == {
+        ("unclassified_sector", "AAA"),
+        ("esg_exclusion", "BBB"),
+    }
+    assert [(v["type"], v["asset"]) for v in allowlisted.violations] == [
+        ("esg_exclusion", "BBB")
+    ]
+
+
 def test_compute_risk_enforces_eligibility_without_a_constraint_set(
     priced_session: Session,
 ) -> None:

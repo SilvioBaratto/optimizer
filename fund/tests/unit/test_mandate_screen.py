@@ -87,6 +87,43 @@ def test_unknown_ticker_is_unclassified_under_an_esg_screen(db_session) -> None:
     assert breach == {"type": "unclassified_sector", "asset": "ZZZ"}
 
 
+def test_constraint_set_breaches_leaves_funds_to_the_resolver_when_asked(
+    db_session,
+) -> None:
+    """An ETF has no sector, so the sector screen would bar every fund the eligibility
+    resolver has already cleared by look-through. Stocks keep the sector screen, and
+    the K&E restrictions apply to funds all the same."""
+    from _fund_fakes import make_energy_exclusion_constraint_set
+
+    from fund.tools.mandate import constraint_set_breaches
+
+    _instrument(db_session, "FUND.E", instrument_type="ETF", name="Plain Fund")
+    _instrument(db_session, "LEV.E", instrument_type="ETF", name="Daily 3X Bull ETF")
+    _instrument(db_session, "OIL.S", sector="Energy")
+    _instrument(db_session, "NOSECTOR.S")
+    policy = make_energy_exclusion_constraint_set()
+    strict = policy.model_copy(
+        update={
+            "universe_filters": policy.universe_filters.model_copy(
+                update={"no_leverage": True}
+            )
+        }
+    )
+    names = ["LEV.E", "NOSECTOR.S", "FUND.E", "OIL.S"]
+
+    screened = constraint_set_breaches(db_session, strict, names)
+    deferred = constraint_set_breaches(
+        db_session, strict, names, funds_by_look_through=True
+    )
+
+    assert {"type": "unclassified_sector", "asset": "FUND.E"} in screened
+    assert [(b["type"], b["asset"]) for b in deferred] == [
+        ("leveraged_instrument", "LEV.E"),
+        ("unclassified_sector", "NOSECTOR.S"),
+        ("esg_exclusion", "OIL.S"),
+    ]
+
+
 def test_stock_named_like_a_leveraged_product_is_not_leveraged(db_session) -> None:
     """A common stock called "Bull ... Ultra" is not a leveraged product."""
     _instrument(db_session, "AAA", instrument_type="STOCK", name="Bull Run Ultra Corp")

@@ -9,7 +9,10 @@ agree. Pins, over a seeded SQLite catalogue:
 * each bar carries one stable reason: ``no_instrument``, ``delisted`` or
   ``not_priced``, judged point-in-time on ``asof``;
 * the data reasons are the ones ``list_universe`` applies, and the cost is a constant
-  number of queries however long the list is.
+  number of queries however long the list is;
+* under an ESG exclusion a single stock is judged by its stored sector and an ETF by
+  the look-through of its latest sector snapshot against the client's tolerance,
+  failing closed on stale, partial or unmappable data.
 """
 
 from __future__ import annotations
@@ -18,10 +21,12 @@ import datetime as dt
 
 import pytest
 from _fund_fakes import make_constraint_set, make_energy_exclusion_constraint_set
+from portopt_db.models.market_data.etf_metadata import ETFSectorWeight
 from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Exchange, Instrument
 from sqlalchemy import event
 
+from fund.config import load_config
 from fund.schemas.constraint_set import EsgPolicy
 from fund.schemas.enums import GicsSector
 from fund.tools.eligibility import Eligibility, resolve_eligibility
@@ -39,6 +44,7 @@ def _seed(
     delisted_at: dt.date | None = None,
     instrument_type: str = "ETF",
     asset_class: str = "equity",
+    fi_subclass: str | None = None,
 ) -> None:
     exchange = Exchange(name=f"EX-{ticker}")
     session.add(exchange)
@@ -50,6 +56,7 @@ def _seed(
         exchange_id=exchange.id,
         instrument_type=instrument_type,
         asset_class=asset_class,
+        fi_subclass=fi_subclass,
         yfinance_ticker=ticker,
         delisted_at=delisted_at,
     )
@@ -62,6 +69,27 @@ def _seed(
                 date=_ASOF - dt.timedelta(days=1),
                 close=10.0,
                 volume=1000,
+            )
+        )
+    session.flush()
+
+
+def _seed_sectors(
+    session,
+    ticker: str,
+    weights: dict[str, float | None],
+    *,
+    age_days: int = 0,
+) -> None:
+    """Store a sector snapshot for ``ticker``, ``age_days`` before the decision bar."""
+    instrument = (
+        session.query(Instrument).filter(Instrument.yfinance_ticker == ticker).one()
+    )
+    as_of = _ASOF - dt.timedelta(days=age_days)
+    for sector, weight in weights.items():
+        session.add(
+            ETFSectorWeight(
+                instrument_id=instrument.id, as_of=as_of, sector=sector, weight=weight
             )
         )
     session.flush()
@@ -371,6 +399,9 @@ def test_a_data_bar_takes_precedence_over_an_esg_bar(db_session) -> None:
 
 def test_an_etf_is_not_judged_by_the_stock_sector_rule(db_session) -> None:
     _seed(db_session, "FUND.E", instrument_type="ETF")
+    instrument = db_session.query(Instrument).filter_by(yfinance_ticker="FUND.E").one()
+    db_session.add(TickerProfile(instrument_id=instrument.id, sector="Energy"))
+    _seed_sectors(db_session, "FUND.E", {"technology": 1.0})
 
     result = resolve_eligibility(
         db_session,
@@ -402,6 +433,358 @@ def test_resolver_list_universe_and_mandate_screen_differ_on_an_unplaceable_sect
     assert resolved is not None
     assert resolved.barred == (("ODD.S", "esg_unclassified"),)
     assert breaches == []
+
+
+# --- ESG look-through for ETFs ------------------------------------------------
+#
+# An ETF has no single sector, so it is judged by the share of its latest sector
+# snapshot that sits in an excluded sector, against the client's tolerance. Commodity
+# and government-type bond funds hold no company exposure and pass; every other fund
+# needs a recent, complete, mappable snapshot or stays barred.
+
+
+def _policy(*sectors: GicsSector, tolerance: float = 0.0):
+    return make_constraint_set().model_copy(
+        update={"esg": EsgPolicy(exclusions=sectors, look_through_tolerance=tolerance)}
+    )
+
+
+def _resolve_one(session, ticker: str, constraint_set, **kwargs):
+    result = resolve_eligibility(
+        session, (ticker,), _ASOF, constraint_set=constraint_set, **kwargs
+    )
+    assert result is not None
+    return result
+
+
+def _outcome(result: Eligibility) -> str:
+    """``allowed`` or the single bar reason of a one-ticker resolution."""
+    return "allowed" if result.allowed else result.barred[0][1]
+
+
+@pytest.mark.parametrize(
+    ("weights", "tolerance", "outcome"),
+    [
+        pytest.param({"energy": 0.03, "technology": 0.97}, 0.05, "allowed", id="below"),
+        pytest.param({"energy": 0.05, "technology": 0.95}, 0.05, "allowed", id="at"),
+        pytest.param(
+            {"energy": 0.08, "technology": 0.92}, 0.05, "esg:energy", id="above"
+        ),
+        pytest.param(
+            {"energy": 0.001, "technology": 0.999}, 0.0, "esg:energy", id="strict-bars"
+        ),
+        pytest.param(
+            {"energy": 0.0, "technology": 1.0}, 0.0, "allowed", id="strict-zero-passes"
+        ),
+        pytest.param({"technology": 1.0}, 0.0, "allowed", id="no-excluded-weight"),
+    ],
+)
+def test_an_etf_passes_while_its_excluded_exposure_stays_within_the_tolerance(
+    db_session, weights, tolerance, outcome
+) -> None:
+    _seed(db_session, "FUND.E")
+    _seed_sectors(db_session, "FUND.E", weights)
+
+    result = _resolve_one(
+        db_session, "FUND.E", _policy(GicsSector.ENERGY, tolerance=tolerance)
+    )
+
+    assert _outcome(result) == outcome
+
+
+def test_exposure_sums_every_excluded_sector_and_names_the_largest(db_session) -> None:
+    _seed(db_session, "FUND.E")
+    _seed_sectors(
+        db_session, "FUND.E", {"energy": 0.1, "utilities": 0.2, "technology": 0.7}
+    )
+    both = _policy(GicsSector.ENERGY, GicsSector.UTILITIES, tolerance=0.05)
+
+    result = _resolve_one(db_session, "FUND.E", both)
+
+    assert result.barred == (("FUND.E", "esg:utilities"),)
+
+
+def test_float_noise_does_not_push_an_exposure_over_its_tolerance(db_session) -> None:
+    _seed(db_session, "FUND.E")
+    _seed_sectors(
+        db_session, "FUND.E", {"energy": 0.1, "utilities": 0.2, "technology": 0.7}
+    )
+    # 0.1 + 0.2 is 0.30000000000000004.
+    both = _policy(GicsSector.ENERGY, GicsSector.UTILITIES, tolerance=0.3)
+
+    assert _outcome(_resolve_one(db_session, "FUND.E", both)) == "allowed"
+
+
+def test_the_realestate_spelling_counts_as_real_estate(db_session) -> None:
+    _seed(db_session, "FUND.E")
+    _seed_sectors(db_session, "FUND.E", {"realestate": 0.2, "technology": 0.8})
+
+    result = _resolve_one(db_session, "FUND.E", _policy(GicsSector.REAL_ESTATE))
+
+    assert result.barred == (("FUND.E", "esg:real_estate"),)
+
+
+@pytest.mark.parametrize(
+    ("total", "outcome"),
+    [
+        (0.94, "esg_unclassified"),
+        (0.96, "allowed"),
+        (1.04, "allowed"),
+        (1.06, "esg_unclassified"),
+    ],
+)
+def test_a_snapshot_must_sum_to_one_within_five_points(
+    db_session, total, outcome
+) -> None:
+    _seed(db_session, "FUND.E")
+    _seed_sectors(db_session, "FUND.E", {"technology": total})
+
+    result = _resolve_one(db_session, "FUND.E", _policy(GicsSector.ENERGY))
+
+    assert _outcome(result) == outcome
+
+
+@pytest.mark.parametrize(
+    ("age_days", "outcome"),
+    [(179, "allowed"), (180, "allowed"), (181, "esg_unclassified")],
+)
+def test_a_snapshot_older_than_the_max_age_is_stale(
+    db_session, age_days, outcome
+) -> None:
+    _seed(db_session, "FUND.E")
+    _seed_sectors(db_session, "FUND.E", {"technology": 1.0}, age_days=age_days)
+
+    result = _resolve_one(db_session, "FUND.E", _policy(GicsSector.ENERGY))
+
+    assert _outcome(result) == outcome
+
+
+def test_the_max_age_is_a_parameter_of_the_resolver(db_session) -> None:
+    _seed(db_session, "FUND.E")
+    _seed_sectors(db_session, "FUND.E", {"technology": 1.0}, age_days=31)
+
+    strict = _resolve_one(
+        db_session, "FUND.E", _policy(GicsSector.ENERGY), max_sector_age_days=30
+    )
+    lenient = _resolve_one(
+        db_session, "FUND.E", _policy(GicsSector.ENERGY), max_sector_age_days=31
+    )
+
+    assert _outcome(strict) == "esg_unclassified"
+    assert _outcome(lenient) == "allowed"
+
+
+def test_the_default_max_age_comes_from_the_fund_config(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dataclasses
+
+    from fund.tools import eligibility
+
+    monkeypatch.setattr(
+        eligibility,
+        "settings",
+        dataclasses.replace(eligibility.settings, esg_sector_weights_max_age_days=10),
+    )
+    _seed(db_session, "FUND.E")
+    _seed_sectors(db_session, "FUND.E", {"technology": 1.0}, age_days=11)
+
+    result = _resolve_one(db_session, "FUND.E", _policy(GicsSector.ENERGY))
+
+    assert _outcome(result) == "esg_unclassified"
+
+
+def test_null_weights_are_ignored_but_must_leave_a_complete_snapshot(
+    db_session,
+) -> None:
+    _seed(db_session, "FUND.PART")
+    _seed_sectors(db_session, "FUND.PART", {"energy": None, "technology": 1.0})
+    _seed(db_session, "FUND.EMPTY")
+    _seed_sectors(db_session, "FUND.EMPTY", {"energy": None, "technology": None})
+
+    result = resolve_eligibility(
+        db_session,
+        ("FUND.PART", "FUND.EMPTY"),
+        _ASOF,
+        constraint_set=_policy(GicsSector.ENERGY),
+    )
+
+    assert result is not None
+    assert result.allowed == ("FUND.PART",)
+    assert result.barred == (("FUND.EMPTY", "esg_unclassified"),)
+
+
+def test_a_label_outside_the_eleven_sectors_fails_closed(db_session) -> None:
+    _seed(db_session, "FUND.E")
+    _seed_sectors(db_session, "FUND.E", {"crypto_assets": 0.1, "technology": 0.9})
+
+    result = _resolve_one(db_session, "FUND.E", _policy(GicsSector.ENERGY))
+
+    assert result.barred == (("FUND.E", "esg_unclassified"),)
+
+
+def test_an_etf_with_no_snapshot_at_all_is_unclassified(db_session) -> None:
+    _seed(db_session, "FUND.E")
+
+    result = _resolve_one(db_session, "FUND.E", _policy(GicsSector.ENERGY))
+
+    assert result.barred == (("FUND.E", "esg_unclassified"),)
+
+
+def test_a_commodity_etf_passes_whatever_its_stored_collateral_looks_like(
+    db_session,
+) -> None:
+    _seed(db_session, "GOLD.E", asset_class="commodity")
+    _seed(db_session, "BARS.E", asset_class="commodity")
+    _seed_sectors(db_session, "BARS.E", {"energy": 0.9, "basic_materials": 0.1})
+
+    result = resolve_eligibility(
+        db_session,
+        ("GOLD.E", "BARS.E"),
+        _ASOF,
+        constraint_set=_policy(GicsSector.ENERGY),
+    )
+
+    assert result is not None
+    assert result.allowed == ("GOLD.E", "BARS.E")
+
+
+@pytest.mark.parametrize(
+    ("asset_class", "fi_subclass", "outcome"),
+    [
+        ("fixed_income", "government", "allowed"),
+        ("fixed_income", "inflation_linked", "allowed"),
+        ("fixed_income", "Government", "allowed"),
+        ("fixed_income", "corporate", "esg_unclassified"),
+        ("fixed_income", "aggregate", "esg_unclassified"),
+        ("fixed_income", "high_yield", "esg_unclassified"),
+        ("fixed_income", "em", "esg_unclassified"),
+        ("fixed_income", None, "esg_unclassified"),
+        ("multi_asset", None, "esg_unclassified"),
+        ("equity", None, "esg_unclassified"),
+        # government is a fixed-income subclass; on any other class it means nothing
+        ("equity", "government", "esg_unclassified"),
+    ],
+)
+def test_only_government_type_bond_funds_pass_without_a_snapshot(
+    db_session, asset_class, fi_subclass, outcome
+) -> None:
+    _seed(db_session, "FUND.E", asset_class=asset_class, fi_subclass=fi_subclass)
+
+    result = _resolve_one(db_session, "FUND.E", _policy(GicsSector.ENERGY))
+
+    assert _outcome(result) == outcome
+
+
+def test_a_corporate_bond_fund_with_a_clean_snapshot_passes(db_session) -> None:
+    _seed(db_session, "CORP.E", asset_class="fixed_income", fi_subclass="corporate")
+    _seed_sectors(db_session, "CORP.E", {"financial_services": 0.6, "industrials": 0.4})
+
+    result = _resolve_one(db_session, "CORP.E", _policy(GicsSector.ENERGY))
+
+    assert _outcome(result) == "allowed"
+
+
+def test_a_government_bond_fund_is_not_judged_by_its_snapshot(db_session) -> None:
+    _seed(db_session, "GOV.E", asset_class="fixed_income", fi_subclass="government")
+    _seed_sectors(db_session, "GOV.E", {"energy": 0.5, "utilities": 0.5})
+
+    result = _resolve_one(db_session, "GOV.E", _policy(GicsSector.ENERGY))
+
+    assert _outcome(result) == "allowed"
+
+
+def test_the_latest_snapshot_decides_not_an_older_one(db_session) -> None:
+    _seed(db_session, "FUND.E")
+    _seed_sectors(db_session, "FUND.E", {"energy": 0.9, "technology": 0.1}, age_days=90)
+    _seed_sectors(db_session, "FUND.E", {"technology": 1.0}, age_days=10)
+
+    result = _resolve_one(db_session, "FUND.E", _policy(GicsSector.ENERGY))
+
+    assert _outcome(result) == "allowed"
+
+
+def test_without_exclusions_or_a_constraint_set_no_etf_is_screened(db_session) -> None:
+    _seed(db_session, "FUND.E")
+
+    plain = resolve_eligibility(
+        db_session, ("FUND.E",), _ASOF, constraint_set=make_constraint_set()
+    )
+    unset = resolve_eligibility(db_session, ("FUND.E",), _ASOF)
+
+    assert plain is not None
+    assert plain.allowed == ("FUND.E",)
+    assert unset is not None
+    assert unset.allowed == ("FUND.E",)
+
+
+def test_a_data_bar_takes_precedence_over_the_etf_look_through(db_session) -> None:
+    _seed(db_session, "GONE.E", delisted_at=_ASOF)
+    _seed_sectors(db_session, "GONE.E", {"energy": 1.0})
+
+    result = _resolve_one(db_session, "GONE.E", _policy(GicsSector.ENERGY))
+
+    assert result.barred == (("GONE.E", "delisted"),)
+
+
+def test_stocks_and_funds_are_screened_together_in_mandate_order(db_session) -> None:
+    _seed_stock(db_session, "OIL.S", sector="Energy")
+    _seed_stock(db_session, "TECH.S", sector="Technology")
+    _seed(db_session, "OILFUND.E")
+    _seed_sectors(db_session, "OILFUND.E", {"energy": 1.0})
+    _seed(db_session, "TECHFUND.E")
+    _seed_sectors(db_session, "TECHFUND.E", {"technology": 1.0})
+
+    result = resolve_eligibility(
+        db_session,
+        ("OILFUND.E", "TECH.S", "OIL.S", "TECHFUND.E"),
+        _ASOF,
+        constraint_set=_policy(GicsSector.ENERGY),
+    )
+
+    assert result is not None
+    assert result.allowed == ("TECH.S", "TECHFUND.E")
+    assert result.barred == (("OILFUND.E", "esg:energy"), ("OIL.S", "esg:energy"))
+
+
+def test_the_fund_snapshots_are_read_in_one_batch(db_session) -> None:
+    for index in range(6):
+        _seed(db_session, f"FUND.{index}")
+        _seed_sectors(db_session, f"FUND.{index}", {"technology": 1.0})
+    engine = db_session.get_bind().engine
+    counted: list[str] = []
+
+    def _count(conn, cursor, statement, parameters, context, executemany) -> None:
+        counted.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _count)
+    try:
+        resolve_eligibility(
+            db_session, ("FUND.0",), _ASOF, constraint_set=_policy(GicsSector.ENERGY)
+        )
+        small = len(counted)
+        counted.clear()
+        resolve_eligibility(
+            db_session,
+            tuple(f"FUND.{index}" for index in range(6)),
+            _ASOF,
+            constraint_set=_policy(GicsSector.ENERGY),
+        )
+        large = len(counted)
+    finally:
+        event.remove(engine, "before_cursor_execute", _count)
+
+    assert small == large
+
+
+def test_the_look_through_max_age_defaults_to_half_a_year_and_reads_the_env() -> None:
+    default = load_config(env={}, load_dotenv_file=False)
+    overridden = load_config(
+        env={"FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS": "30"}, load_dotenv_file=False
+    )
+
+    assert default.esg_sector_weights_max_age_days == 180
+    assert overridden.esg_sector_weights_max_age_days == 30
 
 
 # --- the violation records the risk gate and the cockpit read-out share ---------
