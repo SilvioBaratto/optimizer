@@ -73,6 +73,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `spread_2s10s_inversion` at its default of 0**; only the steep threshold is
   percentile-based, so a normal upward-sloping curve is no longer classified as
   inverted.
+- **Pre-selection no longer drops low-volatility funds, and clips real crashes
+  less.** `PreSelectionConfig.zero_variance_threshold` now defaults to `0.0`
+  (was `1e-8`) and drops only columns that are constant up to float noise, so
+  money-market and overnight-rate ETFs stay in the universe. The default
+  `winsorize_threshold` (`PreSelectionConfig`, `OutlierTreater`, `CleaningConfig`)
+  is now 8 sigma (was 3): a genuine single-name crash is no longer flattened
+  before CVaR and drawdown are estimated. The `for_conservative` and
+  `for_low_volatility` presets keep 2.5.
+- **`RobustMeanRiskConfig.for_conservative`, `for_moderate` and `for_aggressive`
+  maximise worst-case mean-variance utility, not the Sharpe ratio.** The ratio
+  problem is infeasible whenever the worst-case excess return is non-positive,
+  which is the normal case on 1-2 years of daily data.
+- **`implied_annualization_factor` is required for an implied covariance.**
+  `build_cov_estimator` raises `ConfigurationError` without a positive value;
+  skfolio never inferred it from the index (it uses 252), so weekly data was
+  de-annualised by the wrong factor.
+- **`MomentEstimationConfig.for_regime_adjusted_ew()` uses the EW mean estimator**,
+  so it fits a ragged panel like its covariance does.
+- **Rebalancing treats weights that sum below 1 as cash.** `apply_no_trade_band`
+  works to the target's invested level and `compute_drifted_weights` lets the
+  cash sleeve earn 0, so a partly invested book no longer trades its cash away or
+  reports drift with no market move.
+- **Stricter inputs that used to fail silently.** A positive `min_sector_weights`
+  floor for a sector absent from the mapping raises `ValueError`; a benchmark or
+  factor `y` whose index differs from `X` (same length) raises `DataError`; the
+  online grid and randomized searches raise `OptimizationError` when every
+  candidate scores NaN and now apply `risk_free_rate=0.0` to every candidate;
+  `to_returns` warns when `prices_to_returns` drops all-NaN columns and raises
+  when none or the benchmark is left.
+- **`beta_neutral` factor-mimicking portfolios hedge with a lagged expanding
+  beta** (NaN for the first 12 shared dates) instead of a full-sample beta, which
+  used later data on earlier dates. `scores` must lead `returns`.
+- **`CPCVConfig` purges and embargoes by default.** `purged_size` and
+  `embargo_size` default to 5 (they were 0), presets included, so out-of-sample
+  scores are no longer inflated by autocorrelated returns at the fold boundaries.
+  The sizes count observations of whatever frequency is fed in; pass `1` for a
+  monthly panel, or `0` to switch the guard off.
+- **Black-Litterman helpers**: `market_weights` also accepts a ticker-indexed
+  `pd.Series` (aligned to the fitted columns, so a pre-selection drop no longer
+  breaks the shape); `AvailableAssetViewsPrior` subsets `empirical_omega` with
+  the views and falls back to the equilibrium prior when no view is left.
+  `SyntheticDataConfig()` always builds a vine copula with the log-transform
+  guard.
 
 ### Added
 
@@ -185,6 +228,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **fund**: the risk gate and the weighting tools no longer judge a book on its
+  youngest holding. The drawdown ceiling, `optimize_portfolio` and
+  `estimate_moments` share one sample-depth rule (a fit needs at least half the
+  median own history); an unverifiable drawdown now blocks instead of warning;
+  `universe_filter` drops only assets that are thin on their own and no longer
+  loses any asset that starts a bar after the oldest. A risk verdict is
+  re-checked against the current constraint set before orders are placed, and the
+  ESG look-through fails closed on non-finite weights, counts unreported weight
+  as possible exposure at a strict tolerance, and ignores snapshots dated after
+  the decision bar.
+- **fund**: the risk gate compares the client's drawdown ceilings with the worst
+  loss inside any one-year window of the history, because the stated tolerance is a
+  one-year figure (the full-history drawdown is still reported). A common history
+  shorter than one year blocks with `drawdown_unverified`, and a stated tolerance of
+  zero is reported as `zero_loss_tolerance` instead of an opaque breach. Bars per
+  year are derived from each panel's calendar (about 261 on a weekday union of
+  venues, not a fixed 252) for moments, the optimizer, the risk-free rate and the
+  Performance strip, so annualised figures move by up to about 3%. The profile's
+  `moments_estimator` now reaches the optimizer's prior, so the covariance the PM
+  reads is the covariance `optimize_portfolio` solves under. A legacy percent-style
+  drift threshold that was clamped to "never fires" is shown as a warning on save,
+  in `fund mandate show` and on the Posture view.
+- **fund**: NAV starts at capital when the first ticket leaves cash undeployed
+  (a later ticket used to lever the returns), a re-approved identical ticket
+  becomes the active book again, holding contributions sum to the NAV return, a
+  held currency with no FX rate fails loudly, and the NAV upsert drops rows the
+  rebuilt series no longer emits.
+- **fund**: an approve, edit or Ask approve resolves the gate the adviser was shown:
+  the Decisions view remembers the id of the gate it rendered and the decision is
+  refused (`GateMovedError`) when the run has since moved to another gate.
+  `tradeable_only` keeps an allowlisted name the Trading 212 overlay could not judge
+  (no ISIN) but names it in the PM seed and in the mandate-save warnings instead of
+  letting it through silently.
+- **fund**: approving a second gate on one run works (the idempotency key now
+  names the gate, not the run), a database error inside a tool no longer rolls
+  back the round's audit rows, a failed round is recorded after its rollback and
+  its checkpoint thread deleted, mandate saves detect a concurrent change
+  (`MandateConflictError`), and the first-round flag no longer blocks a freeze.
+- **fund**: `OLLAMA_API_KEY` is sent only to `ollama.com` over https; a keyed
+  gateway elsewhere needs `OLLAMA_BASE_URL_SEND_KEY=true`. The LangGraph
+  bootstrap lock polls `pg_try_advisory_lock`, so two processes starting on a
+  fresh database can no longer deadlock behind `CREATE INDEX CONCURRENTLY`.
+- **ingestion**: `t212_annotate` judges mandate-pinned instruments, so
+  `tradeable_only` bars a pinned name the broker does not list; the broker scope
+  ignores delisted twin rows; a mandate save no longer revives delisted sibling
+  rows or erases `delisting_return`; an empty Trading 212 catalogue no longer
+  clears stored tickers; "Gold Explorers" and natural-gas equity funds are no
+  longer labelled commodity (they skip the ESG look-through) and minimum-volatility
+  equity ETFs are no longer dropped as volatility products.
+- **ingestion**: a failed Yahoo fetch is no longer cached as "no data" for 72
+  hours; the news search fallback goes through the shared rate limiter and
+  circuit breaker; the news sweep reads only the ids it needs; an options sweep
+  through an outage fails instead of reporting zero errors; a full-history fetch
+  stops before today's unfinished bar; a delisted instrument with no bar for a
+  year leaves the daily sweep. Migration `b8d0f2a4c6e1` turns JSON `null` values
+  in `background_jobs` and `portfolio_journal` into SQL `NULL`.
+- **ingestion**: `ticker_news` is pruned weekly (`NEWS_RETENTION_DAYS`, default
+  365, 0 disables) in bounded batches as its own job slot; a prune error is
+  recorded on that slot and never fails the refetch. The directly imported
+  `certifi`, `urllib3`, `prompt-toolkit` and `python-dateutil` are declared in
+  `ingestion/pyproject.toml`, with a guard test.
+- **ops**: `install.sh` installs the CLI against constraints exported from the
+  checkout's `uv.lock` (a failed pinned install is retried without them), and
+  `install.ps1` now updates an existing checkout (fast-forward only, refusing a
+  checkout of another repo) and stops when it cannot, as `install.sh` does. The CI
+  boot test also starts and stops the fund container on a placeholder provider key.
+- **ops**: on a Linux host the fund container runs as the invoking user
+  (`PORTOPT_FUND_UID` / `PORTOPT_FUND_GID`, handed to every compose call and
+  defaulting to the image's 1000), so TUI exports to `./exports` are writable and
+  readable by that user; macOS, a uid-1000 host and root keep the image's user. A
+  leftover root-owned `./exports` is reported with the command that fixes it.
+- **ops**: `portopt start` rebuilds an image whose source-hash label no longer
+  matches the checkout (the first start after upgrading rebuilds once, because
+  older images carry no label), so old containers no longer run against a newly
+  migrated database. The ingestion entrypoint handles SIGTERM during boot,
+  `portopt status` reports a deliberately disabled fund and times out docker
+  calls, `./exports` is created for the invoking user, `install.sh` stops when
+  the checkout cannot be updated, and the LLM placeholder keys in `.env.example`
+  are commented out.
 - **docker**: `docker-compose.yml` now pins the project name with a top-level
   `name: optimizer`. Without it Compose took the name from the checkout
   directory, so re-cloning or unzipping under another basename (for example
