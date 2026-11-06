@@ -161,6 +161,25 @@ class TestBuildSyntheticData:
         model = build_synthetic_data()
         assert isinstance(model, SyntheticData)
 
+    def test_default_vine_keeps_the_log_transform_guard(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        # skfolio's own VineCopula() default is log_transform=False, which would
+        # sample returns below -100% unnoticed.
+        model = build_synthetic_data()
+        assert isinstance(model.distribution_estimator, VineCopula)
+        assert model.distribution_estimator.log_transform is True
+
+        broken = returns_df.copy()
+        broken.iloc[5, 0] = -1.0
+        with pytest.raises(DataError, match="log_transform"):
+            model.fit(broken)
+
+    def test_config_without_vine_still_gets_the_library_vine(self) -> None:
+        model = build_synthetic_data(SyntheticDataConfig(n_samples=200))
+        assert isinstance(model.distribution_estimator, VineCopula)
+        assert model.distribution_estimator.log_transform is True
+
     def test_n_samples_forwarded(self) -> None:
         cfg = SyntheticDataConfig(n_samples=5_000)
         model = build_synthetic_data(cfg)

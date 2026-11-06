@@ -276,7 +276,9 @@ class TestBuildCovEstimator:
         cov_type: CovEstimatorType,
         expected_class: type,
     ) -> None:
-        cfg = MomentEstimationConfig(cov_estimator=cov_type)
+        cfg = MomentEstimationConfig(
+            cov_estimator=cov_type, implied_annualization_factor=252.0
+        )
         estimator = build_cov_estimator(cfg)
         assert isinstance(estimator, expected_class)
 
@@ -349,16 +351,33 @@ class TestBuildCovEstimator:
         assert estimator.window_size == 15
         assert estimator.annualized_factor is None
 
-    def test_implied_annualization_factor_defaults_none(self) -> None:
-        # config default is None; skfolio resolves None to its 252.0 default
-        # inside __init__, so the built estimator carries 252.0 (never the
-        # deprecated annualized_factor).
-        cfg = MomentEstimationConfig(cov_estimator=CovEstimatorType.IMPLIED)
+    def test_implied_window_size_default(self) -> None:
+        cfg = MomentEstimationConfig(
+            cov_estimator=CovEstimatorType.IMPLIED, implied_annualization_factor=52.0
+        )
         estimator = build_cov_estimator(cfg)
         assert isinstance(estimator, ImpliedCovariance)
-        assert estimator.annualization_factor == 252.0
+        assert estimator.annualization_factor == 52.0
         assert estimator.annualized_factor is None
         assert estimator.window_size == 20
+
+    def test_implied_without_annualization_factor_raises(self) -> None:
+        # skfolio silently falls back to 252 (daily); weekly or monthly returns
+        # would then de-annualise the implied vol by the wrong square root.
+        cfg = MomentEstimationConfig(cov_estimator=CovEstimatorType.IMPLIED)
+        with pytest.raises(ConfigurationError, match="implied_annualization_factor"):
+            build_cov_estimator(cfg)
+
+    @pytest.mark.parametrize("factor", [0.0, -252.0, float("nan")])
+    def test_implied_non_positive_annualization_factor_raises(
+        self, factor: float
+    ) -> None:
+        cfg = MomentEstimationConfig(
+            cov_estimator=CovEstimatorType.IMPLIED,
+            implied_annualization_factor=factor,
+        )
+        with pytest.raises(ConfigurationError, match="implied_annualization_factor"):
+            build_cov_estimator(cfg)
 
 
 class TestUnsupportedEstimatorRaises:
@@ -686,3 +705,149 @@ class TestBuildCharacteristicsFactorModel:
         rd = model.return_distribution_
         assert rd.mu.shape == (12,)
         assert rd.covariance.shape == (12, 12)
+
+
+class TestTickerIndexedMarketWeights:
+    """A ticker-indexed Series is matched to the fitted columns by label, so an
+    asset dropped upstream (pre-selection, delisting) cannot misalign or break
+    the equilibrium."""
+
+    @staticmethod
+    def _returns(columns: list[str]) -> pd.DataFrame:
+        rng = np.random.default_rng(11)
+        return pd.DataFrame(
+            rng.normal(0.0005, 0.01, (300, len(columns))), columns=columns
+        )
+
+    @staticmethod
+    def _cfg() -> MomentEstimationConfig:
+        return MomentEstimationConfig.for_equilibrium_ledoitwolf()
+
+    def test_subset_of_columns_is_reindexed_and_renormalised(self) -> None:
+        caps = pd.Series(
+            [5e11, 4e11, 3e11, 2e11, 1e11], index=["A", "B", "C", "D", "E"]
+        )
+        full = self._returns(["A", "B", "C", "D", "E"])
+        fitted_on = full[["A", "C", "D", "E"]]
+
+        by_label = build_prior(self._cfg(), market_weights=caps).fit(fitted_on)
+        by_position = build_prior(
+            self._cfg(), market_weights=caps[["A", "C", "D", "E"]].to_numpy()
+        ).fit(fitted_on)
+
+        np.testing.assert_allclose(
+            by_label.return_distribution_.mu, by_position.return_distribution_.mu
+        )
+
+    def test_column_order_does_not_matter(self) -> None:
+        caps = pd.Series([5.0, 3.0, 1.0], index=["A", "B", "C"])
+        ordered = self._returns(["A", "B", "C"])
+        shuffled = ordered[["C", "A", "B"]]
+
+        mu_ordered = build_prior(self._cfg(), market_weights=caps).fit(ordered)
+        mu_shuffled = build_prior(self._cfg(), market_weights=caps).fit(shuffled)
+
+        np.testing.assert_allclose(
+            mu_shuffled.return_distribution_.mu,
+            mu_ordered.return_distribution_.mu[[2, 0, 1]],
+        )
+
+    def test_extra_tickers_in_series_are_ignored(self) -> None:
+        caps = pd.Series([5.0, 3.0, 1.0, 9.0], index=["A", "B", "C", "ZZZ"])
+
+        prior = build_prior(self._cfg(), market_weights=caps).fit(
+            self._returns(["A", "B", "C"])
+        )
+
+        assert np.isfinite(prior.return_distribution_.mu).all()
+
+    def test_fitted_column_without_a_cap_raises(self) -> None:
+        caps = pd.Series([5.0, 3.0], index=["A", "B"])
+        prior = build_prior(self._cfg(), market_weights=caps)
+
+        with pytest.raises(ConfigurationError, match=r"market_weights.*\['C'\]"):
+            prior.fit(self._returns(["A", "B", "C"]))
+
+    def test_non_finite_series_rejected_at_build(self) -> None:
+        caps = pd.Series([1.0, np.nan], index=["A", "B"])
+
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            build_mu_estimator(self._cfg(), market_weights=caps)
+
+    def test_all_zero_caps_among_fitted_columns_raise(self) -> None:
+        caps = pd.Series([0.0, 0.0, 4.0], index=["A", "B", "C"])
+        prior = build_prior(self._cfg(), market_weights=caps)
+
+        with pytest.raises(ConfigurationError, match="market_weights"):
+            prior.fit(self._returns(["A", "B"]))
+
+    def test_estimator_survives_sklearn_clone(self) -> None:
+        from sklearn.base import clone
+
+        caps = pd.Series([5.0, 3.0, 1.0], index=["A", "B", "C"])
+        prior = clone(build_prior(self._cfg(), market_weights=caps))
+
+        prior.fit(self._returns(["A", "C"]))
+
+        assert prior.return_distribution_.mu.shape == (2,)
+
+    def test_positional_array_keeps_working(self) -> None:
+        caps = np.array([5.0, 3.0, 1.0])
+
+        prior = build_prior(self._cfg(), market_weights=caps).fit(
+            self._returns(["A", "B", "C"])
+        )
+
+        assert prior.return_distribution_.mu.shape == (3,)
+
+
+class TestRaggedPanelPresets:
+    """Presets that advertise NaN-aware covariance must carry a NaN-aware mu."""
+
+    @staticmethod
+    def _ragged() -> pd.DataFrame:
+        rng = np.random.default_rng(1)
+        df = pd.DataFrame(
+            rng.normal(0.0005, 0.01, (250, 6)),
+            index=pd.bdate_range("2023-01-02", periods=250),
+            columns=list("ABCDEF"),
+        )
+        df.iloc[:100, 0] = np.nan
+        return df
+
+    def test_regime_adjusted_preset_fits_a_late_listing(self) -> None:
+        prior = build_prior(MomentEstimationConfig.for_regime_adjusted_ew())
+
+        prior.fit(self._ragged())
+
+        assert np.isfinite(prior.return_distribution_.mu).all()
+        assert np.isfinite(prior.return_distribution_.covariance).all()
+
+    def test_regime_adjusted_preset_uses_ew_mu(self) -> None:
+        cfg = MomentEstimationConfig.for_regime_adjusted_ew()
+        assert cfg.mu_estimator is MuEstimatorType.EW
+
+
+class TestShrunkMuUsesConfiguredCovariance:
+    def test_built_estimator_carries_the_configured_covariance(self) -> None:
+        cfg = MomentEstimationConfig(
+            mu_estimator=MuEstimatorType.SHRUNK, cov_estimator=CovEstimatorType.OAS
+        )
+        estimator = build_mu_estimator(cfg)
+        assert isinstance(estimator, ShrunkMu)
+        assert isinstance(estimator.covariance_estimator, OAS)
+
+    def test_fitted_shrinkage_target_follows_the_prior_covariance(self) -> None:
+        rng = np.random.default_rng(2)
+        returns = pd.DataFrame(
+            rng.normal(0.0005, 0.01, (120, 30)),
+            columns=[f"A{i}" for i in range(30)],
+        )
+        cfg = MomentEstimationConfig(
+            mu_estimator=MuEstimatorType.SHRUNK,
+            cov_estimator=CovEstimatorType.LEDOIT_WOLF,
+        )
+
+        prior = cast("EmpiricalPrior", build_prior(cfg)).fit(returns)
+
+        assert isinstance(prior.mu_estimator_.covariance_estimator_, LedoitWolf)  # type: ignore[union-attr]

@@ -217,6 +217,9 @@ class MeanRiskConfig:
         a per-asset weight cap to enforce diversification and keep
         volatility stable.  Uses ShrunkMu + DenoiseCovariance for
         robust moment estimates.  The ridge is sized for daily returns.
+
+        The 10% cap needs a universe of at least 10 assets: with fewer, the
+        weights cannot reach the budget and the fit is infeasible.
         """
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
@@ -234,6 +237,9 @@ class MeanRiskConfig:
         meaningful allocation and ``max_weights=0.10`` to cap individual
         positions.  L2 regularisation pushes toward equal-weight; it is
         sized for daily returns.
+
+        The 10% cap needs at least 10 assets, and the 1% floor at most 100;
+        outside that range the fit is infeasible.
         """
         return cls(
             objective=ObjectiveFunctionType.MAXIMIZE_RATIO,
@@ -256,6 +262,9 @@ class MeanRiskConfig:
 
         Uses ShrunkMu + DenoiseCovariance for robust moment estimates.  The
         ridge is sized for daily returns.
+
+        The 10% per-asset cap needs a universe of at least 10 assets: with
+        fewer, the weights cannot reach the budget and the fit is infeasible.
 
         Args:
             max_sector_weight: Maximum total weight for any single sector.

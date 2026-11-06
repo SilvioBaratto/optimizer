@@ -9,6 +9,7 @@ from typing import Any, cast
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from skfolio.moments import EquilibriumMu
 from skfolio.prior import (
     BlackLitterman,
     EmpiricalPrior,
@@ -155,15 +156,22 @@ class AvailableAssetViewsPrior(BasePrior):
                 params["view_confidences"] = [
                     template.view_confidences[i] for i in keep
                 ]
+            empirical_omega = getattr(template, "empirical_omega", None)
+            if empirical_omega is not None:
+                params["empirical_omega"] = np.asarray(empirical_omega)[
+                    np.ix_(keep, keep)
+                ]
             fitted = clone(template).set_params(**params)
             fitted.fit(X, y, **fit_params)
             self.return_distribution_ = fitted.return_distribution_
         else:
             inner = template.prior_estimator
+            # BlackLitterman itself defaults to an equilibrium prior, so dropping
+            # the last view must not swap it for the historical mean.
             fitted = (
                 cast("BasePrior", clone(inner))
                 if inner is not None
-                else EmpiricalPrior()
+                else EmpiricalPrior(mu_estimator=EquilibriumMu())
             )
             fitted.fit(X, y, **fit_params)
             base = fitted.return_distribution_
@@ -185,7 +193,7 @@ def build_black_litterman(
     return_history: pd.DataFrame | None = None,
     omega: npt.NDArray[np.float64] | None = None,
     *,
-    market_weights: npt.NDArray[np.float64] | None = None,
+    market_weights: npt.NDArray[np.float64] | pd.Series | None = None,
 ) -> BasePrior:
     """Build a skfolio Black-Litterman prior from *config*.
 
@@ -199,8 +207,11 @@ def build_black_litterman(
         omega: Pre-computed diagonal omega matrix. When provided and method is
             ``EMPIRICAL_TRACK_RECORD``, used directly (skipping the history
             computation).
-        market_weights: Market-capitalisation weights, aligned to the columns the
-            prior is fitted on, forwarded to the equilibrium prior. Without them
+        market_weights: Market-capitalisation weights forwarded to the equilibrium
+            prior. A ticker-indexed ``pd.Series`` is matched to the fitted
+            columns by label, so it survives assets dropped by pre-selection
+            inside a pipeline; a plain array is positional and must have one
+            entry per fitted column. Without them
             skfolio falls back to equal weights, which is a degenerate
             (non cap-weighted) equilibrium. Only used when the inner prior's
             ``mu_estimator`` is ``EQUILIBRIUM``.

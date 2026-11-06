@@ -36,7 +36,10 @@ class RobustMeanRiskConfig:
         mean_risk_config: Forwarded to `build_mean_risk`. Default
             `MeanRiskConfig` (minimum-variance), which never uses expected
             returns, so a mu uncertainty set has no effect on it. The mu
-            presets therefore use a maximum-Sharpe base.
+            presets therefore use a maximum-utility base: the worst-case
+            expected return enters additively, so the problem stays feasible
+            when that worst case is negative, as it is on short or noisy daily
+            samples. A ratio objective would be infeasible there.
         mu_uncertainty_set_config: Mu uncertainty-set configuration. ``None``
             disables it.
         covariance_uncertainty_set_config: Covariance uncertainty-set
@@ -51,10 +54,11 @@ class RobustMeanRiskConfig:
     def for_conservative(cls) -> RobustMeanRiskConfig:
         """High-confidence preset (99%) — wide ellipsoidal uncertainty.
 
-        Uses a maximum-Sharpe base so the mu uncertainty set is active.
+        Uses a maximum-utility base so the mu uncertainty set is active and the
+        fit stays feasible when the worst-case expected return is negative.
         """
         return cls(
-            mean_risk_config=MeanRiskConfig.for_max_sharpe(),
+            mean_risk_config=MeanRiskConfig.for_max_utility(),
             mu_uncertainty_set_config=MuUncertaintySetConfig.for_empirical(
                 confidence_level=0.99
             ),
@@ -64,14 +68,15 @@ class RobustMeanRiskConfig:
     def for_moderate(cls, *, uncertainty_level: float = 0.95) -> RobustMeanRiskConfig:
         """Moderate confidence preset (default 95%).
 
-        Uses a maximum-Sharpe base so the mu uncertainty set is active.
+        Uses a maximum-utility base so the mu uncertainty set is active and the
+        fit stays feasible when the worst-case expected return is negative.
 
         Args:
             uncertainty_level: Confidence level forwarded to
                 `for_empirical`. Keyword-only.
         """
         return cls(
-            mean_risk_config=MeanRiskConfig.for_max_sharpe(),
+            mean_risk_config=MeanRiskConfig.for_max_utility(),
             mu_uncertainty_set_config=MuUncertaintySetConfig.for_empirical(
                 confidence_level=uncertainty_level
             ),
@@ -81,10 +86,11 @@ class RobustMeanRiskConfig:
     def for_aggressive(cls) -> RobustMeanRiskConfig:
         """Low-confidence preset (90%) — narrow ellipsoidal uncertainty.
 
-        Uses a maximum-Sharpe base so the mu uncertainty set is active.
+        Uses a maximum-utility base so the mu uncertainty set is active and the
+        fit stays feasible when the worst-case expected return is negative.
         """
         return cls(
-            mean_risk_config=MeanRiskConfig.for_max_sharpe(),
+            mean_risk_config=MeanRiskConfig.for_max_utility(),
             mu_uncertainty_set_config=MuUncertaintySetConfig.for_empirical(
                 confidence_level=0.90
             ),

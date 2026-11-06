@@ -18,6 +18,7 @@ from skfolio.model_selection import (
 )
 from skfolio.portfolio import FailedPortfolio
 
+from optimizer.exceptions import DataError
 from optimizer.validation._config import (
     CPCVConfig,
     MultipleRandomizedCVConfig,
@@ -25,6 +26,40 @@ from optimizer.validation._config import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def check_index_alignment(X: Any, name: str, other: Any) -> None:
+    """Require *other* to share the row index of *X*.
+
+    skfolio and sklearn pair a benchmark, factor returns or any routed series
+    with ``X`` by row position, never by date. A series on the same dates in
+    another order, or from an offset calendar, therefore fits without error
+    against the wrong rows.
+
+    Args:
+        X: Return matrix the other object is paired with.
+        name: Label used in the error message.
+        other: Object to check. Objects without a pandas index (arrays, lists)
+            are taken positionally and pass, as do objects of another length,
+            which the estimator rejects with its own length error.
+
+    Raises:
+        DataError: If both carry a pandas index of the same length but the
+            indexes differ.
+    """
+    x_index = getattr(X, "index", None)
+    other_index = getattr(other, "index", None)
+    if not isinstance(x_index, pd.Index) or not isinstance(other_index, pd.Index):
+        return
+    if len(other_index) != len(x_index) or other_index.equals(x_index):
+        return
+    raise DataError(
+        f"{name} has the same number of rows as X but a different index "
+        "(other dates or another row order; first/last labels "
+        f"{other_index[0]!r}..{other_index[-1]!r} against "
+        f"{x_index[0]!r}..{x_index[-1]!r}); rows are paired by position, so "
+        "reindex it to X.index before fitting."
+    )
 
 
 def build_walk_forward(
@@ -67,7 +102,9 @@ def build_cpcv(
 
     Args:
         config: CPCV configuration. Defaults to CPCVConfig()
-            (10 folds, 8 test folds).
+            (10 folds, 8 test folds, 5 observations purged and embargoed at
+            the fold boundaries; raise ``purged_size`` / ``embargo_size`` to
+            the estimator's look-back for autocorrelated returns).
 
     Returns:
         A skfolio combinatorial purged cross-validator.
@@ -146,6 +183,12 @@ def run_cross_val(
         MultiPeriodPortfolio; CombinatorialPurgedCV and MultipleRandomizedCV
         return a Population.
 
+    Raises:
+        DataError: If ``y`` or a pandas value in ``params`` has the same number
+            of rows as ``X`` but a different index. They are sliced by row
+            position, so a reordered or offset-calendar series would be paired
+            with the wrong dates.
+
     Note:
         No look-ahead: every cross-validator built by this module is temporal
         and never shuffles observations, so each training window strictly
@@ -171,6 +214,11 @@ def run_cross_val(
     """
     if cv is None:
         cv = build_walk_forward()
+
+    if y is not None:
+        check_index_alignment(X, "y", y)
+    for key, value in (params or {}).items():
+        check_index_alignment(X, f"params[{key!r}]", value)
 
     return _skfolio_cross_val_predict(
         estimator=estimator,

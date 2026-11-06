@@ -57,7 +57,15 @@ class MaxDiversificationConfig:
         cls,
         max_weight: float = 0.10,
     ) -> MaxDiversificationConfig:
-        """Long-only with a per-asset weight cap (default 10%)."""
+        """Long-only with a per-asset weight cap (default 10%).
+
+        The cap needs a universe of at least ``1 / max_weight`` assets (10 by
+        default): with fewer, the weights cannot reach the budget and the fit
+        is infeasible.
+
+        Args:
+            max_weight: Per-asset upper bound.
+        """
         return cls(min_weights=0.0, max_weights=max_weight)
 
 

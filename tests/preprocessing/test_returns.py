@@ -188,3 +188,70 @@ class TestDecimalCoercion:
     def test_float_prices_unaffected(self, prices: pd.DataFrame) -> None:
         # Already-float frames are a no-op: identical to raw skfolio output.
         pd.testing.assert_frame_equal(to_returns(prices), prices_to_returns(prices))
+
+
+class TestDroppedColumns:
+    """skfolio silently drops all-NaN price columns; ``to_returns`` must say so."""
+
+    @staticmethod
+    def _panel() -> pd.DataFrame:
+        idx = pd.date_range("2024-01-01", periods=10, freq="B")
+        rng = np.random.default_rng(0)
+        px = pd.DataFrame(
+            np.cumprod(1 + rng.normal(0, 0.01, (10, 3)), axis=0) * 100,
+            index=idx,
+            columns=["A", "B", "C"],
+        )
+        return px
+
+    def test_all_nan_asset_warns_and_names_the_column(self) -> None:
+        px = self._panel()
+        px["C"] = np.nan
+
+        with pytest.warns(UserWarning, match=r"dropped.*\['C'\]"):
+            out = to_returns(px)
+
+        assert list(out.columns) == ["A", "B"]
+
+    def test_complete_panel_does_not_warn(self, prices: pd.DataFrame) -> None:
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            out = to_returns(prices)
+
+        assert list(out.columns) == ["AAPL", "MSFT"]
+
+    def test_partially_sparse_asset_does_not_warn(self) -> None:
+        import warnings
+
+        px = self._panel()
+        px.iloc[:4, 2] = np.nan
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            out = to_returns(px)
+
+        assert list(out.columns) == ["A", "B", "C"]
+
+    def test_every_column_dropped_raises(self) -> None:
+        px = self._panel() * np.nan
+
+        with pytest.raises(DataError, match="every column"):
+            to_returns(px)
+
+    def test_benchmark_without_prices_raises(self) -> None:
+        px = self._panel()
+        bench = pd.DataFrame({"BM": np.nan}, index=px.index)
+
+        with pytest.raises(DataError, match="y_prices"):
+            to_returns(px, bench)
+
+    def test_all_nan_benchmark_column_among_several_warns(self) -> None:
+        px = self._panel()
+        bench = pd.DataFrame({"BM1": px["A"].to_numpy(), "BM2": np.nan}, index=px.index)
+
+        with pytest.warns(UserWarning, match=r"y_prices.*\['BM2'\]"):
+            _, y = to_returns(px, bench)
+
+        assert list(y.columns) == ["BM1"]

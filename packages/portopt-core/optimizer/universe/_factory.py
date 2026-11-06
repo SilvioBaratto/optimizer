@@ -81,7 +81,9 @@ def build_investability_screen(
         volume_history: Volume matrix (dates x tickers).
         financial_statements: Optional statement-level data.
         config: Screening configuration. ``None`` uses developed-market defaults.
-        current_members: Tickers currently in the universe for hysteresis.
+        current_members: Tickers currently in the universe for hysteresis. A
+            static, as-of-today index: on a dated ``X`` it leaks today's
+            membership into the fit window, and ``fit`` warns about it.
 
     Returns:
         Unfitted selector; call ``fit(X)`` with a linear-return DataFrame.

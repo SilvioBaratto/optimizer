@@ -149,6 +149,13 @@ class InvestabilityScreenSelector(SelectorMixin, BaseEstimator):
     must supply as of the same date, and an ``X`` without dates is screened on
     the full history.
 
+    ``current_members`` is a single static index, not an as-of membership. On a
+    dated ``X`` it is still applied at the fit window's end, so names that are
+    members *today* get the looser hysteresis exit thresholds in every
+    historical fold, which is look-ahead; ``fit`` warns when that happens. Leave
+    it unset for a walk-forward backtest, or fit one selector per fold with the
+    membership known at that fold's end.
+
     The frozen `InvestabilityScreenConfig` carries the *serialisable*
     thresholds; the (non-serialisable) cross-sectional DataFrames and the
     current-membership index are passed as constructor arguments, mirroring the
@@ -165,7 +172,9 @@ class InvestabilityScreenSelector(SelectorMixin, BaseEstimator):
         financial_statements: Optional statement-level data for the
             data-availability screen.
         config: Screening configuration.  ``None`` uses developed-market defaults.
-        current_members: Tickers currently in the universe, for hysteresis.
+        current_members: Tickers in the universe now, for hysteresis. Static,
+            so on a dated ``X`` it leaks today's membership into the fit window
+            (see above).
 
     Attributes:
         to_keep_: Boolean mask over the columns of ``X`` seen during ``fit``.
@@ -242,6 +251,20 @@ class InvestabilityScreenSelector(SelectorMixin, BaseEstimator):
         volume_history = self.volume_history
         financial_statements = self.financial_statements
         cutoff = _window_end(X.index)
+        if (
+            cutoff is not None
+            and self.current_members is not None
+            and len(self.current_members) > 0
+        ):
+            warnings.warn(
+                "current_members is today's membership, but X is dated "
+                f"(window ends {cutoff.date()}); applying it to this window "
+                "gives current members the looser exit thresholds in the past, "
+                "which is look-ahead. Leave it unset for a backtest or supply "
+                "the membership known at the window end.",
+                UserWarning,
+                stacklevel=2,
+            )
         if cutoff is not None:
             fundamentals, price_history, volume_history, financial_statements = (
                 _known_at(
