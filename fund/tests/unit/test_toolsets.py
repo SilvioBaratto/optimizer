@@ -81,7 +81,19 @@ def _close_on(start: float, phase: float, i: int) -> float:
     return round(start * (1.0 + 0.02 * math.sin(0.5 * i + phase)), 6)
 
 
-def _seed_panel(db_session, n_days: int = _N_DAYS) -> None:
+# Calendar days seeded before ``_START`` for the panels the risk gate runs on: it
+# judges the loss ceilings on the worst year, so it needs more than a year of bars
+# behind the decision date. The lead-in continues the same oscillation backwards;
+# every close from ``_START`` on is unchanged.
+_LEAD_DAYS = 400
+
+
+def _seed_year_panel(db_session) -> None:
+    """Seed the default panel with more than a year of history behind ``_ASOF``."""
+    _seed_panel(db_session, lead_days=_LEAD_DAYS)
+
+
+def _seed_panel(db_session, n_days: int = _N_DAYS, lead_days: int = 0) -> None:
     """Seed an ``n_days`` x 3 close panel (default extends past ``_ASOF``)."""
     for ticker, (start, phase) in _SERIES.items():
         ex = Exchange(name=f"EX-{ticker}")
@@ -97,7 +109,7 @@ def _seed_panel(db_session, n_days: int = _N_DAYS) -> None:
         )
         db_session.add(inst)
         db_session.flush()
-        for i in range(n_days):
+        for i in range(-lead_days, n_days):
             db_session.add(
                 PriceHistory(
                     instrument_id=inst.id,
@@ -677,6 +689,7 @@ def test_skills_document_each_bound_tool_with_its_real_arguments(db_session) -> 
 
 
 def test_bound_risk_check_is_pure_and_omits_session(db_session) -> None:
+    _seed_year_panel(db_session)
     cs = _constraint_set()
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     _audit_proposal(ctx, _WEIGHTS)
@@ -690,7 +703,7 @@ def test_bound_risk_check_is_pure_and_omits_session(db_session) -> None:
 
 
 def test_bound_risk_check_judges_the_audited_proposal(db_session) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     cs = _constraint_set()
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
@@ -727,6 +740,7 @@ def test_risk_check_ignores_a_retyped_weight_vector(db_session) -> None:
 
 
 def test_risk_check_follows_the_latest_audited_proposal(db_session) -> None:
+    _seed_year_panel(db_session)
     cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     risk = _find(bind_toolset("risk", ctx), "risk_check")
@@ -754,7 +768,7 @@ def test_risk_check_errs_when_no_proposal_was_audited(db_session) -> None:
 
 
 def test_risk_check_blocks_a_drawdown_past_the_hard_ceiling(db_session) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=1.0)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     _audit_proposal(ctx, _WEIGHTS)
@@ -769,7 +783,7 @@ def test_risk_check_blocks_a_drawdown_past_the_hard_ceiling(db_session) -> None:
 
 
 def test_risk_check_blocks_a_drawdown_past_the_absolute_stop(db_session) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=0.0003)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     _audit_proposal(ctx, _WEIGHTS)
@@ -782,7 +796,7 @@ def test_risk_check_blocks_a_drawdown_past_the_absolute_stop(db_session) -> None
 
 
 def test_risk_check_only_warns_past_the_soft_drawdown_tier(db_session) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     cs = _constraint_set(nu1=0.0001, nu2=0.9, nu3=1.0)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     _audit_proposal(ctx, _WEIGHTS)
@@ -795,7 +809,7 @@ def test_risk_check_only_warns_past_the_soft_drawdown_tier(db_session) -> None:
 
 
 def test_risk_check_passes_a_drawdown_inside_every_tier(db_session) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     cs = _constraint_set(nu1=0.5, nu2=0.6, nu3=0.9)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     _audit_proposal(ctx, _WEIGHTS)
@@ -807,26 +821,24 @@ def test_risk_check_passes_a_drawdown_inside_every_tier(db_session) -> None:
     assert result["data"]["warnings"] == []
 
 
-def test_risk_check_flags_an_unverifiable_drawdown_without_blocking(
-    db_session,
-) -> None:
-    # No prices seeded: the backtest cannot run, so the tier comparison is skipped
-    # and the report says so instead of implying the drawdown was checked.
+def test_risk_check_blocks_an_unverifiable_drawdown(db_session) -> None:
+    # No prices seeded: the backtest cannot run, so the ceilings were never compared
+    # and the book has not shown it respects them.
     ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
     _audit_proposal(ctx, _WEIGHTS)
     risk = _find(bind_toolset("risk", ctx), "risk_check")
 
     result = risk.invoke({})
 
-    assert result["data"]["passed"] is True
-    assert [w["type"] for w in result["data"]["warnings"]] == ["drawdown_unverified"]
+    assert result["data"]["passed"] is False
+    assert [v["type"] for v in result["data"]["violations"]] == ["drawdown_unverified"]
 
 
 def test_check_weights_against_mandate_applies_the_drawdown_tiers(db_session) -> None:
     """The adviser's edit is held to the same ceilings as the optimizer's proposal."""
     from fund.agents.toolsets import check_weights_against_mandate
 
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=1.0)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
 
@@ -1265,6 +1277,7 @@ def test_optimize_reports_cap_infeasible_for_a_too_small_universe(db_session) ->
 
 
 def test_risk_check_flags_a_weight_above_the_position_cap(db_session) -> None:
+    _seed_year_panel(db_session)
     cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     _audit_proposal(ctx, {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
@@ -1644,7 +1657,7 @@ def test_bound_estimate_moments_sees_fx_returns_in_the_base_currency(
 
 def _classify_all(db_session, sectors: dict[str, str]) -> None:
     """Seed the panel and give each ticker its profile sector."""
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     for ticker, sector in sectors.items():
         _classify(db_session, ticker, sector=sector)
 
@@ -1688,7 +1701,7 @@ def test_optimize_refuses_a_universe_holding_an_esg_excluded_name(db_session) ->
 
 def _restricted_context(db_session, *, store: InMemoryStore | None = None):
     """A context whose allowlist holds AAA and BBB; CCC was barred by the resolver."""
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     ctx = _make_context(db_session, store=store, universe=[])
     from fund.tools.eligibility import Eligibility
 
@@ -1815,7 +1828,7 @@ def _flag_untradeable(db_session, *tickers: str) -> None:
 def _broker_scope_context(db_session, *untradeable: str, store=None) -> RunContext:
     from fund.tools.eligibility import Eligibility
 
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     _flag_untradeable(db_session, *untradeable)
     ctx = _make_context(db_session, store=store, universe=[])
     return dataclasses.replace(
@@ -1969,7 +1982,7 @@ def test_risk_check_ignores_an_excluded_name_held_at_zero(db_session) -> None:
 
 def test_risk_check_fails_closed_when_a_sector_cannot_be_classified(db_session) -> None:
     # No profile row for AAA: an exclusion that cannot be evaluated is a block.
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     _classify(db_session, "BBB", sector="Technology")
     _classify(db_session, "CCC", sector="Utilities")
 
@@ -1982,7 +1995,7 @@ def test_risk_check_fails_closed_when_a_sector_cannot_be_classified(db_session) 
 
 
 def test_risk_check_does_not_classify_sectors_without_exclusions(db_session) -> None:
-    _seed_panel(db_session)  # no profiles at all
+    _seed_year_panel(db_session)  # no profiles at all
 
     result = _risk_check(db_session, _constraint_set(), _WEIGHTS)
 
@@ -1990,7 +2003,7 @@ def test_risk_check_does_not_classify_sectors_without_exclusions(db_session) -> 
 
 
 def test_risk_check_flags_a_leveraged_etf_for_a_no_leverage_client(db_session) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     _classify(db_session, "AAA", instrument_type="ETF", name="ProShares Ultra QQQ 2x")
     # A common stock whose name merely contains "Ultra" is not a leveraged product.
     _classify(db_session, "BBB", instrument_type="STOCK", name="Ultra Clean Holdings")
@@ -2007,7 +2020,7 @@ def test_risk_check_flags_a_leveraged_etf_for_a_no_leverage_client(db_session) -
 def test_risk_check_flags_a_non_plain_instrument_for_a_no_complex_client(
     db_session,
 ) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     _classify(db_session, "AAA", instrument_type="ETC", name="Gold Bullion Securities")
     cs = _constraint_set(universe_filters=UniverseFilters(no_complex=True))
 
@@ -2065,7 +2078,7 @@ def _with_eligibility(ctx: RunContext, *, allowed, barred=()) -> RunContext:
 def _eligible_risk_check(
     db_session, weights: dict[str, float], *, with_constraint_set: bool = True
 ) -> tuple[dict, RunContext]:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     store = _store_with_cs(_constraint_set()) if with_constraint_set else None
     ctx = _with_eligibility(
         _make_context(db_session, store=store),
@@ -2093,7 +2106,7 @@ def test_risk_check_fails_a_held_name_outside_the_eligible_universe(db_session) 
 def test_risk_check_reports_an_unlisted_held_name_as_not_in_the_allowlist(
     db_session,
 ) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     ctx = _with_eligibility(
         _make_context(db_session, store=_store_with_cs(_constraint_set())),
         allowed=["AAA", "BBB"],
@@ -2131,7 +2144,7 @@ def test_risk_check_passes_weights_held_inside_the_allowlist(db_session) -> None
 def test_place_orders_refuses_an_outside_name_even_behind_a_stale_pass(
     db_session,
 ) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     store = _store_with_cs(_constraint_set())
     ctx = _make_context(db_session, store=store)
     _audit_proposal(ctx, _WEIGHTS)
@@ -2172,7 +2185,7 @@ def test_place_orders_names_the_eligibility_failure_rather_than_the_risk_gate(
 def test_place_orders_places_weights_held_inside_the_eligible_universe(
     db_session,
 ) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     ctx = _with_eligibility(
         _make_context(db_session, store=_store_with_cs(_constraint_set())),
         allowed=["AAA", "BBB", "CCC"],
@@ -2339,7 +2352,7 @@ def _executor_rows(db_session) -> list[AgentDecision]:
 def test_risk_check_records_its_verdict_against_the_audited_weights(
     db_session,
 ) -> None:
-    _seed_panel(db_session)
+    _seed_year_panel(db_session)
     ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
     optimized = _find(bind_toolset("allocator", ctx), "optimize_portfolio").invoke(
         {"universe": _UNIVERSE}
@@ -2359,6 +2372,7 @@ def test_risk_check_records_its_verdict_against_the_audited_weights(
 
 
 def test_failed_risk_check_is_recorded_as_a_failed_verdict(db_session) -> None:
+    _seed_year_panel(db_session)
     cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
     ctx = _make_context(db_session, store=_store_with_cs(cs))
     _audit_proposal(ctx, _WEIGHTS)  # AAA = 0.5 > 0.4
@@ -2538,8 +2552,10 @@ def test_allocator_tools_run_on_the_default_prior(db_session, monkeypatch) -> No
     assert _find(tools, "estimate_moments").invoke({"universe": _UNIVERSE})["ok"]
     assert _find(tools, "optimize_portfolio").invoke({"universe": _UNIVERSE})["ok"]
 
+    # Both tools build the profile's default estimators (Ledoit-Wolf covariance over an
+    # empirical mean), so the covariance shown is the one optimised.
     assert moment_cfgs == [MomentEstimationConfig()]
-    assert [c.prior_config for c in optimizer_cfgs] == [None]
+    assert [c.prior_config for c in optimizer_cfgs] == [MomentEstimationConfig()]
 
 
 def test_no_run_code_reaches_the_viewset_bridge() -> None:

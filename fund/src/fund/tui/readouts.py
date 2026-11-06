@@ -42,8 +42,9 @@ _REQUESTED_LABEL = "requested (not applied)"
 # the adviser expands the step and the recompute worker fills them in (T6).
 _PENDING_LABEL = "compute to view"
 
-# Mean / vol / Sharpe come from the recompute already scaled to per-year (the same 252
-# convention as the Performance view); say so, or a reader assumes per-bar figures.
+# Mean / vol / Sharpe come from the recompute already scaled to per-year (the same
+# bars-per-year rule as the Performance view); say so, or a reader assumes per-bar
+# figures.
 _ANNUALISED_LABEL = "(annualised)"
 
 

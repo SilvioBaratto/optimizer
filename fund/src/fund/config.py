@@ -64,6 +64,9 @@ class FundConfig:
     langgraph_schema: str = "langgraph"
     pool_autocommit: bool = True
     pool_prepare_threshold: int = 0
+    # Seconds a psycopg connection attempt (pool or bootstrap) may take. Without a
+    # bound a black-holed host blocks the connect for the OS default of minutes.
+    db_connect_timeout_seconds: int = 10
 
     # --- D4 model: DeepSeek on Ollama Cloud, single-provider fallback ---
     # `llm_provider` selects the builder in the provider registry
@@ -71,6 +74,10 @@ class FundConfig:
     # DeepSeek-on-Ollama-Cloud path byte-for-byte (SPEC "Switchable LLM Backends").
     llm_provider: str = "ollama"
     ollama_base_url: str = "https://ollama.com"
+    # The Ollama Cloud key goes to the cloud host only. Compose mounts it into the
+    # container whether or not the base URL is the cloud, so a local or LAN server
+    # receives it just when this opt-in says it is a keyed gateway.
+    ollama_base_url_send_key: bool = False
     # Context window requested from a *local* Ollama server. Its own default is a
     # few thousand tokens and it truncates silently, which would cut the deep-agent
     # system prompt and tool schemas; Ollama Cloud sizes the window itself.
@@ -189,13 +196,31 @@ class FundConfig:
     summary_token_threshold: int | None = None
     summary_messages_to_keep: int = 6
 
+    def tcp_connection_kwargs(self) -> dict[str, Any]:
+        """libpq parameters that bound how long a dead database peer can stall a call.
+
+        A half-open socket (a network partition, a suspended database host) never
+        errors on its own: a checkpoint read blocks in ``recv`` for ever, and the
+        executor that runs it is the one the orphan reaper needs. A connect timeout
+        plus TCP keepalives turn that into an ``OperationalError`` within about a
+        minute. The values match the SQLAlchemy engine's in ``portopt_db``.
+        """
+        return {
+            "connect_timeout": self.db_connect_timeout_seconds,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+        }
+
     def langgraph_pool_kwargs(self) -> dict[str, Any]:
         """psycopg ``ConnectionPool(kwargs=...)`` for the LangGraph pool (D3).
 
         ``.setup()`` needs ``autocommit=True`` (else ``CREATE INDEX CONCURRENTLY``
         fails) and ``row_factory=dict_row``; ``search_path`` redirects all
         unqualified DDL into the dedicated schema so nothing leaks into Alembic's
-        ``public``.
+        ``public``. The connect timeout and keepalives come from
+        :meth:`tcp_connection_kwargs`.
         """
         from psycopg.rows import dict_row
 
@@ -204,6 +229,7 @@ class FundConfig:
             "autocommit": self.pool_autocommit,
             "row_factory": dict_row,
             "prepare_threshold": self.pool_prepare_threshold,
+            **self.tcp_connection_kwargs(),
         }
 
     def interrupt_on_map(self) -> dict[str, bool]:
@@ -346,6 +372,7 @@ def load_config(
             )
         ),
         ollama_base_url=env.get("OLLAMA_BASE_URL", defaults.ollama_base_url),
+        ollama_base_url_send_key=_env_flag(env, "OLLAMA_BASE_URL_SEND_KEY"),
         ollama_num_ctx=int(env.get("FUND_OLLAMA_NUM_CTX", defaults.ollama_num_ctx)),
         # Per-provider secret keys → _read_secret (file-based docker secret wins);
         # non-secret endpoints/urls/region stay plain env.get (absent → None).

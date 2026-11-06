@@ -72,6 +72,8 @@ from fund.tui.views import (
     DeliberationView,
     MandateView,
     ShellView,
+    _gate_text,
+    _live_gate_id,
     build_views,
 )
 
@@ -113,7 +115,7 @@ class ConfirmScreen(ModalScreen[bool]):
     DEFAULT_CSS = """
     ConfirmScreen { align: center middle; }
     .confirm-dialog {
-        width: 60; height: auto; padding: 1 2;
+        width: 60; height: auto; max-height: 90%; overflow-y: auto; padding: 1 2;
         border: thick $error; background: $surface;
     }
     .confirm-prompt { height: auto; color: $warning; }
@@ -133,7 +135,7 @@ class ConfirmScreen(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         """Yield the consequence prompt above a Confirm | Cancel button row."""
         with Vertical(classes="confirm-dialog"):
-            yield Static(self._prompt, classes="confirm-prompt")
+            yield Static(self._prompt, classes="confirm-prompt", markup=False)
             with Horizontal(classes="confirm-actions"):
                 yield Button("Confirm", variant="error", id="confirm-yes")
                 yield Button("Cancel", variant="primary", id="confirm-no")
@@ -497,6 +499,8 @@ _P = ParamSpec("_P")
 
 def _single_flight(
     label: str,
+    *,
+    refused: Callable[Concatenate[ShellApp, _P], str] | None = None,
 ) -> Callable[
     [Callable[Concatenate[ShellApp, _P], None]],
     Callable[Concatenate[ShellApp, _P], None],
@@ -514,6 +518,9 @@ def _single_flight(
 
     Args:
         label: Present-tense phrase shown on the status line while the action runs.
+        refused: Called with the worker's own arguments when the action is turned away;
+            returns what was not done (for example the adviser's typed directive), which
+            is appended to the status line so the refusal does not swallow it.
 
     Returns:
         A decorator for a ``ShellApp`` worker body, applied beneath ``@work``.
@@ -525,10 +532,10 @@ def _single_flight(
         @functools.wraps(body)
         def guarded(self: ShellApp, *args: _P.args, **kwargs: _P.kwargs) -> None:
             if not self._action_lock.acquire(blocking=False):
-                self.call_from_thread(
-                    self._set_status,
-                    "another action is still in progress — wait for it to finish",
-                )
+                message = "another action is still in progress — wait for it to finish"
+                if refused is not None:
+                    message += f" ({refused(self, *args, **kwargs)})"
+                self.call_from_thread(self._set_status, message)
                 return
             try:
                 self.call_from_thread(self._set_status, f"{label}…")
@@ -539,6 +546,40 @@ def _single_flight(
         return guarded
 
     return decorate
+
+
+def _round_flight(
+    body: Callable[Concatenate[ShellApp, _P], None],
+) -> Callable[Concatenate[ShellApp, _P], None]:
+    """Run a profile / run / stream thread worker only while no other one is alive.
+
+    Those workers used to rely on ``exclusive=True``, which cancels the older Textual
+    handle (so it reads as finished) while its thread keeps running: a second round or
+    a re-profile could then start next to the first and replace the ConstraintSet it is
+    using. The lock is held by the thread itself, so :meth:`ShellApp._round_in_flight`
+    stays true for as long as the work really runs.
+
+    Args:
+        body: A ``ShellApp`` worker body, applied beneath ``@work``.
+
+    Returns:
+        The guarded body; a late launch sets a status line and does nothing.
+    """
+
+    @functools.wraps(body)
+    def guarded(self: ShellApp, *args: _P.args, **kwargs: _P.kwargs) -> None:
+        if not self._round_lock.acquire(blocking=False):
+            self.call_from_thread(self._set_status, _ROUND_BUSY)
+            return
+        try:
+            body(self, *args, **kwargs)
+        finally:
+            self._round_lock.release()
+
+    return guarded
+
+
+_ROUND_BUSY = "a run or profile is already in progress — wait for it to finish"
 
 
 class ShellApp(App[None]):
@@ -684,6 +725,13 @@ class ShellApp(App[None]):
         self._stream_resume.set()
         # Serialises the gate-mutating workers (see ``_single_flight``).
         self._action_lock = threading.Lock()
+        # Held by a profile / run / stream thread for as long as it lives (see
+        # ``_round_flight``).
+        self._round_lock = threading.Lock()
+        # Serialises mandate saves: ``exclusive=True`` only flags the older worker
+        # cancelled while its thread keeps running, so two ctrl+s presses would
+        # otherwise write the same portfolio at once.
+        self._mandate_lock = threading.Lock()
         # A directive sent while the round is still streaming. ``respond`` needs the
         # run row committed and parked at its gate, neither of which holds until the
         # stream worker finishes, so it waits here and ``_deliver_queued_directive``
@@ -699,6 +747,7 @@ class ShellApp(App[None]):
         self._logged_attention_failures: set[str] = set()
         self.last_attention: list[str] = []  # headless-test hook (mirrors last_status)
         self._poll_read_inflight = False
+        self._attention_read_inflight = False
 
     # --- layout -------------------------------------------------------------
 
@@ -856,12 +905,13 @@ class ShellApp(App[None]):
             return
         self._refresh_runstate()
         self._sync_picker()
+        self._poll_attention_off_loop()
         view = self._current_view()
         task = view.poll_task() if view is not None else None
         if task is None:
-            self._refresh()
+            if view is not None:
+                view.refresh_view()
             return
-        self._poll_attention()
         # One read in flight at a time: a read slower than the tick would otherwise
         # pile up threads, each repainting an already-superseded snapshot.
         if self._poll_read_inflight:
@@ -884,6 +934,34 @@ class ShellApp(App[None]):
         except Exception:  # keep the poll loop alive on any read error
             result = None
         self.call_from_thread(self._finish_poll_read, apply, result)
+
+    def _poll_attention_off_loop(self) -> None:
+        """Start the attention feed's read on a worker; one read in flight at a time.
+
+        The feed marks every mandated portfolio's book, so on the event loop it cost
+        more per tick as the roster grew. :meth:`_refresh` keeps the synchronous read
+        for the repaint that follows an adviser's action.
+        """
+        if self._attention_read_inflight:
+            return
+        self._attention_read_inflight = True
+        self._attention_read_worker()
+
+    @work(thread=True, group="attention")
+    def _attention_read_worker(self) -> None:
+        """Read the fund-wide attention items off the loop, then apply them on it."""
+        try:
+            read: _AttentionRead | None = self._read_attention()
+        except Exception:  # keep the poll loop alive on any read error
+            logger.warning("attention feed read failed", exc_info=True)
+            read = None
+        self.call_from_thread(self._finish_attention_read, read)
+
+    def _finish_attention_read(self, read: _AttentionRead | None) -> None:
+        """Free the attention slot and apply the read (``None`` means it died)."""
+        self._attention_read_inflight = False
+        if read is not None:
+            self._apply_attention(read)
 
     def _finish_poll_read(self, apply: Callable[[Any], None], result: Any) -> None:
         """Free the poll slot and paint ``result`` (``None`` means the read failed)."""
@@ -1014,7 +1092,10 @@ class ShellApp(App[None]):
         unreadable mandate must not silence the gates or the other portfolios — and
         the header flags the feed as degraded while any of them is failing.
         """
-        read = self._read_attention()
+        self._apply_attention(self._read_attention())
+
+    def _apply_attention(self, read: _AttentionRead) -> None:
+        """Toast the newly-appeared items of ``read``; repaint the header counters."""
         for key, message in read.items:
             if key not in self._seen_attention:
                 self._raise_attention(message)
@@ -1154,7 +1235,10 @@ class ShellApp(App[None]):
             )
             return
         self.last_worker = self._action_worker(
-            view.selected_run_id, view.selected_portfolio_id, decision
+            view.selected_run_id,
+            view.selected_portfolio_id,
+            decision,
+            view.rendered_gate_id,
         )
 
     def action_decide_killswitch(self) -> None:
@@ -1291,6 +1375,7 @@ class ShellApp(App[None]):
             return
         run_id = view.selected_run_id
         portfolio_id = view.selected_portfolio_id
+        shown_gate = view.rendered_gate_id
         weights = self._proposed_weights(run_id)
         if not weights:
             self._set_status("no proposed weights to edit")
@@ -1300,7 +1385,9 @@ class ShellApp(App[None]):
             if edited is None:
                 self._set_status("edit cancelled")
                 return
-            self.last_worker = self._edit_worker(run_id, portfolio_id, edited)
+            self.last_worker = self._edit_worker(
+                run_id, portfolio_id, edited, shown_gate
+            )
 
         self.push_screen(OrderEditScreen(weights), _edited)
 
@@ -1325,7 +1412,7 @@ class ShellApp(App[None]):
                 run_id, portfolio_id, result.text, result.remember
             )
 
-        self.push_screen(BargeInScreen("the selected gate"), _resolved)
+        self.push_screen(BargeInScreen(_gate_target(run_id, portfolio_id)), _resolved)
 
     def _proposed_weights(self, run_id: uuid.UUID) -> dict[str, float]:
         """The weights to seed the editor with, or ``{}`` on any read error.
@@ -1355,9 +1442,17 @@ class ShellApp(App[None]):
     @work(thread=True, group="action")
     @_single_flight("resolving gate")
     def _action_worker(
-        self, run_id: uuid.UUID, portfolio_id: uuid.UUID | None, decision: str
+        self,
+        run_id: uuid.UUID,
+        portfolio_id: uuid.UUID | None,
+        decision: str,
+        shown_gate: str | None = None,
     ) -> None:
         """Resolve a gate through the unified action path — off the event loop.
+
+        ``shown_gate`` is the id of the gate the adviser was looking at; the decision
+        is refused when the run is parked at another one (see
+        :func:`fund.actions.resolution_key`).
 
         The model is built lazily (a missing key surfaces as a status line, not a
         crash) and only for decisions that drive the graph: reject / killswitch settle
@@ -1365,7 +1460,7 @@ class ShellApp(App[None]):
         ``apply_action`` resumes + logs on a freshly opened session, the caller commits,
         and the UI touches marshal back via ``call_from_thread``.
         """
-        from fund.actions import MODEL_FREE_ACTIONS, apply_action
+        from fund.actions import MODEL_FREE_ACTIONS, apply_action, resolution_key
 
         model = None
         if decision not in MODEL_FREE_ACTIONS:
@@ -1385,9 +1480,13 @@ class ShellApp(App[None]):
                     store=self._persistence.store,
                     model=model,
                     fallback=self._build_fallback() if model is not None else None,
-                    # Resolving a run is terminal: key on (run, decision) so a repeat
-                    # replays the first outcome instead of re-resuming.
-                    idempotency_key=f"{run_id}:{decision}",
+                    idempotency_key=resolution_key(
+                        session,
+                        self._persistence.saver,
+                        run_id,
+                        decision,
+                        expected_gate=shown_gate,
+                    ),
                 )
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
@@ -1402,15 +1501,19 @@ class ShellApp(App[None]):
         run_id: uuid.UUID,
         portfolio_id: uuid.UUID | None,
         weights: dict[str, float],
+        shown_gate: str | None = None,
     ) -> None:
         """Commit adviser-edited weights through the unified path — off the event loop.
+
+        ``shown_gate`` is the gate the editor was opened on; the edit is refused when
+        the run has since moved to another one.
 
         Dispatches ``apply_action("edit", new_value=weights)``: the edit validates the
         risk invariants, appends the override as a fresh allocator decision, and resumes
         the run via ``approve`` so every downstream record reflects the edit. A risk
         violation or any failure surfaces as a status line rather than crashing the App.
         """
-        from fund.actions import apply_action
+        from fund.actions import apply_action, resolution_key
 
         try:
             model = self._model_factory()
@@ -1429,7 +1532,13 @@ class ShellApp(App[None]):
                     fallback=self._build_fallback(),
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
-                    idempotency_key=f"{run_id}:edit",
+                    idempotency_key=resolution_key(
+                        session,
+                        self._persistence.saver,
+                        run_id,
+                        "edit",
+                        expected_gate=shown_gate,
+                    ),
                 )
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
@@ -1577,13 +1686,25 @@ class ShellApp(App[None]):
             return None
         return view if isinstance(view, MandateView) else None
 
-    @work(thread=True, exclusive=True, group="mandate")
+    @work(thread=True, group="mandate")
     def _mandate_worker(
         self, portfolio_id: uuid.UUID | None, mandate: Any, prev_value: Any
     ) -> None:
-        """Upsert the run-policy mandate through the unified path, off the loop."""
+        """Upsert the run-policy mandate through the unified path, off the loop.
+
+        ``prev_value`` is the mandate the edit was built from; the save is refused when
+        the stored mandate has moved since (a remembered directive, the CLI), so a
+        stale view never overwrites a change the adviser has not seen. A save already in
+        flight refuses this one rather than racing it.
+        """
         from fund.actions import apply_action
 
+        if not self._mandate_lock.acquire(blocking=False):
+            self.call_from_thread(
+                self._set_status,
+                "a mandate save is already in progress - wait for it to finish",
+            )
+            return
         try:
             with self._session_factory() as session:
                 result = apply_action(
@@ -1597,6 +1718,8 @@ class ShellApp(App[None]):
         except Exception as exc:  # surface a clean message, never crash the App
             self.call_from_thread(self._set_status, f"action failed: {exc}")
             return
+        finally:
+            self._mandate_lock.release()
         self.call_from_thread(
             self._after_mandate_saved, result.message, portfolio_id, mandate
         )
@@ -1660,6 +1783,9 @@ class ShellApp(App[None]):
         if not self._posture_active():
             self._set_status("open Posture to onboard a portfolio")
             return
+        if self._round_in_flight():
+            self._set_status(_ROUND_BUSY)
+            return
 
         def _submitted(submission: OnboardingSubmission | None) -> None:
             if submission is None:
@@ -1693,6 +1819,9 @@ class ShellApp(App[None]):
         pid = self._portfolio_id
         if pid is None:
             self._set_status("focus a portfolio to profile")
+            return
+        if self._round_in_flight():
+            self._set_status(_ROUND_BUSY)
             return
 
         def _submitted(submission: OnboardingSubmission | None) -> None:
@@ -1765,12 +1894,12 @@ class ShellApp(App[None]):
     def _round_in_flight(self) -> bool:
         """Whether a drive or stream worker is still running a round.
 
-        ``exclusive=True`` only cancels a worker's Textual handle, never its thread, so
+        A cancelled Textual handle reads as finished while its thread keeps running, so
         a second launch would run next to the first: both threads feed one live table
         (a duplicate-row error aborts one) and each opens its own run and gate for the
-        same bar. The launch is refused instead of relying on that cancel.
+        same bar. The round lock, held by the thread, is what proves it is still alive.
         """
-        return any(
+        return self._round_lock.locked() or any(
             worker.group in ("drive", "stream") and not worker.is_finished
             for worker in self.workers
         )
@@ -1983,7 +2112,8 @@ class ShellApp(App[None]):
             self.call_from_thread(view.paint_readout, run_id, agent, key, result)
             self.call_from_thread(self._set_status, "read-out ready")
 
-    @work(thread=True, exclusive=True, group="drive")
+    @work(thread=True, group="drive")
+    @_round_flight
     def _onboard_worker(
         self,
         portfolio_id: uuid.UUID,
@@ -2030,7 +2160,8 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_onboard, result.message)
 
-    @work(thread=True, exclusive=True, group="drive")
+    @work(thread=True, group="drive")
+    @_round_flight
     def _run_worker(self, portfolio_id: uuid.UUID, asof: dt.date | None) -> None:
         """Drive one paper rebalance for ``portfolio_id`` to its gate — off the loop."""
         from fund.actions import apply_action
@@ -2065,7 +2196,8 @@ class ShellApp(App[None]):
             return
         self.call_from_thread(self._after_action, result.message)
 
-    @work(thread=True, exclusive=True, group="stream")
+    @work(thread=True, group="stream")
+    @_round_flight
     def _stream_worker(
         self, portfolio_id: uuid.UUID, asof: dt.date | None, view: DeliberationView
     ) -> None:
@@ -2188,7 +2320,12 @@ class ShellApp(App[None]):
         return not worker.is_cancelled
 
     @work(thread=True, group="action")
-    @_single_flight("steering the PM")
+    @_single_flight(
+        "steering the PM",
+        refused=lambda self, run_id, portfolio_id, directive, remember: (
+            f"steer not sent: {directive}"
+        ),
+    )
     def _barge_in_worker(
         self,
         run_id: uuid.UUID,
@@ -2226,39 +2363,55 @@ class ShellApp(App[None]):
                     checkpointer=self._persistence.saver,
                     store=self._persistence.store,
                 )
-                if remember and portfolio_id is not None:
-                    self._remember_directive(session, portfolio_id, directive)
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
             self.call_from_thread(self._set_status, f"action failed: {exc}")
             return
-        self.call_from_thread(self._after_action, result.message)
+        message = result.message
+        if remember and portfolio_id is not None:
+            # Its own transaction: the gate is already consumed and the respond row
+            # committed, so a failure here must not roll the decision's audit back.
+            try:
+                self._remember_directive(portfolio_id, directive)
+            except Exception as exc:  # the directive stands for this round regardless
+                logger.warning("remembering a directive failed", exc_info=True)
+                message += f" (directive not saved to the mandate: {exc})"
+        self.call_from_thread(self._after_action, message)
 
-    def _remember_directive(
-        self, session: Session, portfolio_id: uuid.UUID, directive: str
-    ) -> None:
-        """Upsert ``directive`` into the portfolio mandate's ``remembered_directives``.
+    def _remember_directive(self, portfolio_id: uuid.UUID, directive: str) -> None:
+        """Append ``directive`` to the portfolio mandate's ``remembered_directives``.
 
-        A no-op when the portfolio has no mandate or already carries the directive, so a
-        repeated remember never duplicates it. Runs in the caller's transaction (no
-        commit here).
+        Reads the mandate under the row lock and writes it back changing only the
+        directives, so a concurrent edit of any other field is kept rather than
+        overwritten with a stale copy. A no-op when the portfolio has no mandate or
+        already carries the directive, so a repeated remember never duplicates it.
+        Commits its own transaction; waits for a mandate save in flight.
         """
         from fund.actions import apply_action
+        from fund.audit.mandate_repository import MandateRepository
 
-        mandate = observe.get_mandate(session, portfolio_id)
-        if mandate is None or directive in mandate.remembered_directives:
-            return
-        updated = mandate.model_copy(
-            update={
-                "remembered_directives": (*mandate.remembered_directives, directive)
-            }
-        )
-        apply_action(
-            "mandate_edit",
-            session=session,
-            portfolio_id=portfolio_id,
-            mandate=updated,
-        )
+        with self._mandate_lock, self._session_factory() as session:
+            if MandateRepository(session).get(portfolio_id, for_update=True) is None:
+                return
+            mandate = observe.get_mandate(session, portfolio_id)
+            if mandate is None or directive in mandate.remembered_directives:
+                return
+            updated = mandate.model_copy(
+                update={
+                    "remembered_directives": (
+                        *mandate.remembered_directives,
+                        directive,
+                    )
+                }
+            )
+            apply_action(
+                "mandate_edit",
+                session=session,
+                portfolio_id=portfolio_id,
+                mandate=updated,
+                prev_value=mandate.model_dump(mode="json"),
+            )
+            session.commit()
 
     def _enter_live_runstate(self) -> None:
         """Latch the header run-state to ``▶ LIVE`` for the duration of a stream.
@@ -2435,22 +2588,74 @@ class ShellApp(App[None]):
             self._ask_steer(view, action)
             return
 
+        shown_gate: str | None = None
+
         def _resolved(ok: bool | None) -> None:
             if ok:
-                self.last_worker = self._dispatch_ask_action(view, action)
+                self.last_worker = self._dispatch_ask_action(
+                    view, action, shown_gate=shown_gate
+                )
             else:
                 self._ask_cancelled(view, action.verb)
 
-        self.push_screen(ConfirmScreen(_ask_confirm_prompt(action)), _resolved)
+        prompt = _ask_confirm_prompt(action)
+        if action.verb == "approve" and action.run_id is not None:
+            # The id first, then the text it labels (see DecisionsView._read).
+            shown_gate = self._shown_gate_id(action.run_id)
+            gate = self._ask_approve_gate(action.run_id)
+            if gate is None:
+                reason = "cannot approve: gate details unavailable - retry shortly"
+                view.append_log("ask", reason)
+                self._set_status(reason)
+                return
+            prompt = f"{prompt}\n\n{gate}"
+        self.push_screen(ConfirmScreen(prompt), _resolved)
+
+    def _shown_gate_id(self, run_id: uuid.UUID) -> str | None:
+        """The id of the gate ``run_id`` is parked at, or ``None`` on any read error."""
+        try:
+            with self._session_factory() as session:
+                gate = _live_gate_id(session, self._persistence.saver, run_id)
+                session.rollback()
+        except Exception:
+            logger.warning("ask approve: gate id unreadable", exc_info=True)
+            return None
+        return gate
+
+    def _ask_approve_gate(self, run_id: uuid.UUID) -> str | None:
+        """The gate text an Ask approve shows, or ``None`` when it cannot be read.
+
+        Decisions refuses an approve whose gate has not rendered, so the orders are
+        always on screen before they execute; Ask must hold itself to the same rule
+        instead of confirming a bare gate id. Read on the event loop over a short
+        session, like the target resolution that precedes it.
+        """
+        try:
+            with self._session_factory() as session:
+                gate = _gate_text(session, self._persistence.saver, run_id)
+                session.rollback()
+        except Exception:
+            logger.warning("ask approve: gate unreadable", exc_info=True)
+            return None
+        return gate or None
 
     def _dispatch_ask_action(
-        self, view: AskView, action: ask.ResolvedAction
+        self,
+        view: AskView,
+        action: ask.ResolvedAction,
+        shown_gate: str | None = None,
     ) -> Worker[None] | None:
-        """Dispatch a confirmed ``action`` through the matching action worker."""
+        """Dispatch a confirmed ``action`` through the matching action worker.
+
+        ``shown_gate`` is the gate whose orders the confirm displayed; an approve of a
+        run that has moved to another gate since is refused.
+        """
         view.append_log("ask", f"{action.verb} confirmed")
         verb = action.verb
         if verb in ("approve", "reject", "killswitch") and action.run_id is not None:
-            return self._action_worker(action.run_id, action.portfolio_id, verb)
+            return self._action_worker(
+                action.run_id, action.portfolio_id, verb, shown_gate
+            )
         if verb == "freeze" and action.scope is not None:
             return self._freeze_worker(action.scope, action.portfolio_id)
         if verb == "rearm" and action.scope is not None:
@@ -2489,7 +2694,9 @@ class ShellApp(App[None]):
                 action.run_id, action.portfolio_id, result.text, result.remember
             )
 
-        self.push_screen(BargeInScreen("the selected gate"), _resolved)
+        self.push_screen(
+            BargeInScreen(_gate_target(action.run_id, action.portfolio_id)), _resolved
+        )
 
     def _ask_cancelled(self, view: AskView, verb: str) -> None:
         """Report a cancelled Ask action on the log + status line (a no-op mutation)."""
@@ -2799,15 +3006,23 @@ _ASK_CONSEQUENCE: dict[str, str] = {
 _ASK_GATE_VERBS: frozenset[str] = frozenset({"approve", "reject", "killswitch"})
 
 
+def _gate_target(run_id: uuid.UUID | None, portfolio_id: uuid.UUID | None) -> str:
+    """Name a gate the way every prompt does: its run id and its portfolio."""
+    if run_id is None:
+        return "the selected gate"
+    target = f"gate #{str(run_id)[:8]}"
+    if portfolio_id is not None:
+        target += f" (portfolio {str(portfolio_id)[:8]})"
+    return target
+
+
 def _ask_confirm_prompt(action: Any) -> str:
     """The spelled-out confirm prompt for a resolved Ask ``action``."""
     verb = action.verb
     if action.scope == "fund":
         target = "the whole fund"
     elif verb in _ASK_GATE_VERBS and action.run_id is not None:
-        target = f"gate #{str(action.run_id)[:8]}"
-        if action.portfolio_id is not None:
-            target += f" (portfolio {str(action.portfolio_id)[:8]})"
+        target = _gate_target(action.run_id, action.portfolio_id)
     elif action.portfolio_id is not None:
         target = f"portfolio {str(action.portfolio_id)[:8]}"
     else:

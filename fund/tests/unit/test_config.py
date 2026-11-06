@@ -49,6 +49,17 @@ def test_constraint_set_store_key_is_pinned():
     assert settings.constraint_set_store_key == "constraint_set"
 
 
+def test_langgraph_pool_kwargs_bound_a_dead_connection():
+    """A half-open socket fails within a minute instead of blocking a read for ever."""
+    kwargs = load_config(env={}).langgraph_pool_kwargs()
+
+    assert 0 < kwargs["connect_timeout"] <= 30
+    assert kwargs["keepalives"] == 1
+    assert 0 < kwargs["keepalives_idle"] <= 60
+    assert 0 < kwargs["keepalives_interval"] <= 30
+    assert 0 < kwargs["keepalives_count"] <= 5
+
+
 def test_langgraph_pool_kwargs_forces_search_path():
     from psycopg.rows import dict_row
 

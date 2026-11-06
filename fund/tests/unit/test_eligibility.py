@@ -541,7 +541,11 @@ def test_a_snapshot_must_sum_to_one_within_five_points(
     _seed(db_session, "FUND.E")
     _seed_sectors(db_session, "FUND.E", {"technology": total})
 
-    result = _resolve_one(db_session, "FUND.E", _policy(GicsSector.ENERGY))
+    # A five point tolerance keeps this about the completeness band: the strict
+    # reading of an unreported remainder is pinned in the look-through hardening tests.
+    result = _resolve_one(
+        db_session, "FUND.E", _policy(GicsSector.ENERGY, tolerance=0.05)
+    )
 
     assert _outcome(result) == outcome
 
@@ -853,10 +857,61 @@ def test_tradeable_only_bars_an_explicit_false_and_keeps_true_and_unevaluated(
         db_session, ("OFF.T", "ON.T", "NEW.T", "OFF2.T"), _ASOF, tradeable_only=True
     )
 
-    assert result == Eligibility(
-        allowed=("ON.T", "NEW.T"),
-        barred=(("OFF.T", "not_t212_tradeable"), ("OFF2.T", "not_t212_tradeable")),
+    assert result is not None
+    assert result.allowed == ("ON.T", "NEW.T")
+    assert result.barred == (
+        ("OFF.T", "not_t212_tradeable"),
+        ("OFF2.T", "not_t212_tradeable"),
     )
+    # NEW.T is kept (nothing proves it absent), but the adviser is told it was not
+    # checked; the judged names are not mentioned.
+    (note,) = result.notes
+    assert "NEW.T" in note
+    assert "ON.T" not in note and "OFF.T" not in note
+
+
+def test_tradeable_only_names_the_allowlisted_tickers_it_could_not_check(
+    db_session,
+) -> None:
+    """An ETF with no ISIN to match stays NULL and is kept, but never silently."""
+    _seed_tradeable_catalogue(db_session)
+    _seed(db_session, "EU.DE")
+
+    result = resolve_eligibility(
+        db_session, ("ON.T", "NEW.T", "EU.DE"), _ASOF, tradeable_only=True
+    )
+
+    assert result is not None
+    assert result.allowed == ("ON.T", "NEW.T", "EU.DE")
+    (note,) = result.notes
+    assert "EU.DE" in note and "NEW.T" in note
+    assert "add-instrument" in note
+
+
+def test_tradeable_only_says_nothing_extra_when_every_allowlisted_name_was_judged(
+    db_session,
+) -> None:
+    _seed_tradeable_catalogue(db_session)
+
+    result = resolve_eligibility(
+        db_session, ("ON.T", "OFF.T"), _ASOF, tradeable_only=True
+    )
+
+    assert result is not None
+    assert result.notes == ()
+
+
+def test_a_barred_name_is_not_also_reported_as_unchecked(db_session) -> None:
+    """Delisted or unpriced names are already refused for a reason of their own."""
+    _seed_tradeable_catalogue(db_session)
+
+    result = resolve_eligibility(
+        db_session, ("ON.T", "NO.SUCH"), _ASOF, tradeable_only=True
+    )
+
+    assert result is not None
+    assert dict(result.barred) == {"NO.SUCH": "no_instrument"}
+    assert result.notes == ()
 
 
 def test_tradeable_only_composes_with_the_allowlist(db_session) -> None:

@@ -38,14 +38,17 @@ The tool solves a long-only, fully invested MeanRisk problem from the Constraint
 mapped config: `objective`, `risk_measure`, `risk_aversion` (rescaled to the risk
 measure when it is a first-order one such as CVaR), `min_weights`, `max_weights`
 (tightened by the K&E position cap), `budget`, `cardinality`, `cvar_beta`,
-`cdar_beta`, `l1_coef`, `l2_coef` and `risk_free_rate`. With no resolved profile it
-falls back to MINIMIZE_RISK over VARIANCE (minimum variance).
+`cdar_beta`, `l1_coef`, `l2_coef`, `risk_free_rate` (quoted per year, compounded to
+the panel's own bars per year) and `prior_config` (the mean and covariance estimators
+of the profile's `moments_estimator`, the same ones `estimate_moments` is shown
+with, so the covariance you read is the covariance the optimizer solves under). With
+no resolved profile it falls back to MINIMIZE_RISK over VARIANCE (minimum variance).
 
 ## Intent the tool does not apply today
 A robust uncertainty set, a turnover penalty tied to the mandate's drift band (L1),
-and the moments or views from `estimate_moments` have no input on the tool. They stay
-recorded in the decision as the client's intent; reference.md shows what they map to.
-Do not present any of them as applied in your rationale.
+and the economist's views have no input on the tool. They stay recorded in the
+decision as the client's intent; reference.md shows what they map to. Do not present
+any of them as applied in your rationale.
 
 ## Boundaries
 - Never emit weights/mu/cov; never invent a knob the ConstraintSet already fixes.

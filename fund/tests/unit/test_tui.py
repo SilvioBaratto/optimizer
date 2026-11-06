@@ -419,12 +419,15 @@ async def test_poll_tick_on_a_live_app_does_not_hide_a_missing_widget(
     app = _make_shell(shell_env)
     async with app.run_test(size=_SIZE) as pilot:
         await pilot.pause()
-        posture = app.query_one("#view-posture", ShellView)
+        # Audit repaints in place on the tick; Posture reads on a worker instead.
+        app.query_one(ContentSwitcher).current = "view-audit"
+        await pilot.pause()
+        audit = app.query_one("#view-audit", ShellView)
 
         def renamed_widget() -> None:
             raise NoMatches("#renamed-widget")
 
-        monkeypatch.setattr(posture, "refresh_view", renamed_widget)
+        monkeypatch.setattr(audit, "refresh_view", renamed_widget)
         with pytest.raises(NoMatches):
             app._poll()
 

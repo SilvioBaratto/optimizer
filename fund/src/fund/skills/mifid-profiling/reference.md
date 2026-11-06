@@ -72,10 +72,14 @@ infeasible by `optimize_portfolio` rather than as an opaque solver failure.
 Anchored on the stated one-year loss tolerance `L = capacity.max_1yr_loss_pct`:
 `nu1 = 0.5·L` (soft warning), `nu2 = L` (hard ceiling), `nu3 = min(1.5·L, 1.0)`
 (absolute stop). See `20:32` (max and average drawdown) and `20:136` (drawdown
-caps as constraints). `risk_check` compares them with the max drawdown of
-a backtest of the proposed weights: past `nu3` or `nu2` blocks, past `nu1` only
-adds a warning. When the backtest cannot run (too little history) the tiers are
-skipped and the report carries a `drawdown_unverified` warning.
+caps as constraints). `L` is a one-year figure, so `risk_check` compares the tiers with
+the worst loss inside any one-year window of a backtest of the proposed weights
+(`worst_rolling_loss`), not with the multi-year peak-to-trough: past `nu3` or `nu2`
+blocks, past `nu1` only adds a warning. When the backtest cannot run, or its history
+is shorter than a year, the tiers cannot be checked and the verdict carries a
+blocking `drawdown_unverified` violation. A stated (or unanswered, hence zero) `L = 0`
+makes every tier 0: the gate then reports `zero_loss_tolerance` for any book with a
+loss, so confirm the figure with the client before saving such a profile.
 
 ## Hard rules the mapping enforces (never the LLM)
 

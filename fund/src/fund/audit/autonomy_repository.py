@@ -180,6 +180,11 @@ class AutonomyRepository(RepositoryBase):
         ``WHERE first_round_gated`` guarded UPDATE flips the flag. The guard makes
         the flip idempotent and race-safe: exactly one caller sees ``True``.
 
+        Run it in a session that commits straight away, as ``fund.agents.graph`` does:
+        inside a transaction that stays open for a whole round, the updated (and, on
+        a fresh install, inserted) row is held until the round ends and a freeze of the
+        same portfolio waits on it.
+
         Args:
             portfolio_id: The portfolio whose first round to consume.
 
@@ -211,7 +216,10 @@ class AutonomyRepository(RepositoryBase):
         The gate is one-shot so a portfolio's first rebalance gets every PM gate for
         maximum oversight. A round that dies before the adviser sees anything has not
         provided that oversight, so its caller hands the gate back. Only call this
-        for a round whose own :meth:`consume_first_round` returned ``True``.
+        for a round whose own :meth:`consume_first_round` returned ``True``, and, like
+        that call, in a session that commits straight away: the spend is already
+        committed, so a hand-back inside a transaction the caller then rolls back would
+        be lost.
 
         Args:
             portfolio_id: The portfolio whose first-round gate to restore.

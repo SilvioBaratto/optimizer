@@ -21,7 +21,7 @@ from fund.config import FundConfig
 
 
 @contextmanager
-def _no_lock(_conninfo: str) -> Iterator[None]:
+def _no_lock(_conninfo: str, _connect_kwargs: object = None) -> Iterator[None]:
     yield
 
 
@@ -72,9 +72,14 @@ def test_create_schema_issues_idempotent_create_schema_ddl(monkeypatch):
 
     persistence.create_schema("postgresql://u:p@h:54320/db", "langgraph")
 
-    # out-of-band connection must be autocommit (search_path only redirects).
+    # out-of-band connection must be autocommit (search_path only redirects) and
+    # must not outlive a dead peer.
     assert connect_calls == [
-        {"conninfo": "postgresql://u:p@h:54320/db", "autocommit": True}
+        {
+            "conninfo": "postgresql://u:p@h:54320/db",
+            "autocommit": True,
+            **FundConfig().tcp_connection_kwargs(),
+        }
     ]
     expected = SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier("langgraph"))
     assert executed == [expected]
@@ -103,7 +108,9 @@ def test_setup_langgraph_orchestrates_schema_then_saver_then_store(monkeypatch):
     order: list[str] = []
     sentinel_pool = object()
 
-    def _fake_create_schema(conninfo: str, schema: str) -> None:
+    def _fake_create_schema(
+        conninfo: str, schema: str, _connect_kwargs: object = None
+    ) -> None:
         order.append(f"schema:{conninfo}:{schema}")
 
     def _fake_build_pool(_config: FundConfig) -> object:
@@ -265,8 +272,12 @@ def test_setup_langgraph_serialises_bootstrap_across_processes(monkeypatch):
         def __exit__(self, *_exc: object) -> None:
             events.append("disconnect")
 
-        def execute(self, stmt: object, *_args: object) -> None:
+        def execute(self, stmt: object, *_args: object) -> _FakeConn:
             events.append(f"execute:{stmt}")
+            return self
+
+        def fetchone(self) -> tuple[bool]:
+            return (True,)
 
     def _make(name: str):
         class _Handle:
@@ -288,7 +299,84 @@ def test_setup_langgraph_serialises_bootstrap_across_processes(monkeypatch):
 
     persistence.setup_langgraph(FundConfig(database_url="postgresql://u:p@h:54320/db"))
 
-    locked = next(i for i, e in enumerate(events) if "pg_advisory_lock" in e)
+    locked = next(i for i, e in enumerate(events) if "pg_try_advisory_lock" in e)
     released = events.index("disconnect")
     assert locked < events.index("schema")
     assert events.index("store.setup") < released
+
+
+class _LockConn:
+    """A connection whose ``pg_try_advisory_lock`` answers come from a script."""
+
+    def __init__(self, answers: list[bool], statements: list[str]) -> None:
+        self._answers = answers
+        self._statements = statements
+
+    def __enter__(self) -> _LockConn:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def execute(self, stmt: object, *_args: object) -> _LockConn:
+        self._statements.append(str(stmt))
+        return self
+
+    def fetchone(self) -> tuple[bool]:
+        return (self._answers.pop(0),)
+
+
+def test_the_bootstrap_lock_is_polled_not_waited_on(monkeypatch):
+    # A blocking pg_advisory_lock keeps the waiter's statement snapshot open, and the
+    # holder's CREATE INDEX CONCURRENTLY waits for every older snapshot: neither side
+    # can proceed and Postgres cannot see the cycle.
+    statements: list[str] = []
+    sleeps: list[float] = []
+    answers = [False, False, True]
+    monkeypatch.setattr(
+        persistence.psycopg, "connect", lambda *_a, **_k: _LockConn(answers, statements)
+    )
+    monkeypatch.setattr(persistence.time, "sleep", sleeps.append)
+
+    with persistence._bootstrap_lock("postgresql://u:p@h:54320/db"):
+        pass
+
+    assert len(statements) == 3
+    assert all("pg_try_advisory_lock" in s for s in statements)
+    assert not any("SELECT pg_advisory_lock" in s for s in statements)
+    assert len(sleeps) == 2
+    assert all(0 < pause <= 1.0 for pause in sleeps)
+
+
+def test_the_bootstrap_lock_gives_up_instead_of_waiting_for_ever(monkeypatch):
+    clock = iter(range(0, 10_000, 100))
+    monkeypatch.setattr(persistence.time, "monotonic", lambda: float(next(clock)))
+    monkeypatch.setattr(persistence.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(
+        persistence.psycopg,
+        "connect",
+        lambda *_a, **_k: _LockConn([False] * 1000, []),
+    )
+
+    with (
+        pytest.raises(TimeoutError, match="bootstrap lock"),
+        persistence._bootstrap_lock("postgresql://u:p@h:54320/db"),
+    ):
+        pass
+
+
+def test_the_bootstrap_connection_carries_connect_timeout_and_keepalives(monkeypatch):
+    connects: list[dict] = []
+
+    def _connect(conninfo: str, **kwargs: object) -> _LockConn:
+        connects.append(kwargs)
+        return _LockConn([True], [])
+
+    monkeypatch.setattr(persistence.psycopg, "connect", _connect)
+
+    with persistence._bootstrap_lock("postgresql://u:p@h:54320/db"):
+        pass
+
+    assert connects[0]["autocommit"] is True
+    assert connects[0]["connect_timeout"] > 0
+    assert connects[0]["keepalives"] == 1

@@ -163,8 +163,14 @@ def test_build_chat_model_threads_config_onto_chatollama():
 
 
 def test_build_chat_model_sends_api_key_as_bearer_header(fake_ollama):
+    # The stub is not the cloud host, so the key goes only because the operator opted
+    # in (a keyed gateway); see test_model_ollama_endpoint for the default.
     base_url, auth_headers = fake_ollama
-    cfg = FundConfig(ollama_api_key="sk-ollama-test", ollama_base_url=base_url)
+    cfg = FundConfig(
+        ollama_api_key="sk-ollama-test",
+        ollama_base_url=base_url,
+        ollama_base_url_send_key=True,
+    )
     llm = model.build_chat_model(cfg, model_name="deepseek-v4-pro:cloud")
 
     llm.invoke("hi")
@@ -452,9 +458,25 @@ def test_ollama_local_base_url_builds_without_a_key(fake_ollama):
     assert auth_headers == [None]  # no key ⇒ no bearer header
 
 
-def test_ollama_local_with_key_still_sends_the_bearer_header(fake_ollama):
+def test_ollama_local_with_key_does_not_send_the_cloud_key(fake_ollama):
+    # Compose mounts the cloud key into the container whatever the base URL is, so a
+    # local server must not receive it as a bearer token unless the operator opts in.
     base_url, auth_headers = fake_ollama
     cfg = FundConfig(ollama_api_key="sk-local", ollama_base_url=base_url)
+
+    llm = model.build_chat_model(cfg, model_name="llama3")
+    llm.invoke("hi")
+
+    assert auth_headers == [None]
+
+
+def test_ollama_local_with_key_sends_the_bearer_header_on_opt_in(fake_ollama):
+    base_url, auth_headers = fake_ollama
+    cfg = FundConfig(
+        ollama_api_key="sk-local",
+        ollama_base_url=base_url,
+        ollama_base_url_send_key=True,
+    )
 
     llm = model.build_chat_model(cfg, model_name="llama3")
     llm.invoke("hi")
@@ -473,7 +495,11 @@ def test_ollama_api_key_is_absent_from_repr_and_serialized_form():
 
 def test_ollama_api_key_is_not_handed_to_callbacks_during_a_call(fake_ollama):
     base_url, _ = fake_ollama
-    cfg = FundConfig(ollama_api_key="sk-ollama-test", ollama_base_url=base_url)
+    cfg = FundConfig(
+        ollama_api_key="sk-ollama-test",
+        ollama_base_url=base_url,
+        ollama_base_url_send_key=True,
+    )
     llm = model.build_chat_model(cfg, model_name="deepseek-v4.1-flash:cloud")
     spy = _SerializedSpy()
 

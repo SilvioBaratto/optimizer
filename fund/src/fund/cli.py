@@ -53,7 +53,7 @@ import typer
 from portopt_db.models import AgentRun, PaperOrder
 
 from fund import observe
-from fund.actions import ActionResult, apply_action
+from fund.actions import ActionResult, apply_action, resolution_key
 from fund.agents.model import build_fallback, build_primary
 from fund.audit import (
     AgentRunRepository,
@@ -368,6 +368,8 @@ def mandate_show(
             ]
         )
     )
+    for warning in mandate.stored_value_warnings():
+        typer.echo(f"warning: {warning}", err=True)
     _exit(True)
 
 
@@ -576,9 +578,9 @@ def _resume(run_id: str, decision: str) -> None:
                 fallback=fallback,
                 actor=_actor(),
                 source=_SOURCE,
-                # Resolving a run is terminal: keying on (run, decision), as the TUI
-                # does, makes a repeat replay the first outcome instead of re-resuming.
-                idempotency_key=f"{rid}:{decision}",
+                idempotency_key=resolution_key(
+                    session, persistence.saver, rid, decision
+                ),
                 config=settings,
             )
             session.commit()

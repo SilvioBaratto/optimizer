@@ -18,6 +18,8 @@ import pytest
 from fund.performance import NavPoint, portfolio_metrics
 
 _PID = uuid.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+# `_points` marks consecutive calendar days, a seven-day series: 365 bars a year.
+_BARS_PER_YEAR = 365.0
 _NAVS = [100.0, 102.0, 101.0, 103.0, 106.0]
 
 
@@ -52,8 +54,8 @@ def test_metrics_vol_sharpe_maxdd_match_independent_numpy():
     """vol/Sharpe/maxDD match a numpy hand computation to tolerance."""
     summary = portfolio_metrics(_PID, _points(_VOLATILE_NAVS))
     rets = _returns(_VOLATILE_NAVS)
-    exp_vol = float(np.std(rets, ddof=1) * np.sqrt(252.0))
-    exp_sharpe = float((rets.mean() / np.std(rets, ddof=1)) * np.sqrt(252.0))
+    exp_vol = float(np.std(rets, ddof=1) * np.sqrt(_BARS_PER_YEAR))
+    exp_sharpe = float((rets.mean() / np.std(rets, ddof=1)) * np.sqrt(_BARS_PER_YEAR))
 
     assert summary.volatility == pytest.approx(exp_vol, rel=1e-6)
     assert summary.sharpe == pytest.approx(exp_sharpe, rel=1e-6)
@@ -125,7 +127,7 @@ def test_metrics_benchmark_relative_beta_and_excess():
 
     exp_excess_max = (106.0 / 100.0 - 1.0) - (52.0 / 50.0 - 1.0)
     assert summary.excess["max"] == pytest.approx(exp_excess_max, rel=1e-6)
-    exp_te = float(np.std(pr - br, ddof=1) * np.sqrt(252.0))
+    exp_te = float(np.std(pr - br, ddof=1) * np.sqrt(_BARS_PER_YEAR))
     assert summary.tracking_error == pytest.approx(exp_te, rel=1e-6)
 
 

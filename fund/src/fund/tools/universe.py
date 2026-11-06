@@ -41,7 +41,7 @@ import dataclasses
 import datetime as dt
 import re
 from collections.abc import Collection, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from optimizer.pre_selection import PreSelectionConfig, build_preselection_pipeline
 from optimizer.preprocessing import prices_to_returns
@@ -51,7 +51,14 @@ from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepo
 from sqlalchemy import exists, func, or_, select
 
 from fund.schemas.enums import GicsSector
-from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
+from fund.tools._base import (
+    ToolResult,
+    coerce_date,
+    depth_floor,
+    err,
+    ok,
+    tool_envelope,
+)
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
@@ -240,6 +247,7 @@ def _result(
     survivors: list[str],
     ignored: list[str],
     barred: dict[str, str],
+    short_history: list[str] | None = None,
 ) -> ToolResult:
     """Envelope the survivors; report keys appear only when non-empty."""
     result = ok(survivors)
@@ -247,7 +255,33 @@ def _result(
         result["ignored_criteria"] = ignored
     if barred:
         result["excluded_by_esg"] = barred
+    if short_history:
+        result["dropped_for_history"] = short_history
     return result
+
+
+def _screen_depth(returns: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Drop assets whose own history is short, then start the rest on a common day.
+
+    The pre-selection stack discards any asset with a missing value in the first or
+    last row, so an asset that began a bar after the oldest (a holiday on its venue,
+    an FX series that starts later) would be screened out like a one-month listing.
+    Only an asset under :func:`~fund.tools._base.depth_floor` is short. The others
+    are trimmed to the first day every one of them has a return, which keeps
+    ``SelectComplete`` for what it is meant to catch: an asset that stopped quoting.
+
+    Returns:
+        The trimmed returns and the labels of the assets dropped for a short history.
+    """
+    depth = returns.count()
+    floor = depth_floor(depth)
+    short = [str(col) for col in returns.columns if depth[col] < floor]
+    kept = returns.drop(columns=short)
+    if kept.shape[1] == 0:
+        return kept, short
+    # Every kept asset holds at least ``depth_floor`` returns, so each has a first one.
+    first_valid = kept.notna().to_numpy().argmax(axis=0)
+    return kept.iloc[int(first_valid.max()) :], short
 
 
 @tool_envelope
@@ -282,10 +316,13 @@ def universe_filter(
     Returns:
         ``ok`` with a ``list[str]`` of surviving tickers (subset of ``universe``,
         in requested order). An empty universe, no priced assets, or too little
-        history all yield ``ok([])``. The envelope also carries
-        ``ignored_criteria`` (keys that were not applied) and ``excluded_by_esg``
-        (``{ticker: sector or "unclassified"}``) when either is non-empty.
-        ``err`` on a bad criterion.
+        history all yield ``ok([])``. An asset whose own history is under half the
+        panel's median (and at least 20 returns) is dropped; the others are
+        screened over the days they all share, so starting a bar late does not cost
+        an asset its place. The envelope also carries ``ignored_criteria`` (keys
+        that were not applied), ``excluded_by_esg`` (``{ticker: sector or
+        "unclassified"}``) and ``dropped_for_history`` (the tickers dropped for a
+        short history) when any is non-empty. ``err`` on a bad criterion.
     """
     config = _resolve_config(criteria)
     exclusions = _resolve_exclusions(criteria)
@@ -302,22 +339,25 @@ def universe_filter(
         return _result([], ignored, barred)
 
     # Keep the leading NaNs of a young listing: the default would drop those rows
-    # for every asset, so SelectComplete would never see the short history it exists
-    # to screen out and the other statistics would run on the truncated sample. The
-    # unbounded forward fill would likewise turn a stopped asset's last quote into
-    # zero returns up to ``asof``, so the fill is capped instead of left to
-    # ``prices_to_returns``.
+    # for every asset, so a short history would truncate the sample every other
+    # statistic runs on. The unbounded forward fill would likewise turn a stopped
+    # asset's last quote into zero returns up to ``asof``, so the fill is capped
+    # instead of left to ``prices_to_returns``.
     returns = prices_to_returns(
         frame.ffill(limit=_MAX_STALE_BARS),
         drop_inceptions_nan=False,
         fill_nan=False,
     )
+    returns, short_history = _screen_depth(cast("pd.DataFrame", returns))
     pipeline = build_preselection_pipeline(config=config, sector_mapping=sector_mapping)
     selected = _preselect(pipeline, returns)
 
     survivors = {str(col) for col in selected.columns}
     return _result(
-        [ticker for ticker in universe if ticker in survivors], ignored, barred
+        [ticker for ticker in universe if ticker in survivors],
+        ignored,
+        barred,
+        [ticker for ticker in universe if ticker in short_history],
     )
 
 

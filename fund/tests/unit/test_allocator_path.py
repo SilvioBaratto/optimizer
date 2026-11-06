@@ -170,8 +170,9 @@ class TestEstimateMoments:
         assert all(len(row) == len(_UNIVERSE) for row in cov)
         assert data["n_observations"] == _N_DAYS - 1
         assert data["cov_estimator"] == "ledoit_wolf"
-        # mu / cov are per daily bar; the unit is stated so they are not read as annual.
-        assert data["periods_per_year"] == 252
+        # mu / cov are per bar; the unit is stated so they are not read as annual. The
+        # seeded bars are consecutive calendar days, so a year holds 365 of them.
+        assert data["periods_per_year"] == 365
 
     def test_covariance_is_symmetric(self, db_session) -> None:
         _seed_panel(db_session)
@@ -401,12 +402,13 @@ class TestOptimizePortfolio:
             "annualized_standard_deviation",
             "annualized_sharpe_ratio",
         }
-        assert metrics["annualized_mean"] == pytest.approx(daily.mean * 252)
+        # Consecutive calendar-day bars: 365 a year, derived from the panel's index.
+        assert metrics["annualized_mean"] == pytest.approx(daily.mean * 365)
         assert metrics["annualized_standard_deviation"] == pytest.approx(
-            daily.standard_deviation * math.sqrt(252)
+            daily.standard_deviation * math.sqrt(365)
         )
         assert metrics["annualized_sharpe_ratio"] == pytest.approx(
-            daily.sharpe_ratio * math.sqrt(252)
+            daily.sharpe_ratio * math.sqrt(365)
         )
 
     def test_empty_universe_is_error(self, db_session) -> None:
@@ -654,17 +656,17 @@ class TestOptimizerConstraintsFromConstraintSet:
         assert constraints["risk_aversion"] == 7.0
         assert constraints["cvar_beta"] == 0.99
 
-    def test_annual_risk_free_rate_is_converted_to_the_daily_return_frequency(
-        self,
-    ) -> None:
-        # The optimizer works on daily returns, so a quoted annual 4% must not be
-        # handed over as a 4% daily rate.
+    def test_annual_risk_free_rate_travels_as_annual(self) -> None:
+        # The optimizer works on per-bar returns, so a quoted annual 4% must not be
+        # handed over as a 4% per-bar rate; the tool compounds it with the bars per
+        # year of the panel it fits, so the rate is passed under its own annual key.
         constraints = _optimizer_constraints(_client(risk_free_rate=0.04))
 
-        assert constraints["risk_free_rate"] == pytest.approx(1.04 ** (1 / 252) - 1)
+        assert constraints["annual_risk_free_rate"] == 0.04
+        assert "risk_free_rate" not in constraints
 
     def test_absent_risk_free_rate_stays_zero(self) -> None:
-        assert _optimizer_constraints(_client())["risk_free_rate"] == 0.0
+        assert _optimizer_constraints(_client())["annual_risk_free_rate"] == 0.0
 
     def test_position_cap_tightens_the_max_weight_bound(self) -> None:
         cs = _client(universe_filters=UniverseFilters(max_position_cap=0.4))
@@ -1052,6 +1054,8 @@ class TestSolverNoiseIsCleaned:
             X=optimize_mod.prices_to_returns(frame),
             weights=[data["weights"][a] for a in data["assets"]],
         )
+        # A weekday calendar: the factor is the panel's derived bars per year (261).
+        assert data["periods_per_year"] == 261
         assert data["metrics"]["annualized_standard_deviation"] == pytest.approx(
-            replayed.standard_deviation * math.sqrt(252)
+            replayed.standard_deviation * math.sqrt(261)
         )

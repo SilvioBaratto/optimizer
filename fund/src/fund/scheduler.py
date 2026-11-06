@@ -208,12 +208,12 @@ def _autonomy_blocks_round(session: Session, portfolio_id: uuid.UUID) -> bool:
     Returns:
         ``True`` when the fund row or the portfolio's row is FROZEN, else ``False``.
     """
-    from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+    from fund.audit.autonomy_repository import AutonomyRepository
 
-    autonomy = AutonomyRepository(session)
-    if autonomy.fund_state().state == AutonomyState.FROZEN:
-        return True
-    return autonomy.portfolio_state(portfolio_id).state == AutonomyState.FROZEN
+    # Read-only on purpose: an autonomy row created here would sit uncommitted in the
+    # round's transaction for the whole LLM round, and an operator's freeze of the same
+    # scope would wait on its unique index until the round ended.
+    return AutonomyRepository(session).frozen_scope(portfolio_id) is not None
 
 
 def _drive_rebalance(
@@ -466,6 +466,20 @@ def _active_mandates(
     return rows
 
 
+def _record_failed_round(session: Session, exc: Exception) -> None:
+    """Keep a failed round on record after its transaction was rolled back.
+
+    The rollback discards the run row the round finalised ``failed``; without this the
+    failure leaves no trace beyond the log and the slot's error text, and the drift
+    monitor's discard cooldown (which counts ``failed``) never starts, so a persistent
+    fault would re-drive the full LLM pipeline on every tick. Imports the graph module
+    lazily so ``import fund.scheduler`` stays agent-stack-free.
+    """
+    from fund.agents.graph import record_failed_round
+
+    record_failed_round(session, exc)
+
+
 def _sweep_cron_mandates(
     session: Session, runtime: SchedulerRuntime | None, asof: dt.date
 ) -> _PassOutcome:
@@ -497,9 +511,10 @@ def _sweep_cron_mandates(
                 fallback=fallback,
             )
             session.commit()
-        except Exception:
+        except Exception as exc:
             logger.exception("rebalance sweep: portfolio %s errored; skipping", pid)
             session.rollback()
+            _record_failed_round(session, exc)
             failed.append(pid)
     return _PassOutcome(attempted, tuple(failed))
 
@@ -585,9 +600,10 @@ def _monitor_drift_mandates(
                 config=config,
             )
             session.commit()
-        except Exception:
+        except Exception as exc:
             logger.exception("drift monitor: portfolio %s errored; skipping", pid)
             session.rollback()
+            _record_failed_round(session, exc)
             failed.append(pid)
     return _PassOutcome(attempted, tuple(failed))
 
@@ -818,6 +834,7 @@ def run_scheduled_nav_mark(
             select(
                 BackgroundJob.job_type,
                 BackgroundJob.status,
+                BackgroundJob.started_at,
                 BackgroundJob.finished_at,
             ).where(
                 BackgroundJob.job_type.in_((_INGESTION_PRICE_JOB, JOB_NAV_MARK)),
@@ -825,12 +842,15 @@ def run_scheduled_nav_mark(
             )
         ).all()
     sweeps = [row for row in rows if row.job_type == _INGESTION_PRICE_JOB]
+    # A mark reads the stored closes as it goes, so it is only as fresh as the moment
+    # it began: one that began before the sweep settled may have read portfolios the
+    # sweep had not yet reached, however late it finished.
     last_mark = max(
         (
             stamp
             for row in rows
             if row.job_type == JOB_NAV_MARK and row.status == "completed"
-            if (stamp := _as_utc(row.finished_at)) is not None
+            if (stamp := _as_utc(row.started_at)) is not None
         ),
         default=None,
     )
@@ -936,8 +956,8 @@ def _nav_points_to_persist(
     asof: dt.date,
     *,
     full: bool,
-) -> list[Any]:
-    """The NAV points one mandate's mark should upsert.
+) -> tuple[list[Any], bool]:
+    """The NAV points one mandate's mark should upsert, and whether they are the series.
 
     Incremental marking assumes every bar before the lookback window is already
     right. The newest persisted bar before the window is therefore recomputed too and
@@ -952,6 +972,11 @@ def _nav_points_to_persist(
     return at the join. Each row therefore records which benchmark its level came
     from, and any persisted level that is not the mandate's current benchmark's
     (including an untagged legacy one) rebuilds the whole series.
+
+    Returns:
+        ``(points, rebuilt)``: the points to upsert, and whether they are the
+        portfolio's whole series, in which case a persisted row on a date they omit is
+        stale.
     """
     from fund.performance import build_nav_series
 
@@ -968,7 +993,7 @@ def _nav_points_to_persist(
 
     last = None if full else nav_repo.last_nav_date(portfolio_id)
     if last is None:
-        return _build(None)
+        return _build(None), True
     if nav_repo.has_foreign_benchmark(portfolio_id, mandate.benchmark):
         logger.info(
             "nav mark: portfolio %s holds benchmark levels that are not %s's; "
@@ -976,7 +1001,7 @@ def _nav_points_to_persist(
             portfolio_id,
             mandate.benchmark,
         )
-        return _build(None)
+        return _build(None), True
     window_start = last - dt.timedelta(days=_NAV_MARK_LOOKBACK_DAYS)
     anchor = nav_repo.last_nav_before(portfolio_id, window_start)
     points = _build(window_start if anchor is None else anchor.date)
@@ -987,8 +1012,8 @@ def _nav_points_to_persist(
             portfolio_id,
             window_start,
         )
-        return _build(None)
-    return points
+        return _build(None), True
+    return points, False
 
 
 def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> None:
@@ -1010,7 +1035,7 @@ def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> No
         if mandate is None:
             continue
         try:
-            points = _nav_points_to_persist(
+            points, rebuilt = _nav_points_to_persist(
                 session, nav_repo, pid, mandate, asof, full=full
             )
             persisted = {
@@ -1026,8 +1051,19 @@ def _mark_all_navs(session: Session, asof: dt.date, *, full: bool = False) -> No
                 for point in points
                 if _nav_row_changed(point, persisted.get(point.date), mandate.benchmark)
             ]
-            if not changed:
+            # A row on a date the rebuilt series omits (a bar only the old benchmark
+            # traded, a restated ticket) would keep its tag and level for ever, so every
+            # later mark would rebuild in full. An empty rebuild proves nothing about
+            # the history, so it never clears it.
+            stale = (
+                sorted(persisted.keys() - {point.date for point in points})
+                if rebuilt and points
+                else []
+            )
+            if not changed and not stale:
                 continue
+            if stale:
+                nav_repo.delete_dates(pid, stale)
             nav_repo.upsert_navs(
                 [
                     {
