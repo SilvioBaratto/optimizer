@@ -102,6 +102,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   candidate scores NaN and now apply `risk_free_rate=0.0` to every candidate;
   `to_returns` warns when `prices_to_returns` drops all-NaN columns and raises
   when none or the benchmark is left.
+- **A weight cap that cannot reach the budget is reported at fit time.**
+  `build_mean_risk` and `build_max_diversification` return estimators that warn
+  (`UserWarning`) when `n_assets * max_weights` is below the budget, naming the cap,
+  the asset count and the number of assets needed, instead of leaving only the
+  solver's generic infeasibility error. The presets that default to
+  `max_weights=0.10` need at least ten assets. Fitting, cloning and failure handling
+  are otherwise unchanged.
 - **`beta_neutral` factor-mimicking portfolios hedge with a lagged expanding
   beta** (NaN for the first 12 shared dates) instead of a full-sample beta, which
   used later data on earlier dates. `scores` must lead `returns`.

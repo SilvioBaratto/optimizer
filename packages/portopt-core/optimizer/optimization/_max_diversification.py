@@ -16,6 +16,7 @@ from skfolio.prior._base import BasePrior
 
 from optimizer.moments._config import MomentEstimationConfig
 from optimizer.moments._factory import build_prior
+from optimizer.optimization._capacity import CapacityCheckedMaximumDiversification
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,7 @@ def build_max_diversification(
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)
 
-    return MaximumDiversification(
+    return CapacityCheckedMaximumDiversification(
         prior_estimator=prior_estimator,
         min_weights=config.min_weights,
         max_weights=config.max_weights,

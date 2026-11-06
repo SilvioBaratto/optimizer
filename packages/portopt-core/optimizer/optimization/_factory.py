@@ -13,6 +13,7 @@ from skfolio.prior._base import BasePrior
 
 from optimizer.factors._integration import FactorExposureConstraints
 from optimizer.moments._factory import build_prior
+from optimizer.optimization._capacity import CapacityCheckedMeanRisk
 from optimizer.optimization._config import (
     FallbackPolicy,
     MeanRiskConfig,
@@ -430,7 +431,7 @@ def build_mean_risk(
     if config.fallback_policy is FallbackPolicy.PREVIOUS_WEIGHTS:
         kwargs.setdefault("fallback", "previous_weights")
 
-    return MeanRisk(
+    return CapacityCheckedMeanRisk(
         objective_function=_OBJECTIVE_MAP[config.objective],
         risk_measure=_RISK_MEASURE_MAP[config.risk_measure],
         risk_aversion=config.risk_aversion,
