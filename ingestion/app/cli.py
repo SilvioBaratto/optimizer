@@ -31,10 +31,12 @@ apply their own internal gating and always exit 0 — read the logs or
 
 from __future__ import annotations
 
-# Load environment variables FIRST, before any other import reads them.
-from dotenv import load_dotenv
+# Load environment variables FIRST, before any other import reads them. The search
+# starts at the working directory: from this file it would reach a stale
+# ingestion/.env before the checkout's own .env.
+from dotenv import find_dotenv, load_dotenv
 
-load_dotenv()
+load_dotenv(find_dotenv(usecwd=True))
 
 import importlib
 import logging
@@ -778,7 +780,11 @@ def stop(
 
 @app.command()
 def status() -> None:
-    """Report Docker + service health (exit non-zero if anything is down)."""
+    """Report Docker + service health (exit non-zero if anything is not ok).
+
+    The fund engine is "disabled", not a failure, while no LLM backend is
+    configured or after `portopt stop`.
+    """
     from app.setup import lifecycle
 
     try:
@@ -786,9 +792,11 @@ def status() -> None:
     except lifecycle.LifecycleError as exc:
         typer.echo(f"Status failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    for name, ok in report.items():
-        typer.echo(f"{name}: {'ok' if ok else 'down'}")
-    _exit(all(report.values()))
+    for name, status_name in report.items():
+        typer.echo(f"{name}: {status_name}")
+    if lifecycle.STATUS_DISABLED in report.values():
+        typer.echo(lifecycle.FUND_DISABLED_HINT)
+    _exit(lifecycle.status_ok(report))
 
 
 if __name__ == "__main__":

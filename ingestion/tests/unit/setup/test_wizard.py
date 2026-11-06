@@ -40,7 +40,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
         "path_installed": False,
         "launched": False,
     }
-    monkeypatch.setattr(wizard.docker_bootstrap, "check_docker", lambda: None)
+    monkeypatch.setattr(wizard.docker_bootstrap, "ensure_docker", lambda: None)
     monkeypatch.setattr(
         wizard.path_install,
         "install_launcher",
@@ -455,7 +455,7 @@ def test_interactive_docker_down_propagates(
 ) -> None:
     monkeypatch.setattr(
         wizard.docker_bootstrap,
-        "check_docker",
+        "ensure_docker",
         lambda: (_ for _ in ()).throw(wizard.docker_bootstrap.DockerError("down")),
     )
     prompter = NonInteractivePrompter(
@@ -464,6 +464,25 @@ def test_interactive_docker_down_propagates(
     with pytest.raises(wizard.docker_bootstrap.DockerError):
         wizard.run_setup_interactive(prompter)
     assert patched["saved_secrets"] is None
+
+
+def test_setup_boots_a_stopped_docker_runtime_like_start_does(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a fresh machine whose Docker is installed but stopped, `start` would have
+    booted it; setup used to stop at "daemon not reachable" instead."""
+    booted: list[bool] = []
+    monkeypatch.setattr(
+        wizard.docker_bootstrap, "ensure_docker", lambda: booted.append(True)
+    )
+    monkeypatch.setattr(
+        wizard.docker_bootstrap,
+        "check_docker",
+        lambda: pytest.fail("setup must boot Docker, not just probe it"),
+    )
+    wizard.run_setup_noninteractive(passphrase=_PW)
+    assert booted == [True]
+    assert patched["saved_secrets"] is not None
 
 
 # --- LLM prompt group + --llm-* flags -----------------------------------------

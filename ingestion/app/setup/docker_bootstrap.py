@@ -7,32 +7,74 @@ no data seeding). All commands are static argv lists run without a shell.
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
 
-from app.setup import ca_bundle, path_install
+from app.setup import ca_bundle, image_source, path_install
 
 # Env var docker-compose.yml's `ca_bundle` secret reads its file path from.
 _CA_BUNDLE_ENV = "CA_BUNDLE_FILE"
+_FUND_UID_ENV = "PORTOPT_FUND_UID"
+_FUND_GID_ENV = "PORTOPT_FUND_GID"
+# The uid the fund image runs as unless told otherwise (docker-compose.yml `user:`).
+_IMAGE_UID = 1000
 
 
 class DockerError(RuntimeError):
     """Raised when Docker is unavailable or a bootstrap command fails."""
 
 
+# Seconds a docker call may take before it is declared hung. A frozen Docker VM (a
+# Colima VM whose backing volume dropped) accepts the connection and never answers,
+# which would otherwise hang `start`, `stop` and `status` for good.
+_QUICK_TIMEOUT = 60.0
+# Stopping waits out each service's grace period (the scheduler drains for 60s).
+_STOP_TIMEOUT = 180.0
+# `up -d --wait` may first pull postgres and adminer; the wait itself is added on top.
+_UP_TIMEOUT = 600.0
+_BUILD_TIMEOUT = 3600.0
+_RUNTIME_START_TIMEOUT = 600.0
+_MIGRATE_TIMEOUT = 1800.0
+
+
 def _run(
-    cmd: list[str], *, cwd: str | None = None, env: dict[str, str] | None = None
+    cmd: list[str],
+    *,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+    timeout: float | None = _QUICK_TIMEOUT,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 - static, trusted argv; never shell=True
-        cmd, capture_output=True, text=True, check=False, cwd=cwd, env=env
-    )
+    """Run a static argv without a shell.
+
+    Raises:
+        DockerError: The command did not finish within ``timeout`` seconds (it is
+            killed).
+    """
+    try:
+        return subprocess.run(  # noqa: S603 - static, trusted argv; never shell=True
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DockerError(
+            f"`{shlex.join(cmd)}` did not finish within {timeout:.0f}s; the Docker "
+            "daemon is not responding. Restart the Docker runtime and retry."
+        ) from exc
 
 
 def _install_hint() -> str:
@@ -71,23 +113,47 @@ def compose_dir() -> Path:
     return repo
 
 
+def fund_user_env() -> dict[str, str]:
+    """Return the host ids the fund container should run as, or ``{}`` for the default.
+
+    A bind mount keeps the host's numeric owner on a Linux host, so the image's user
+    (uid 1000) cannot write ``./exports`` when another uid owns it, and what it writes
+    is unreadable to the host user. Running the container as the invoking user fixes
+    both. Docker Desktop and Colima present host files as the container user, a
+    uid-1000 host already matches the image, and root is never made the container's
+    user because the CLI happened to run as root. An operator-exported value wins.
+    """
+    if sys.platform != "linux" or _FUND_UID_ENV in os.environ:
+        return {}
+    uid = os.getuid()
+    if uid in (0, _IMAGE_UID):
+        return {}
+    return {_FUND_UID_ENV: str(uid), _FUND_GID_ENV: str(os.getgid())}
+
+
 def _compose_env(repo: Path) -> dict[str, str] | None:
     """Return the compose environment, or ``None`` to inherit the caller's.
 
     docker-compose.yml defaults the ``ca_bundle`` build secret to a committed empty
     file so a plain ``docker compose`` works on a fresh clone. Once ``--corp-ca`` has
     generated a real bundle, ``CA_BUNDLE_FILE`` swaps it in; an operator-exported
-    value is left alone.
+    value is left alone. On a Linux host the fund container also runs as the
+    invoking user (:func:`fund_user_env`).
     """
-    if _CA_BUNDLE_ENV in os.environ:
-        return None
-    bundle = repo / ca_bundle.DEFAULT_BUNDLE_PATH
-    if not bundle.is_file() or bundle.stat().st_size == 0:
-        return None
-    return {**os.environ, _CA_BUNDLE_ENV: str(bundle)}
+    extra = fund_user_env()
+    if _CA_BUNDLE_ENV not in os.environ:
+        bundle = repo / ca_bundle.DEFAULT_BUNDLE_PATH
+        if bundle.is_file() and bundle.stat().st_size > 0:
+            extra[_CA_BUNDLE_ENV] = str(bundle)
+    return {**os.environ, **extra} if extra else None
 
 
-def _compose(*args: str, repo: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _compose(
+    *args: str,
+    repo: Path | None = None,
+    extra_env: Mapping[str, str] | None = None,
+    timeout: float | None = _QUICK_TIMEOUT,
+) -> subprocess.CompletedProcess[str]:
     """Run ``docker compose <args>`` with the checkout as the project directory.
 
     Args:
@@ -96,13 +162,23 @@ def _compose(*args: str, repo: Path | None = None) -> subprocess.CompletedProces
             secrets under it). It is also passed as ``--project-directory`` so
             compose cannot fall back to another directory; without it the checkout
             is located here.
+        extra_env: Variables added to the compose environment, for the interpolation
+            in ``docker-compose.yml`` (the image source hashes).
+        timeout: Seconds before the call is declared hung.
+
+    Raises:
+        DockerError: No checkout can be located, or the call timed out.
     """
     project = repo if repo is not None else compose_dir()
     pin = [] if repo is None else ["--project-directory", str(repo)]
+    env = _compose_env(project)
+    if extra_env:
+        env = {**(os.environ if env is None else env), **extra_env}
     return _run(
         ["docker", "compose", *pin, *args],
         cwd=str(project),
-        env=_compose_env(project),
+        env=env,
+        timeout=timeout,
     )
 
 
@@ -122,7 +198,10 @@ _DAEMON_POLL_SECONDS = 2.0
 
 
 def _daemon_reachable() -> bool:
-    return _run(["docker", "info"]).returncode == 0
+    try:
+        return _run(["docker", "info"]).returncode == 0
+    except DockerError:
+        return False
 
 
 def _runtime_start_command() -> list[str] | None:
@@ -165,7 +244,7 @@ def ensure_docker(*, timeout: float = _DAEMON_BOOT_TIMEOUT) -> None:
             raise DockerError(f"Docker daemon not reachable. {_start_hint()}")
         launch = " ".join(cmd)
         print(f"Docker daemon not running; starting it with `{launch}`...")
-        result = _run(cmd)
+        result = _run(cmd, timeout=_RUNTIME_START_TIMEOUT)
         if result.returncode != 0:
             raise DockerError(f"`{launch}` failed:\n{result.stderr}")
         # `colima start` blocks until the VM is up, but `open -a Docker` returns as
@@ -183,7 +262,7 @@ def ensure_docker(*, timeout: float = _DAEMON_BOOT_TIMEOUT) -> None:
 
 def bring_up_db() -> None:
     """Start the Postgres service and wait for it to become healthy."""
-    result = _compose("up", "-d", "--wait", "db")
+    result = _compose("up", "-d", "--wait", "db", timeout=_UP_TIMEOUT)
     if result.returncode != 0:
         raise DockerError(f"Failed to start the db service:\n{result.stderr}")
 
@@ -238,8 +317,9 @@ def migrate() -> None:
             [sys.executable, "-m", "alembic", "upgrade", "head"],
             cwd=str(db_dir),
             env=env,
+            timeout=_MIGRATE_TIMEOUT,
         )
-    except OSError as exc:
+    except (OSError, DockerError) as exc:
         print(
             f"warning: could not run host-side migration ({exc}) — the fund "
             "container migrates on start."
@@ -266,6 +346,65 @@ def running_services(*, repo: Path | None = None) -> set[str]:
     if result.returncode != 0:
         return set()
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+@dataclass(frozen=True)
+class ServiceState:
+    """One compose service as ``docker compose ps`` reports it.
+
+    Attributes:
+        state: The container state (``running``, ``restarting``, ``exited``,
+            ``created``, ...).
+        health: The healthcheck verdict (``healthy``, ``unhealthy``, ``starting``),
+            empty for a container without a healthcheck.
+    """
+
+    state: str
+    health: str
+
+
+def _ps_rows(output: str) -> list[object]:
+    """Decode ``compose ps --format json``: one object per line, or one array."""
+    text = output.strip()
+    if not text:
+        return []
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError:
+        rows: list[object] = []
+        for line in text.splitlines():
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                return []
+        return rows
+    return decoded if isinstance(decoded, list) else [decoded]
+
+
+def service_states(*, repo: Path | None = None) -> dict[str, ServiceState]:
+    """Return the state and health of every compose container, running or not.
+
+    Args:
+        repo: The checkout whose compose project to query; located when omitted.
+
+    Returns:
+        Service name to :class:`ServiceState`; services without a container are
+        absent, and the mapping is empty when Compose cannot be queried.
+    """
+    try:
+        result = _compose("ps", "--all", "--format", "json", repo=repo)
+    except DockerError:
+        return {}
+    if result.returncode != 0:
+        return {}
+    states: dict[str, ServiceState] = {}
+    for row in _ps_rows(result.stdout):
+        if not isinstance(row, dict) or not isinstance(row.get("Service"), str):
+            continue
+        states[row["Service"]] = ServiceState(
+            state=str(row.get("State") or ""), health=str(row.get("Health") or "")
+        )
+    return states
 
 
 # Prints every non-init process's command line in the fund container. It reads /proc
@@ -339,12 +478,9 @@ def docker_available() -> bool:
 _ENGINE_MIN = (23, 0)
 _COMPOSE_MIN = (2, 24, 0)
 
-# Images each profile builds (db/adminer are pulled, never built), so `build_and_up`
-# knows what "absent" means before deciding to run the slow build.
-_BUILT_IMAGES = {
-    "fund": ("optimizer-fund:latest",),
-    "ingestion": ("optimizer-scheduler:latest",),
-}
+# Image each profile builds (db/adminer are pulled, never built), so `build_and_up`
+# knows which images a start depends on before deciding to run the slow build.
+_PROFILE_IMAGE = {"fund": "fund", "ingestion": "scheduler"}
 
 
 def _parse_version(text: str) -> tuple[int, ...] | None:
@@ -361,7 +497,10 @@ def _fmt_version(version: tuple[int, ...]) -> str:
 
 def _server_version() -> tuple[int, ...] | None:
     """Docker Engine (server) version, or None if the daemon can't report it."""
-    result = _run(["docker", "version", "--format", "{{.Server.Version}}"])
+    try:
+        result = _run(["docker", "version", "--format", "{{.Server.Version}}"])
+    except DockerError:
+        return None
     if result.returncode != 0:
         return None
     return _parse_version(result.stdout)
@@ -369,7 +508,10 @@ def _server_version() -> tuple[int, ...] | None:
 
 def _compose_version() -> tuple[int, ...] | None:
     """Docker Compose plugin version, or None if undetectable."""
-    result = _run(["docker", "compose", "version", "--short"])
+    try:
+        result = _run(["docker", "compose", "version", "--short"])
+    except DockerError:
+        return None
     if result.returncode != 0:
         return None
     return _parse_version(result.stdout)
@@ -412,9 +554,30 @@ def warn_stale_versions() -> list[str]:
     return warnings
 
 
-def _image_exists(ref: str) -> bool:
-    """True if a local image with `ref` is present (`docker image inspect`)."""
-    return _run(["docker", "image", "inspect", ref]).returncode == 0
+def _image_source_hash(ref: str) -> str | None:
+    """Return the source hash a local image was built with.
+
+    Args:
+        ref: The image tag.
+
+    Returns:
+        ``None`` when the image is absent, ``""`` when it exists without a
+        :data:`image_source.SOURCE_HASH_LABEL` stamp (built outside ``portopt``), else
+        the stamped hash.
+    """
+    result = _run(
+        ["docker", "image", "inspect", "--format", "{{json .Config.Labels}}", ref]
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        labels = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return ""
+    stamp = (
+        labels.get(image_source.SOURCE_HASH_LABEL) if isinstance(labels, dict) else None
+    )
+    return stamp if isinstance(stamp, str) else ""
 
 
 def stop_services(services: Sequence[str], *, repo: Path | None = None) -> None:
@@ -428,7 +591,7 @@ def stop_services(services: Sequence[str], *, repo: Path | None = None) -> None:
         services: Compose service names to stop.
         repo: The checkout whose compose project to act on; located when omitted.
     """
-    result = _compose("stop", *services, repo=repo)
+    result = _compose("stop", *services, repo=repo, timeout=_STOP_TIMEOUT)
     if result.returncode != 0:
         raise DockerError(f"`docker compose stop` failed:\n{result.stderr}")
 
@@ -440,7 +603,7 @@ def restart_services(services: Sequence[str], *, repo: Path | None = None) -> No
         services: Compose service names to restart.
         repo: The checkout whose compose project to act on; located when omitted.
     """
-    result = _compose("restart", *services, repo=repo)
+    result = _compose("restart", *services, repo=repo, timeout=_STOP_TIMEOUT)
     if result.returncode != 0:
         raise DockerError(f"`docker compose restart` failed:\n{result.stderr}")
 
@@ -452,21 +615,23 @@ def build_and_up(
     force_build: bool = False,
     repo: Path | None = None,
 ) -> list[str]:
-    """Build each profile's images when absent, then bring the stack up and wait.
+    """Build each profile's images when absent or stale, then bring the stack up.
 
     Surfaces (prints and returns) any stale-version warnings, builds with
-    ``--pull`` only when one of the profiles' built images is missing — the slow
-    first run; later starts reuse the images — then ``up -d --wait`` so the caller
-    blocks until every service reports healthy.
+    ``--pull`` when one of the profiles' images is missing (the slow first run) or
+    was built from different sources than the checkout holds now, then
+    ``up -d --wait`` so the caller blocks until every service reports healthy. An
+    image is compared by the source hash stamped on it at build time, so an upgraded
+    checkout never keeps running the code of the previous one against a database the
+    new migrations already moved on.
 
     Args:
         profiles: The compose profiles to build and start (default ``("fund",)``;
             ``portopt start`` passes ``("fund", "ingestion")`` so the persistent
             data daemon comes up alongside the decision engine).
         wait_timeout: Seconds ``up --wait`` waits for health before failing.
-        force_build: Rebuild the images even when they already exist. Compose only
-            rebuilds a missing image, so after a code or migration change the images
-            go stale and a start silently reuses them — this forces the rebuild.
+        force_build: Rebuild the images even when they are current, for a change the
+            fingerprint cannot see (a base image refresh).
         repo: The checkout whose compose project to build and start; located when
             omitted. ``portopt start`` pins it so compose mounts the ``./secrets`` it
             just rendered, whatever directory the operator ran from.
@@ -481,12 +646,32 @@ def build_and_up(
     for warning in warnings:
         print(f"warning: {warning}")
 
+    project = repo if repo is not None else compose_dir()
     profile_args = [arg for profile in profiles for arg in ("--profile", profile)]
-    built = [img for profile in profiles for img in _BUILT_IMAGES.get(profile, ())]
-    if force_build or any(not _image_exists(ref) for ref in built):
-        print("Building images — slow the first time; later starts reuse them.")
+    images = [_PROFILE_IMAGE[p] for p in profiles if p in _PROFILE_IMAGE]
+    stamps = {image: image_source.source_hash(project, image) for image in images}
+    stamp_env = {image_source.IMAGES[image].env: stamps[image] for image in images}
+    current = {
+        image: _image_source_hash(image_source.IMAGES[image].ref) for image in images
+    }
+    missing = any(found is None for found in current.values())
+    stale = any(current[image] != stamps[image] for image in images)
+    if force_build or stale:
+        if missing:
+            print("Building images — slow the first time; later starts reuse them.")
+        elif stale:
+            print("Rebuilding images: the checkout changed since they were built.")
+        else:
+            print("Rebuilding images as requested.")
         build = _compose(
-            *profile_args, "--progress", "plain", "build", "--pull", repo=repo
+            *profile_args,
+            "--progress",
+            "plain",
+            "build",
+            "--pull",
+            repo=repo,
+            extra_env=stamp_env,
+            timeout=_BUILD_TIMEOUT,
         )
         if build.returncode != 0:
             raise DockerError(f"`docker compose build` failed:\n{build.stderr}")
@@ -499,6 +684,8 @@ def build_and_up(
         "--wait-timeout",
         str(wait_timeout),
         repo=repo,
+        extra_env=stamp_env,
+        timeout=wait_timeout + _UP_TIMEOUT,
     )
     if up.returncode != 0:
         raise DockerError(f"`docker compose up --wait` failed:\n{up.stderr}")

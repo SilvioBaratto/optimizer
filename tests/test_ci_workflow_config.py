@@ -306,6 +306,20 @@ def test_makefile_runs_the_same_lint_and_typecheck_gates_as_ci() -> None:
         )
 
 
+def test_pyright_gate_fails_on_warnings_in_ci_and_in_make() -> None:
+    """The documented "0 errors / 0 warnings" bar must be enforced, not just stated.
+
+    Without ``--warnings`` pyright exits 0 on warnings, and the project config
+    demotes several call and return mismatches to warnings.
+    """
+    ci_commands = [cmd for cmd in _run_commands(_jobs()["pyright"]) if "pyright" in cmd]
+    make_lines = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+
+    assert ci_commands, "the pyright job never runs pyright"
+    assert all("--warnings" in cmd for cmd in ci_commands)
+    assert any("pyright" in line and "--warnings" in line for line in make_lines)
+
+
 def _codecov_steps() -> list[dict[str, Any]]:
     return [
         step

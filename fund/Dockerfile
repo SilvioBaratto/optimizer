@@ -33,41 +33,58 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV UV_PYTHON_DOWNLOADS=0
 
-# Workspace metadata + only the members in portopt-fund's closure. `ingestion/`
-# is NOT copied (not a fund dependency; uv tolerates the absent workspace member,
-# exactly as ingestion/Dockerfile omits fund/). README.md is required by the root
-# pyproject's `readme = "README.md"` when portopt-core builds.
-COPY pyproject.toml uv.lock README.md ./
-COPY packages/portopt-core/ packages/portopt-core/
-COPY packages/portopt-db/ packages/portopt-db/
-COPY fund/ fund/
-# Runtime knowledge the agent stages on every call (NOT a Python package).
-COPY optimizerwiki/ optimizerwiki/
+# Workspace metadata + the manifests of the members in portopt-fund's closure.
+# `ingestion/` is NOT copied (not a fund dependency; uv tolerates the absent workspace
+# member, exactly as ingestion/Dockerfile omits fund/).
+#
+# Two steps so a source edit does not re-download the wheels (skfolio, scipy, pandas
+# and every provider SDK): the third-party dependencies are installed from the
+# manifests alone, and only then is the source copied and the workspace members
+# installed. `portopt start` rebuilds whenever the checkout changed, so this is the
+# difference between seconds and minutes on every upgrade. Mirrors ingestion/Dockerfile.
+COPY pyproject.toml uv.lock ./
+COPY packages/portopt-db/pyproject.toml packages/portopt-db/pyproject.toml
+COPY fund/pyproject.toml fund/pyproject.toml
 
-# Fail the build early (before the slow sync) if the agent's runtime resources
-# didn't make it into the context — otherwise the miss only surfaces at first
-# run as a FileNotFoundError from stage_theory.
-RUN test -d /app/optimizerwiki/docs \
-    && test -d /app/optimizerwiki/openwiki \
-    && test -d /app/fund/src/fund/skills/optimization-objective-map \
-    || (echo "FATAL: fund runtime resources missing from build context" && exit 1)
-
-# Editable install into an isolated venv. --frozen: respect the committed lock.
-# --no-dev: no test deps. NO --no-editable (see header): members stay editable and
-# resolve to /app/... , which the runtime stage reproduces at the same path.
+# Isolated venv. --frozen: respect the committed lock. --no-dev: no test deps.
 # --extra all-llm: the setup wizard lets the user pick any of ten providers at
 # runtime, yet only ollama/anthropic/google arrive as hard deps. The runtime stage
 # has no uv, so an SDK missing here can never be installed later and the first
-# model build would fail with an ImportError inside the container.
+# model build would fail with an ImportError inside the container. No torch or
+# transformers: the huggingface extra is cloud-only.
 RUN uv venv /venv
 ENV VIRTUAL_ENV=/venv PATH=/venv/bin:$PATH
 # uv sync reaches PyPI over TLS; behind a TLS-inspecting proxy the slim image has
 # no corporate root. Honour an OPTIONAL BuildKit secret (absent by default —
 # required=false — so an off-network build still resolves on plain certifi) and
 # point Python's TLS at it only when the mount is non-empty.
-# `--extra all-llm`: the install wizard offers every switchable provider and a
-# running container cannot `uv sync` an extra later, so the image must ship all
-# provider SDKs (no torch/transformers - the huggingface extra is cloud-only).
+RUN --mount=type=secret,id=ca_bundle \
+    if [ -s /run/secrets/ca_bundle ]; then \
+        export SSL_CERT_FILE=/run/secrets/ca_bundle \
+               REQUESTS_CA_BUNDLE=/run/secrets/ca_bundle; \
+    fi; \
+    uv sync --frozen --no-dev --no-install-workspace --package portopt-fund --extra all-llm --active
+
+# README.md is required by the root pyproject's `readme = "README.md"` when
+# portopt-core builds.
+COPY README.md ./
+COPY packages/portopt-core/ packages/portopt-core/
+COPY packages/portopt-db/ packages/portopt-db/
+COPY fund/ fund/
+# Runtime knowledge the agent stages on every call (NOT a Python package).
+COPY optimizerwiki/ optimizerwiki/
+
+# Fail the build early if the agent's runtime resources didn't make it into the
+# context — otherwise the miss only surfaces at first run as a FileNotFoundError
+# from stage_theory.
+RUN test -d /app/optimizerwiki/docs \
+    && test -d /app/optimizerwiki/openwiki \
+    && test -d /app/fund/src/fund/skills/optimization-objective-map \
+    || (echo "FATAL: fund runtime resources missing from build context" && exit 1)
+
+# Editable install of the members: NO --no-editable (see header). They resolve to
+# /app/... , which the runtime stage reproduces at the same path. The third-party
+# wheels are already in /venv, so this only builds the three workspace members.
 RUN --mount=type=secret,id=ca_bundle \
     if [ -s /run/secrets/ca_bundle ]; then \
         export SSL_CERT_FILE=/run/secrets/ca_bundle \

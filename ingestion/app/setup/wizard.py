@@ -192,11 +192,12 @@ def _merge_with_existing_secrets(
 def _preflight() -> None:
     """Verify Docker and the checkout before anything is persisted.
 
-    No checkout means no compose file to bring the db up from; finding that out after
-    the secret store and config were written leaves a half-done install whose re-run
-    is no longer a first run, so it would never auto-launch.
+    A stopped local runtime is booted first, as ``portopt start`` does, so setup works
+    from a cold machine. No checkout means no compose file to bring the db up from;
+    finding that out after the secret store and config were written leaves a half-done
+    install whose re-run is no longer a first run, so it would never auto-launch.
     """
-    docker_bootstrap.check_docker()
+    docker_bootstrap.ensure_docker()
     docker_bootstrap.compose_dir()
 
 

@@ -71,6 +71,11 @@ services:
       dockerfile: ingestion/Dockerfile
       secrets:
         - ca_bundle
+      # Read back by `portopt start` to tell a stale image from a current one; the
+      # hash is empty on a build that did not go through portopt, which makes the
+      # next start rebuild once.
+      labels:
+        io.portopt.source-hash: "${PORTOPT_SCHEDULER_SOURCE_HASH:-}"
     container_name: optimizer_scheduler
     logging: *default-logging
     profiles: ["ingestion"]
@@ -142,10 +147,19 @@ services:
       dockerfile: fund/Dockerfile
       secrets:
         - ca_bundle
+      labels:
+        io.portopt.source-hash: "${PORTOPT_FUND_SOURCE_HASH:-}"
     container_name: optimizer_fund
     logging: *default-logging
     profiles: ["fund"]
     command: ["python", "-m", "fund.worker"]
+    # The entrypoint `exec`s the worker, which would then be PID 1: nothing reaps the
+    # children of a healthcheck probe that timed out, and a SIGTERM that lands during
+    # the module imports (before the worker installs its handlers) is dropped.
+    init: true
+    # The image's own user unless `portopt start` hands over the invoking user's ids
+    # on a Linux host, where a bind mount keeps the host's numeric owner.
+    user: "${PORTOPT_FUND_UID:-1000}:${PORTOPT_FUND_GID:-1000}"
     # Sized above fund_shutdown_drain_timeout_seconds (default 30s) so the daemon
     # drains the in-flight step before Docker SIGKILLs it (compose default 10s).
     stop_grace_period: 45s

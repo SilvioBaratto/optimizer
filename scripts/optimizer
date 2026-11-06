@@ -75,6 +75,17 @@ else
   uv run --package portopt python -m app.cli start
 fi
 
+# `portopt start` brings the fund up only with a usable LLM backend and still exits 0
+# when it leaves it off; `exec` into a service that is not running fails with an opaque
+# "is not running", so check first and point at the fix. Captured, not piped: under
+# pipefail a `grep -q` that exits early would fail the pipeline on SIGPIPE.
+running="$(docker compose --profile fund ps --services --filter status=running 2>/dev/null || true)"
+if ! grep -qx fund <<<"$running"; then
+  echo "optimizer: the fund engine is not running, so there is no cockpit to attach to." >&2
+  echo "Configure an LLM backend with \`portopt setup --reconfigure\`, then run optimizer again." >&2
+  exit 1
+fi
+
 # Attach the shell (fund-wide, or focused when an id is forwarded). Under Git Bash
 # mintty the console is not a real Windows console, so winpty bridges it to a TTY;
 # elsewhere attach directly. Never pass `-T` — it disables the pseudo-TTY the shell needs.
