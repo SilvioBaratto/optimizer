@@ -251,6 +251,51 @@ class TestHeartbeatTick:
         assert "reaped" not in caplog.text
         assert not [r for r in caplog.records if r.levelname == "WARNING"]
 
+    @pytest.mark.parametrize("error", [None, "Macro news fetch failed: no article"])
+    def test_when_the_step_failed_its_own_row_then_stops_quietly_without_cancel(
+        self,
+        svc: BackgroundJobService,
+        caplog: pytest.LogCaptureFixture,
+        error: str | None,
+    ) -> None:
+        """A step may report its own failure and keep finishing its work.
+
+        Only the reaper's rows mean an orphan; a failure the worker wrote is as
+        final as a completion and must not set the cancel signal.
+        """
+        stop = threading.Event()
+
+        with _repo() as repo, caplog.at_level("DEBUG", logger=M):
+            repo.update_heartbeat.return_value = False
+            repo.get.return_value.status = "failed"
+            repo.get.return_value.error = error
+            assert svc._tick_heartbeat(uuid.UUID(JOB_ID), stop) is False
+
+        assert not stop.is_set()
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            "orphaned — heartbeat stale, reaped by periodic reaper",
+            "orphaned — reclaimed for retry by periodic reaper",
+            "orphaned at startup — process restarted",
+        ],
+    )
+    def test_when_the_reaper_failed_the_row_then_cancel_is_signalled(
+        self, svc: BackgroundJobService, error: str
+    ) -> None:
+        """Keep every reaper message on the cancel path."""
+        stop = threading.Event()
+
+        with _repo() as repo:
+            repo.update_heartbeat.return_value = False
+            repo.get.return_value.status = "failed"
+            repo.get.return_value.error = error
+            assert svc._tick_heartbeat(uuid.UUID(JOB_ID), stop) is False
+
+        assert stop.is_set()
+
     def test_transient_db_error_keeps_the_loop_alive(
         self, svc: BackgroundJobService
     ) -> None:

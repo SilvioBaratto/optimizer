@@ -75,14 +75,14 @@ class TestFeedRaisesDataError:
         assert fetch_yahoo_news("AAPL", yf_client) == articles
         assert searched == ["AAPL"]
 
-    def test_no_search_results_gives_none_instead_of_raising(
+    def test_no_search_results_gives_an_empty_list_instead_of_raising(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A ticker with no news anywhere is 'nothing usable', not an error."""
+        """Search answered with nothing: a quiet ticker, not a failed source."""
         _search_returning(monkeypatch, [])
         yf_client = _client_with(_FeedTicker(error=YFDataException(_DOWN)))
 
-        assert fetch_yahoo_news("VWCE.DE", yf_client) is None
+        assert fetch_yahoo_news("VWCE.DE", yf_client) == []
 
     def test_search_failures_still_surface(
         self, monkeypatch: pytest.MonkeyPatch
@@ -175,7 +175,7 @@ class TestDeadFeedIsSkipped:
         failing = _client_with(_FeedTicker(error=YFDataException(_DOWN)))
         for _ in range(2):
             fetch_yahoo_news("AAPL", failing, feed=gate)
-        assert fetch_yahoo_news("AAPL", failing, feed=gate) is None
+        assert fetch_yahoo_news("AAPL", failing, feed=gate) == []
         assert failing.get_ticker.call_count == 2
 
         now[0] = 60.0

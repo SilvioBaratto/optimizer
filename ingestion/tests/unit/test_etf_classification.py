@@ -40,10 +40,28 @@ class TestStockAndReject:
             "State Street SPDR S&P Metals & Mining ETF",
             "Goldman Sachs ActiveBeta U.S. Large Cap Equity ETF",
             "Vanguard Real Estate Index Fund ETF Shares",
+            "Global X Gold Explorers ETF",
+            "First Trust Natural Gas ETF",
+            "Amplify Natural Gas Infrastructure",
+            "Invesco Global Agriculture Ex-Food",
+            "Franklin Templeton Agriculture Tech",
+            "Sprott Junior Gold Miners ETF",
+            "iShares Edge MSCI World Minimum Volatility UCITS ETF",
+            "Invesco S&P 500 Low Volatility ETF",
+            "Xtrackers MSCI World Minimum Volatility",
+            "Valkyrie Bitcoin Miners ETF",
+            "Bitwise Crypto Industry Innovators ETF",
         ],
     )
     def test_equity_etf_is_classified_equity(self, name: str) -> None:
-        """An ETF no other sleeve claims is an equity fund, miners included."""
+        """An ETF no other sleeve claims is an equity fund, miners included.
+
+        A name that mentions a commodity, a coin or volatility is still an equity
+        fund when it holds the companies behind it (explorers, gas producers, farm
+        businesses, bitcoin miners) or is a low-volatility factor fund. A commodity
+        label would exempt the fund from the ESG look-through, and an unclassified
+        one would drop it from the universe.
+        """
         assert classify_instrument(name, "ETF") == Classification("equity", None, None)
 
     @pytest.mark.parametrize(
@@ -64,6 +82,11 @@ class TestStockAndReject:
             "United States Copper Index Fund, LP",
             "Teucrium Wheat Fund",
             "abrdn Bloomberg All Commodity Strategy K-1 Free ETF",
+            "United States 12 Month Natural Gas Fund, LP",
+            "WisdomTree Natural Gas ETC",
+            "WisdomTree Agriculture ETC",
+            "iPath Bloomberg Agriculture Subindex Total Return ETN",
+            "WisdomTree Brent Crude Oil",
         ],
     )
     def test_commodity_etf_is_classified_commodity(self, name: str) -> None:
@@ -81,6 +104,11 @@ class TestStockAndReject:
             "Invesco CurrencyShares Euro Currency Trust",
             "Invesco DB US Dollar Index Bullish Fund",
             "iPath Series B S&P 500 VIX Short-Term Futures",
+            "ProShares VIX Short-Term Futures ETF",
+            "Volatility Shares Trust",
+            "Simplify Volatility Premium ETF",
+            "iShares Bitcoin Strategy ETF",
+            "Global X Blockchain & Bitcoin Strategy ETF",
         ],
     )
     def test_fund_with_no_sleeve_to_name_is_not_classified(self, name: str) -> None:

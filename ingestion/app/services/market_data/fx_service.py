@@ -39,6 +39,10 @@ _MINOR_UNIT_TO_MAJOR = {
 }
 
 
+# Long enough to span a market closure, short enough to stay on the date index.
+_PRICE_UNIT_LOOKBACK_DAYS = 30
+
+
 def _to_major(code: str | None) -> str | None:
     """Normalize a currency / price-unit code to its ISO-4217 major unit.
 
@@ -63,16 +67,22 @@ def _to_major(code: str | None) -> str | None:
     return None
 
 
-def _distinct_currencies(session: Any, base: str) -> set[str]:
+def _distinct_currencies(
+    session: Any, base: str, *, today: dt.date | None = None
+) -> set[str]:
     """Return the distinct major quote currencies present in the universe.
 
-    Unions ``instruments.currency_code`` with ``price_history.price_unit`` (so a
-    NULL ``currency_code`` still contributes its listing currency), normalizes to
-    major units, and drops the base currency (which is never its own quote).
+    Unions ``instruments.currency_code`` with the ``price_history.price_unit`` of
+    recent bars (so a NULL ``currency_code`` still contributes its listing
+    currency), normalizes to major units, and drops the base currency (which is
+    never its own quote). Only bars from the last ``_PRICE_UNIT_LOOKBACK_DAYS``
+    are read: ``price_history`` is never pruned and has no index on
+    ``price_unit``, so an unbounded DISTINCT scans every bar ever stored.
 
     Args:
         session: Open SQLAlchemy session.
         base: Base currency to exclude from the quote set.
+        today: Reference date for the price lookback; defaults to the current date.
 
     Returns:
         Major ISO-4217 codes to fetch rates for; empty when the universe is bare.
@@ -85,7 +95,9 @@ def _distinct_currencies(session: Any, base: str) -> set[str]:
         major = _to_major(code)
         if major:
             majors.add(major)
-    for (unit,) in session.execute(select(PriceHistory.price_unit).distinct()):
+    since = (today or dt.date.today()) - dt.timedelta(days=_PRICE_UNIT_LOOKBACK_DAYS)
+    recent_units = select(PriceHistory.price_unit).where(PriceHistory.date >= since)
+    for (unit,) in session.execute(recent_units.distinct()):
         major = _to_major(unit)
         if major:
             majors.add(major)

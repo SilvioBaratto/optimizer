@@ -458,7 +458,7 @@ class TestReconcileOrphans:
         _make_stale(repo, pending_id, db_session)
         _make_stale(repo, running_id, db_session)
 
-        count = repo.reconcile_orphans("test msg")
+        count = repo.reconcile_orphans("orphaned - test msg")
         assert count == 2
 
         pending_row = repo.get(pending_id)
@@ -469,8 +469,25 @@ class TestReconcileOrphans:
         assert running_row.status == "failed"
         assert pending_row.finished_at is not None
         assert running_row.finished_at is not None
-        assert pending_row.error == "test msg"
-        assert running_row.error == "test msg"
+        assert pending_row.error == "orphaned - test msg"
+        assert running_row.error == "orphaned - test msg"
+
+    def test_a_message_without_the_orphan_mark_is_given_it(
+        self,
+        db_session: Session,
+    ) -> None:
+        """Mark every reaped row so a worker can tell it from a step's own failure."""
+        repo = BackgroundJobRepository(db_session)
+        job_id = repo.claim_or_create("test_mark")
+        assert job_id is not None
+        repo.update(job_id, status="running")
+        _make_stale(repo, job_id, db_session)
+
+        repo.reconcile_orphans("heartbeat stale")
+
+        row = repo.get(job_id)
+        assert row is not None
+        assert row.error == "orphaned - heartbeat stale"
 
     def test_returns_zero_when_no_active_jobs(
         self,

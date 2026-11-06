@@ -258,7 +258,7 @@ class TestBulkFetch:
         breaker.trigger()
         assert breaker.is_active
 
-        def _guarded_expirations(_ticker: str) -> tuple[str, ...]:
+        def _guarded_expirations(_ticker: str, **_kw: object) -> tuple[str, ...]:
             breaker.check()  # what fetch_with_resilience does before each attempt
             return ("2026-09-18",)
 

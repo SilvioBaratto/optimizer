@@ -10,6 +10,7 @@ valid.
 from __future__ import annotations
 
 import importlib.util
+import uuid
 from pathlib import Path
 from types import ModuleType
 
@@ -126,3 +127,22 @@ def test_downgrade_removes_the_table(upgraded_engine) -> None:
     _run(upgraded_engine, "downgrade")
 
     assert TABLE not in set(inspect(upgraded_engine).get_table_names())
+
+
+def test_downgrade_keeps_a_table_that_holds_rows_from_before_the_revision() -> None:
+    """The upgrade adopts a ``create_all`` table, so rows in it are not ours to drop."""
+    engine = _sqlite_engine()
+    Base.metadata.tables[TABLE].create(bind=engine)
+    with engine.begin() as conn:
+        conn.execute(
+            Base.metadata.tables[TABLE]
+            .insert()
+            .values(id=uuid.uuid4(), country="Italy", maturity="10Y", yield_value=3.5)
+        )
+    _run(engine, "upgrade")
+
+    _run(engine, "downgrade")
+
+    assert TABLE in set(inspect(engine).get_table_names())
+    with engine.connect() as conn:
+        assert conn.execute(Base.metadata.tables[TABLE].select()).first() is not None

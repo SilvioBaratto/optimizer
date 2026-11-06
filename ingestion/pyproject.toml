@@ -32,6 +32,12 @@ dependencies = [
     "httpx==0.28.1",
     "beautifulsoup4==4.15.0",
     "requests==2.34.2",
+    # Imported directly (TLS bundle, the news scraper's connection pool, date
+    # parsing); the host CLI installs `ingestion` alone, so these must not depend
+    # on another package happening to pull them in.
+    "certifi==2026.10.23",
+    "urllib3==2.8.0",
+    "python-dateutil==2.9.0.post0",
     # Scheduling
     "APScheduler==3.11.3",
     # Monitoring
@@ -40,6 +46,7 @@ dependencies = [
     "typer==0.27.1",
     # Install wizard (portopt setup): interactive prompts, rich output, encrypted secret store
     "questionary==2.1.1",
+    "prompt-toolkit==3.0.53",
     "rich==15.0.0",
     "cryptography==50.0.2",
     # PATH install for the `optimizer` launcher: userpath edits the User PATH via

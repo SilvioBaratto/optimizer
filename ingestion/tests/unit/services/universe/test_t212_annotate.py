@@ -26,10 +26,18 @@ def _patched(
     client: MagicMock,
     events: list[str] | None = None,
     pinned: frozenset[str] = frozenset(),
+    mandate_pinned: frozenset[str] = frozenset(),
 ):
+    """Patch the step's collaborators; ``pinned`` are manual pins, the rest mandate's."""
     sessions: list[MagicMock] = []
     pin_repo = MagicMock()
-    pin_repo.pinned_tickers.return_value = set(pinned)
+
+    def pinned_tickers(source: str | None = None) -> set[str]:
+        if source == "manual":
+            return set(pinned)
+        return set(pinned) | set(mandate_pinned)
+
+    pin_repo.pinned_tickers.side_effect = pinned_tickers
     log = events if events is not None else []
 
     @contextmanager
@@ -581,8 +589,8 @@ class TestPinnedRowsAreOperatorManaged:
         repo.set_t212_ticker.assert_not_called()
         assert summary["annotated"] == 0
 
-    def test_pinned_row_is_not_looked_up_or_counted(self) -> None:
-        """Skipping happens before the ISIN lookup, so it costs no Yahoo request."""
+    def test_pinned_row_is_looked_up_and_counted_like_any_other(self) -> None:
+        """Its tradability flag is still the step's to judge, so it needs the ISIN."""
         repo = MagicMock()
         repo.get_active_instruments.return_value = [
             _inst("VWCE", yfinance_ticker="VWCE.DE"),
@@ -599,9 +607,44 @@ class TestPinnedRowsAreOperatorManaged:
         with _patched(repo, client, pinned=frozenset({"VWCE.DE"})):
             summary = t212_annotate.run_t212_annotate(isin_lookup=lookup)
 
-        assert looked_up == ["AAPL"]
-        assert summary["total"] == 1
+        assert looked_up == ["VWCE", "AAPL"]
+        assert summary["total"] == 2
         assert summary["pinned_skipped"] == 1
+
+    def test_a_manual_pin_keeps_its_ticker_while_the_flag_is_still_judged(
+        self,
+    ) -> None:
+        """The operator owns the broker line, the catalogue owns tradability."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst("VWCE", yfinance_ticker="VWCE.DE", t212_ticker="VWCEd_EQ")
+        ]
+        client = _client([{"ticker": "OTHER_EQ", "isin": "US999"}])
+
+        with _patched(repo, client, pinned=frozenset({"VWCE.DE"})):
+            summary = t212_annotate.run_t212_annotate(isin_lookup=lambda t: "IE0001")
+
+        repo.set_t212_ticker.assert_not_called()
+        repo.set_t212_tradeable.assert_called_once_with(
+            ticker="VWCE", exchange_id=1, tradeable=False
+        )
+        assert summary["cleared"] == 0
+
+    def test_a_mandate_pin_does_not_shield_the_ticker_from_the_step(self) -> None:
+        """Only the operator's own pin marks a broker line as hand-curated."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [_inst("SPY", t212_ticker="OLD_EQ")]
+        repo.set_t212_ticker.return_value = True
+        client = _client([{"ticker": "OTHER_EQ", "isin": "US999"}])
+
+        with _patched(repo, client, mandate_pinned=frozenset({"SPY"})):
+            summary = t212_annotate.run_t212_annotate(isin_lookup=lambda t: "US123")
+
+        repo.set_t212_ticker.assert_called_once_with(
+            ticker="SPY", exchange_id=1, t212_ticker=None
+        )
+        assert summary["cleared"] == 1
+        assert summary["pinned_skipped"] == 0
 
     def test_unpinned_rows_are_annotated_exactly_as_before(self) -> None:
         """Two rows in the same state: only the pinned one is left untouched."""
@@ -815,6 +858,25 @@ class TestTradabilityOverlay:
 
         repo.set_t212_tradeable.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "lines",
+        [[], [{"ticker": "AAPL_US_EQ"}, {"isin": "US123"}]],
+        ids=["empty", "no-isin"],
+    )
+    def test_a_catalogue_without_isins_keeps_the_stored_broker_ticker(
+        self, lines: list[dict]
+    ) -> None:
+        """An answer that shows nothing absent cannot prove a stored line stale."""
+        repo, summary = _annotate_one(
+            _inst("AAPL", t212_ticker="AAPL_US_EQ", is_t212_tradeable=True),
+            lines,
+            "US123",
+        )
+
+        repo.set_t212_ticker.assert_not_called()
+        repo.set_t212_tradeable.assert_not_called()
+        assert summary["cleared"] == 0
+
     def test_an_empty_catalogue_flags_nothing(self) -> None:
         """A catalogue that came back empty must not read as 'nothing is tradeable'."""
         repo, summary = _annotate_one(_inst("AAPL"), [], "US123")
@@ -822,8 +884,8 @@ class TestTradabilityOverlay:
         repo.set_t212_tradeable.assert_not_called()
         assert summary["untradeable"] == 0
 
-    def test_a_pinned_row_keeps_whatever_flag_the_operator_gave_it(self) -> None:
-        """Pinned rows are operator-managed and skipped before any evaluation."""
+    def test_a_pinned_row_flag_follows_the_catalogue(self) -> None:
+        """An operator's True survives only while the broker still carries the ISIN."""
         repo = MagicMock()
         repo.get_active_instruments.return_value = [
             _inst("VWCE", yfinance_ticker="VWCE.DE", is_t212_tradeable=True)
@@ -832,8 +894,51 @@ class TestTradabilityOverlay:
         with _patched(repo, _client([self._AAPL_LINE]), pinned=frozenset({"VWCE.DE"})):
             summary = t212_annotate.run_t212_annotate(isin_lookup=lambda t: "US999")
 
-        repo.set_t212_tradeable.assert_not_called()
-        assert summary["untradeable"] == 0
+        repo.set_t212_tradeable.assert_called_once_with(
+            ticker="VWCE", exchange_id=1, tradeable=False
+        )
+        assert summary["untradeable"] == 1
+
+    def test_a_mandate_pinned_name_is_judged_so_the_broker_scope_can_bar_it(
+        self,
+    ) -> None:
+        """Every eligible ticker of a mandate is pinned, and the scope reads this flag.
+
+        Skipping them left a name the broker lacks at NULL, which the resolver
+        never bars, so the scope failed open for exactly the allowlisted names.
+        """
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [_inst("SPY")]
+
+        with _patched(
+            repo, _client([self._AAPL_LINE]), mandate_pinned=frozenset({"SPY"})
+        ):
+            summary = t212_annotate.run_t212_annotate(
+                isin_lookup=lambda t: "US78462F1030"
+            )
+
+        repo.set_t212_tradeable.assert_called_once_with(
+            ticker="SPY", exchange_id=1, tradeable=False
+        )
+        assert summary["untradeable"] == 1
+
+    def test_a_name_that_left_the_broker_is_flipped_even_when_mandate_pinned(
+        self,
+    ) -> None:
+        """A True set before the pin is not frozen for as long as the pin lasts."""
+        repo = MagicMock()
+        repo.get_active_instruments.return_value = [
+            _inst("SPY", isin="US78462F1030", is_t212_tradeable=True)
+        ]
+
+        with _patched(
+            repo, _client([self._AAPL_LINE]), mandate_pinned=frozenset({"SPY"})
+        ):
+            t212_annotate.run_t212_annotate(isin_lookup=lambda t: None)
+
+        repo.set_t212_tradeable.assert_called_once_with(
+            ticker="SPY", exchange_id=1, tradeable=False
+        )
 
     def test_flag_writes_are_committed_with_the_batch(self) -> None:
         """The flag rides in the same short transaction as the ticker write."""

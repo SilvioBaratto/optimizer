@@ -258,6 +258,36 @@ def test_holdings_payload_carries_no_nan_name_or_weight(
     assert [r["weight"] for r in captured] == [None, None, 0.1]
 
 
+def test_sector_weights_payload_carries_no_non_finite_weight(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A NaN or infinite sector weight must reach SQL as NULL, not as a number.
+
+    PostgreSQL ``numeric`` stores NaN as a value, and the ESG look-through sums
+    the slices of a snapshot, so a stored NaN would hide how much of the fund the
+    snapshot leaves unaccounted for. SQLite stores float NaN as NULL, so only the
+    upsert payload shows it.
+    """
+    repo = ETFMetadataRepository(db_session)
+    inst = _instrument(db_session)
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        repo, "_upsert", lambda _model, rows, **_kw: captured.extend(rows)
+    )
+
+    repo.upsert_sector_weights(
+        inst.id,
+        _AS_OF,
+        {"technology": 0.6, "healthcare": float("nan"), "energy": float("inf")},
+    )
+
+    assert {r["sector"]: r["weight"] for r in captured} == {
+        "technology": 0.6,
+        "healthcare": None,
+        "energy": None,
+    }
+
+
 def test_sector_weights_upsert_is_idempotent(db_session) -> None:
     repo = ETFMetadataRepository(db_session)
     inst = _instrument(db_session)
@@ -442,6 +472,31 @@ class TestGetLatestSectorWeights:
         assert result["AAA.DE"].as_of == dt.date(2026, 6, 1)
         assert result["AAA.DE"].weights == {"energy": 1.0}
         assert result["BBB.DE"].as_of == dt.date(2026, 9, 1)
+
+    def test_on_or_before_ignores_snapshots_dated_after_the_cutoff(
+        self, db_session
+    ) -> None:
+        """A replay at an earlier bar must not see holdings published later."""
+        repo = ETFMetadataRepository(db_session)
+        inst = _etf(db_session, "VWCE.DE")
+        repo.upsert_sector_weights(inst.id, dt.date(2026, 7, 1), {"energy": 1.0})
+        repo.upsert_sector_weights(inst.id, dt.date(2026, 9, 1), {"technology": 1.0})
+        db_session.flush()
+
+        cutoff = repo.get_latest_sector_weights(
+            ["VWCE.DE"], on_or_before=dt.date(2026, 8, 15)
+        )
+        on_the_day = repo.get_latest_sector_weights(
+            ["VWCE.DE"], on_or_before=dt.date(2026, 9, 1)
+        )
+        too_early = repo.get_latest_sector_weights(
+            ["VWCE.DE"], on_or_before=dt.date(2026, 6, 1)
+        )
+
+        assert cutoff["VWCE.DE"].as_of == dt.date(2026, 7, 1)
+        assert cutoff["VWCE.DE"].weights == {"energy": 1.0}
+        assert on_the_day["VWCE.DE"].as_of == dt.date(2026, 9, 1)
+        assert too_early == {}
 
     def test_unknown_ticker_and_etf_without_sectors_are_absent(
         self, db_session

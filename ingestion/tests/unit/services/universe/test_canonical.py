@@ -323,6 +323,58 @@ class TestDedupCanonical:
         out = dedup_canonical(listings, _FX, incumbents={"AZN"})
         assert [x.symbol for x in out] == ["AZN.L"]
 
+    def test_incumbent_is_not_displaced_by_a_line_on_a_newcomer_venue(self) -> None:
+        # The home line is 10x more liquid, far beyond the hysteresis margin, but
+        # its venue joined the allowlist after the incumbent was admitted.
+        listings = [
+            _mk("TM", "NYQ", "Toyota Motor Corp", "USD", 180.0, 3.3e5, fin_ccy="JPY"),
+            _mk(
+                "7203.T", "JPX", "Toyota Motor Corp", "JPY", 180.0, 3.3e6, fin_ccy="JPY"
+            ),
+        ]
+        fx = {**_FX, "JPY": 1.0}
+        assert [x.symbol for x in dedup_canonical(listings, fx)] == ["7203.T"]
+        out = dedup_canonical(listings, fx, incumbents={"TM"}, newcomer_venues={"JPX"})
+        assert [x.symbol for x in out] == ["TM"]
+
+    def test_newcomer_venue_rule_only_shields_an_incumbent_on_an_older_venue(
+        self,
+    ) -> None:
+        # Both lines sit on newcomer venues: the usual margin applies.
+        listings = [
+            _mk("0700.HK", "HKG", "Tencent", "HKD", 100.0, 1e5, fin_ccy="CNY"),
+            _mk("700.SI", "SES", "Tencent", "SGD", 100.0, 1e7, fin_ccy="CNY"),
+        ]
+        fx = {**_FX, "HKD": 1.0, "SGD": 1.0}
+        out = dedup_canonical(
+            listings, fx, incumbents={"0700.HK"}, newcomer_venues={"HKG", "SES"}
+        )
+        assert [x.symbol for x in out] == ["700.SI"]
+
+    def test_newcomer_venue_rule_does_not_hold_an_incumbent_below_the_floor(
+        self,
+    ) -> None:
+        listings = [
+            _mk("TM", "NYQ", "Toyota Motor Corp", "USD", 10.0, 4_000, shares=5e5),
+            _mk("7203.T", "JPX", "Toyota Motor Corp", "JPY", 10.0, 4_900),
+        ]
+        fx = {**_FX, "JPY": 1.0}
+        out = dedup_canonical(listings, fx, incumbents={"TM"}, newcomer_venues={"JPX"})
+        assert [x.symbol for x in out] == ["7203.T"]
+
+    def test_newcomer_venue_rule_does_not_hold_an_incumbent_without_volume(
+        self,
+    ) -> None:
+        listings = [
+            _mk("TM", "NYQ", "Toyota Motor Corp", "USD", 180.0, 0, fin_ccy="JPY"),
+            _mk(
+                "7203.T", "JPX", "Toyota Motor Corp", "JPY", 180.0, 3.3e6, fin_ccy="JPY"
+            ),
+        ]
+        fx = {**_FX, "JPY": 1.0}
+        out = dedup_canonical(listings, fx, incumbents={"TM"}, newcomer_venues={"JPX"})
+        assert [x.symbol for x in out] == ["7203.T"]
+
     def test_incumbent_without_traded_volume_does_not_hold(self) -> None:
         # No ADDV means nothing to compare: a dead incumbent must not block a live line.
         listings = [

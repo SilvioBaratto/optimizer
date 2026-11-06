@@ -1,7 +1,7 @@
 """Repository for global daily macro/market/news digest rows (``market_journal``).
 
-Uses ``index_elements`` upserts (SQLite-testable); one row per ``as_of`` date
-within a region.  The caller owns the session and controls commit/rollback.
+Uses ``index_elements`` upserts (SQLite-testable); one row per ``as_of`` date.
+The caller owns the session and controls commit/rollback.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from portopt_db.models.market_data.market_journal import MarketJournal
 from portopt_db.repository import RepositoryBase
 
 _UPDATE_COLUMNS = [
-    "region",
     "macro_deltas",
     "market_moves",
     "news_themes",
@@ -48,7 +47,10 @@ class MarketJournalRepository(RepositoryBase):
         """Write or refresh the daily digest for one trading date.
 
         Idempotent: re-running for the same ``as_of`` overwrites all data
-        columns and advances ``updated_at`` but preserves ``created_at``.
+        columns and advances ``updated_at`` but preserves ``created_at``. The
+        unique key is ``as_of`` alone, so a date holds one digest whatever its
+        region; a write for a different region than the stored one is refused
+        rather than replacing it.
 
         Args:
             as_of: Trading date for the digest row.
@@ -61,7 +63,20 @@ class MarketJournalRepository(RepositoryBase):
 
         Returns:
             Number of rows processed (always 1 when a row is supplied).
+
+        Raises:
+            ValueError: A digest for *as_of* is already stored under another
+                region.
         """
+        stored_region = self.session.execute(
+            select(MarketJournal.region).where(MarketJournal.as_of == as_of)
+        ).scalar_one_or_none()
+        if stored_region is not None and stored_region != region:
+            raise ValueError(
+                f"market_journal already holds a {stored_region!r} digest for "
+                f"{as_of}; one digest per date is supported, so a {region!r} "
+                "digest would replace it"
+            )
         row = {
             "id": uuid.uuid4(),
             "as_of": as_of,

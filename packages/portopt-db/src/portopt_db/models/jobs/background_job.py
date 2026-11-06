@@ -24,7 +24,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from portopt_db.base import BaseModel
 
 # Use JSONB on PostgreSQL, plain JSON elsewhere (e.g. SQLite in tests).
-_JSON = JSON().with_variant(JSONB, "postgresql")
+# ``none_as_null`` makes a Python ``None`` persist as SQL NULL; the default stores the
+# JSON literal ``null``, which ``IS NULL`` filters miss.
+_JSON = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
 
 # ``background_jobs`` is shared by the ingestion and fund daemons, each running
 # its own heartbeat-lease reaper. These are the job slots the fund daemon owns;
