@@ -18,9 +18,7 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
-# Trailing window for the risk statistics: about one trading year, so volatility and
-# drawdown describe the current regime rather than a decade-old crisis.
-_TRADING_DAYS = 252
+from fund.tools._base import periods_per_year
 
 _HORIZONS: tuple[tuple[str, pd.DateOffset], ...] = (
     ("change_1m", pd.DateOffset(months=1)),
@@ -77,10 +75,14 @@ def _head(series: pd.Series, *, relative: bool) -> dict[str, Any]:
 
 
 def _risk(series: pd.Series) -> dict[str, float | None]:
-    window = series.tail(_TRADING_DAYS + 1)
+    # Trailing year of the series' own calendar, so volatility and drawdown describe
+    # the current regime rather than a decade-old crisis, and the annualisation
+    # matches the bars the series really has a year.
+    periods = periods_per_year(series.index)
+    window = series.tail(periods + 1)
     returns = window.pct_change().dropna()
     vol = (
-        float(np.std(returns.to_numpy(dtype=float), ddof=1)) * math.sqrt(_TRADING_DAYS)
+        float(np.std(returns.to_numpy(dtype=float), ddof=1)) * math.sqrt(periods)
         if len(returns) > 1
         else None
     )
@@ -116,7 +118,7 @@ def price_stats(frame: pd.DataFrame) -> dict[str, dict[str, Any]]:
     Returns:
         ``{ticker: stats}`` for every column with at least one observation. ``stats``
         holds ``last``, ``last_date``, simple-return ``change_1m``/``change_3m``/
-        ``change_12m``, and over the trailing 252 observations the annualised
+        ``change_12m``, and over the trailing year of observations the annualised
         ``realised_vol``, the current ``drawdown`` below the running peak and the
         ``max_drawdown`` — fractions, with both drawdowns non-negative (``0.2`` is
         20% below the peak), ``None`` where the history is too short.

@@ -125,23 +125,32 @@ class CPCVConfig:
     """Configuration for `CombinatorialPurgedCV`.
 
     Generates a population of backtest paths from all combinatorial
-    selections of test folds, with purging and embargoing to prevent
-    information leakage.
+    selections of test folds. Purging and embargo prevent information leakage
+    across the train-test boundaries and are **on by default** (5 observations
+    each, like `WalkForwardConfig`), presets included. The sizes count
+    observations of whatever frequency the consumer feeds in: daily returns
+    for `build_cpcv`, monthly periods for the factor out-of-sample validation.
+    Set them to at least the longest look-back (or label horizon) of the
+    estimator, e.g. ``purged_size=21`` for daily returns with a one-month
+    look-back, or ``1`` for monthly periods; ``0`` switches the guard off and
+    lets autocorrelated returns leak across the boundary, which inflates
+    out-of-sample scores.
 
     Args:
         n_folds: Number of non-overlapping temporal blocks.
         n_test_folds: Number of blocks assigned to the test set in each
             combination.
         purged_size: Number of observations excised on each side of the
-            train-test boundary.
+            train-test boundary. ``0`` disables purging.
         embargo_size: Number of observations embargoed immediately following
-            each test block to avoid autocorrelation contamination.
+            each test block to avoid autocorrelation contamination. ``0``
+            disables the embargo.
     """
 
     n_folds: int = 10
     n_test_folds: int = 8
-    purged_size: int = 0
-    embargo_size: int = 0
+    purged_size: int = 5
+    embargo_size: int = 5
 
     def __post_init__(self) -> None:
         if self.n_folds < 3:

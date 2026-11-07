@@ -14,8 +14,10 @@ DataFrames only.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from enum import Enum
+from typing import cast
 
 import pandas as pd
 from skfolio.preprocessing import prices_to_returns
@@ -51,6 +53,36 @@ def _coerce_price_frame(frame: pd.DataFrame, *, name: str) -> pd.DataFrame:
         ) from exc
 
 
+def _check_columns_kept(
+    prices: pd.DataFrame, returns: pd.DataFrame, *, name: str
+) -> None:
+    """Report price columns that `prices_to_returns` removed from the output.
+
+    skfolio discards a column with no price at all, before and after the row
+    filter, without a word.  An asset that disappears that way would later look
+    like an asset that was never requested, so the loss is surfaced here.
+
+    Raises:
+        DataError: If a non-empty ``prices`` frame lost every column.
+    """
+    if prices.shape[1] == 0:
+        return
+    kept = set(returns.columns)
+    dropped = [c for c in prices.columns if c not in kept]
+    if not dropped:
+        return
+    if not kept:
+        raise DataError(
+            f"to_returns dropped every column of {name!r}: none has a price "
+            "from which a return can be computed"
+        )
+    warnings.warn(
+        f"to_returns dropped columns of {name!r} with no usable prices: {dropped}",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 class JoinMethod(str, Enum):
     """How to align the price and (optional) benchmark price frames.
 
@@ -82,9 +114,10 @@ class ReturnsConfig:
             ``True`` for a log-normal prior with an explicit investment horizon.
         nan_threshold: Drop observations (dates) on which the fraction of
             assets with a missing price exceeds this threshold. It filters
-            rows, not assets: a sparse asset stays in the panel while the dates
-            it is missing are removed for every asset. ``1.0`` keeps every
-            observation.
+            rows, not assets: a partly sparse asset stays in the panel while
+            the dates it is missing are removed for every asset. ``1.0`` keeps
+            every observation. An asset with no price at all is the exception:
+            skfolio removes that column outright, and `to_returns` reports it.
         join: Index-alignment strategy between the asset frame and the optional
             benchmark frame.
         drop_inceptions_nan: Drop every leading row in which any asset still
@@ -136,10 +169,17 @@ def to_returns(
     Returns:
         Return frame, or ``(X, y)`` tuple when ``y_prices`` is supplied.
 
+    Warns:
+        UserWarning: If some columns of ``prices`` or ``y_prices`` have no
+            price at all and were dropped by the conversion; the message names
+            them. A large universe may tolerate a few dead tickers, but they
+            must not vanish unnoticed.
+
     Raises:
         TypeError: If ``prices`` (or ``y_prices``) is not a pandas DataFrame.
         DataError: If a price frame carries object-dtype columns that cannot
-            be cast to float (non-numeric data).
+            be cast to float (non-numeric data), or if the conversion leaves
+            ``prices`` or the benchmark with no column at all.
     """
     if not isinstance(prices, pd.DataFrame):
         raise TypeError(
@@ -167,5 +207,10 @@ def to_returns(
         "fill_nan": cfg.fill_nan,
     }
     if y_prices is not None:
-        return prices_to_returns(prices, y_prices, **kwargs)
-    return prices_to_returns(prices, **kwargs)
+        x_ret, y_ret = prices_to_returns(prices, y_prices, **kwargs)
+        _check_columns_kept(prices, x_ret, name="prices")
+        _check_columns_kept(y_prices, y_ret, name="y_prices")
+        return x_ret, y_ret
+    returns = cast(pd.DataFrame, prices_to_returns(prices, **kwargs))
+    _check_columns_kept(prices, returns, name="prices")
+    return returns

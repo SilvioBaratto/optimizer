@@ -191,7 +191,11 @@ def run_factor_oos_validation(
             are ignored when ``cpcv_config`` is provided; ``min_observations``
             still applies.
         cpcv_config: When provided, uses combinatorial purged cross-validation
-            instead of rolling blocks.  Overrides ``config``.
+            instead of rolling blocks.  Overrides ``config``.  Its
+            ``purged_size`` and ``embargo_size`` count dates of ``scores``
+            (months for a monthly panel), and the defaults are 5 each: pass
+            ``1`` for a monthly panel unless five months of leakage guard are
+            wanted.
 
     Returns:
         Per-fold and aggregate IC and quintile spread statistics.

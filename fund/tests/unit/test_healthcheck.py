@@ -41,6 +41,18 @@ def test_a_missing_heartbeat_is_unhealthy(tmp_path: Path) -> None:
     assert healthcheck.heartbeat_is_fresh(absent, max_age_seconds=60) is False
 
 
+def test_clearing_a_heartbeat_makes_it_unhealthy_and_tolerates_absence(
+    tmp_path: Path,
+) -> None:
+    beat = tmp_path / "beat"
+    healthcheck.touch_heartbeat(beat)
+
+    healthcheck.clear_heartbeat(beat)
+    healthcheck.clear_heartbeat(beat)
+
+    assert healthcheck.heartbeat_is_fresh(beat, max_age_seconds=60) is False
+
+
 def test_touching_an_unwritable_path_does_not_raise(tmp_path: Path) -> None:
     healthcheck.touch_heartbeat(tmp_path / "no-such-dir" / "beat")
 

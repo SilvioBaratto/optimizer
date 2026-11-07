@@ -385,6 +385,7 @@ class MacroRegimeService:
         self,
         max_articles: int = 100,
         fetch_full_content: bool = False,
+        on_progress: ProgressCallback = _noop,
     ) -> dict[str, Any]:
         """Fetch macro-themed news from yfinance and store in DB.
 
@@ -395,6 +396,8 @@ class MacroRegimeService:
                 could not be scraped are skipped; when ``False``, articles are
                 stored with their snippet only and a body scraped by an earlier
                 run for the same article is kept.
+            on_progress: Receives a report per source fetched, so a long
+                rate-limited run keeps its job lease.
 
         Returns:
             Dict with ``"count"`` and ``"errors"`` keys.
@@ -425,6 +428,7 @@ class MacroRegimeService:
             articles = fetcher.fetch_all(
                 max_articles=max_articles,
                 fetch_full_content=fetch_full_content,
+                on_progress=on_progress,
             )
         except Exception as exc:
             logger.error("MacroNewsFetcher.fetch_all failed: %s", exc)
@@ -649,6 +653,7 @@ def run_macro_news_fetch(
         result = service.fetch_macro_news(
             max_articles=request.max_articles,
             fetch_full_content=request.fetch_full_content,
+            on_progress=on_progress,
         )
         session.commit()
 

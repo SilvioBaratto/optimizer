@@ -95,6 +95,10 @@ class PortfolioMandate(BaseModel):
     # ``drift_l1 > threshold``, so a threshold of 2 or more is never crossed and
     # silently disables the drift trigger.
     MAX_DRIFT_L1: ClassVar[float] = 2.0
+    # What ``from_stored`` clamps an over-bound stored threshold to: the largest value
+    # the schema accepts. It is also the value a re-save of the loaded mandate
+    # persists, so it identifies a threshold that is still the dead legacy one.
+    CLAMPED_DRIFT_L1: ClassVar[float] = math.nextafter(MAX_DRIFT_L1, 0.0)
 
     portfolio_id: str
     capital: Decimal = Field(gt=0)
@@ -109,6 +113,36 @@ class PortfolioMandate(BaseModel):
     eligible_tickers: _EligibleTickers = ()
     tradeable_only: bool = False
 
+    @property
+    def drift_threshold_clamped(self) -> bool:
+        """Whether the drift threshold is the clamp of a legacy over-bound value.
+
+        Such a threshold sits at :attr:`CLAMPED_DRIFT_L1`, so the drift trigger can
+        never fire. It is read from the value rather than remembered at load time, so
+        it stays true after a save persists the clamped value, until a real threshold
+        replaces it.
+        """
+        return self.drift_l1_threshold >= self.CLAMPED_DRIFT_L1
+
+    def stored_value_warnings(self) -> list[str]:
+        """Describe stored values that silently disable part of the mandate.
+
+        The clamp is not re-read as a percentage: a stored ``5`` may never have been
+        meant as 5%, and turning on a trigger that has been inert is the adviser's
+        decision, not the loader's.
+
+        Returns:
+            One sentence per problem, empty for a healthy mandate.
+        """
+        if not self.drift_threshold_clamped:
+            return []
+        return [
+            "the drift threshold is clamped just under the L1 bound of "
+            f"{self.MAX_DRIFT_L1:g} (a legacy percent-style value such as 5 was "
+            "stored), so the drift trigger can never fire; set a fraction, e.g. "
+            "0.05 for 5% (fund mandate set --drift 0.05)"
+        ]
+
     @classmethod
     def from_stored(cls, payload: Mapping[str, Any]) -> Self:
         """Rehydrate a persisted mandate, repairing a legacy over-bound threshold.
@@ -116,10 +150,11 @@ class PortfolioMandate(BaseModel):
         Rows saved before ``drift_l1_threshold`` was capped can hold a percent-style
         value such as ``5``. Strict validation would make every reader of the stored
         row (the daemon sweeps, the TUI) fail on it, so the threshold is clamped to
-        the largest value the schema accepts, just under :attr:`MAX_DRIFT_L1` --
+        the largest value the schema accepts, :attr:`CLAMPED_DRIFT_L1` --
         behaviourally what the larger value always was, a trigger that can never fire
-        -- and the next save persists the repaired value. Anything else that fails
-        validation still raises.
+        -- and the next save persists the repaired value. The clamp is reported by
+        :attr:`drift_threshold_clamped` and :meth:`stored_value_warnings`, never
+        re-read as a percentage. Anything else that fails validation still raises.
 
         Args:
             payload: The mandate JSON column. Not mutated.
@@ -137,7 +172,7 @@ class PortfolioMandate(BaseModel):
             and not isinstance(threshold, bool)
             and threshold >= cls.MAX_DRIFT_L1
         ):
-            clamped = math.nextafter(cls.MAX_DRIFT_L1, 0.0)
+            clamped = cls.CLAMPED_DRIFT_L1
             logger.warning(
                 "mandate %s: stored drift_l1_threshold %s exceeds the L1 bound; "
                 "clamped to %s",

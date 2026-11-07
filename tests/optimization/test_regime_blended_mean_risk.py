@@ -12,7 +12,7 @@ from skfolio.model_selection import WalkForward
 from skfolio.portfolio import Portfolio
 from sklearn.pipeline import Pipeline
 
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.optimization import (
     MeanRiskConfig,
     RegimeBlendedMeanRiskConfig,
@@ -603,3 +603,86 @@ class TestFactorsFitParamSpelling:
         assert "enable_metadata_routing" in doc
         assert '"optimizer__factors"' in doc
         assert '"factors"' in doc
+
+
+# ---------------------------------------------------------------------------
+# 12. Factor returns are paired with the assets by position, so dates must match
+# ---------------------------------------------------------------------------
+
+
+class TestFactorsAreDateAligned:
+    @pytest.mark.parametrize(
+        ("routing", "key"),
+        [(False, "optimizer__factors"), (True, "factors")],
+    )
+    def test_fit_rejects_factors_on_another_row_order(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        routing: bool,
+        key: str,
+    ) -> None:
+        with sklearn.config_context(enable_metadata_routing=routing):
+            pipeline, _ = build_regime_blended_mean_risk(
+                factor_returns=factor_returns_df,
+                regime_probabilities=regime_probs_df,
+            )
+            with pytest.raises(DataError, match="factors"):
+                pipeline.fit(returns_df, **{key: factor_returns_df.iloc[::-1]})
+
+    @pytest.mark.parametrize(
+        ("routing", "key"),
+        [(False, "optimizer__factors"), (True, "factors")],
+    )
+    def test_run_cross_val_rejects_factors_on_another_row_order(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+        routing: bool,
+        key: str,
+    ) -> None:
+        with sklearn.config_context(enable_metadata_routing=routing):
+            pipeline, cv = build_regime_blended_mean_risk(
+                factor_returns=factor_returns_df,
+                regime_probabilities=regime_probs_df,
+            )
+            with pytest.raises(DataError, match="factors"):
+                run_cross_val(
+                    pipeline,
+                    returns_df,
+                    cv=cv,
+                    params={key: factor_returns_df.iloc[::-1]},
+                )
+
+    def test_fit_rejects_factors_from_an_offset_calendar(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+    ) -> None:
+        pipeline, _ = build_regime_blended_mean_risk(
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+        )
+        shifted = factor_returns_df.copy()
+        shifted.index = shifted.index + pd.Timedelta(days=1)
+
+        with pytest.raises(DataError, match="factors"):
+            pipeline.fit(returns_df, optimizer__factors=shifted)
+
+    def test_fit_with_aligned_factors_still_works(
+        self,
+        returns_df: pd.DataFrame,
+        factor_returns_df: pd.DataFrame,
+        regime_probs_df: pd.DataFrame,
+    ) -> None:
+        pipeline, _ = build_regime_blended_mean_risk(
+            factor_returns=factor_returns_df,
+            regime_probabilities=regime_probs_df,
+        )
+
+        pipeline.fit(returns_df, optimizer__factors=factor_returns_df)
+
+        assert pipeline[-1].weights_.sum() == pytest.approx(1.0, abs=1e-4)

@@ -13,6 +13,7 @@ boundary; the repositories never ``commit`` themselves.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 
@@ -41,15 +42,36 @@ def _build_config() -> DbConfig:
 database_manager = DatabaseManager(_build_config())
 
 
+def _record_failed_round(session: Session | None, exc: Exception) -> None:
+    """Write the failed round ``exc`` carries, once its transaction is rolled back.
+
+    The round's run row and error live in the transaction the manager has just rolled
+    back. ``fund.agents.graph`` is looked up in ``sys.modules`` instead of imported: a
+    round can only have failed if that module is loaded, and importing it here would
+    pull the agent stack into every command that merely hit a database error.
+    """
+    graph = sys.modules.get("fund.agents.graph")
+    if session is None or graph is None:
+        return
+    graph.record_failed_round(session, exc)
+
+
 @contextmanager
 def get_session() -> Generator[Session, None, None]:
     """Open one sync session via the module-level manager (lazy-initialises).
 
     The caller owns the transaction boundary — commit on success, otherwise the
-    manager rolls back and always closes the session.
+    manager rolls back and always closes the session. A fund round that fails inside
+    the block is rolled back with it, so its failure is recorded in a session of its
+    own before the error propagates.
     """
-    with database_manager.get_session() as session:
-        yield session
+    session: Session | None = None
+    try:
+        with database_manager.get_session() as session:
+            yield session
+    except Exception as exc:
+        _record_failed_round(session, exc)
+        raise
 
 
 def init_db() -> None:

@@ -434,8 +434,9 @@ def _cardinality_cap(constraint_set: Mapping[str, Any]) -> str | None:
 def _annualised(metrics: Mapping[str, Any]) -> tuple[float, float, float]:
     """A tool's annualised mean, volatility and Sharpe, as it reports them.
 
-    The tools annualise their own metrics (252 daily bars), so the Deliberation and
-    Performance views and the agent read the same per-year figures.
+    The tools annualise their own metrics by the bars their panel holds per calendar
+    year (``fund.periods.periods_per_year``), so the Deliberation and Performance
+    views and the agent read the same per-year figures.
     """
     return (
         float(metrics.get("annualized_mean", 0.0)),

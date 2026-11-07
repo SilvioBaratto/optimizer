@@ -79,30 +79,47 @@ _BOND_MARKER = re.compile(
 )
 
 # Funds that hold physical metal, commodity futures or a commodity index. A name
-# with equity vocabulary describes the companies instead (gold miners, copper
-# miners, oil and gas exploration), so it stays in the equity fallback.
+# with company vocabulary describes the businesses instead (gold miners, copper
+# miners, gold explorers, oil and gas exploration), so it stays in the equity
+# fallback.
 _COMMODITY_MARKER = re.compile(
     r"\b(?:gold|silver|platinum|palladium|bullion)\b|precious metals?"
-    r"|commodit(?:y|ies)|\bcrude\b|\bbrent\b|\bwti\b|\boil fund\b|natural gas"
-    r"|\bcopper\b|agricultur"
+    r"|commodit(?:y|ies)|\bcrude\b|\bbrent\b|\bwti\b|\boil fund\b"
+    r"|\bcopper\b"
     r"|\b(?:wheat|corn|soybeans?|sugar|coffee|cotton|cocoa)\b",
     re.I,
 )
-_COMMODITY_COMPANY_VOCABULARY = re.compile(
-    r"\bminers?\b|\bmining\b|\bproducers?\b|royalt|streaming|exploration"
+# Words that name a commodity and also the businesses producing it: a natural gas
+# or agriculture fund can hold gas producers or farm companies. They call a fund a
+# commodity fund only next to a word showing it is a commodity vehicle.
+_AMBIGUOUS_COMMODITY_MARKER = re.compile(r"natural gas|agricultur", re.I)
+# "Trust" is not on the list: it is an issuer name too (First Trust Natural Gas ETF).
+_COMMODITY_VEHICLE = re.compile(
+    r"futures|physical|\bfunds?\b|\betc\b|\betn\b|\bdb\b|\bl\.?p\b"
+    r"|\bbloomberg\b|\bsubindex\b|\bswaps?\b|\bspot\b",
+    re.I,
+)
+_COMPANY_VOCABULARY = re.compile(
+    r"\bminers?\b|\bmining\b|\bproducers?\b|royalt|streaming|explor|\bjuniors?\b"
     r"|\bequit(?:y|ies)\b|\bstocks?\b|\bcompanies\b|\bservices\b|\bequipment\b"
-    r"|\bsector\b|\brefiners?\b|\bmidstream\b|\bdividend",
+    r"|\bsector\b|\brefiners?\b|\bmidstream\b|\bdividend|\bindustry\b",
     re.I,
 )
 
-# Funds that hold no equity, debt or commodity sleeve we can name: spot crypto
-# trusts, currency trusts, dollar-index and volatility funds. Left unclassified
-# rather than mislabelled by the equity fallback.
+# Funds that hold no equity, debt or commodity sleeve we can name: currency
+# trusts, dollar-index funds and volatility products. Left unclassified rather
+# than mislabelled by the equity fallback. Volatility counts only as a traded
+# product (VIX, volatility futures or notes, a term-structure fund): "Minimum
+# Volatility" and "Low Volatility" are equity factor funds.
 _NO_SLEEVE = re.compile(
-    r"bitcoin|ethereum|\bcrypto|currencyshares|currency trust|dollar index"
-    r"|\bvix\b|volatility",
+    r"currencyshares|currency trust|dollar index|\bvix\b"
+    r"|\bvolatility\s+(?:futures|etn|etp|shares|premium)\b"
+    r"|\b(?:short|mid|medium|long)[\s-]?term\s+volatility\b",
     re.I,
 )
+# Spot crypto trusts and bitcoin futures funds hold no equity; a name that
+# describes the companies (bitcoin miners, crypto industry) is an equity fund.
+_CRYPTO = re.compile(r"bitcoin|ethereum|\bcrypto", re.I)
 
 # Segment words that bond funds use ("Euro Corporates", "High Yield") but equity
 # strategies use too ("High Yield Equity Dividend", "Inflation Beneficiaries"),
@@ -174,6 +191,14 @@ def _is_bond_fund(name: str) -> bool:
     )
 
 
+def _is_commodity_fund(name: str) -> bool:
+    if _COMMODITY_MARKER.search(name):
+        return True
+    return bool(
+        _AMBIGUOUS_COMMODITY_MARKER.search(name) and _COMMODITY_VEHICLE.search(name)
+    )
+
+
 def classify_instrument(
     name: str | None,
     instrument_type: str | None,
@@ -204,9 +229,11 @@ def classify_instrument(
     if _NO_SLEEVE.search(name):
         return None
 
-    if _COMMODITY_MARKER.search(name) and not _COMMODITY_COMPANY_VOCABULARY.search(
-        name
-    ):
+    describes_companies = _COMPANY_VOCABULARY.search(name) is not None
+    if _CRYPTO.search(name) and not describes_companies:
+        return None
+
+    if not describes_companies and _is_commodity_fund(name):
         return Classification(AssetClass.COMMODITY.value, None, None)
 
     return Classification(AssetClass.EQUITY.value, None, None)

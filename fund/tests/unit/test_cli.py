@@ -824,7 +824,10 @@ def test_resolving_a_run_appends_a_cli_audit_row(
     assert row["portfolio_id"] == PORTFOLIO_ID
     assert row["actor"] == cli_actor
     assert row["source"] == "cli"
-    assert row["idempotency_key"] == f"{run_id}:{verb}"
+    if verb == "approve":
+        assert row["idempotency_key"].startswith(f"{run_id}:approve:")
+    else:
+        assert row["idempotency_key"] == f"{run_id}:reject"
 
 
 def test_repeated_approve_replays_instead_of_resuming_again(
@@ -837,6 +840,46 @@ def test_repeated_approve_replays_instead_of_resuming_again(
     assert again.exit_code == 0, again.output
     assert "already applied" in again.output
     assert len(_audit_rows(harness, "approve")) == 1
+
+
+def test_second_approve_resumes_a_run_that_regated(harness, monkeypatch) -> None:
+    """An approve whose placement is refused re-gates the run; approving that new gate
+    must resume it, not replay the first approve's audit row."""
+    from fund.agents import graph as graph_mod
+
+    run_id, expected, _res = _seed_and_run(harness, monkeypatch)
+    monkeypatch.setattr(graph_mod, "_require_fill_bars", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        cli,
+        "build_primary",
+        lambda *a, **k: ScriptedFundModel(
+            universe=UNIVERSE, weights=expected, max_orders=3
+        ),
+    )
+    with harness.read() as session:
+        bars = [
+            {col.name: getattr(row, col.name) for col in PriceHistory.__table__.columns}
+            for row in session.query(PriceHistory).filter(PriceHistory.date > ASOF)
+        ]
+        session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()
+        session.commit()
+
+    first = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    assert first.exit_code != 0
+    assert "no paper ticket" in first.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(run_id).status == "responded"
+        session.execute(PriceHistory.__table__.insert(), bars)
+        session.commit()
+
+    second = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+
+    assert second.exit_code == 0, second.output
+    assert "already applied" not in second.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(run_id).status == "completed"
+    keys = [row["idempotency_key"] for row in _audit_rows(harness, "approve")]
+    assert len(set(keys)) == 2
 
 
 def test_approve_refuses_a_run_older_than_a_completed_one(harness, monkeypatch) -> None:

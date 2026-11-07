@@ -31,7 +31,8 @@ the profile's objective.
 - Applied by `optimize_portfolio`: the ConstraintSet bounds `min_weights`,
   `max_weights` (tightened by the K&E position cap) and `budget` — long-only
   `w >= 0`, `sum(w) = 1`, no leverage (D17) — plus the mapped objective, risk measure,
-  `risk_aversion`, tail betas, L1/L2 regularisation and `cardinality`.
+  `risk_aversion`, tail betas, L1/L2 regularisation, `cardinality` and the profile's
+  moment estimators (`prior_config`, from `moments_estimator`).
 - Risk aversion `A` is quoted for variance utility; the tool rescales it for
   CVaR / CDaR / MaxDD so max_utility lands at the risk level that variance-utility
   `A` implies (neither collapsing into min_risk nor drifting to a riskier book).

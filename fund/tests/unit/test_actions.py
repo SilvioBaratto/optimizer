@@ -1013,18 +1013,38 @@ def test_tradeable_only_names_the_eligible_tickers_the_broker_lacks(clean_db) ->
     )
 
     assert result.detail is not None
+    refused, unchecked = result.detail["warnings"]
+    assert "BBB" in refused
+    assert "AAA" not in refused
+    assert "CCC" not in refused
+    assert "not_t212_tradeable" in refused
+    assert "CCC" in unchecked
+    assert "AAA" not in unchecked and "BBB" not in unchecked
+
+
+def test_tradeable_only_names_the_eligible_tickers_it_could_not_check(
+    clean_db,
+) -> None:
+    """A NULL flag keeps the name, so a clean save would read as a verified scope."""
+    seed_panel(clean_db)
+    _flag_tradeable(clean_db, {"AAA": True, "BBB": None, "CCC": False})
+
+    result = _save_mandate(
+        clean_db, tradeable_only=True, eligible_tickers=("AAA", "BBB")
+    )
+
+    assert result.detail is not None
     (warning,) = result.detail["warnings"]
     assert "BBB" in warning
     assert "AAA" not in warning
-    assert "CCC" not in warning
-    assert "not_t212_tradeable" in warning
+    assert "add-instrument" in warning
 
 
 def test_tradeable_only_raises_no_warning_when_every_eligible_ticker_is_carried(
     clean_db,
 ) -> None:
     seed_panel(clean_db)
-    _flag_tradeable(clean_db, {"AAA": True, "BBB": None, "CCC": False})
+    _flag_tradeable(clean_db, {"AAA": True, "BBB": True, "CCC": False})
 
     result = _save_mandate(
         clean_db, tradeable_only=True, eligible_tickers=("AAA", "BBB")

@@ -11,6 +11,7 @@ from skfolio.model_selection import (
     WalkForward,
 )
 
+from optimizer.exceptions import DataError
 from optimizer.validation import (
     CPCVConfig,
     CrossValFailureReport,
@@ -145,6 +146,74 @@ class TestRunCrossVal:
 
         pred = run_cross_val(EqualWeighted(), returns_df)
         assert hasattr(pred, "sharpe_ratio")
+
+
+class TestRunCrossValIndexAlignment:
+    """``y`` and routed params are sliced by position, so their dates must match."""
+
+    @pytest.fixture()
+    def benchmark(self, returns_df: pd.DataFrame) -> pd.Series:
+        return returns_df.mean(axis=1).rename("benchmark")
+
+    @staticmethod
+    def _cv() -> WalkForward:
+        return build_walk_forward(WalkForwardConfig(test_size=21, train_size=100))
+
+    def test_benchmark_with_same_dates_in_another_order_is_rejected(
+        self, returns_df: pd.DataFrame, benchmark: pd.Series
+    ) -> None:
+        from skfolio.optimization import BenchmarkTracker
+
+        shuffled = benchmark.sample(frac=1.0, random_state=0)
+
+        with pytest.raises(DataError, match="y"):
+            run_cross_val(BenchmarkTracker(), returns_df, y=shuffled, cv=self._cv())
+
+    def test_benchmark_from_an_offset_calendar_is_rejected(
+        self, returns_df: pd.DataFrame, benchmark: pd.Series
+    ) -> None:
+        from skfolio.optimization import BenchmarkTracker
+
+        offset = benchmark.copy()
+        offset.index = offset.index + pd.Timedelta(days=1)
+
+        with pytest.raises(DataError, match="y"):
+            run_cross_val(BenchmarkTracker(), returns_df, y=offset, cv=self._cv())
+
+    def test_benchmark_on_the_same_index_still_runs(
+        self, returns_df: pd.DataFrame, benchmark: pd.Series
+    ) -> None:
+        from skfolio.optimization import BenchmarkTracker
+
+        pred = run_cross_val(BenchmarkTracker(), returns_df, y=benchmark, cv=self._cv())
+
+        assert len(pred.portfolios) > 0
+
+    def test_unindexed_benchmark_is_taken_positionally(
+        self, returns_df: pd.DataFrame, benchmark: pd.Series
+    ) -> None:
+        from skfolio.optimization import BenchmarkTracker
+
+        pred = run_cross_val(
+            BenchmarkTracker(), returns_df, y=benchmark.to_numpy(), cv=self._cv()
+        )
+
+        assert len(pred.portfolios) > 0
+
+    def test_misaligned_routed_param_is_rejected(
+        self, returns_df: pd.DataFrame
+    ) -> None:
+        from skfolio.optimization import EqualWeighted
+
+        factors = returns_df.iloc[:, :3].iloc[::-1]
+
+        with pytest.raises(DataError, match="optimizer__factors"):
+            run_cross_val(
+                EqualWeighted(),
+                returns_df,
+                cv=self._cv(),
+                params={"optimizer__factors": factors},
+            )
 
 
 class TestRunCrossValCPCV:

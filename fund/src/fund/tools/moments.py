@@ -26,29 +26,27 @@ Contract (via ``tool_envelope``):
 from __future__ import annotations
 
 import datetime as dt
-import math
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
 from optimizer.moments import MomentEstimationConfig, build_prior
 from optimizer.preprocessing import prices_to_returns
 
-from fund.tools._base import PERIODS_PER_YEAR, ToolResult, err, ok, tool_envelope
+from fund.tools._base import (
+    MIN_RETURN_OBSERVATIONS,
+    ToolResult,
+    depth_floor,
+    dropped_by_returns,
+    err,
+    ok,
+    periods_per_year,
+    tool_envelope,
+)
 from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
     import pandas as pd
     from sqlalchemy.orm import Session
-
-# One trading month of returns: below this no asset has a history worth fitting,
-# whatever the rest of the panel looks like.
-_MIN_OBSERVATIONS = 20
-
-# An asset is dropped when its own history is under this share of the panel's
-# median depth. The common sample starts at the youngest kept asset's first quote,
-# so a listing only slightly past the absolute floor would still cut a multi-year
-# panel to a few weeks for every asset.
-_MIN_DEPTH_SHARE = 0.5
 
 # Common return rows required per kept asset. The covariance has N x N entries,
 # and a sample not comfortably longer than N cannot condition it.
@@ -79,8 +77,9 @@ def estimate_moments(
     Returns:
         ``ok`` with ``assets`` (priced tickers, in order), ``mu`` (``{ticker:
         float}``), ``cov`` (row-major ``N x N`` matrix aligned to ``assets``),
-        ``n_observations``, ``periods_per_year`` (``mu`` and ``cov`` are per daily
-        bar; scale them by it to annualise), ``missing``, ``dropped`` (priced
+        ``n_observations``, ``periods_per_year`` (``mu`` and ``cov`` are per
+        bar; scale them by it to annualise; derived from the sample's own calendar,
+        see :func:`fund.tools._base.periods_per_year`), ``missing``, ``dropped`` (priced
         tickers excluded for having fewer than 20 returns or under half the panel's
         median history) and ``cov_estimator``. ``err`` on an empty universe, no priced
         assets, or too little history, including a common sample shorter than
@@ -102,8 +101,11 @@ def estimate_moments(
     all_returns = cast(
         "pd.DataFrame", prices_to_returns(frame, drop_inceptions_nan=False)
     )
+    # A column with no usable price at all vanishes from ``all_returns``; it is
+    # unpriced, not short, so it belongs with ``missing``.
+    missing = [*missing, *dropped_by_returns(frame, all_returns)]
     depth = all_returns.count()
-    floor = max(_MIN_OBSERVATIONS, math.ceil(_MIN_DEPTH_SHARE * float(depth.median())))
+    floor = depth_floor(depth)
     kept = [col for col in all_returns.columns if depth[col] >= floor]
     dropped = [str(col) for col in all_returns.columns if depth[col] < floor]
     if not kept:
@@ -113,7 +115,7 @@ def estimate_moments(
         )
 
     returns = all_returns[kept].dropna(how="any")
-    required = max(_MIN_OBSERVATIONS, _OBSERVATIONS_PER_ASSET * len(kept))
+    required = max(MIN_RETURN_OBSERVATIONS, _OBSERVATIONS_PER_ASSET * len(kept))
     if returns.shape[0] < required:
         kept_depth = depth[kept]
         shortest = kept_depth.idxmin()
@@ -139,7 +141,7 @@ def estimate_moments(
             "mu": mu,
             "cov": cov,
             "n_observations": int(returns.shape[0]),
-            "periods_per_year": PERIODS_PER_YEAR,
+            "periods_per_year": periods_per_year(returns.index),
             "missing": missing,
             "dropped": dropped,
             "cov_estimator": cfg.cov_estimator.value,

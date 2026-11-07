@@ -1325,6 +1325,8 @@ class TestGetInstrumentsWithYfinanceTicker:
         self, db_session: Session
     ) -> None:
         gone = _transferred_listing(db_session, "GONE")
+        gone.delisted_at = date.today() - timedelta(days=30)
+        db_session.flush()
 
         ids = [r.id for r in _repo(db_session).get_instruments_with_yfinance_ticker()]
 

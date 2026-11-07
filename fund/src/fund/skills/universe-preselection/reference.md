@@ -35,7 +35,8 @@ library but are off in the bound tool.
 | Stage | Setting | Theory |
 |---|---|---|
 | Drop-correlated | pairwise correlation cap 0.95 (fixed, not LLM-set) | `05:71`, `08:108` |
-| Incomplete history | assets with leading/trailing gaps are dropped | - |
+| Short history | assets under half the panel's median history (at least 20 returns) are dropped and listed as `dropped_for_history`; the rest start on the first day they all share | - |
+| Incomplete history | assets that stopped quoting (trailing gaps) are dropped | - |
 
 ## Mandate screen (applied by the bound tool)
 After the stages above, `universe_filter` removes names that breach the client's

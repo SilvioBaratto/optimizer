@@ -507,3 +507,20 @@ class TestThresholdValidation:
         ot = OutlierTreater(winsorize_threshold=winsorize, remove_threshold=remove)
         with pytest.raises(ConfigurationError, match="winsorize_threshold"):
             ot.fit(normal_returns)
+
+
+class TestDefaultThresholds:
+    def test_winsorize_default_sits_well_above_three_sigma(self) -> None:
+        from optimizer.preprocessing import CleaningConfig
+
+        assert OutlierTreater().winsorize_threshold >= 6.0
+        assert CleaningConfig().winsorize_threshold >= 6.0
+
+    def test_default_keeps_most_of_a_ten_percent_move_on_a_calm_column(self) -> None:
+        rng = np.random.default_rng(1)
+        df = pd.DataFrame({"X": rng.normal(0.0, 0.01, 300)})
+        df.iloc[100, 0] = -0.10
+
+        out = OutlierTreater().fit_transform(df)
+
+        assert out.iloc[100, 0] < -0.085

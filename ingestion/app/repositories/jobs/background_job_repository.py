@@ -30,6 +30,10 @@ _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
 _TERMINAL_STATUSES: tuple[str, ...] = ("failed", "completed")
 _DEFAULT_HEARTBEAT_TIMEOUT_SECONDS = 300
 
+# Opens the ``error`` of every row the reaper fails. A worker watching its own
+# row reads it to tell an orphaning from a failure the step wrote itself.
+ORPHAN_ERROR_PREFIX = "orphaned"
+
 _CORE_COLUMNS: frozenset[str] = frozenset(
     {
         "status",
@@ -377,6 +381,9 @@ class BackgroundJobRepository(RepositoryBase):
         here would fail a live fund slot early (letting a duplicate run start)
         and emit terminal metrics for a gauge this process never incremented.
 
+        The stored ``error`` always starts with :data:`ORPHAN_ERROR_PREFIX`;
+        *error_msg* is prefixed when it does not.
+
         Returns ``{"job_type": ..., "attempt": ...}`` per reaped row so the
         caller can emit terminal metrics and (under RECLAIM) re-dispatch the
         step. The single source of the reap rule — :meth:`reconcile_orphans`
@@ -387,6 +394,8 @@ class BackgroundJobRepository(RepositoryBase):
         invariant makes that window negligible, and a spurious re-dispatch is
         safe because fetch writes are idempotent (§5.4). Caller owns the commit.
         """
+        if not error_msg.startswith(ORPHAN_ERROR_PREFIX):
+            error_msg = f"{ORPHAN_ERROR_PREFIX} - {error_msg}"
         cutoff = datetime.now(timezone.utc) - timedelta(
             seconds=heartbeat_timeout_seconds,
         )

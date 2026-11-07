@@ -216,6 +216,17 @@ class Settings(BaseSettings):
         ),
     )
 
+    news_retention_days: int = Field(
+        default=365,
+        ge=0,
+        alias="NEWS_RETENTION_DAYS",
+        description=(
+            "Days of per-ticker news kept in ticker_news; the weekly refetch "
+            "deletes older articles. Each row stores the scraped article body, "
+            "so the table grows by the day without it. 0 keeps everything."
+        ),
+    )
+
     notification_webhook_url: str | None = Field(
         default=None,
         alias="NOTIFICATION_WEBHOOK_URL",

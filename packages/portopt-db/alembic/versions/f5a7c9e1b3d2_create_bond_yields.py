@@ -62,6 +62,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop the ``bond_yields`` table and its index."""
+    """Drop the ``bond_yields`` table and its index, unless it holds rows.
+
+    The upgrade adopts a table that ``create_all`` already built, so a populated
+    table may predate this revision and its rows are not this revision's to
+    delete; it is left in place, and a later upgrade adopts it again. Offline
+    (``--sql``) rendering cannot look inside the table and always emits the drop.
+    """
+    if not op.get_context().as_sql:
+        bind = op.get_bind()
+        has_rows = (
+            sa.inspect(bind).has_table("bond_yields")
+            and bind.execute(sa.text("SELECT 1 FROM bond_yields LIMIT 1")).first()
+            is not None
+        )
+        if has_rows:
+            return
     op.drop_index("ix_bond_yields_country", table_name="bond_yields")
     op.drop_table("bond_yields")

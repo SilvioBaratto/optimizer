@@ -37,6 +37,20 @@ def touch_heartbeat(path: Path | None = None) -> None:
         logger.warning("could not touch the worker heartbeat %s: %s", target, exc)
 
 
+def clear_heartbeat(path: Path | None = None) -> None:
+    """Remove a heartbeat a previous process left behind; an absent file is fine.
+
+    The file sits in ``/tmp`` and outlives a container restart, so without this the
+    probe would read the old process's last beat as the new one's until it aged out. A
+    failed removal logs instead of raising, like :func:`touch_heartbeat`.
+    """
+    target = path if path is not None else heartbeat_path()
+    try:
+        target.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("could not clear the worker heartbeat %s: %s", target, exc)
+
+
 def heartbeat_is_fresh(path: Path, *, max_age_seconds: float) -> bool:
     """Whether ``path`` exists and was touched within ``max_age_seconds``."""
     try:

@@ -1,14 +1,17 @@
 """Tests for the daemon entrypoint (``python -m app.worker``).
 
-``main()`` blocks on a shutdown event, so every test drives it with the event
-pre-set: startup runs to completion, then the wait returns immediately and
-shutdown proceeds. Nothing here opens a socket, a database, or a scheduler.
+``main()`` blocks on a shutdown event, so every test but the supervision ones
+replaces that wait with an immediate "shutdown requested": startup runs to
+completion, then shutdown proceeds. Nothing here opens a socket, a database, or a
+scheduler. The event itself stays clear, because a set event during boot is exactly
+the signal-arrived-early case the worker must honour before it starts the scheduler.
 
-The startup ordering is the contract: metrics are served before the DB is
-touched (so the healthcheck answers during a slow connect), orphans are reaped
-before the scheduler starts (so a reaped job's type is free when its cron
-fires), and the benchmark bootstrap runs off-thread (a cold fetch takes
-minutes and must not delay the first scheduled run).
+The startup ordering is the contract: signal handlers come first (a container's PID 1
+ignores SIGTERM until it has one), metrics are served before the DB is touched (so
+the healthcheck answers during a slow connect), orphans are reaped before the
+scheduler starts (so a reaped job's type is free when its cron fires), and the
+benchmark bootstrap runs off-thread (a cold fetch takes minutes and must not delay
+the first scheduled run).
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,36 +28,52 @@ from app import worker as worker_module
 
 
 @contextmanager
-def _patched(**overrides):
-    """Patch every side-effecting call in ``main()``; yield the mock namespace."""
+def _patched(*, real_wait: bool = False, **overrides):
+    """Patch every side-effecting call in ``main()``; yield the mock namespace.
+
+    Args:
+        real_wait: Keep the real shutdown wait, for tests that drive supervision.
+        **overrides: ``scheduler`` and ``health_check`` replace the defaults.
+    """
     scheduler = overrides.get("scheduler", MagicMock())
     health = overrides.get("health_check", True)
 
-    with (
-        patch.object(worker_module, "_configure_logging"),
-        patch.object(worker_module, "start_http_server") as serve,
-        patch.object(worker_module, "init_db") as init,
-        patch.object(worker_module, "close_db") as close,
-        patch.object(worker_module, "_reconcile_orphans") as reconcile,
-        patch.object(worker_module, "_install_signal_handlers"),
-        patch.object(worker_module, "create_scheduler", return_value=scheduler),
-        patch.object(
-            worker_module.database_manager, "health_check", return_value=health
-        ),
-    ):
+    with ExitStack() as stack:
+        enter = stack.enter_context
+        enter(patch.object(worker_module, "_configure_logging"))
+        serve = enter(patch.object(worker_module, "start_http_server"))
+        init = enter(patch.object(worker_module, "init_db"))
+        close = enter(patch.object(worker_module, "close_db"))
+        reconcile = enter(patch.object(worker_module, "_reconcile_orphans"))
+        signals = enter(patch.object(worker_module, "_install_signal_handlers"))
+        enter(patch.object(worker_module, "create_scheduler", return_value=scheduler))
+        enter(
+            patch.object(
+                worker_module.database_manager, "health_check", return_value=health
+            )
+        )
+        if not real_wait:
+            enter(
+                patch.object(
+                    worker_module,
+                    "_wait_for_shutdown_or_scheduler_death",
+                    return_value=False,
+                )
+            )
         yield MagicMock(
             serve=serve,
             init=init,
             close=close,
             reconcile=reconcile,
+            signals=signals,
             scheduler=scheduler,
         )
 
 
 @pytest.fixture(autouse=True)
-def _preset_shutdown():
-    """Make ``_shutdown.wait()`` return immediately, and reset for the next test."""
-    worker_module._shutdown.set()
+def _clean_shutdown_event():
+    """Start and leave every test with the shutdown event clear."""
+    worker_module._shutdown.clear()
     yield
     worker_module._shutdown.clear()
 
@@ -92,6 +111,35 @@ class TestStartup:
             worker_module.main()
 
         assert order == ["reconcile", "scheduler"]
+
+    def test_installs_signal_handlers_before_any_boot_step(self) -> None:
+        """As a container's PID 1 the process ignores SIGTERM until it has a
+        handler, so a stop during the slow boot would run out the grace period."""
+        order: list[str] = []
+
+        with _patched() as m:
+            m.signals.side_effect = lambda: order.append("signals")
+            m.serve.side_effect = lambda *_a, **_k: order.append("metrics")
+            m.init.side_effect = lambda *_a, **_k: order.append("init_db")
+            m.reconcile.side_effect = lambda: order.append("reconcile")
+            m.scheduler.start.side_effect = lambda: order.append("scheduler")
+            worker_module.main()
+
+        assert order[0] == "signals"
+        assert order.index("signals") < order.index("scheduler")
+
+    def test_a_shutdown_requested_during_boot_never_starts_the_scheduler(
+        self,
+    ) -> None:
+        """Starting it would fire misfire catch-up jobs that the drain then has to
+        wait for or abandon."""
+        with _patched() as m, patch.object(worker_module, "_force_exit") as fx:
+            m.init.side_effect = lambda *_a, **_k: worker_module._shutdown.set()
+            worker_module.main()
+
+        m.scheduler.start.assert_not_called()
+        m.close.assert_called_once()
+        fx.assert_not_called()
 
     def test_continues_when_health_check_fails(self) -> None:
         """A red health check is logged, not fatal — the DB may still come up."""
@@ -203,7 +251,7 @@ class TestSchedulerSupervision:
         scheduler.loop_alive.return_value = False
 
         with (
-            _patched(scheduler=scheduler),
+            _patched(scheduler=scheduler, real_wait=True),
             patch.object(worker_module, "_SUPERVISION_INTERVAL_SECONDS", 0.01),
             patch.object(worker_module, "_force_exit"),
         ):
@@ -218,7 +266,7 @@ class TestSchedulerSupervision:
         scheduler.loop_alive.return_value = True
 
         with (
-            _patched(scheduler=scheduler),
+            _patched(scheduler=scheduler, real_wait=True),
             patch.object(worker_module, "_SUPERVISION_INTERVAL_SECONDS", 0.01),
             patch.object(worker_module, "_force_exit"),
         ):
@@ -234,7 +282,7 @@ class TestSchedulerSupervision:
         scheduler.shutdown.side_effect = lambda wait=True: block.wait(timeout=5)
 
         with (
-            _patched(scheduler=scheduler),
+            _patched(scheduler=scheduler, real_wait=True),
             patch.object(worker_module, "_SUPERVISION_INTERVAL_SECONDS", 0.01),
             patch.object(
                 worker_module.settings,

@@ -218,7 +218,9 @@ def build_synthetic_data(
     Args:
         config: Synthetic data configuration. Defaults to ``SyntheticDataConfig()``.
         distribution_estimator: Pre-built distribution estimator. When ``None``, one is
-            built from ``config.vine_copula_config`` (or skfolio default).
+            built from ``config.vine_copula_config``, or from a default
+            ``VineCopulaConfig()`` (log-transformed, guarded against returns
+            at or below -100%) when that is unset too.
         sample_args: Arguments passed to the distribution's ``sample`` method.
             Use ``{"conditioning": {"AAPL": -0.10}}`` for conditional stress testing.
         **kwargs: Additional keyword arguments forwarded to the
@@ -230,7 +232,9 @@ def build_synthetic_data(
     if config is None:
         config = SyntheticDataConfig()
 
-    if distribution_estimator is None and config.vine_copula_config is not None:
+    # Left to skfolio, ``None`` becomes ``VineCopula()`` with
+    # ``log_transform=False``, which can sample returns below -100%.
+    if distribution_estimator is None:
         distribution_estimator = build_vine_copula(config.vine_copula_config)
 
     return _SeededSyntheticData(

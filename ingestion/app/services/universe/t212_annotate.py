@@ -13,6 +13,11 @@ broker. The universe itself is never narrowed here; a run that must be executabl
 at the broker restricts itself with
 ``UniverseRepository.get_t212_tradeable_tickers``.
 
+A pin does not exempt an instrument from the tradability judgement: the broker
+scope of a mandate reads the flag for exactly the tickers a mandate pins. Only the
+broker line itself (``t212_ticker``) and a looked-up ISIN are left alone on the
+operator's own (``manual``) pins, because the operator curated them.
+
 Skips cleanly when Trading 212 is not configured, leaving every flag untouched.
 """
 
@@ -53,6 +58,11 @@ _MAX_CONSECUTIVE_LOOKUP_ERRORS = 20
 # locks are held for one short run of UPDATEs, not for the hours the loop lasts.
 _COMMIT_EVERY = 100
 
+# The pin source of ``add-instrument --pin``. Mandate pins (``mandate:<id>``) only
+# keep a name in the universe; the operator's own pins also carry a hand-picked
+# broker line.
+_OPERATOR_PIN_SOURCE = "manual"
+
 
 class IsinLookupError(RuntimeError):
     """The ISIN source failed (throttled, unreachable), which is not "no ISIN"."""
@@ -68,6 +78,7 @@ class _Target:
     currency_code: str | None
     t212_ticker: str | None
     is_t212_tradeable: bool | None
+    operator_pinned: bool
 
 
 @dataclass(frozen=True)
@@ -162,13 +173,20 @@ def _plan_update(
     lines = isin_to_t212.get(isin, {})
     t212_ticker = _pick_t212_ticker(lines, target.currency_code)
     # A known ISIN with no unambiguous T212 line proves a stored cross-reference
-    # stale; a missing ISIN proves nothing.
-    write_ticker = not (t212_ticker is None and target.t212_ticker is None)
+    # stale; a missing ISIN proves nothing, and neither does a catalogue that
+    # lists no ISIN at all (an empty or reshaped answer), which would otherwise
+    # clear every stored line.
+    write_ticker = (
+        bool(isin_to_t212)
+        and not target.operator_pinned
+        and not (t212_ticker is None and target.t212_ticker is None)
+    )
     tradeable = _is_tradeable(isin, isin_to_t212)
     write_flag = tradeable is not None and target.is_t212_tradeable is not tradeable
     # An ISIN the row did not have is one Yahoo just supplied; keep it so the next
     # run neither repeats the request nor leaves ISIN-keyed checks blind to the row.
-    new_isin = None if target.isin else isin
+    # The operator's own rows keep exactly the identifiers they were given.
+    new_isin = None if target.isin or target.operator_pinned else isin
     if not (write_ticker or write_flag or new_isin):
         return None
     return _Update(
@@ -244,19 +262,22 @@ def run_t212_annotate(
         isin_lookup: ``ticker -> ISIN`` resolver (defaults to a yfinance lookup).
         on_progress: Optional progress callback.
 
-    Pinned instruments are left out entirely: their ``t212_ticker`` is set by the
-    operator (``add-instrument --t212-ticker``), and the ISIN match that drives
-    this step would clear it for lack of an ISIN or pick a wrong-currency twin.
+    Every active instrument is judged for tradability, pinned or not. The ones
+    the operator pinned themselves (``add-instrument --pin``) keep their
+    ``t212_ticker`` and ISIN as given: the ISIN match that drives this step would
+    clear a hand-set broker line for lack of an ISIN or pick a wrong-currency twin.
+    A catalogue with no ISIN-bearing line proves nothing, so it also leaves every
+    stored ``t212_ticker`` alone.
 
     Returns:
         ``{"annotated": int, "total": int, "skipped": bool, "lookup_errors": int,
         "cleared": int, "pinned_skipped": int, "tradeable": int, "untradeable":
         int, "isin_stored": int}``; ``cleared`` counts stale T212 tickers removed,
-        ``total`` excludes the ``pinned_skipped`` rows. ``tradeable`` and
-        ``untradeable`` count the instruments whose ISIN was matched against the
-        catalogue this run, whether or not their flag changed; the rest of
-        ``total`` is "not evaluated". ``isin_stored`` counts ISINs looked up for
-        rows that had none and written onto them.
+        ``pinned_skipped`` the rows whose broker line was left to the operator.
+        ``tradeable`` and ``untradeable`` count the instruments whose ISIN was
+        matched against the catalogue this run, whether or not their flag
+        changed; the rest of ``total`` is "not evaluated". ``isin_stored`` counts
+        ISINs looked up for rows that had none and written onto them.
 
     Raises:
         IsinLookupError: Too many ISIN lookups failed in a row; annotations made
@@ -282,7 +303,9 @@ def run_t212_annotate(
     # the row locks of every UPDATE so far) across thousands of network calls would
     # block concurrent writers on ``instruments``.
     with database_manager.get_session() as session:
-        pinned = PinnedInstrumentRepository(session).pinned_tickers()
+        operator_pins = PinnedInstrumentRepository(session).pinned_tickers(
+            source=_OPERATOR_PIN_SOURCE
+        )
         active = UniverseRepository(session).get_active_instruments()
         targets = [
             _Target(
@@ -292,14 +315,20 @@ def run_t212_annotate(
                 i.currency_code,
                 i.t212_ticker,
                 i.is_t212_tradeable,
+                i.yfinance_ticker in operator_pins,
             )
             for i in active
-            if i.yfinance_ticker not in pinned
         ]
-        pinned_skipped = len(active) - len(targets)
+    pinned_skipped = sum(t.operator_pinned for t in targets)
     if pinned_skipped:
         logger.info(
-            "t212_annotate: left %d pinned instruments untouched", pinned_skipped
+            "t212_annotate: left the broker ticker of %d pinned instruments untouched",
+            pinned_skipped,
+        )
+    if not isin_to_t212:
+        logger.warning(
+            "t212_annotate: the Trading 212 catalogue lists no ISIN, so stored "
+            "broker tickers and tradability flags are left as they are"
         )
     total = len(targets)
 

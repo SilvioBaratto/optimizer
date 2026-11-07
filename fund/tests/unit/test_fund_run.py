@@ -88,6 +88,13 @@ def _close_on(start: float, phase: float, i: int) -> float:
     return round(start * (1.0 + 0.02 * math.sin(0.5 * i + phase)), 6)
 
 
+# Calendar days seeded before ``_START``: the risk gate judges the loss ceilings on
+# the worst year, so a run needs more than a year of bars behind its decision date.
+# The lead-in continues the same oscillation backwards; every close from ``_START``
+# on is unchanged.
+_LEAD_DAYS = 400
+
+
 def _seed_panel(db_session) -> None:
     """Seed an ``_N_DAYS`` x 3 close panel extending past ``_ASOF``."""
     for ticker, (start, phase) in _SERIES.items():
@@ -104,7 +111,7 @@ def _seed_panel(db_session) -> None:
         )
         db_session.add(inst)
         db_session.flush()
-        for i in range(_N_DAYS):
+        for i in range(-_LEAD_DAYS, _N_DAYS):
             db_session.add(
                 PriceHistory(
                     instrument_id=inst.id,

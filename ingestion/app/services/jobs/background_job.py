@@ -16,7 +16,10 @@ from collections.abc import Callable
 from typing import Any
 
 from app.config import settings
-from app.repositories.jobs.background_job_repository import BackgroundJobRepository
+from app.repositories.jobs.background_job_repository import (
+    ORPHAN_ERROR_PREFIX,
+    BackgroundJobRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,27 @@ class JobAlreadyRunningError(Exception):
     def __init__(self, existing_job_id: str) -> None:
         self.existing_job_id = existing_job_id
         super().__init__(f"A job is already in progress (id={existing_job_id})")
+
+
+def _ended_by_worker(row: Any) -> bool:
+    """Report whether the worker itself wrote the row's terminal status.
+
+    Args:
+        row: The job row after its heartbeat found it no longer running.
+
+    Returns:
+        True for ``completed``, and for ``failed`` unless the reaper wrote it. An
+        ``error`` that is neither empty nor text is treated as the reaper's, which
+        keeps the cancel signal on the safe side.
+    """
+    if row.status == "completed":
+        return True
+    if row.status != "failed":
+        return False
+    error = row.error
+    if error is None:
+        return True
+    return isinstance(error, str) and not error.startswith(ORPHAN_ERROR_PREFIX)
 
 
 class BackgroundJobService:
@@ -312,11 +336,13 @@ class BackgroundJobService:
         """Single heartbeat tick. Returns False if loop should exit.
 
         ``update_heartbeat`` only matches a ``running`` row, so a ``False`` means
-        either the reaper took the row or the step already marked it
-        ``completed`` and is still finishing post-sweep work. Only the first is an
-        orphan: a completed row ends the loop quietly and leaves *stop_event*
-        alone, because that event doubles as the cancel signal and setting it
-        would abort work the step is entitled to finish.
+        either the reaper took the row or the step already marked it ``completed``
+        or ``failed`` itself and is still finishing post-sweep work. Only the
+        first is an orphan: a row the step ended ends the loop quietly and leaves
+        *stop_event* alone, because that event doubles as the cancel signal and
+        setting it would abort work the step is entitled to finish. A ``failed``
+        row is the reaper's when its ``error`` opens with
+        :data:`~app.repositories.jobs.background_job_repository.ORPHAN_ERROR_PREFIX`.
         """
         try:
             with self._get_session_context_manager() as session:
@@ -327,7 +353,7 @@ class BackgroundJobService:
                 finished = False
                 if not ok:
                     row = repo.get(job_id)
-                    finished = row is not None and row.status == "completed"
+                    finished = row is not None and _ended_by_worker(row)
                 session.commit()
         except Exception:
             # Best-effort liveness tick (see method docstring): a transient DB
@@ -337,7 +363,7 @@ class BackgroundJobService:
             return True
         if not ok:
             if finished:
-                logger.debug("heartbeat stopped: job %s already completed", job_id)
+                logger.debug("heartbeat stopped: job %s already finished", job_id)
                 return False
             logger.warning("heartbeat reaped row %s — signalling cancel", job_id)
             stop_event.set()

@@ -37,8 +37,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from portopt_db.base import ClockTimestamp
+from portopt_db.models import PaperOrder
 from portopt_db.repositories.market_data.fx_rates_repository import FxRatesRepository
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
+from sqlalchemy import update
 
 from fund.audit.orders_repository import OrderRepository, weights_hash
 from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
@@ -235,6 +238,27 @@ def _ticket_from_row(order: Any, *, idempotent: bool) -> dict[str, Any]:
     }
 
 
+def _make_newest(repo: OrderRepository, portfolio_id: uuid.UUID, order: Any) -> None:
+    """Re-stamp ``order`` as the portfolio's newest ticket when a later one exists.
+
+    The current book is the newest ticket, ranked by ``created_at`` after the decision
+    and fill bars. Approving weights that equal an older ticket of the same bar hands
+    that ticket back, and left alone the ticket placed in between would keep ranking
+    as the book (NAV, drift) while the positions snapshot points at the old one. The
+    stamp is written in SQL on the database clock, like every other ticket's, and the
+    row is left untouched when it already is the newest.
+    """
+    newest = repo.latest_for_portfolio(portfolio_id)
+    if newest is None or newest.id == order.id:
+        return
+    repo.session.execute(
+        update(PaperOrder)
+        .where(PaperOrder.id == order.id)
+        .values(created_at=ClockTimestamp())
+        .execution_options(synchronize_session=False)
+    )
+
+
 @tool_envelope
 def place_orders(
     session: Session,
@@ -248,6 +272,10 @@ def place_orders(
     commission_bps: float = _DEFAULT_COMMISSION_BPS,
 ) -> ToolResult:
     """Place (or return) the idempotent paper ticket for ``weights`` as of ``asof``.
+
+    A stored ticket returned for the same key becomes the portfolio's newest again, so
+    re-approving weights that equal an older ticket of the bar puts the book back on
+    that ticket instead of the one placed after it.
 
     Args:
         session: A sync ``portopt_db`` session (D1); the tool does not own it.
@@ -291,6 +319,7 @@ def place_orders(
         ):
             # HITL re-run (D3): the ticket already exists priced with the same
             # params — return it, don't re-place.
+            _make_newest(repo, pid, existing)
             return ok(_ticket_from_row(existing, idempotent=True))
         # Same weights-only key but different cost params: the stored ticket was
         # priced differently, so returning it would misreport the request.

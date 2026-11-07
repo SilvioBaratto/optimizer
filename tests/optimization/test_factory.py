@@ -591,6 +591,47 @@ class TestMinSectorWeights:
             )
 
 
+class TestMinSectorWeightsNaming:
+    def test_floor_label_absent_from_mapping_raises(self) -> None:
+        """A GICS 'Health Care' vs Yahoo 'Healthcare' mismatch must not no-op."""
+        mapping = {"A": "Health Care", "B": "Health Care", "C": "Technology"}
+        with pytest.raises(ValueError, match="Healthcare"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                min_sector_weights={"Healthcare": 0.30},
+            )
+
+    def test_one_absent_floor_among_present_ones_still_raises(self) -> None:
+        mapping = {"A": "Health Care", "B": "Technology"}
+        with pytest.raises(ValueError, match="Healthcare"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                min_sector_weights={"Technology": 0.10, "Healthcare": 0.30},
+            )
+
+    def test_zero_floor_on_absent_sector_emits_no_row(self) -> None:
+        mapping = {"A": "Technology", "B": "Energy"}
+        model = build_mean_risk(
+            MeanRiskConfig(),
+            sector_mapping=mapping,
+            min_sector_weights={"Technology": 0.10, "Utilities": 0.0},
+        )
+        assert list(model.linear_constraints) == ["Technology >= 0.1"]
+
+    def test_floor_checked_against_explicit_groups_kwarg(self) -> None:
+        mapping = {"A": "Technology", "B": "Energy"}
+        groups = {"A": "Tech", "B": "Energy"}
+        with pytest.raises(ValueError, match="Technology"):
+            build_mean_risk(
+                MeanRiskConfig(),
+                sector_mapping=mapping,
+                min_sector_weights={"Technology": 0.10},
+                groups=groups,
+            )
+
+
 class TestMinSectorWeightsIntegration:
     """Fit-level tests verifying floors are respected after optimization."""
 

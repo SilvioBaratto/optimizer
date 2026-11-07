@@ -52,6 +52,14 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
        winsorised to ``mu ± winsorize_threshold * sigma``.
     3. **Normal** — ``|z| < winsorize_threshold`` → kept as-is.
 
+    The default ``winsorize_threshold`` of 8 is deliberately far into the tail.
+    A single-name crash (an earnings gap, a halt reopening) is a genuine
+    observation that CVaR and drawdown estimates must see, and the z-score of
+    such a day is already deflated by its own contribution to ``sigma_``;
+    clipping it at 3 sigma would understate the very risk being optimised.
+    Cells that are known data errors belong to ``remove_threshold`` and
+    ``DataValidator``, and known economic events to ``protected_mask``.
+
     Args:
         winsorize_threshold: Z-score boundary between normal observations and
             outliers.
@@ -82,7 +90,7 @@ class OutlierTreater(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
-        winsorize_threshold: float = 3.0,
+        winsorize_threshold: float = 8.0,
         remove_threshold: float = 10.0,
         protected_mask: pd.DataFrame | None = None,
     ) -> None:

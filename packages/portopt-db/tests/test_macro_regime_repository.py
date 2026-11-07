@@ -154,3 +154,63 @@ class TestUpsertBondYieldsReferenceDate:
 
         row = db_session.query(BondYield).filter(BondYield.country == "USA_BOND_DATE")
         assert row.one().reference_date == datetime.date(2026, 12, 31)
+
+
+class TestUpsertMacroNewsDuplicates:
+    """A batch may repeat an article or a theme without breaking the write."""
+
+    def test_when_a_news_id_repeats_in_a_batch_then_no_statement_repeats_a_key(
+        self, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Collapse repeats: PostgreSQL rejects one ON CONFLICT hitting a key twice.
+
+        SQLite tolerates the repeat, so the statements' rows are inspected directly.
+        """
+        repo = MacroRegimeRepository(db_session)
+        sent: list[list[str]] = []
+        original = repo._upsert
+
+        def _spy(model: type, rows: list[dict], *args: object, **kwargs: object) -> int:
+            sent.append([r["news_id"] for r in rows])
+            return original(model, rows, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(repo, "_upsert", _spy)
+
+        repo.upsert_macro_news(
+            [
+                _body_row("d1", "first", "body one"),
+                _body_row("d1", "second", "body two"),
+            ]
+        )
+        db_session.flush()
+
+        assert all(len(ids) == len(set(ids)) for ids in sent)
+        stored = _stored(db_session, "d1")
+        assert stored.snippet == "second"
+        assert stored.full_content == "body two"
+
+    def test_when_a_repeat_has_no_body_then_the_body_of_the_other_is_kept(
+        self, db_session: Session
+    ) -> None:
+        """Do not let a snippet-only duplicate discard a scraped body."""
+        repo = MacroRegimeRepository(db_session)
+
+        repo.upsert_macro_news(
+            [_body_row("d2", "with body", "scraped"), _body_row("d2", "bare", None)]
+        )
+        db_session.flush()
+
+        stored = _stored(db_session, "d2")
+        assert stored.full_content == "scraped"
+        assert stored.snippet == "bare"
+
+    def test_when_a_theme_repeats_then_it_is_stored_once(
+        self, db_session: Session
+    ) -> None:
+        """Deduplicate the theme list before it meets the unique constraint."""
+        repo = MacroRegimeRepository(db_session)
+
+        repo.upsert_macro_news([_news_row("d3", "rates,rates,growth")])
+        db_session.flush()
+
+        assert _themes_of(db_session, "d3") == {"rates", "growth"}

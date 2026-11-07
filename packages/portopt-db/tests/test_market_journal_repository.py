@@ -187,7 +187,6 @@ class TestMarketJournalRepositoryUpsert:
             news_themes={"macro": ["rates"]},
             narrative="v2",
             source_counts={"a": 1},
-            region="EU",
         )
         db_session.flush()
 
@@ -206,7 +205,7 @@ class TestMarketJournalRepositoryUpsert:
         assert rows[0].market_moves == {"^GSPC": -0.4}
         assert rows[0].news_themes == {"macro": ["rates"]}
         assert rows[0].source_counts == {"a": 1}
-        assert rows[0].region == "EU"
+        assert rows[0].region == "US"
 
     def test_updated_at_advances_created_at_preserved(self, db_session) -> None:
         """On conflict, updated_at must advance while created_at stays frozen."""
@@ -306,3 +305,51 @@ class TestMarketJournalRepositoryReads:
         repo = MarketJournalRepository(db_session)
         rows = repo.get_range(dt.date(1980, 1, 1), dt.date(1980, 12, 31))
         assert list(rows) == []
+
+
+class TestSingleDigestPerDay:
+    """The key is ``as_of`` alone, so a second region must not overwrite the first."""
+
+    def _write(self, repo: MarketJournalRepository, region: str, narrative: str) -> int:
+        return repo.upsert_journal(
+            _AS_OF_A,
+            macro_deltas={},
+            market_moves={},
+            news_themes={},
+            narrative=narrative,
+            source_counts={},
+            region=region,
+        )
+
+    def test_a_different_region_is_refused_instead_of_overwriting(
+        self, db_session
+    ) -> None:
+        """Keep the stored digest and say why the second one was not written."""
+        repo = MarketJournalRepository(db_session)
+        self._write(repo, "US", "us digest")
+
+        with pytest.raises(ValueError, match="US"):
+            self._write(repo, "EU", "eu digest")
+
+        stored = repo.get_for_date(_AS_OF_A)
+        assert stored is not None
+        assert (stored.region, stored.narrative) == ("US", "us digest")
+
+    def test_rebuilding_the_same_region_still_refreshes_the_row(
+        self, db_session
+    ) -> None:
+        """Leave the idempotent re-run untouched."""
+        repo = MarketJournalRepository(db_session)
+        self._write(repo, "US", "first")
+
+        self._write(repo, "US", "second")
+
+        stored = repo.get_for_date(_AS_OF_A)
+        assert stored is not None
+        assert stored.narrative == "second"
+
+    def test_an_unwritten_date_accepts_any_region(self, db_session) -> None:
+        """Only an existing digest for another region blocks the write."""
+        repo = MarketJournalRepository(db_session)
+
+        assert self._write(repo, "EU", "eu digest") == 1

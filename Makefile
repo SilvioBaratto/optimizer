@@ -23,7 +23,7 @@ typecheck:
 	cd ingestion && uv run mypy app
 
 pyright:
-	uv run pyright
+	uv run pyright --warnings
 
 test:
 	uv run pytest tests/ -v --cov=optimizer --cov-report=term-missing --cov-fail-under=90

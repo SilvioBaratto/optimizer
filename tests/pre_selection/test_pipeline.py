@@ -35,7 +35,7 @@ class TestPreSelectionConfig:
     def test_default_config(self) -> None:
         cfg = PreSelectionConfig()
         assert cfg.max_abs_return == 10.0
-        assert cfg.winsorize_threshold == 3.0
+        assert cfg.winsorize_threshold == 8.0
         assert cfg.correlation_threshold == 0.95
         assert cfg.top_k is None
         assert cfg.use_pareto is False
@@ -665,7 +665,7 @@ class TestNewConfigFields:
 
     def test_new_defaults(self) -> None:
         cfg = PreSelectionConfig()
-        assert cfg.zero_variance_threshold == 1e-8
+        assert cfg.zero_variance_threshold == 0.0
         assert cfg.drop_internal_nan is False
         assert cfg.select_k_measure is SelectKMeasure.SHARPE_RATIO
         assert cfg.pareto_threshold == -0.5
@@ -838,3 +838,86 @@ class TestNonExpiringWithDates:
         )
         out = build_preselection_pipeline(cfg, expiration_dates={}).fit_transform(df)
         assert list(out.columns) == ["A", "B", "C"]
+
+
+class TestLowVolatilityAssetsSurvive:
+    """Only a constant series carries no information; a quiet one does."""
+
+    @staticmethod
+    def _frame() -> pd.DataFrame:
+        rng = np.random.default_rng(0)
+        idx = pd.bdate_range("2025-01-01", periods=500)
+        df = pd.DataFrame(
+            rng.normal(0.0004, 0.01, (500, 6)),
+            index=idx,
+            columns=[f"EQ{i}" for i in range(6)],
+        )
+        calendar_days = pd.Series(idx).diff().dt.days.fillna(1).to_numpy()
+        df["XEON"] = (1 + 0.025 / 360) ** calendar_days - 1 + rng.normal(0, 5e-6, 500)
+        return df
+
+    def test_default_config_keeps_overnight_rate_fund(self) -> None:
+        df = self._frame()
+        assert df["XEON"].var() < 1e-8
+
+        out = build_preselection_pipeline().fit_transform(df)
+
+        assert "XEON" in out.columns
+
+    def test_default_config_drops_a_constant_column(self) -> None:
+        df = self._frame()
+        df["FLAT"] = 0.1
+
+        out = build_preselection_pipeline().fit_transform(df)
+
+        assert "FLAT" not in out.columns
+        assert "XEON" in out.columns
+
+    def test_default_config_drops_an_all_zero_column(self) -> None:
+        df = self._frame()
+        df["ZERO"] = 0.0
+
+        out = build_preselection_pipeline().fit_transform(df)
+
+        assert "ZERO" not in out.columns
+
+    def test_explicit_threshold_still_applies(self) -> None:
+        cfg = PreSelectionConfig(zero_variance_threshold=1e-8)
+
+        out = build_preselection_pipeline(cfg).fit_transform(self._frame())
+
+        assert "XEON" not in out.columns
+
+
+class TestDefaultsKeepGenuineCrashes:
+    """The default cleaning must not flatten a real single-name gap."""
+
+    @staticmethod
+    def _frame_with_gap() -> pd.DataFrame:
+        rng = np.random.default_rng(3)
+        df = pd.DataFrame(
+            rng.normal(0.0004, 0.015, (250, 6)),
+            index=pd.bdate_range("2025-01-01", periods=250),
+            columns=list("ABCDEF"),
+        )
+        df.iloc[120, 0] = -0.18
+        return df
+
+    def test_pre_selection_defaults_do_not_clip_an_earnings_gap(self) -> None:
+        out = build_preselection_pipeline().fit_transform(self._frame_with_gap())
+
+        assert out.iloc[120, 0] < -0.14
+
+    def test_portfolio_pipeline_fit_data_keeps_the_gap(self) -> None:
+        from optimizer.optimization import MeanRiskConfig, build_mean_risk
+        from optimizer.pre_selection import build_portfolio_pipeline
+
+        df = self._frame_with_gap()
+        pipe = build_portfolio_pipeline(build_mean_risk(MeanRiskConfig()))
+        cleaned = pipe[:-1].fit_transform(df)
+
+        assert cleaned.iloc[120, 0] < -0.14
+
+    def test_winsorize_default_sits_well_above_three_sigma(self) -> None:
+        assert PreSelectionConfig().winsorize_threshold >= 6.0
+        assert PreSelectionConfig.for_daily_annual().winsorize_threshold >= 6.0

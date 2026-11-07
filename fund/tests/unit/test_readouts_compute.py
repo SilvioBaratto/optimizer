@@ -38,7 +38,9 @@ from fund.readouts_compute import compute_results
 from fund.schemas import ConstraintSet
 from fund.tools.optimize import optimize_portfolio
 
-_PERIODS_PER_YEAR = 252.0
+# The seeded panels are consecutive calendar days, so the tools derive 365 bars a year
+# from the index (not a fixed 252).
+_PERIODS_PER_YEAR = 365.0
 
 # Default walk-forward needs train 252 + purge 5 + test 63 = 320 return rows.
 _LONG_PANEL_DAYS = 400
@@ -212,7 +214,9 @@ def test_compute_results_replays_on_base_currency_returns(
     ]
     base_prices = pd.DataFrame({"EUA": eur, "USB": usd_in_eur}, index=days)
     oracle = Portfolio(
-        prices_to_returns(base_prices), np.array([weights["EUA"], weights["USB"]])
+        prices_to_returns(base_prices),
+        np.array([weights["EUA"], weights["USB"]]),
+        annualization_factor=_PERIODS_PER_YEAR,
     )
     assert result.backtest is not None
     assert result.backtest.standard_deviation == pytest.approx(
@@ -350,7 +354,9 @@ def test_compute_results_annualises_frontier_and_backtest_metrics(
     frame, _ = load_price_frame(priced_session, ASOF, list(UNIVERSE))
     returns = prices_to_returns(frame)
     portfolio = Portfolio(
-        returns, np.array([solved["weights"][c] for c in returns.columns])
+        returns,
+        np.array([solved["weights"][c] for c in returns.columns]),
+        annualization_factor=_PERIODS_PER_YEAR,
     )
     assert result.frontier is not None
     assert result.frontier.mean == pytest.approx(portfolio.annualized_mean)
@@ -381,7 +387,9 @@ def test_compute_results_backtest_carries_annualised_metrics(
 
     constraint_set: dict[str, Any] = make_constraint_set().model_dump(mode="json")
     weights = {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}
-    expected = backtest(priced_session, ASOF, weights)["data"]["metrics"]
+    expected = backtest(priced_session, ASOF, weights, window={"train_size": 756})[
+        "data"
+    ]["metrics"]
 
     result = compute_results(
         priced_session, ASOF, list(UNIVERSE), constraint_set, weights

@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 # position that needs exiting.
 _WEIGHT_DUST = 1e-4
 
+# A weight vector that sums to 1 only up to float error carries no real cash
+# sleeve; treating the residual as one would skew the drift of a fully invested
+# book.
+_CASH_NOISE = 1e-12
+
 _SEMIANNUAL_FREQ = PANDAS_FREQ[RebalancingFrequency.SEMIANNUAL]
 _SEMIANNUAL_MONTHS = (1, 7)
 
@@ -64,8 +69,15 @@ def compute_drifted_weights(
 ) -> npt.NDArray[np.float64]:
     """Compute portfolio weights after one period of returns.
 
+    Weights that sum to less than 1 leave a cash sleeve (the remainder) that
+    earns zero, so a 90%-invested book that returns nothing does not drift. The
+    returned weights are shares of the whole portfolio value, cash included,
+    and therefore sum to less than 1 by the cash share.
+
     Args:
-        weights: Current portfolio weights (must sum to 1), shape (n_assets,).
+        weights: Current portfolio weights, shape (n_assets,). They normally
+            sum to 1; a sum below 1 is read as a cash sleeve and a sum above 1
+            as leverage financed at a zero rate.
         returns: Single-period asset returns, shape (n_assets,).
 
     Returns:
@@ -77,7 +89,10 @@ def compute_drifted_weights(
     r = _as_1d("returns", returns)
     _check_aligned(w, r, "weights", "returns")
     grown = w * (1.0 + r)
-    total = grown.sum()
+    cash = float(1.0 - w.sum())
+    if abs(cash) < _CASH_NOISE:
+        cash = 0.0
+    total = grown.sum() + cash
     if not np.isfinite(total) or total == 0.0:
         return grown
     return grown / total
@@ -219,18 +234,22 @@ def apply_no_trade_band(
     Turnover-reducing partial rebalance: assets inside the band keep their
     current (drifted) weight exactly, and the assets that breach the band
     move to their target weights, rescaled pro rata so the whole vector sums
-    to 1 (the breached targets share ``1 - sum(held weights)``). Held
-    positions are never touched by the rescale, so no in-band asset is traded.
+    to the target's invested level ``sum(target_weights)`` (the breached
+    targets share ``sum(target_weights) - sum(held weights)``). A target that
+    keeps a cash sleeve therefore keeps it. Held positions are never touched by
+    the rescale, so no in-band asset is traded. A target whose weights do not
+    sum to a positive number is read as fully invested (level 1).
 
     When the breached targets cannot stand in for the budget the held weights
     leave (their sum is not positive, that budget is not positive, or filling
     it would rescale them by more than a factor of two), the whole blend is
     renormalised instead, so the held positions absorb the difference and the
-    vector still sums to 1. This covers the exit-only case where every
-    breached target is zero.
+    vector still sums to the invested level. This covers the exit-only case
+    where every breached target is zero.
 
     When no asset breaches the band the current weights are returned
-    (renormalised to sum to 1), i.e. no trading occurs.
+    (renormalised to the invested level, which is a no-op for a book already
+    at it), i.e. no trading occurs.
 
     Args:
         current_weights: Current (drifted) portfolio weights, shape (n_assets,).
@@ -239,25 +258,29 @@ def apply_no_trade_band(
         config: Threshold configuration. Defaults to absolute 5pp threshold.
 
     Returns:
-        Post-band weights summing to 1, shape (n_assets,). If the weights that
-        would be renormalised sum to zero or a non-finite value, the plain
-        blend (breached targets, held current weights) is returned
-        un-normalised.
+        Post-band weights summing to the target's invested level (1 for a
+        fully invested target), shape (n_assets,). If the weights that would be
+        renormalised sum to zero or a non-finite value, the plain blend
+        (breached targets, held current weights) is returned un-normalised.
     """
     cur = _as_1d("current_weights", current_weights)
     tgt = _as_1d("target_weights", target_weights)
     _check_aligned(cur, tgt, "current_weights", "target_weights")
+
+    invested = float(tgt.sum())
+    if not np.isfinite(invested) or invested <= 0.0:
+        invested = 1.0
 
     mask = drift_breach_mask(cur, tgt, config)
     if not mask.any():
         total = cur.sum()
         if not np.isfinite(total) or total == 0.0:
             return cur
-        return cur / total
+        return cur * (invested / total)
 
     blended = np.where(mask, tgt, cur)
     traded_total = tgt[mask].sum()
-    budget = 1.0 - cur[~mask].sum()
+    budget = invested - cur[~mask].sum()
     if traded_total > 0.0 and budget > 0.0:
         scale = budget / traded_total
         if 1.0 / _MAX_BREACH_RESCALE <= scale <= _MAX_BREACH_RESCALE:
@@ -267,7 +290,7 @@ def apply_no_trade_band(
     total = blended.sum()
     if not np.isfinite(total) or total == 0.0:
         return blended
-    return blended / total
+    return blended * (invested / total)
 
 
 def should_rebalance_hybrid(

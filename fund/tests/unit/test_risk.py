@@ -497,12 +497,15 @@ class TestBacktest:
 
         metrics = backtest(db_session, _ASOF, weights)["data"]["metrics"]
 
-        assert metrics["annualized_mean"] == pytest.approx(daily.mean * 252)
+        # The seeded bars are consecutive calendar days, so a year holds 365 of them;
+        # the factor comes from the panel's own calendar, not a fixed 252.
+        periods = 365
+        assert metrics["annualized_mean"] == pytest.approx(daily.mean * periods)
         assert metrics["annualized_standard_deviation"] == pytest.approx(
-            daily.standard_deviation * math.sqrt(252)
+            daily.standard_deviation * math.sqrt(periods)
         )
         assert metrics["annualized_sharpe_ratio"] == pytest.approx(
-            daily.sharpe_ratio * math.sqrt(252)
+            daily.sharpe_ratio * math.sqrt(periods)
         )
 
     def test_full_sample_fallback_flagged_in_sample(self, db_session) -> None:

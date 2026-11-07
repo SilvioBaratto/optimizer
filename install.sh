@@ -44,10 +44,16 @@ if [ -d "$PORTOPT_DIR/.git" ]; then
     exit 1
   fi
   echo "Updating the checkout in ${PORTOPT_DIR}..."
-  git -C "$PORTOPT_DIR" fetch --quiet origin "$PORTOPT_REF" \
+  # The CLI below is installed from PORTOPT_REF while the compose file, Dockerfiles
+  # and migrations come from this checkout, so a checkout left behind would pair a
+  # new CLI with old stack files.
+  if ! { git -C "$PORTOPT_DIR" fetch --quiet origin "$PORTOPT_REF" \
     && git -C "$PORTOPT_DIR" checkout --quiet "$PORTOPT_REF" \
-    && git -C "$PORTOPT_DIR" merge --quiet --ff-only FETCH_HEAD \
-    || echo "warning: could not update ${PORTOPT_DIR}; using it as it is." >&2
+    && git -C "$PORTOPT_DIR" merge --quiet --ff-only FETCH_HEAD; }; then
+    echo "error: could not update ${PORTOPT_DIR} to ${PORTOPT_REF} (offline, or local changes or commits stop a fast-forward)." >&2
+    echo "Resolve that, or point PORTOPT_DIR at another path, and re-run." >&2
+    exit 1
+  fi
 elif [ -f "${PORTOPT_DIR}/docker-compose.yml" ]; then
   # A tree that carries the compose file but no git metadata (an unpacked archive)
   # cannot be updated, and `git clone` would refuse to write into it.
@@ -78,7 +84,26 @@ export PATH="$HOME/.local/bin:$PATH"
 # release.yml only builds the portopt-core library, never the CLI member, so
 # install the CLI straight from git. The install tracks a branch instead of a release.
 echo "Installing the portopt CLI from ${PORTOPT_REPO}@${PORTOPT_REF}..."
-uv tool install --force "git+${PORTOPT_REPO}@${PORTOPT_REF}#subdirectory=ingestion"
+install_cli() {
+  uv tool install --force "$@" "git+${PORTOPT_REPO}@${PORTOPT_REF}#subdirectory=ingestion"
+}
+# The containers install from uv.lock, but the CLI is installed from the `ingestion`
+# package alone, so its transitive dependencies would float to whatever is newest
+# that day. Constraints exported from the checkout's lock pin them to the same
+# versions.
+constraints="$(mktemp)"
+trap 'rm -f "$constraints"' EXIT
+if uv export --frozen --no-hashes --no-emit-workspace --package portopt -o "$constraints" >/dev/null 2>&1 \
+  && [ -s "$constraints" ]; then
+  if ! install_cli --constraints "$constraints"; then
+    # A host Python the pinned wheels do not cover still needs a working CLI.
+    echo "warning: the install pinned to uv.lock failed; retrying without the lock constraints." >&2
+    install_cli
+  fi
+else
+  echo "warning: could not read uv.lock; the CLI's transitive dependencies are resolved fresh." >&2
+  install_cli
+fi
 
 echo "Launching the setup wizard..."
 # `curl | bash` binds this shell's stdin to the piped script, not the terminal, so

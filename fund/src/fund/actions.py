@@ -27,7 +27,9 @@ import contextlib
 import datetime as dt
 import json
 import logging
+import math
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -68,6 +70,8 @@ _FINAL_STATUSES = ("completed", "rejected", "incomplete", "blocked", "failed")
 _EDIT_RESOLUTION = 1e-4
 # Float noise on the headroom comparison, so a residual exactly at capacity is absorbed.
 _ROUNDING_EPS = 1e-12
+# Float noise in ``budget / cap``, so a cap of exactly 1/n needs n names, not n + 1.
+_CAPACITY_EPS = 1e-9
 
 # Past-tense verb per action, for the status line the shell reports.
 _PAST = {
@@ -191,7 +195,9 @@ def apply_action(
         source: Provenance recorded on the audit row.
         override_flag: ⚑ a guardrail edited past its MiFID band.
         suitability_flag: ⚠ outside the suitability band.
-        idempotency_key: Dedup key; a repeated key returns the first audit row.
+        idempotency_key: Dedup key; a repeated key returns the first audit row. For a
+            gate resolution build it with :func:`resolution_key` so it names the gate,
+            not just the run.
         rationale: Free-text reason recorded with the action.
         pm_directive: Adviser free text threaded to the PM for a ``respond`` barge-in;
             required (non-empty) for ``respond``, ignored by the other actions.
@@ -985,6 +991,78 @@ def _portfolio_of(session: Session, run_id: uuid.UUID) -> uuid.UUID | None:
     return run.portfolio_id if run is not None else None
 
 
+class GateMovedError(ValueError):
+    """A decision was refused: the run waits at a different gate than the one shown."""
+
+
+def resolution_key(
+    session: Session,
+    saver: Any,
+    run_id: uuid.UUID | str,
+    action: str,
+    *,
+    expected_gate: str | None = None,
+) -> str:
+    """The idempotency key for resolving ``run_id``'s current gate with ``action``.
+
+    A run can open more than one gate (an approve whose ``place_orders`` is refused and
+    retried, a barge-in), so a key built from the run alone would replay the first
+    approve at the second gate and never resume it. While the run is parked at a gate
+    the key names that gate, so a repeat submit of the same gate (a double press, a CLI
+    retry racing the TUI) still collapses onto one audit row and the next gate gets a
+    fresh key. Once the run has no gate left the key is the latest one already logged
+    for ``action`` on the run, so a late repeat replays that resolution instead of
+    failing against a finished run. ``reject`` and ``killswitch`` finalise the run
+    whatever gate it is at, so the run alone identifies them and the key needs no
+    checkpoint read (the emergency stop works with the checkpointer down).
+
+    Args:
+        session: A sync session that sees the committed audit rows; not committed here.
+        saver: The bootstrapped LangGraph checkpointer the gate is read from.
+        run_id: The run being resolved.
+        action: The logged action (``approve`` / ``reject`` / ``killswitch`` /
+            ``edit``).
+        expected_gate: The gate id the adviser was shown (``observe.live_gate_id`` at
+            render time). When the run is parked at another gate the decision is
+            refused, so an approve never releases orders nobody has seen; a finished
+            run still replays, and ``reject`` / ``killswitch`` never wait on it.
+
+    Returns:
+        A key for ``apply_action(..., idempotency_key=...)``.
+
+    Raises:
+        GateMovedError: ``expected_gate`` is set and the run now waits at a different
+            gate.
+    """
+    from portopt_db.models import HumanAuditLog
+    from sqlalchemy import select
+
+    from fund import observe
+    from fund.audit.repository import AgentRunRepository
+
+    rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
+    if action in MODEL_FREE_ACTIONS:
+        return f"{rid}:{action}"
+    run = AgentRunRepository(session).get_run(rid)
+    gate = observe.live_gate_id(saver, run)
+    if gate is not None:
+        if expected_gate is not None and gate != expected_gate:
+            raise GateMovedError(
+                f"run {str(rid)[:8]} moved to another gate since it was shown; "
+                "reopen it and review the new orders before deciding"
+            )
+        return f"{rid}:{action}:{gate}"
+    logged = session.execute(
+        select(HumanAuditLog.idempotency_key)
+        .where(HumanAuditLog.run_id == rid)
+        .where(HumanAuditLog.action == action)
+        .where(HumanAuditLog.idempotency_key.is_not(None))
+        .order_by(HumanAuditLog.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return logged or f"{rid}:{action}"
+
+
 def _replayed_action(session: Session, idempotency_key: str) -> ActionResult | None:
     """The prior outcome for ``idempotency_key``, or ``None`` if unseen.
 
@@ -1116,13 +1194,15 @@ def _check_eligible(session: Session, mandate: Any) -> list[str]:
 
 
 def _check_tradeable(session: Session, mandate: Any) -> list[str]:
-    """One warning when the broker scope is on but cannot bite as the adviser expects.
+    """Warnings when the broker scope is on but cannot bite as the adviser expects.
 
-    Two cases: no instrument has been checked against Trading 212 yet (the scope is a
+    Three cases: no instrument has been checked against Trading 212 yet (the scope is a
     no-op until the annotation step runs, and the resolver says so on every run too),
-    or some eligible tickers are known to be absent from the broker (they stay barred
-    as ``not_t212_tradeable``). The mandate is saved anyway, like an unpriced ticker:
-    the catalogue refreshes independently of the adviser's edit.
+    some eligible tickers are known to be absent from the broker (they stay barred as
+    ``not_t212_tradeable``), or some eligible tickers could not be checked at all (no
+    ISIN to match, so they are kept: a clean save would otherwise read as a verified
+    scope). The mandate is saved anyway, like an unpriced ticker: the catalogue
+    refreshes independently of the adviser's edit.
     """
     if not mandate.tradeable_only:
         return []
@@ -1130,24 +1210,74 @@ def _check_tradeable(session: Session, mandate: Any) -> list[str]:
         UniverseRepository,
     )
 
+    from fund.tools.eligibility import unchecked_names_note
+
     # An empty list asks about nothing rather than everything: with no allowlist the
     # whole refusal list would be thousands of names, and only the "not evaluated"
     # answer is worth a warning.
     tickers = _normalised_tickers(mandate.eligible_tickers)
-    refused = UniverseRepository(session).get_t212_untradeable_tickers(tickers)
+    repo = UniverseRepository(session)
+    refused = repo.get_t212_untradeable_tickers(tickers)
+    warnings: list[str] = []
     if refused is None:
-        warning = (
+        warnings.append(
             "tradeable_only is set but no instrument has been checked against the "
             "Trading 212 catalogue yet, so it restricts nothing until the "
             "annotation step has run"
         )
-    elif refused:
-        warning = (
-            f"eligible tickers not on Trading 212: {', '.join(refused)}; they stay "
-            "barred (not_t212_tradeable) while tradeable_only is set"
-        )
     else:
+        if refused:
+            warnings.append(
+                f"eligible tickers not on Trading 212: {', '.join(refused)}; they "
+                "stay barred (not_t212_tradeable) while tradeable_only is set"
+            )
+        unchecked = repo.get_t212_unevaluated_tickers(
+            [t for t in tickers if t not in refused]
+        )
+        if unchecked:
+            warnings.append(unchecked_names_note(unchecked))
+    for warning in warnings:
+        logger.warning("actions: %s", warning)
+    return warnings
+
+
+def _check_capacity(session: Session, mandate: Any) -> list[str]:
+    """One warning when the allowlist is shorter than the book needs names.
+
+    A fully invested long-only book under a per-name cap ``c`` and a budget ``b`` needs
+    at least ``ceil(b / c)`` names; fewer leaves the optimizer infeasible, and its own
+    advice to "widen the universe" contradicts the allowlist. The cap is the active
+    profile's effective ceiling (the K&E position cap included). Nothing is said without
+    an allowlist or a readable profile, and the allowlist counts names before the
+    resolver bars any, so this is a lower bound on the shortfall.
+    """
+    tickers = _normalised_tickers(mandate.eligible_tickers)
+    if not tickers:
         return []
+    from pydantic import ValidationError
+
+    from fund.audit.mifid_repository import MifidProfileRepository
+    from fund.schemas.constraint_set import ConstraintSet
+
+    profile = MifidProfileRepository(session).get_active(
+        uuid.UUID(mandate.portfolio_id)
+    )
+    if profile is None:
+        return []
+    try:
+        bounds = ConstraintSet.model_validate(profile.constraint_set).effective_bounds()
+    except ValidationError:
+        return []
+    if bounds.max_weights <= 0:
+        return []
+    needed = math.ceil(bounds.budget / bounds.max_weights - _CAPACITY_EPS)
+    if len(tickers) >= needed:
+        return []
+    warning = (
+        f"{len(tickers)} eligible tickers cannot fill the book: a "
+        f"{bounds.max_weights * 100:g}% per-name cap needs at least {needed}; "
+        "runs will fail until the allowlist is widened"
+    )
     logger.warning("actions: %s", warning)
     return [warning]
 
@@ -1156,9 +1286,11 @@ def _check_mandate(session: Session, mandate: Any) -> tuple[Any, list[str]]:
     """Canonicalise the benchmark and collect every warning a mandate save reports."""
     checked, warnings = _check_benchmark(session, mandate)
     return checked, [
+        *checked.stored_value_warnings(),
         *warnings,
         *_check_eligible(session, checked),
         *_check_tradeable(session, checked),
+        *_check_capacity(session, checked),
     ]
 
 
@@ -1171,17 +1303,27 @@ def _sync_pins(session: Session, mandate: Any) -> None:
     transaction. It writes no audit row of its own; the saved mandate JSON that the
     audit row carries already records ``eligible_tickers``.
 
+    A save that loses a race for a pin row re-syncs once its competitor's rows are
+    visible, rather than failing on the unique key.
+
     Known limits: a replayed idempotent action returns before reaching the save, so it
     does not re-sync; code that calls ``MandateRepository.upsert`` directly bypasses it.
     """
     from portopt_db.repositories.universe.pinned_instrument_repository import (
         PinnedInstrumentRepository,
     )
+    from sqlalchemy.exc import IntegrityError
 
     source = f"mandate:{uuid.UUID(mandate.portfolio_id)}"
-    PinnedInstrumentRepository(session).replace_pins(
-        source, _normalised_tickers(mandate.eligible_tickers)
-    )
+    tickers = _normalised_tickers(mandate.eligible_tickers)
+    repo = PinnedInstrumentRepository(session)
+    try:
+        with session.begin_nested():
+            repo.replace_pins(source, tickers)
+    except IntegrityError:
+        # A concurrent save inserted the same pin between our read and our insert.
+        # Its rows are visible now, so the second pass has only the difference left.
+        repo.replace_pins(source, tickers)
 
 
 def _with_warnings(message: str, warnings: list[str]) -> str:
@@ -1204,13 +1346,18 @@ def _apply_mandate_edit(
     ``mandate`` is a ``fund.schemas.mandate.PortfolioMandate`` — the repo (imported
     from its submodule, never the ``fund.audit`` root) owns the DB write via its
     non-committing ``upsert``; the new value logged is the mandate's JSON form.
+    ``prev_value`` is the mandate JSON the edit was built from: when it is a mapping
+    the save is refused (``MandateConflictError``) if the stored mandate has moved
+    since, rather than overwriting a change the caller never saw.
     """
     if mandate is None:
         raise ValueError("'mandate_edit' requires a mandate")
     from fund.audit.mandate_repository import MandateRepository
 
     checked, warnings = _check_mandate(session, mandate)
-    MandateRepository(session).upsert(checked)
+    MandateRepository(session).upsert(
+        checked, expected=prev_value if isinstance(prev_value, Mapping) else None
+    )
     _sync_pins(session, checked)
     pid = portfolio_id if portfolio_id is not None else uuid.UUID(checked.portfolio_id)
     row = _append_audit(
@@ -1587,9 +1734,11 @@ def is_within_suitability_band(proposed_band: str, suitability_band: str) -> boo
 __all__ = [
     "MODEL_FREE_ACTIONS",
     "ActionResult",
+    "GateMovedError",
     "append_run_audit",
     "apply_action",
     "halt_run_if_frozen",
     "is_within_suitability_band",
+    "resolution_key",
     "resume_message",
 ]

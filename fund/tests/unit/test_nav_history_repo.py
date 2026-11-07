@@ -188,6 +188,20 @@ def test_last_nav_before_is_none_without_an_earlier_row(db_session):
     assert repo.last_nav_before(_PID2, dt.date(2026, 10, 9)) is None
 
 
+def test_delete_dates_removes_only_the_named_rows_of_one_portfolio(db_session):
+    repo = NavHistoryRepository(db_session)
+    days = [dt.date(2026, 10, 1) + dt.timedelta(days=i) for i in range(4)]
+    repo.upsert_navs([_row(_PID, d, 100.0) for d in days])
+    repo.upsert_navs([_row(_PID2, days[0], 100.0)])
+    db_session.flush()
+
+    assert repo.delete_dates(_PID, [days[0], days[2], dt.date(2030, 1, 1)]) == 2
+    assert repo.delete_dates(_PID, []) == 0
+
+    assert [row.date for row in repo.get_navs(_PID)] == [days[1], days[3]]
+    assert len(repo.get_navs(_PID2)) == 1
+
+
 def test_module_declares_no_agent_stack_imports():
     """The repo module's own imports reference no agent stack.
 

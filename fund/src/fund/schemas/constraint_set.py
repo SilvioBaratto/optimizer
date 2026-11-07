@@ -16,14 +16,17 @@ member maps; an unmapped member is a hard ``KeyError``, never a silent default).
 
 Deliberately **not** mapped (``MeanRiskConfig`` has no field for them): the
 ``nu1/nu2/nu3`` drawdown ceilings, ``esg`` and ``universe_filters``, plus the
-stored/validated-only ``horizon``, ``moments_estimator`` and ``uncertainty_level``.
+stored/validated-only ``horizon`` and ``uncertainty_level``.
 The bound fund toolsets enforce the first three in code instead: ``esg`` exclusions
 and the ``universe_filters`` instrument restrictions are screened
 (``fund.tools.mandate``), ``universe_filters.max_position_cap`` tightens
-``bounds.max_weights``, and ``backtest`` compares its drawdown with the ``nu``
-ceilings, and ``risk_check`` blocks past ``nu2`` / ``nu3`` (``nu1`` only warns).
+``bounds.max_weights``, and ``backtest`` compares the worst loss inside any one-year
+window with the ``nu`` ceilings, and ``risk_check`` blocks past ``nu2`` / ``nu3``
+(``nu1`` only warns).
 ``beta`` **is** mapped onto ``cvar_beta`` / ``cdar_beta`` so a CVaR/CDaR profile
-honours the client's chosen tail confidence (D34).
+honours the client's chosen tail confidence (D34), and ``moments_estimator`` **is**
+mapped onto ``prior_config`` (see ``to_moment_estimation_config``) so the covariance
+the PM reads from ``estimate_moments`` is the covariance the optimizer solves under.
 """
 
 from __future__ import annotations
@@ -42,6 +45,7 @@ from fund.schemas.enums import (
 )
 
 if TYPE_CHECKING:  # import only for the annotation; runtime import is method-local
+    from optimizer.moments import MomentEstimationConfig
     from optimizer.optimization import MeanRiskConfig
 
 __all__ = ["Bounds", "ConstraintSet", "EsgPolicy", "UniverseFilters"]
@@ -101,10 +105,12 @@ class ConstraintSet(BaseModel):
     loss_capacity)`` risk-aversion, quoted on the variance-utility scale; the
     ``optimize_portfolio`` tool rescales it when ``risk_measure`` is a first-order
     one (CVaR, CDaR, max drawdown). ``beta`` is the tail-measure confidence used
-    by CVaR/CDaR. ``nu1/nu2/nu3`` are escalating drawdown-ceiling tiers as fractions
-    of capital (soft warning / hard ceiling / absolute stop); ``backtest`` compares
-    its ``max_drawdown`` with all three and reports the breached tiers, and
-    ``risk_check`` blocks on the same comparison past ``nu2`` / ``nu3``.
+    by CVaR/CDaR. ``nu1/nu2/nu3`` are escalating loss-ceiling tiers as fractions
+    of capital (soft warning / hard ceiling / absolute stop) derived from the
+    client's one-year loss tolerance; ``backtest`` compares the worst loss inside any
+    one-year window with all three and reports the breached tiers, and
+    ``risk_check`` blocks on the same comparison past ``nu2`` / ``nu3``. A ``nu2`` of
+    0 means the client tolerates no loss at all and fails every invested book.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -115,7 +121,7 @@ class ConstraintSet(BaseModel):
     objective: ObjectiveChoice
     risk_measure: RiskMeasureChoice
     beta: float = Field(default=0.95, gt=0.0, lt=1.0)  # tail confidence (CVaR/CDaR)
-    nu1: float = Field(ge=0.0, le=1.0)  # drawdown ceiling tiers (fractions of
+    nu1: float = Field(ge=0.0, le=1.0)  # loss ceiling tiers (fractions of
     nu2: float = Field(ge=0.0, le=1.0)  # capital) — mapped to nothing here;
     nu3: float = Field(ge=0.0, le=1.0)  # compared by ``backtest``/``risk_check``
     horizon: Horizon
@@ -147,6 +153,31 @@ class ConstraintSet(BaseModel):
         if cap is None or cap >= self.bounds.max_weights:
             return self.bounds
         return self.bounds.model_copy(update={"max_weights": cap})
+
+    def to_moment_estimation_config(self) -> MomentEstimationConfig:
+        """Map ``moments_estimator`` onto the optimizer's moment configuration.
+
+        The one mapping behind both ``estimate_moments`` (what the PM reads) and the
+        optimizer's prior (what it solves under), so the two cannot disagree.
+        Imports ``optimizer`` lazily, like :meth:`to_mean_risk_config`.
+
+        Returns:
+            A ``MomentEstimationConfig`` selecting the mean and covariance estimators
+            of ``moments_estimator``; every other knob keeps the library default.
+
+        Raises:
+            KeyError: If ``moments_estimator`` holds a value absent from the map.
+        """
+        from optimizer.moments import (
+            CovEstimatorType,
+            MomentEstimationConfig,
+            MuEstimatorType,
+        )
+
+        mu, cov = _MOMENT_ESTIMATOR_MAP[self.moments_estimator]
+        return MomentEstimationConfig(
+            mu_estimator=MuEstimatorType(mu), cov_estimator=CovEstimatorType(cov)
+        )
 
     def to_mean_risk_config(self) -> MeanRiskConfig:
         """Map this constraint set onto a ``MeanRiskConfig``.
@@ -181,6 +212,7 @@ class ConstraintSet(BaseModel):
             l1_coef=self.l1_coef,
             l2_coef=self.l2_coef,
             risk_free_rate=0.0 if self.risk_free_rate is None else self.risk_free_rate,
+            prior_config=self.to_moment_estimation_config(),
         )
 
 
@@ -196,6 +228,15 @@ _OBJECTIVE_MAP: dict[ObjectiveChoice, str] = {
     ObjectiveChoice.INCOME: "maximize_utility",
     ObjectiveChoice.GROWTH: "maximize_utility",
     ObjectiveChoice.MAX: "maximize_ratio",
+}
+
+# Fund MomentsEstimator -> (optimizer mu estimator, covariance estimator) values.
+# ``EW`` is the library's own adaptive pairing, exponentially weighted on both
+# moments; the others keep the plain empirical mean and vary the covariance.
+_MOMENT_ESTIMATOR_MAP: dict[MomentsEstimator, tuple[str, str]] = {
+    MomentsEstimator.LEDOIT_WOLF: ("empirical", "ledoit_wolf"),
+    MomentsEstimator.EMPIRICAL: ("empirical", "empirical"),
+    MomentsEstimator.EW: ("ew", "ew"),
 }
 
 # The downside subset maps 1:1 by name onto RiskMeasureType.

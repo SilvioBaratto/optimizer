@@ -19,7 +19,10 @@ from typing import Any
 
 from portopt_db.models import NavHistory
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
+
+# Dates per DELETE, well under any driver's bind-parameter limit.
+_DELETE_BATCH = 500
 
 
 class NavHistoryRepository(RepositoryBase):
@@ -64,6 +67,34 @@ class NavHistoryRepository(RepositoryBase):
             update_columns=["nav", "benchmark", "benchmark_ticker", "updated_at"],
         )
         return len(out)
+
+    def delete_dates(self, portfolio_id: uuid.UUID, dates: list[dt.date]) -> int:
+        """Delete a portfolio's NAV rows on ``dates``, returning the count removed.
+
+        Used by a full re-mark to clear rows on dates the rebuilt series no longer
+        emits, which an upsert never touches. The caller owns the transaction; this
+        issues the delete without committing.
+
+        Args:
+            portfolio_id: Portfolio whose rows to delete.
+            dates: Row dates to remove; dates with no row are ignored.
+
+        Returns:
+            Number of rows deleted.
+        """
+        removed = 0
+        for start in range(0, len(dates), _DELETE_BATCH):
+            batch = dates[start : start + _DELETE_BATCH]
+            result = self.session.execute(
+                delete(NavHistory)
+                .where(
+                    NavHistory.portfolio_id == portfolio_id,
+                    NavHistory.date.in_(batch),
+                )
+                .execution_options(synchronize_session=False)
+            )
+            removed += int(getattr(result, "rowcount", 0) or 0)
+        return removed
 
     def get_navs(
         self,

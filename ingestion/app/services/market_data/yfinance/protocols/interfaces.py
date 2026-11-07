@@ -270,7 +270,11 @@ class MetadataClientProtocol(Protocol):
     ) -> dict[str, Any] | None: ...
 
     def fetch_options_expirations(
-        self, symbol: str, max_retries: int | None = None
+        self,
+        symbol: str,
+        max_retries: int | None = None,
+        *,
+        raise_on_lost: bool = False,
     ) -> tuple[str, ...] | None: ...
 
     def fetch_option_chain(

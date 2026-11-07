@@ -21,8 +21,12 @@ import pandas as pd
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
 from app.services._shared import ProgressCallback, _noop
-from app.services.market_data.yfinance import YFinanceClient
-from app.services.market_data.yfinance_data_service import call_with_timeout
+from app.services.market_data.yfinance import YFinanceClient, track_request_outcomes
+from app.services.market_data.yfinance_data_service import (
+    YahooUnreachableError,
+    _SweepRequests,
+    call_with_timeout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -139,63 +143,80 @@ def run_bulk_options_fetch(
         processed = 0
         skipped = 0
 
-        for idx, instrument in enumerate(instruments, 1):
-            ticker = instrument.yfinance_ticker
-            on_progress(current=idx, current_ticker=ticker)
-            if not ticker:
-                continue
+        with track_request_outcomes() as outcomes:
+            for idx, instrument in enumerate(instruments, 1):
+                ticker = instrument.yfinance_ticker
+                on_progress(current=idx, current_ticker=ticker)
+                if not ticker:
+                    continue
 
-            if _is_fresh(as_of_by_id.get(instrument.id), staleness_hours, now):
-                skipped += 1
-                continue
+                if _is_fresh(as_of_by_id.get(instrument.id), staleness_hours, now):
+                    skipped += 1
+                    continue
 
-            try:
-                expiries = (
-                    call_with_timeout(
-                        lambda t=ticker: yf_client.metadata.fetch_options_expirations(
-                            t
-                        ),
-                        request_timeout,
-                        circuit_breaker=yf_client.circuit_breaker,
+                try:
+                    # A lost request raises instead of reading as "no options",
+                    # which would count the instrument as processed through an
+                    # outage.
+                    expiries = (
+                        call_with_timeout(
+                            lambda t=ticker: (
+                                yf_client.metadata.fetch_options_expirations(
+                                    t, raise_on_lost=True
+                                )
+                            ),
+                            request_timeout,
+                            circuit_breaker=yf_client.circuit_breaker,
+                        )
+                        or ()
                     )
-                    or ()
-                )
-                inst_rows = 0
-                for expiry in expiries:
-                    chain = call_with_timeout(
-                        lambda t=ticker, e=expiry: (
-                            yf_client.metadata.fetch_option_chain(t, date=e)
-                        ),
-                        request_timeout,
-                        circuit_breaker=yf_client.circuit_breaker,
-                    )
-                    if chain is None:
-                        # The client turns an exhausted retry budget into None.
-                        # Committing the other expiries would stamp a partial
-                        # chain with today's as_of, which the staleness gate
-                        # then reads as a complete snapshot and skips; failing
-                        # the instrument leaves it eligible for the next run.
-                        raise RuntimeError(f"option chain {expiry} fetch failed")
-                    expiry_date = cast("date", pd.Timestamp(expiry).date())
-                    rows = _flatten_chain(chain, as_of, expiry_date)
-                    if rows:
-                        inst_rows += repo.upsert_option_chain(instrument.id, rows)
-                repo.prune_option_snapshots(instrument.id, keep=retained_snapshots)
-                total_rows += inst_rows
-                processed += 1
-                session.commit()
-            except Exception as e:  # one bad ticker must not abort the sweep
-                logger.warning("Failed options for %s: %s", ticker, e)
-                errors.append(f"{ticker}: {e}")
-                session.rollback()
+                    inst_rows = 0
+                    for expiry in expiries:
+                        chain = call_with_timeout(
+                            lambda t=ticker, e=expiry: (
+                                yf_client.metadata.fetch_option_chain(t, date=e)
+                            ),
+                            request_timeout,
+                            circuit_breaker=yf_client.circuit_breaker,
+                        )
+                        if chain is None:
+                            # The client turns an exhausted retry budget into None.
+                            # Committing the other expiries would stamp a partial
+                            # chain with today's as_of, which the staleness gate
+                            # then reads as a complete snapshot and skips; failing
+                            # the instrument leaves it eligible for the next run.
+                            raise RuntimeError(f"option chain {expiry} fetch failed")
+                        expiry_date = cast("date", pd.Timestamp(expiry).date())
+                        rows = _flatten_chain(chain, as_of, expiry_date)
+                        if rows:
+                            inst_rows += repo.upsert_option_chain(instrument.id, rows)
+                    repo.prune_option_snapshots(instrument.id, keep=retained_snapshots)
+                    total_rows += inst_rows
+                    processed += 1
+                    session.commit()
+                except Exception as e:  # one bad ticker must not abort the sweep
+                    logger.warning("Failed options for %s: %s", ticker, e)
+                    errors.append(f"{ticker}: {e}")
+                    session.rollback()
 
+        requests = _SweepRequests(
+            failed=len(outcomes.failures), answered=outcomes.answered
+        )
         result = {
             "instruments_total": total,
             "instruments_processed": processed,
             "instruments_skipped_fresh": skipped,
             "contract_rows": total_rows,
             "error_count": len(errors),
+            "transport_failures": requests.failed,
+            "requests_answered": requests.answered,
         }
+        if requests.is_outage:
+            on_progress(errors=errors, result=result)
+            raise YahooUnreachableError(
+                f"{requests.failed} of {requests.total} yfinance requests got no "
+                "answer from Yahoo"
+            )
         logger.info(
             "Bulk options fetch: %d instruments, %d fresh-skipped, %d contract rows",
             processed,

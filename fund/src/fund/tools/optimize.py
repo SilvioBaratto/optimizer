@@ -15,7 +15,8 @@ Contract (via ``tool_envelope``):
 
 * empty ``universe`` ⇒ ``{ok: false, error}``;
 * no priced assets, or too few common return observations (see
-  ``MIN_RETURN_OBSERVATIONS``), ⇒ ``{ok: false, error}``;
+  ``MIN_RETURN_OBSERVATIONS``, and ``thin_sample_error`` for the share of the median
+  history a young listing must reach), ⇒ ``{ok: false, error}``;
 * a ``max_weights`` cap too tight for the number of priced assets to reach the
   budget, or a ``min_weights`` floor too high for them to fit in it,
   ⇒ ``{ok: false, error}`` naming the shortfall;
@@ -44,8 +45,11 @@ from skfolio import Portfolio
 from fund.tools._base import (
     ToolResult,
     annualized_metrics,
+    dropped_by_returns,
     err,
     ok,
+    per_period_rate,
+    periods_per_year,
     thin_sample_error,
     tool_envelope,
 )
@@ -71,8 +75,14 @@ _CONSTRAINT_FIELDS: frozenset[str] = frozenset(
         "l1_coef",
         "l2_coef",
         "risk_free_rate",
+        "prior_config",
     }
 )
+
+# An annual risk-free rate, which the tool compounds to the panel's own bar frequency
+# once the return index (and so the bars per year) is known. It is not a
+# ``MeanRiskConfig`` field: ``risk_free_rate`` there is per bar and is overridden by it.
+ANNUAL_RISK_FREE_RATE_KEY = "annual_risk_free_rate"
 
 _BUDGET_TOL = 1e-9
 # Interior-point solvers reach the optimum only to ~1e-9, so a dropped asset can come
@@ -230,8 +240,10 @@ def optimize_portfolio(
         universe: yfinance tickers to allocate across.
         constraints: Optional overrides for the ``MeanRiskConfig`` fields in
             ``_CONSTRAINT_FIELDS`` (objective, risk measure, risk aversion, weight
-            bounds, budget, cardinality, tail betas, regularisation); defaults to
-            long-only, fully invested, minimum-variance.
+            bounds, budget, cardinality, tail betas, regularisation, the moment
+            estimators of the prior); defaults to long-only, fully invested,
+            minimum-variance. ``annual_risk_free_rate`` is compounded to the panel's
+            own bar frequency and replaces ``risk_free_rate``.
         base_currency: Mandate base currency prices are FX-converted to before
             returns are derived (``None`` keeps listing currency; see
             :func:`fund.tools.prices.load_price_frame`).
@@ -240,10 +252,15 @@ def optimize_portfolio(
         ``ok`` with ``weights`` (``{ticker: float}`` from skfolio), ``metrics``
         (in-sample, annualised: ``annualized_mean`` /
         ``annualized_standard_deviation`` / ``annualized_sharpe_ratio``),
-        ``assets``, ``n_observations``, ``missing`` and ``risk_aversion`` (the
-        coefficient the solver ran with, after rescaling to the risk measure).
-        ``err`` on an empty universe, no priced assets, too little history, or a
-        weight cap or floor the priced assets cannot satisfy.
+        ``assets``, ``n_observations``, ``missing`` (tickers with no usable prices,
+        including a column the returns step had to drop), ``risk_aversion`` (the
+        coefficient the solver ran with, after rescaling to the risk measure),
+        ``periods_per_year`` (the bars a year of the panel holds, which annualises the
+        metrics) and ``risk_free_rate`` (the per-bar rate the solver ran with).
+        ``err`` on an empty universe, no priced assets, too little common history
+        (including a listing under half the median history, which would shrink the
+        sample for every asset), or a weight cap or floor the priced assets cannot
+        satisfy.
     """
     if not universe:
         return err("empty universe")
@@ -257,13 +274,26 @@ def optimize_portfolio(
         return err("insufficient price history to optimize")
 
     config = _resolve_config(constraints)
-    infeasible = _infeasible_bounds_error(config, frame.shape[1])
+    returns = cast("pd.DataFrame", prices_to_returns(frame))
+    # A column with no usable price vanishes from ``returns``; counting it as priced
+    # would loosen the bounds check and leave it in neither ``assets`` nor ``missing``.
+    missing = [*missing, *dropped_by_returns(frame, returns)]
+    if returns.shape[1] == 0:
+        return err("no priced assets in universe")
+    infeasible = _infeasible_bounds_error(config, returns.shape[1])
     if infeasible is not None:
         return err(infeasible)
 
-    returns = cast("pd.DataFrame", prices_to_returns(frame))
     if (reason := thin_sample_error(frame, returns, action="optimize")) is not None:
         return err(reason)
+    periods = periods_per_year(returns.index)
+    if constraints and constraints.get(ANNUAL_RISK_FREE_RATE_KEY) is not None:
+        config = replace(
+            config,
+            risk_free_rate=per_period_rate(
+                float(constraints[ANNUAL_RISK_FREE_RATE_KEY]), periods
+            ),
+        )
     config = _calibrate_risk_aversion(config, returns)
     model = build_mean_risk(config)
     model.fit(returns)
@@ -277,7 +307,7 @@ def optimize_portfolio(
 
     assets = [str(col) for col in returns.columns]
     weights = {a: float(w) for a, w in zip(assets, model.weights_, strict=True)}
-    metrics = annualized_metrics(portfolio)
+    metrics = annualized_metrics(portfolio, periods)
 
     return ok(
         {
@@ -287,8 +317,10 @@ def optimize_portfolio(
             "n_observations": int(returns.shape[0]),
             "missing": missing,
             "risk_aversion": float(config.risk_aversion),
+            "periods_per_year": periods,
+            "risk_free_rate": float(config.risk_free_rate),
         }
     )
 
 
-__all__ = ["optimize_portfolio"]
+__all__ = ["ANNUAL_RISK_FREE_RATE_KEY", "optimize_portfolio"]

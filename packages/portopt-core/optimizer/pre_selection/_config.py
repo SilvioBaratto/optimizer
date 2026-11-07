@@ -44,7 +44,10 @@ class PreSelectionConfig:
         winsorize_threshold: Z-score threshold for winsorisation
             (OutlierTreater). Must be positive and below ``remove_threshold``:
             a non-positive value clips every observation onto (or past) the
-            mean instead of only the tails.
+            mean instead of only the tails. The default of 8 keeps genuine
+            single-name crashes (an earnings gap is typically 5 to 12 sigma of
+            the column) in the data the optimiser is fitted on; a 3-sigma clip
+            would flatten them and understate CVaR and drawdown.
         remove_threshold: Z-score threshold for removal as a data error
             (OutlierTreater).
         outlier_method: Outlier detection approach. Currently only
@@ -53,8 +56,13 @@ class PreSelectionConfig:
             Only ``"global_mean"`` (the cross-sectional mean across all assets)
             is supported; any other value is rejected rather than silently
             ignored by the imputer.
-        zero_variance_threshold: Variance below which an asset is treated as
-            constant and dropped (``DropZeroVariance``). Must be non-negative.
+        zero_variance_threshold: Absolute variance at or below which an asset is
+            dropped (``DropZeroVariance``). Must be non-negative. The default
+            ``0.0`` drops only series that are constant up to floating-point
+            noise: a cash or overnight-rate fund moves every day with a daily
+            variance near 1e-9, which a conventional cut-off such as ``1e-8``
+            would discard along with the genuinely flat series. Raise it only
+            to prune low-volatility assets on purpose.
         drop_internal_nan: Forwarded to
             ``SelectComplete.drop_assets_with_internal_nan``. When ``True``,
             assets carrying NaNs inside their history (not just leading/trailing
@@ -90,11 +98,11 @@ class PreSelectionConfig:
     """
 
     max_abs_return: float = 10.0
-    winsorize_threshold: float = 3.0
+    winsorize_threshold: float = 8.0
     remove_threshold: float = 10.0
     outlier_method: str = "time_series"
     imputation_fallback: str = "global_mean"
-    zero_variance_threshold: float = 1e-8
+    zero_variance_threshold: float = 0.0
     drop_internal_nan: bool = False
     correlation_threshold: float = 0.95
     correlation_absolute: bool = False
@@ -161,7 +169,7 @@ class PreSelectionConfig:
         """Sensible defaults for daily returns over a ~1-year horizon."""
         return cls(
             max_abs_return=10.0,
-            winsorize_threshold=3.0,
+            winsorize_threshold=8.0,
             remove_threshold=10.0,
             correlation_threshold=0.95,
             is_log_normal=True,

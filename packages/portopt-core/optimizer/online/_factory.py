@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from skfolio.model_selection import (
@@ -23,13 +24,14 @@ from skfolio.model_selection import (
 )
 from sklearn.pipeline import Pipeline
 
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, OptimizationError
 from optimizer.online._config import (
     CovarianceForecastConfig,
     OnlineGridSearchConfig,
     OnlinePredictConfig,
     OnlineRandomizedSearchConfig,
 )
+from optimizer.validation._factory import check_index_alignment
 
 
 def _resolve_measure(scorer_config: Any) -> Any:
@@ -68,26 +70,23 @@ def _resolve_measure(scorer_config: Any) -> Any:
     return _resolve_native_measure(scorer_config)
 
 
-def _resolve_portfolio_params(scorer_config: Any) -> dict[str, Any] | None:
+def _resolve_portfolio_params(scorer_config: Any) -> dict[str, Any]:
     """Translate a `ScorerConfig`'s risk-free rate and annualization to skfolio.
 
     ``OnlineGridSearch`` / ``OnlineRandomizedSearch`` evaluate the aggregated
     `MultiPeriodPortfolio`, which only sees ``risk_free_rate`` and
-    ``annualization_factor`` through ``portfolio_params``. Values left at their
-    defaults are omitted so skfolio still inherits the optimizer's own
-    ``risk_free_rate`` instead of having ``0.0`` forced over it.
+    ``annualization_factor`` through ``portfolio_params``. The scorer's rate is
+    always forwarded, an explicit ``0.0`` included: leaving it out would score
+    each candidate at its own optimizer's ``risk_free_rate``, so a grid over
+    that parameter would be ranked against a moving hurdle.
 
     Returns:
-        The non-default overrides, or ``None`` when there are none.
+        The ``portfolio_params`` that apply the scorer's rate and, when set,
+        its annualization factor.
     """
-    params: dict[str, Any] = {}
-    risk_free_rate = getattr(scorer_config, "risk_free_rate", 0.0)
-    if risk_free_rate != 0.0:
-        params["risk_free_rate"] = risk_free_rate
-    annualization_factor = getattr(scorer_config, "annualization_factor", None)
-    if annualization_factor is not None:
-        params["annualization_factor"] = annualization_factor
-    return params or None
+    from optimizer.scoring._factory import build_online_portfolio_params
+
+    return build_online_portfolio_params(scorer_config)
 
 
 def _to_offset(freq_offset: str | None) -> Any:
@@ -112,6 +111,50 @@ def _validate_partial_fit(estimator: Any) -> None:
         raise ConfigurationError(_PARTIAL_FIT_ERROR)
 
 
+def _raise_if_no_candidate_scored(
+    search: OnlineGridSearch | OnlineRandomizedSearch,
+) -> None:
+    """Fail loudly when a fitted online search has no finite candidate score.
+
+    With ``raise_on_failure=False`` (or a finite ``error_score``) a candidate
+    that cannot be optimised is scored NaN rather than aborting the search.
+    When every candidate is NaN they all tie at rank 1 and ``best_params_``
+    silently becomes the first candidate, which is then refit and used as if it
+    had won.
+    """
+    scores = np.asarray(search.cv_results_["mean_score"], dtype=float)
+    if scores.size and np.isnan(scores).all():
+        msg = (
+            f"every candidate scored NaN: all {scores.size} parameter "
+            "combinations failed to fit or score on the online walk, so no "
+            "best candidate can be chosen. Check that the candidate "
+            "constraints are feasible for the universe and that the data has "
+            "no ragged or NaN history, or set error_score='raise' to surface "
+            "the underlying error"
+        )
+        raise OptimizationError(msg)
+
+
+class _CheckedOnlineGridSearch(OnlineGridSearch):  # type: ignore[misc]
+    """``OnlineGridSearch`` that refuses to report a best candidate nobody scored."""
+
+    def fit(self, X: Any, y: Any = None, **fit_params: Any) -> _CheckedOnlineGridSearch:
+        super().fit(X, y, **fit_params)
+        _raise_if_no_candidate_scored(self)
+        return self
+
+
+class _CheckedOnlineRandomizedSearch(OnlineRandomizedSearch):  # type: ignore[misc]
+    """``OnlineRandomizedSearch`` that refuses to report an unscored best candidate."""
+
+    def fit(
+        self, X: Any, y: Any = None, **fit_params: Any
+    ) -> _CheckedOnlineRandomizedSearch:
+        super().fit(X, y, **fit_params)
+        _raise_if_no_candidate_scored(self)
+        return self
+
+
 def run_online_predict(
     estimator: Any,
     X: npt.ArrayLike,
@@ -126,8 +169,14 @@ def run_online_predict(
     by repeatedly calling ``estimator.partial_fit`` after the warmup.
     Online state is mutated on ``estimator``; pass a fresh instance
     per thread.
+
+    Raises:
+        DataError: If a pandas ``y`` has the same length as ``X`` but another
+            index. Rows are paired by position, so it would be matched to the
+            wrong dates.
     """
     _validate_partial_fit(estimator)
+    check_index_alignment(X, "y", y)
     return online_predict(
         estimator,
         X,
@@ -165,8 +214,13 @@ def run_online_score(
     ``annualization_factor``; pass ``portfolio_params`` (see
     `optimizer.scoring.build_online_portfolio_params`) so the aggregated
     portfolio is scored at the same rate as the online searches.
+
+    Raises:
+        DataError: If a pandas ``y`` has the same length as ``X`` but another
+            index.
     """
     _validate_partial_fit(estimator)
+    check_index_alignment(X, "y", y)
     return online_score(
         estimator,
         X,
@@ -194,9 +248,13 @@ def build_online_grid_search(
     Scoring is resolved from ``config.base.scorer_config`` to a skfolio
     ``BaseMeasure`` (online portfolio search rejects ``make_scorer``).
     Online instances are NOT thread-safe; construct one per thread.
+
+    Returns:
+        A fitted-ready grid search. Its ``fit`` raises `OptimizationError` when
+        no candidate produced a finite score.
     """
     _validate_partial_fit(estimator)
-    return OnlineGridSearch(
+    return _CheckedOnlineGridSearch(
         estimator=estimator,
         param_grid=param_grid,
         scoring=_resolve_measure(config.base.scorer_config),
@@ -229,9 +287,13 @@ def build_online_randomized_search(
     Scoring is resolved from ``config.base.scorer_config`` to a skfolio
     ``BaseMeasure`` (online portfolio search rejects ``make_scorer``).
     Online instances are NOT thread-safe; construct one per thread.
+
+    Returns:
+        A fitted-ready randomized search. Its ``fit`` raises
+        `OptimizationError` when no candidate produced a finite score.
     """
     _validate_partial_fit(estimator)
-    return OnlineRandomizedSearch(
+    return _CheckedOnlineRandomizedSearch(
         estimator=estimator,
         param_distributions=param_distributions,
         n_iter=config.base.n_iter,

@@ -501,6 +501,50 @@ def interrupt_for(saver: Any, run: Any) -> dict[str, Any] | None:
     return None
 
 
+def live_gate_id(saver: Any, run: Any) -> str | None:
+    """Identify the approval gate ``run`` is parked at, or ``None`` if it has none.
+
+    The id is the checkpoint holding the pending interrupt. One run can open several
+    gates in its life (an approve whose ``place_orders`` is refused and retried, a
+    barge-in), each at a later checkpoint, so the run id alone cannot tell a repeat
+    submit of one gate from the decision on the next. Opaque: compare for equality only.
+
+    A run counts as gated only when its status is at a live gate **and** the thread
+    carries a pending interrupt; a rejected run keeps its standing interrupt but no
+    longer has a gate. Agent-stack-free, like :func:`interrupt_for`.
+
+    Args:
+        saver: The bootstrapped LangGraph checkpointer.
+        run: The ``agent_runs`` row (or any object with ``status``, ``thread_id`` and
+            ``id``); ``None`` yields ``None``.
+
+    Returns:
+        The gate id, or ``None`` when the run is finished, unknown, or its checkpoint
+        holds no pending interrupt.
+    """
+    if run is None or run.status not in _LIVE_GATE_STATUSES:
+        return None
+    # Mirrors the thread the resume drives (``resume_fund`` falls back to the run id).
+    thread_id = getattr(run, "thread_id", None) or str(run.id)
+    tup = saver.get_tuple(_thread_config(thread_id))
+    if tup is None:
+        return None
+    for task_id, channel, _value in tup.pending_writes or []:
+        if channel == _INTERRUPT_CHANNEL:
+            return _checkpoint_id(tup) or str(task_id)
+    return None
+
+
+def _checkpoint_id(tup: Any) -> str | None:
+    """The id of the checkpoint a saver tuple was read at, or ``None``."""
+    stored = (getattr(tup, "checkpoint", None) or {}).get("id")
+    if stored:
+        return str(stored)
+    configurable = (getattr(tup, "config", None) or {}).get("configurable") or {}
+    found = configurable.get("checkpoint_id")
+    return str(found) if found else None
+
+
 def _interrupt_value(value: Any) -> dict[str, Any] | None:
     """Unwrap a checkpoint ``__interrupt__`` write to its dict payload.
 
@@ -532,6 +576,25 @@ def get_mandate(session: Any, portfolio_id: uuid.UUID) -> PortfolioMandate | Non
     if row is None:
         return None
     return PortfolioMandate.from_stored(row.mandate)
+
+
+def mandate_warnings(session: Any, portfolio_id: uuid.UUID) -> list[str]:
+    """Stored mandate values that silently disable part of it, for the panels.
+
+    A legacy percent-style drift threshold is clamped on load and so leaves the drift
+    trigger inert (see ``PortfolioMandate.stored_value_warnings``); the Posture view
+    shows the sentence so an adviser can fix it.
+
+    Args:
+        session: A read-only session.
+        portfolio_id: The portfolio to read.
+
+    Returns:
+        One sentence per problem; empty for a healthy mandate or an unmandated
+        portfolio.
+    """
+    mandate = get_mandate(session, portfolio_id)
+    return [] if mandate is None else mandate.stored_value_warnings()
 
 
 def performance_summary(
@@ -1407,8 +1470,10 @@ __all__ = [
     "interrupt_for",
     "list_portfolio_runs",
     "list_portfolios",
+    "live_gate_id",
     "load_run_transcript",
     "macro_attribution_summary",
+    "mandate_warnings",
     "pending_hitl",
     "performance_summary",
     "portfolio_state",

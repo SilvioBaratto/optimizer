@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from typing import TYPE_CHECKING, Any, NotRequired, cast
@@ -68,12 +69,15 @@ if TYPE_CHECKING:
     from fund.tui.stream import StreamEvent
 
 __all__ = [
+    "FailedRound",
     "FundRun",
     "build_allocator_subagent",
     "build_economist_subagent",
     "build_executor_subagent",
     "build_fund_agent",
     "build_risk_subagent",
+    "failed_round_of",
+    "record_failed_round",
     "resume_fund",
     "resume_run",
     "run_fund",
@@ -1025,7 +1029,8 @@ def _constraint_digest(constraint_set: ConstraintSet) -> str:
         f"risk measure {constraint_set.risk_measure.value}, "
         f"risk aversion {constraint_set.a_gamma}, tail beta {constraint_set.beta}, "
         f"weight bounds [{bounds.min_weights}, {bounds.max_weights}]{cap}, "
-        f"budget {bounds.budget}, drawdown ceilings (fractions of capital) "
+        f"budget {bounds.budget}, drawdown ceilings (fractions of capital, checked "
+        f"against the worst loss inside any one-year window) "
         f"nu1 {constraint_set.nu1} / nu2 {constraint_set.nu2} / "
         f"nu3 {constraint_set.nu3}, ESG exclusions {exclusions}."
     )
@@ -1662,6 +1667,55 @@ def _halt_if_frozen(
     return True
 
 
+@contextmanager
+def _own_session(session: Any) -> Iterator[Any]:
+    """A short session on the round session's bind, committed by its user.
+
+    Bookkeeping that must not live and die with the round's transaction (the
+    first-round gate, the record of a failed round) goes through this, so it commits
+    at once and holds no row for the length of an LLM round.
+    """
+    from sqlalchemy.orm import Session
+
+    with Session(bind=session.get_bind()) as own:
+        yield own
+
+
+def _consume_first_round(session: Any, portfolio_id: uuid.UUID) -> bool:
+    """Spend the portfolio's one-time first-round gate in a session of its own.
+
+    The gate is a row of ``fund_autonomy_state``. Updating it in the round's
+    transaction would hold that row until the round ends, minutes later, and an
+    operator's freeze of the same portfolio would wait on it. Committing at once also
+    keeps the row creation out of the round: a round that is rolled back neither
+    leaves the gate spent nor, on a fresh install, takes the new row down with it.
+
+    Returns:
+        ``True`` when this call spent the gate (the round is the portfolio's first),
+        ``False`` when an earlier round already had.
+    """
+    from fund.audit.autonomy_repository import AutonomyRepository
+
+    with _own_session(session) as own:
+        consumed = AutonomyRepository(own).consume_first_round(portfolio_id)
+        own.commit()
+    return consumed
+
+
+def _restore_first_round(session: Any, portfolio_id: uuid.UUID) -> None:
+    """Hand back a gate :func:`_consume_first_round` spent, in a session of its own.
+
+    The spend is already committed, so the hand-back has to be as well: one made inside
+    the round's transaction would be rolled back with a failed round and leave the gate
+    gone.
+    """
+    from fund.audit.autonomy_repository import AutonomyRepository
+
+    with _own_session(session) as own:
+        AutonomyRepository(own).restore_first_round(portfolio_id)
+        own.commit()
+
+
 @dataclass(frozen=True)
 class _FundRunSetup:
     """The built agent + opened run + seed turn one fund round is driven from."""
@@ -1717,7 +1771,6 @@ def _prepare_fund_run(
         MifidProfileRepository,
         resolve_constraint_set,
     )
-    from fund.audit.autonomy_repository import AutonomyRepository
     from fund.schemas import ConstraintSetRef
 
     pid_uuid = _coerce_uuid(portfolio_id)
@@ -1730,7 +1783,6 @@ def _prepare_fund_run(
     # the round's transaction for its whole run, and a concurrent freeze would then
     # wait on the unique index until the round ends instead of acting at once.
     _raise_if_frozen(session, pid_uuid, doing="running a rebalance")
-    autonomy = AutonomyRepository(session)
 
     if store is None:
         raise RuntimeError(
@@ -1755,34 +1807,38 @@ def _prepare_fund_run(
     # min-variance QP over deterministic estimators), so identical inputs reproduce
     # identical weights without it.
     run_seed = seed if seed is not None else secrets.randbits(31)
-    active_profile = MifidProfileRepository(session).get_active(pid_uuid)
     audit = AgentRunRepository(session)
-    run = audit.create_run(
-        portfolio_id=pid_uuid,
-        asof=asof,
-        seed=run_seed,
-        # Candidates are picked at runtime; optimize_portfolio records them.
-        universe=[],
-        optimizer_config={
-            "step": "fund",
-            "temperature": effective_temperature(config, config.primary_model),
-            "backtest_train_size": _LOOKBACK_DAYS,
-            # Recorded so the rebuild-to-resume path sizes the ticket at the capital
-            # the PM was told, even if the mandate is edited before approval.
-            "capital": float(mandate.capital),
-            # Recorded so approving the gate can tell the portfolio was re-profiled
-            # while the round was running or waiting.
-            "profile_version": (
-                active_profile.version if active_profile is not None else None
-            ),
-        },
-    )
-    # The run row now exists, and the portfolio's first-round gate is spent below. An
-    # error before the caller owns a setup to finalise (the agent build, the seed's DB
-    # reads) would leave a ``pending`` orphan the roster shows as running, with the
-    # one-time gate gone, once the scheduler sweep commits the session.
+    run = None
+    resolved_thread_id: str | None = None
     first_round = False
+    # The portfolio's first-round gate is spent before the run row is written, in a
+    # session of its own, so no write of the round's transaction precedes it. An error
+    # anywhere below hands the gate back, and finalises the run ``failed`` once the row
+    # exists, rather than leaving a ``pending`` orphan the roster shows as running.
     try:
+        first_round = _consume_first_round(session, pid_uuid)
+        active_profile = MifidProfileRepository(session).get_active(pid_uuid)
+        run = audit.create_run(
+            portfolio_id=pid_uuid,
+            asof=asof,
+            seed=run_seed,
+            # Candidates are picked at runtime; optimize_portfolio records them.
+            universe=[],
+            optimizer_config={
+                "step": "fund",
+                "temperature": effective_temperature(config, config.primary_model),
+                "backtest_train_size": _LOOKBACK_DAYS,
+                # Recorded so the rebuild-to-resume path sizes the ticket at the
+                # capital the PM was told, even if the mandate is edited before
+                # approval.
+                "capital": float(mandate.capital),
+                # Recorded so approving the gate can tell the portfolio was
+                # re-profiled while the round was running or waiting.
+                "profile_version": (
+                    active_profile.version if active_profile is not None else None
+                ),
+            },
+        )
         resolved_thread_id = thread_id or str(run.id)
         audit.set_thread_id(run.id, resolved_thread_id)
 
@@ -1805,7 +1861,6 @@ def _prepare_fund_run(
             eligible=eligible,
         )
         effective_gates = _effective_gates(config, mandate)
-        first_round = autonomy.consume_first_round(pid_uuid)
         if first_round:
             # A portfolio's first round adds every PM gate for maximum oversight. It
             # widens the effective set rather than replacing it: a gate the mandate
@@ -1844,14 +1899,20 @@ def _prepare_fund_run(
             ]
         }
     except Exception as exc:
-        _finalize_failed(
-            audit,
-            run.id,
-            exc,
-            session=session,
-            portfolio_id=pid_uuid,
-            first_round=first_round,
-        )
+        if run is None:
+            if first_round:
+                _hand_back_first_round(session, pid_uuid)
+        else:
+            _finalize_failed(
+                audit,
+                run.id,
+                exc,
+                session=session,
+                portfolio_id=pid_uuid,
+                first_round=first_round,
+                checkpointer=checkpointer,
+                thread_id=resolved_thread_id,
+            )
         raise
     return _FundRunSetup(
         agent=agent,
@@ -1865,6 +1926,126 @@ def _prepare_fund_run(
     )
 
 
+def _hand_back_first_round(session: Any, portfolio_id: uuid.UUID) -> bool:
+    """Restore a spent first-round gate; ``False`` (logged) when that failed."""
+    try:
+        _restore_first_round(session, portfolio_id)
+    except Exception:
+        _log.exception("could not hand back the first-round gate of %s", portfolio_id)
+        return False
+    return True
+
+
+@dataclass(frozen=True)
+class FailedRound:
+    """What a failed round leaves for :func:`record_failed_round` to write durably.
+
+    Attributes:
+        run: The ``agent_runs`` row's columns, as finalised ``failed``.
+        decisions: The columns of each of the run's ``agent_decisions`` rows, in order.
+        gate_portfolio_id: The portfolio whose first-round gate the round spent and
+            could not hand back at the time, or ``None`` when there is nothing left to
+            hand back.
+    """
+
+    run: dict[str, Any] = field(repr=False)
+    decisions: list[dict[str, Any]] = field(repr=False)
+    gate_portfolio_id: uuid.UUID | None = None
+
+
+# The attribute :func:`_finalize_failed` sets on the exception it was handed, so the
+# code that rolls the round back can still find what the round recorded.
+_FAILED_ROUND_ATTR = "fund_failed_round"
+
+
+def failed_round_of(exc: BaseException) -> FailedRound | None:
+    """The :class:`FailedRound` a failed fund round attached to ``exc``, if any."""
+    found = getattr(exc, _FAILED_ROUND_ATTR, None)
+    return found if isinstance(found, FailedRound) else None
+
+
+def _attach_failed_round(
+    audit: Any,
+    run_id: uuid.UUID,
+    exc: Exception,
+    *,
+    gate_portfolio_id: uuid.UUID | None,
+) -> None:
+    """Snapshot the failed run and its decisions onto ``exc`` for the rollback."""
+    run = audit.get_run(run_id)
+    if run is None:
+        return
+    decisions = sorted(run.decisions, key=lambda d: d.decision_index)
+    failed = FailedRound(
+        run=run.to_dict(),
+        decisions=[decision.to_dict() for decision in decisions],
+        gate_portfolio_id=gate_portfolio_id,
+    )
+    try:
+        setattr(exc, _FAILED_ROUND_ATTR, failed)
+    except AttributeError:  # pragma: no cover - exceptions carry a __dict__
+        _log.warning("could not attach the failed round %s to %r", run_id, exc)
+
+
+def record_failed_round(session: Any, exc: BaseException) -> bool:
+    """Write a failed round that its caller rolled back, in a session of its own.
+
+    :func:`_finalize_failed` marks the run ``failed`` inside the round's transaction,
+    and the callers that drive rounds on a shared session (the scheduler sweeps, the
+    CLI and TUI through ``get_session``) roll that transaction back when the error
+    propagates, taking the run row and its error with it. Called after that rollback,
+    this re-creates the run and its decisions from the snapshot the exception carries,
+    so the failure stays visible and the drift monitor's cooldown (which counts
+    ``failed`` among the outcomes nobody acted on) still applies. It also hands back a
+    first-round gate that :func:`_finalize_failed` could not. Best effort: never
+    raises, and a run that already exists (the caller committed after all) is left as
+    it is.
+
+    Args:
+        session: The round's session, after its rollback; only its bind is used.
+        exc: The exception the failed round raised.
+
+    Returns:
+        ``True`` when the failed run is now on record, ``False`` when ``exc`` carries
+        no failed round or writing it failed.
+    """
+    failed = failed_round_of(exc)
+    if failed is None:
+        return False
+    from portopt_db.models import AgentDecision, AgentRun
+
+    if failed.gate_portfolio_id is not None:
+        _hand_back_first_round(session, failed.gate_portfolio_id)
+    try:
+        with _own_session(session) as own:
+            if own.get(AgentRun, failed.run["id"]) is None:
+                own.add(AgentRun(**failed.run))
+                own.flush()
+                own.add_all(AgentDecision(**row) for row in failed.decisions)
+            own.commit()
+    except Exception:
+        _log.exception("could not record failed fund run %s", failed.run.get("id"))
+        return False
+    return True
+
+
+def _drop_checkpoint_thread(
+    checkpointer: Any, run_id: uuid.UUID, thread_id: str | None
+) -> None:
+    """Delete the run's LangGraph thread; best effort, and only a thread the run owns.
+
+    A failed run is terminal, so nothing can resume its thread, and the thread is keyed
+    by a run id that is gone once the caller rolls back. A thread the caller supplied
+    is not the run's to delete.
+    """
+    if checkpointer is None or thread_id != str(run_id):
+        return
+    try:
+        checkpointer.delete_thread(thread_id)
+    except Exception:
+        _log.exception("could not delete the checkpoint thread of run %s", run_id)
+
+
 def _finalize_failed(
     audit: Any,
     run_id: uuid.UUID,
@@ -1873,18 +2054,24 @@ def _finalize_failed(
     session: Any,
     portfolio_id: uuid.UUID,
     first_round: bool,
+    checkpointer: Any | None = None,
+    thread_id: str | None = None,
 ) -> None:
     """Finalise a round that errored before reaching the gate as ``failed``.
 
-    Without it the run row stays ``pending`` for good: nothing else ever closes it, and
-    the scheduler sweep commits that half-written state after logging the error. The
-    error text lands in ``agent_runs.error``. A first-round gate the round consumed
-    (``first_round``) is handed back, since no adviser reviewed anything. Best effort:
-    a broken session (a failed flush awaits a rollback) must not mask the error being
-    propagated, and the caller's rollback discards the half-written round in that case
-    anyway. No commit.
+    Without it the run row stays ``pending`` for good: nothing else ever closes it. The
+    error text lands in ``agent_runs.error``, inside the round's transaction: the caller
+    rolls that transaction back when the error propagates, so it survives only where the
+    caller commits, or calls :func:`record_failed_round` after its rollback, which the
+    snapshot attached to ``exc`` serves. A first-round gate the round consumed
+    (``first_round``) is handed back in a session of its own, since no adviser reviewed
+    anything and the spend was committed on its own too. The run's checkpoint thread is
+    deleted: nothing can resume a failed run. Best effort: a broken session (a failed
+    flush awaits a rollback) must not mask the error being propagated. No commit of
+    ``session``.
     """
     reason = f"{type(exc).__name__}: {exc}"[:_RUN_ERROR_MAX_CHARS]
+    finalised = True
     try:
         audit.append_decision(
             run_id,
@@ -1893,12 +2080,21 @@ def _finalize_failed(
             hitl_decision={"decision": "failed", "reason": type(exc).__name__},
         )
         audit.finalize_run(run_id, weights={}, status="failed", error=reason)
-        if first_round:
-            from fund.audit.autonomy_repository import AutonomyRepository
-
-            AutonomyRepository(session).restore_first_round(portfolio_id)
     except Exception:
+        finalised = False
         _log.exception("could not finalise failed fund run %s", run_id)
+    handed_back = _hand_back_first_round(session, portfolio_id) if first_round else True
+    if finalised:
+        try:
+            _attach_failed_round(
+                audit,
+                run_id,
+                exc,
+                gate_portfolio_id=None if handed_back else portfolio_id,
+            )
+        except Exception:
+            _log.exception("could not snapshot failed fund run %s", run_id)
+    _drop_checkpoint_thread(checkpointer, run_id, thread_id)
 
 
 def run_fund(
@@ -1984,6 +2180,8 @@ def run_fund(
             session=session,
             portfolio_id=setup.ctx.portfolio_id,
             first_round=setup.first_round,
+            checkpointer=checkpointer,
+            thread_id=thread_config["configurable"]["thread_id"],
         )
         raise
 
@@ -2201,6 +2399,8 @@ def stream_fund(
             session=session,
             portfolio_id=setup.ctx.portfolio_id,
             first_round=setup.first_round,
+            checkpointer=checkpointer,
+            thread_id=setup.thread_config["configurable"]["thread_id"],
         )
         raise
 

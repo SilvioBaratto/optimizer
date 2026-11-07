@@ -4,12 +4,12 @@ import contextlib
 import logging
 import math
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, cast
 from uuid import UUID
 
 import pandas as pd
-from sqlalchemy import CursorResult, and_, delete, exists, func, select
+from sqlalchemy import CursorResult, and_, delete, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased, joinedload
 
 from portopt_db.models.market_data.yfinance_data import (
@@ -40,12 +40,25 @@ from portopt_db.models.market_data.yfinance_data import (
     TickerProfile,
     TickerProfileExtra,
 )
+from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Instrument
 from portopt_db.repository import RepositoryBase
 
 logger = logging.getLogger(__name__)
 
 _SENTINEL_DATE = date(1970, 1, 1)
+
+# A delisted instrument that Yahoo has priced nothing for in this long is no
+# longer worth a request in every sweep.
+DORMANT_AFTER_DAYS = 365
+
+# Bound parameters per IN list, well under the 32,767 a PostgreSQL statement
+# (and SQLite's 32,766) accepts.
+_NEWS_ID_CHUNK = 500
+
+# Rows per ``prune_ticker_news`` call. Each one carries a full article body, so
+# the batch size is what keeps a single delete transaction small.
+_NEWS_PRUNE_BATCH = 1000
 
 # Trading 212 lists sub-unit currencies as GBX/ZAC while Yahoo tags them GBp/ZAc.
 _SUB_UNIT_ALIASES = {"GBX": "GBp", "ZAC": "ZAc"}
@@ -61,8 +74,8 @@ def _same_currency_unit(a: str, b: str) -> bool:
 
 
 def _safe_val(v: Any) -> Any:
-    """Convert pandas/numpy types to Python natives, NaN/NaT to None."""
-    if v is None:
+    """Convert pandas/numpy types to Python natives, NaN/NaT/NA to None."""
+    if v is None or v is pd.NA or v is pd.NaT:
         return None
     if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
         return None
@@ -70,7 +83,15 @@ def _safe_val(v: Any) -> Any:
         return v.to_pydatetime()
     item_fn = getattr(v, "item", None)  # numpy scalar
     if callable(item_fn):
-        return item_fn()
+        native = item_fn()
+        # A numpy float32 NaN is not a float subclass, so it only shows as NaN
+        # once unwrapped. Unwrapped once: an object whose item() returns another
+        # such object would otherwise never stop.
+        if native is None or (
+            isinstance(native, float) and (math.isnan(native) or math.isinf(native))
+        ):
+            return None
+        return native
     return v
 
 
@@ -175,18 +196,39 @@ def _refreshable_columns(row: dict[str, Any], sticky: frozenset[str]) -> list[st
 
 
 def _estimate_update_columns(rows: list[dict[str, Any]]) -> list[str] | None:
-    """Conflict-update columns for a forward-estimate batch.
+    """Conflict-update columns for a batch of forward estimates.
 
-    A fetch that carries no currency must not turn a label stored by an earlier
-    one into NULL, so ``currency`` is left out of the update in that case.
+    A row that carries no currency must not turn a label stored by an earlier
+    fetch into NULL, so ``currency`` is left out of its update.
+
+    Args:
+        rows: Rows of one batch; callers pass rows that all do, or all do not,
+            carry a currency (see :func:`_split_by_currency`).
 
     Returns:
-        ``None`` (update every column) when any row has a currency, otherwise
+        ``None`` (update every column) when the rows carry a currency, otherwise
         every column except ``currency``.
     """
     if not rows or any(r["currency"] is not None for r in rows):
         return None
     return _refreshable_columns(rows[0], frozenset({"currency"}))
+
+
+def _split_by_currency(
+    rows: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    """Separate the rows that carry a currency from those that do not.
+
+    One ``ON CONFLICT`` update applies a single column list to every row of its
+    statement, so a batch mixing both kinds would overwrite the stored label of
+    a currency-less row with NULL.
+
+    Returns:
+        The non-empty groups, rows with a currency first.
+    """
+    labelled = [r for r in rows if r["currency"] is not None]
+    unlabelled = [r for r in rows if r["currency"] is None]
+    return [group for group in (labelled, unlabelled) if group]
 
 
 def _last_wins(rows: list[dict[str, Any]], *key_fields: str) -> list[dict[str, Any]]:
@@ -682,6 +724,27 @@ class YFinanceRepository(RepositoryBase):
             constraint_name="uq_price_history_instrument_date",
         )
 
+    def _upsert_estimates(
+        self, model: type, rows: list[dict[str, Any]], *, constraint_name: str
+    ) -> int:
+        """Upsert forward-estimate rows without erasing stored currency labels.
+
+        Rows with and without a currency go in separate statements because a
+        conflict update applies one column list to all rows of its statement.
+
+        Returns:
+            Number of rows processed.
+        """
+        return sum(
+            self._upsert(
+                model,
+                group,
+                constraint_name=constraint_name,
+                update_columns=_estimate_update_columns(group),
+            )
+            for group in _split_by_currency(rows)
+        )
+
     def upsert_earnings_estimate(self, instrument_id: UUID, df: pd.DataFrame) -> int:
         """Upsert forward-period earnings estimates (index = period labels)."""
         rows = [
@@ -699,11 +762,10 @@ class YFinanceRepository(RepositoryBase):
             for period, row in df.iterrows()
         ]
         rows = _last_wins(rows, "period")
-        return self._upsert(
+        return self._upsert_estimates(
             EarningsEstimate,
             rows,
             constraint_name="uq_earnings_estimate_instrument_period",
-            update_columns=_estimate_update_columns(rows),
         )
 
     def upsert_revenue_estimate(self, instrument_id: UUID, df: pd.DataFrame) -> int:
@@ -723,11 +785,10 @@ class YFinanceRepository(RepositoryBase):
             for period, row in df.iterrows()
         ]
         rows = _last_wins(rows, "period")
-        return self._upsert(
+        return self._upsert_estimates(
             RevenueEstimate,
             rows,
             constraint_name="uq_revenue_estimate_instrument_period",
-            update_columns=_estimate_update_columns(rows),
         )
 
     def upsert_growth_estimates(self, instrument_id: UUID, df: pd.DataFrame) -> int:
@@ -779,11 +840,8 @@ class YFinanceRepository(RepositoryBase):
             for period, row in df.iterrows()
         ]
         rows = _last_wins(rows, "period")
-        return self._upsert(
-            EpsTrend,
-            rows,
-            constraint_name="uq_eps_trend_instrument_period",
-            update_columns=_estimate_update_columns(rows),
+        return self._upsert_estimates(
+            EpsTrend, rows, constraint_name="uq_eps_trend_instrument_period"
         )
 
     def upsert_eps_revisions(self, instrument_id: UUID, df: pd.DataFrame) -> int:
@@ -809,11 +867,8 @@ class YFinanceRepository(RepositoryBase):
             for period, row in df.iterrows()
         ]
         rows = _last_wins(rows, "period")
-        return self._upsert(
-            EpsRevisions,
-            rows,
-            constraint_name="uq_eps_revisions_instrument_period",
-            update_columns=_estimate_update_columns(rows),
+        return self._upsert_estimates(
+            EpsRevisions, rows, constraint_name="uq_eps_revisions_instrument_period"
         )
 
     def upsert_earnings_history(self, instrument_id: UUID, df: pd.DataFrame) -> int:
@@ -1474,11 +1529,13 @@ class YFinanceRepository(RepositoryBase):
     ) -> int:
         """Upsert insider transactions from a ``Ticker.insider_transactions`` frame.
 
-        Rows sharing (insider, start date, transaction type) are merged by
-        summing shares and value, because the unique key cannot tell separate
-        same-day tranches apart. A row whose Transaction and Text are both
-        blank is kept under an empty transaction type; only rows without an
-        insider name are dropped.
+        Rows sharing (insider, start date, transaction type) are numbered as
+        lots, because the unique key cannot tell separate same-day tranches
+        apart, and each lot keeps its own shares and value. A group Yahoo now
+        lists with fewer lots loses its surplus stored lots; groups the frame
+        does not mention are left as stored. A row whose Transaction and Text
+        are both blank is kept under an empty transaction type; only rows
+        without an insider name are dropped.
 
         Args:
             instrument_id: Instrument the transactions belong to.
@@ -1540,11 +1597,53 @@ class YFinanceRepository(RepositoryBase):
                 r["lot_index"] = lot_index
                 numbered.append(r)
 
-        return self._upsert(
+        written = self._upsert(
             InsiderTransaction,
             numbered,
             constraint_name="uq_insider_tx_row",
         )
+        self._drop_surplus_insider_lots(instrument_id, groups)
+        return written
+
+    def _drop_surplus_insider_lots(
+        self,
+        instrument_id: UUID,
+        groups: Mapping[tuple[Any, ...], Sequence[dict[str, Any]]],
+    ) -> None:
+        """Delete stored lots beyond the size Yahoo now reports for a group.
+
+        The upsert only writes lot slots that exist in the fetch, so a sale Yahoo
+        stops listing twice would otherwise keep its second lot and be counted
+        twice. Only lots at index 1 or higher can be surplus, which keeps the
+        lookup small.
+        """
+        if not groups:
+            return
+        candidates = self.session.execute(
+            select(
+                InsiderTransaction.id,
+                InsiderTransaction.insider_name,
+                InsiderTransaction.start_date,
+                InsiderTransaction.transaction_type,
+                InsiderTransaction.lot_index,
+            ).where(
+                InsiderTransaction.instrument_id == instrument_id,
+                InsiderTransaction.lot_index >= 1,
+            )
+        ).all()
+        surplus: list[UUID] = []
+        for row in candidates:
+            group = groups.get(
+                (instrument_id, row.insider_name, row.start_date, row.transaction_type)
+            )
+            if group is not None and row.lot_index >= len(group):
+                surplus.append(row.id)
+        if not surplus:
+            return
+        with self.session.begin_nested():
+            self.session.execute(
+                delete(InsiderTransaction).where(InsiderTransaction.id.in_(surplus))
+            )
 
     def get_insider_transactions(
         self, instrument_id: UUID
@@ -1789,6 +1888,36 @@ class YFinanceRepository(RepositoryBase):
             )
         return written
 
+    def get_scraped_news_uuids(
+        self, instrument_id: UUID, news_uuids: Sequence[str]
+    ) -> set[str]:
+        """Return which of the given articles already have a stored body.
+
+        Selects the id column only, so the stored article text is never loaded.
+
+        Args:
+            instrument_id: Instrument the articles were published for.
+            news_uuids: Article ids as stored, i.e. truncated to the column width
+                like the upsert truncates them.
+
+        Returns:
+            The subset of *news_uuids* whose row holds a non-empty body.
+        """
+        found: set[str] = set()
+        for start in range(0, len(news_uuids), _NEWS_ID_CHUNK):
+            chunk = list(news_uuids[start : start + _NEWS_ID_CHUNK])
+            found.update(
+                self.session.execute(
+                    select(TickerNews.news_uuid).where(
+                        TickerNews.instrument_id == instrument_id,
+                        TickerNews.news_uuid.in_(chunk),
+                        TickerNews.full_content.is_not(None),
+                        TickerNews.full_content != "",
+                    )
+                ).scalars()
+            )
+        return found
+
     def get_news(self, instrument_id: UUID) -> Sequence[TickerNews]:
         """Return news articles for an instrument, ordered by publish time descending."""
         stmt = (
@@ -1797,6 +1926,64 @@ class YFinanceRepository(RepositoryBase):
             .order_by(TickerNews.publish_time.desc().nullslast())
         )
         return self.session.execute(stmt).scalars().all()
+
+    def prune_ticker_news(
+        self,
+        older_than: datetime | date,
+        *,
+        batch_size: int = _NEWS_PRUNE_BATCH,
+    ) -> int:
+        """Delete one batch of articles published before ``older_than``.
+
+        Each row carries the scraped article body, so the table grows by
+        megabytes a day without a retention rule. At most ``batch_size`` rows
+        go per call and the repository never commits: the caller commits after
+        every call and repeats until fewer than ``batch_size`` rows come back,
+        which keeps each transaction, and the row locks it holds, small.
+
+        A row is aged by ``publish_time``; an undated one by ``created_at``, so
+        it cannot outlive the rule.
+
+        Args:
+            older_than: Exclusive cutoff. A naive datetime is read as UTC and a
+                plain ``date`` as midnight UTC.
+            batch_size: Maximum rows deleted by this call; must be at least 1 so
+                a bad value can never turn into an unbounded delete.
+
+        Returns:
+            Number of rows deleted by this call; ``0`` once nothing older than
+            the cutoff is left.
+
+        Raises:
+            ValueError: ``batch_size`` is below 1.
+        """
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be at least 1, got {batch_size}")
+        if isinstance(older_than, datetime):
+            cutoff = (
+                older_than.replace(tzinfo=timezone.utc)
+                if older_than.tzinfo is None
+                else older_than.astimezone(timezone.utc)
+            )
+        else:
+            cutoff = datetime(
+                older_than.year, older_than.month, older_than.day, tzinfo=timezone.utc
+            )
+        # Two plain comparisons rather than COALESCE(publish_time, created_at):
+        # an expression would not use the index on publish_time.
+        expired = select(TickerNews.id).where(
+            or_(
+                TickerNews.publish_time < cutoff,
+                and_(
+                    TickerNews.publish_time.is_(None),
+                    TickerNews.created_at < cutoff,
+                ),
+            )
+        )
+        result = self.session.execute(
+            delete(TickerNews).where(TickerNews.id.in_(expired.limit(batch_size)))
+        )
+        return cast("CursorResult[Any]", result).rowcount
 
     # ------------------------------------------------------------------
     # Staleness info (for incremental fetch)
@@ -1934,14 +2121,25 @@ class YFinanceRepository(RepositoryBase):
     # Instrument queries (used by yfinance_data endpoint)
     # ------------------------------------------------------------------
 
-    def get_instruments_with_yfinance_ticker(self) -> Sequence[Instrument]:
+    def get_instruments_with_yfinance_ticker(
+        self, *, today: date | None = None
+    ) -> Sequence[Instrument]:
         """Return the instruments to ingest: those with a non-empty yfinance_ticker.
 
         A delisted row whose symbol is now carried by an active row (the old side
         of a venue transfer) is left out, so one symbol is never fetched and
-        stored under two instrument ids. Delisted rows with no active successor
-        are kept. The exchange is eager-loaded.
+        stored under two instrument ids. A delisted row with no active successor
+        stays, because ``delisted_at`` records when a universe build stopped
+        seeing a name, not when it stopped trading. It leaves once it has been
+        delisted for ``DORMANT_AFTER_DAYS`` and has no stored bar from that
+        period, i.e. Yahoo has priced nothing for it since; a pinned symbol never
+        leaves. Its stored history stays. The exchange is eager-loaded.
+
+        Args:
+            today: Reference date for the dormancy cutoff; defaults to the
+                current date.
         """
+        cutoff = (today or date.today()) - timedelta(days=DORMANT_AFTER_DAYS)
         successor = aliased(Instrument)
         superseded = and_(
             Instrument.delisted_at.is_not(None),
@@ -1950,6 +2148,15 @@ class YFinanceRepository(RepositoryBase):
                 successor.delisted_at.is_(None),
             ),
         )
+        dormant = and_(
+            Instrument.delisted_at.is_not(None),
+            Instrument.delisted_at < cutoff,
+            ~exists().where(
+                PriceHistory.instrument_id == Instrument.id,
+                PriceHistory.date >= cutoff,
+            ),
+            ~exists().where(PinnedInstrument.ticker == Instrument.yfinance_ticker),
+        )
         return (
             self.session.execute(
                 select(Instrument)
@@ -1957,6 +2164,7 @@ class YFinanceRepository(RepositoryBase):
                 .where(Instrument.yfinance_ticker.isnot(None))
                 .where(Instrument.yfinance_ticker != "")
                 .where(~superseded)
+                .where(~dormant)
             )
             .scalars()
             .unique()

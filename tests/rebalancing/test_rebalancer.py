@@ -43,6 +43,28 @@ class TestComputeDriftedWeights:
         drifted = compute_drifted_weights(weights, returns)
         assert pytest.approx(drifted.sum(), abs=1e-10) == 1.0
 
+    def test_cash_sleeve_survives_zero_returns(self) -> None:
+        # A 90%-invested book that earns nothing must not drift at all: the
+        # 10% cash sleeve is part of the portfolio value, not something to
+        # normalise away.
+        weights = np.array([0.30, 0.30, 0.30])
+        drifted = compute_drifted_weights(weights, np.zeros(3))
+        np.testing.assert_allclose(drifted, weights)
+
+    def test_cash_sleeve_earns_zero_while_assets_grow(self) -> None:
+        weights = np.array([0.45, 0.45])
+        returns = np.array([0.10, 0.0])
+        drifted = compute_drifted_weights(weights, returns)
+        value = 0.10 + 0.45 * 1.10 + 0.45
+        np.testing.assert_allclose(drifted, [0.45 * 1.10 / value, 0.45 / value])
+        assert drifted.sum() < 1.0
+
+    def test_zero_return_cash_book_does_not_trip_relative_rebalance(self) -> None:
+        target = np.array([0.30, 0.30, 0.30])
+        drifted = compute_drifted_weights(target, np.zeros(3))
+        cfg = ThresholdRebalancingConfig.for_relative(0.10)
+        assert should_rebalance(drifted, target, cfg) is False
+
 
 class TestComputeTurnover:
     def test_no_change(self) -> None:
@@ -370,6 +392,35 @@ class TestApplyNoTradeBand:
         assert np.all(np.isfinite(out))
         assert out.sum() == pytest.approx(1.0)
         np.testing.assert_allclose(out, np.array([0.30, -0.30, 0.97]) / 0.97)
+
+    def test_cash_sleeve_is_preserved_when_one_asset_breaches(self) -> None:
+        # Target keeps 10% in cash. The book holds the same 10% cash; only
+        # asset 0 breaches the 5pp band. The held assets must stay put and the
+        # vector must keep summing to the target's invested level, not be
+        # stretched to 1 by spending the cash.
+        current = np.array([0.38, 0.26, 0.26])
+        target = np.array([0.30, 0.30, 0.30])
+        cfg = ThresholdRebalancingConfig.for_absolute(0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        assert out.sum() == pytest.approx(target.sum())
+        np.testing.assert_allclose(out[1:], current[1:])
+        assert out[0] < 0.40
+
+    def test_cash_sleeve_breached_asset_fills_the_budget_it_is_left(self) -> None:
+        current = np.array([0.40, 0.27, 0.23])
+        target = np.array([0.30, 0.30, 0.30])
+        cfg = ThresholdRebalancingConfig.for_absolute(0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        # Assets 0 and 2 breach; the held 0.27 leaves 0.90 - 0.27 = 0.63 of
+        # the invested level, shared pro rata to their (equal) targets.
+        np.testing.assert_allclose(out, [0.315, 0.27, 0.315])
+
+    def test_no_breach_keeps_the_cash_sleeve(self) -> None:
+        current = np.array([0.34, 0.28, 0.28])
+        target = np.array([0.30, 0.30, 0.30])
+        cfg = ThresholdRebalancingConfig.for_absolute(0.05)
+        out = apply_no_trade_band(current, target, cfg)
+        np.testing.assert_allclose(out, current)
 
     def test_exit_only_breach_stays_fully_invested(self) -> None:
         # Only the held name being exited breaches; its target is zero, so the

@@ -267,7 +267,8 @@ class ETFMetadataRepository(RepositoryBase):
         Args:
             instrument_id: Identifies the ETF instrument.
             as_of: Snapshot date for this allocation.
-            weights: Maps sector label to weight fraction (0–1).
+            weights: Maps sector label to weight fraction (0–1). A NaN or
+                infinite weight is stored as NULL.
 
         Returns:
             Number of sector rows written; 0 when ``weights`` is empty.
@@ -278,7 +279,7 @@ class ETFMetadataRepository(RepositoryBase):
                 "instrument_id": instrument_id,
                 "as_of": as_of,
                 "sector": sector,
-                "weight": weight,
+                "weight": _finite_or_none(weight),
             }
             for sector, weight in weights.items()
         ]
@@ -497,7 +498,10 @@ class ETFMetadataRepository(RepositoryBase):
         ).scalar_one_or_none()
 
     def get_latest_sector_weights(
-        self, tickers: Sequence[str]
+        self,
+        tickers: Sequence[str],
+        *,
+        on_or_before: dt.date | None = None,
     ) -> dict[str, SectorSnapshot]:
         """Return each ETF's newest sector-weight snapshot, keyed by ticker.
 
@@ -510,25 +514,30 @@ class ETFMetadataRepository(RepositoryBase):
         Args:
             tickers: Yahoo tickers matched exactly against
                 ``Instrument.yfinance_ticker``.
+            on_or_before: When set, snapshots dated after it are ignored, so a
+                run replayed at an earlier decision bar is judged on the
+                holdings known then rather than on later ones.
 
         Returns:
             Ticker to :class:`SectorSnapshot`. Tickers with no instrument, or
-            whose instrument has no sector rows, are absent. Empty input
+            whose instrument has no sector rows (on or before the cutoff), are
+            absent. Empty input
             returns ``{}`` without touching the database.
         """
         wanted = {t for t in tickers if t}
         if not wanted:
             return {}
-        newest = (
+        newest_query = (
             select(
                 ETFSectorWeight.instrument_id.label("instrument_id"),
                 func.max(ETFSectorWeight.as_of).label("as_of"),
             )
             .join(Instrument, Instrument.id == ETFSectorWeight.instrument_id)
             .where(Instrument.yfinance_ticker.in_(wanted))
-            .group_by(ETFSectorWeight.instrument_id)
-            .subquery()
         )
+        if on_or_before is not None:
+            newest_query = newest_query.where(ETFSectorWeight.as_of <= on_or_before)
+        newest = newest_query.group_by(ETFSectorWeight.instrument_id).subquery()
         rows = self.session.execute(
             select(
                 Instrument.yfinance_ticker,

@@ -52,8 +52,9 @@ from app.services._shared.trading_calendar import last_completed_session
 from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance import (
     CircuitBreakerProtocol,
+    RequestOutcomes,
     YFinanceClient,
-    fetch_yahoo_news,
+    fetch_ticker_news,
     record_failure,
     track_request_outcomes,
 )
@@ -583,9 +584,17 @@ class YFinanceDataService:
             if may_have_stored_bars
             else None
         )
+        # Today's bar is still forming while the exchange is open, and the
+        # freshness gate takes the newest stored date as final; the incremental
+        # fetch stops before today for the same reason. yfinance cannot combine
+        # "ytd" with an end date, so that window is spelled out as a start.
+        today = _today()
+        if start is None and period == "ytd":
+            start = date(today.year, 1, 1)
         window: dict[str, Any] = (
             {"period": period} if start is None else {"start": start.isoformat()}
         )
+        window["end"] = today.isoformat()
         # fetch_history accepts a native `timeout` kwarg (passed to requests),
         # so we pass it directly without an extra watchdog thread. Closes are
         # adjusted as of the fetch date (yfinance default), which is why every
@@ -659,6 +668,7 @@ class YFinanceDataService:
                 asset_class=asset_class,
                 staleness=staleness,
                 instrument_type=instrument_type,
+                outcomes=outcomes,
             )
         result["transport_failures"] = len(outcomes.failures)
         result["requests_answered"] = outcomes.answered
@@ -681,6 +691,7 @@ class YFinanceDataService:
         asset_class: str | None,
         staleness: Any,
         instrument_type: str | None,
+        outcomes: RequestOutcomes,
     ) -> dict[str, Any]:
         counts: dict[str, int] = {}
         errors: list[str] = []
@@ -755,8 +766,11 @@ class YFinanceDataService:
                 return
             # While the breaker is open an empty result is more likely a lost
             # request than Yahoo's answer; leaving it unrecorded keeps the next
-            # run retrying instead of hiding the category.
-            if self.yf_client.circuit_breaker.is_active:
+            # run retrying instead of hiding the category. Only rate limits open
+            # the breaker, so a 5xx or an unreachable host is told apart through
+            # the tally. It carries no category, so one lost request keeps every
+            # empty answer of the ticker retryable.
+            if self.yf_client.circuit_breaker.is_active or outcomes.failures:
                 return
             self._empty_fetches.remember(instrument_id, marker_key, now)
 
@@ -1598,7 +1612,7 @@ class YFinanceDataService:
         # 11. News (always fetched; article bodies scraped once)
         try:
             news_list = self._timed(
-                lambda: fetch_yahoo_news(yfinance_ticker, self.yf_client)
+                lambda: fetch_ticker_news(yfinance_ticker, self.yf_client)
             )
             if news_list:
                 from app.services.market_data.yfinance.news.scraper import (
@@ -1608,11 +1622,12 @@ class YFinanceDataService:
                 # The feed repeats the same articles for days. Re-scraping a body
                 # already stored costs a throttled page request per article per
                 # sweep; the upsert leaves a stored body alone when none is sent.
-                scraped_ids = {
-                    str(row.news_uuid)
-                    for row in self.repo.get_news(instrument_id)
-                    if row.full_content
-                }
+                feed_ids = [
+                    str(news_id)
+                    for article in news_list
+                    if (news_id := article.get("id") or article.get("uuid")) is not None
+                ]
+                scraped_ids = self.repo.get_scraped_news_uuids(instrument_id, feed_ids)
                 scraper = ArticleScraper(delay=0.5)
                 for article in news_list:
                     news_id = article.get("id") or article.get("uuid")

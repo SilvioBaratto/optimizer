@@ -189,10 +189,56 @@ class TestInvestabilityScreenSelector:
     ) -> None:
         X = _returns_from(screening_data["price_history"])
         first = build_investability_screen(**screening_data).fit(X)
-        second = build_investability_screen(
-            **screening_data, current_members=first.investable_universe_
-        ).fit(X)
+        with pytest.warns(UserWarning, match="current_members"):
+            second = build_investability_screen(
+                **screening_data, current_members=first.investable_universe_
+            ).fit(X)
         assert set(first.investable_universe_) == set(second.investable_universe_)
+
+
+class TestCurrentMembersLookAhead:
+    """``current_members`` is today's membership, whatever the fit window."""
+
+    def test_dated_window_with_current_members_warns(
+        self, screening_data: dict[str, pd.DataFrame]
+    ) -> None:
+        X = _returns_from(screening_data["price_history"])
+        selector = build_investability_screen(
+            **screening_data, current_members=pd.Index(["AAPL", "MSFT"])
+        )
+
+        with pytest.warns(UserWarning, match="current_members") as caught:
+            selector.fit(X)
+
+        assert "look-ahead" in str(caught[0].message)
+
+    def test_dated_window_without_current_members_does_not_warn(
+        self, screening_data: dict[str, pd.DataFrame]
+    ) -> None:
+        X = _returns_from(screening_data["price_history"])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            build_investability_screen(**screening_data).fit(X)
+
+    def test_empty_current_members_does_not_warn(
+        self, screening_data: dict[str, pd.DataFrame]
+    ) -> None:
+        X = _returns_from(screening_data["price_history"])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            build_investability_screen(
+                **screening_data, current_members=pd.Index([])
+            ).fit(X)
+
+    def test_undated_window_with_current_members_does_not_warn(
+        self, screening_data: dict[str, pd.DataFrame]
+    ) -> None:
+        X = _returns_from(screening_data["price_history"]).reset_index(drop=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            build_investability_screen(
+                **screening_data, current_members=pd.Index(["AAPL"])
+            ).fit(X)
 
 
 @pytest.fixture()

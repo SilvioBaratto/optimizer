@@ -152,6 +152,30 @@ def test_remarks_when_the_sweep_finishes_after_the_fallback_mark(
     assert len(marks) == 1
 
 
+def test_remarks_when_a_mark_that_began_before_the_sweep_settled_ends_after_it(
+    session_factory, marks
+) -> None:
+    """A mark is only as fresh as the closes it started on.
+
+    The fallback mark began at 12:00 and ended at 12:01, the sweep settled in between.
+    Comparing finish times read that mark as taken on the settled closes, although the
+    portfolios it read first still carried yesterday's.
+    """
+    _job(
+        session_factory, JOB_NAV_MARK, "completed", started=_at(12), finished=_at(12, 1)
+    )
+    _job(
+        session_factory,
+        _SWEEP,
+        "completed",
+        started=_at(7, 5),
+        finished=_at(12, 0).replace(second=30),
+    )
+
+    assert _run(session_factory, _at(12, 5)) is True
+    assert len(marks) == 1
+
+
 def test_marks_anyway_past_the_deadline_and_warns(
     session_factory, marks, caplog: pytest.LogCaptureFixture
 ) -> None:

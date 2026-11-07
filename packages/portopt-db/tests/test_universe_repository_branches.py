@@ -403,6 +403,59 @@ class TestMarkDelisted:
         )
 
 
+class TestPinnedSiblingRows:
+    """A pin protects the row that carries its symbol, not every row that shares it.
+
+    The Yahoo-ticker backfill left broker-era rows (``VUSAl_EQ``) beside the
+    canonical ones (``VUSA.L``). They share a ``yfinance_ticker``, so protecting
+    all of them kept a stale twin active for as long as the pin existed and had
+    the symbol ingested twice.
+    """
+
+    @staticmethod
+    def _pair(db_session):
+        ex = _make_exchange(db_session, "Sibling Venue")
+        canonical = add_and_flush(
+            db_session,
+            Instrument(
+                ticker="VUSA.L",
+                short_name="VUSA",
+                yfinance_ticker="VUSA.L",
+                exchange=ex,
+            ),
+        )
+        sibling = add_and_flush(
+            db_session,
+            Instrument(
+                ticker="VUSAl_EQ",
+                short_name="VUSA",
+                yfinance_ticker="VUSA.L",
+                exchange=ex,
+            ),
+        )
+        add_and_flush(db_session, PinnedInstrument(ticker="VUSA.L", source="manual"))
+        return ex, canonical, sibling
+
+    def test_the_canonical_row_is_protected_and_its_sibling_is_not(self, db_session):
+        """Only the row whose ticker is the pinned symbol is spared from delisting."""
+        ex, canonical, sibling = self._pair(db_session)
+        repo = _repo(db_session)
+
+        assert repo.mark_delisted("VUSA.L", ex.id, date(2026, 11, 1)) is False
+        assert repo.mark_delisted("VUSAl_EQ", ex.id, date(2026, 11, 1)) is True
+
+        db_session.refresh(canonical)
+        db_session.refresh(sibling)
+        assert canonical.delisted_at is None
+        assert sibling.delisted_at == date(2026, 11, 1)
+
+    def test_only_the_canonical_row_is_reported_as_pinned(self, db_session):
+        """The universe build must not subtract a stale twin from its snapshot."""
+        ex, _, _ = self._pair(db_session)
+
+        assert _repo(db_session).get_pinned_tickers(ex.id) == {"VUSA.L"}
+
+
 class TestGetPinnedTickers:
     """``get_pinned_tickers`` speaks the same ticker space as ``get_active_tickers``."""
 
@@ -787,8 +840,12 @@ class TestSaveInstrumentsBatchPinnedRows:
         """The PostgreSQL statement wraps all five columns in CASE WHEN EXISTS."""
         sql = self._upsert_sql().lower()
         pin_check = (
-            "(exists (select * from pinned_instruments "
-            "where pinned_instruments.ticker = instruments.yfinance_ticker))"
+            "((exists (select * from pinned_instruments "
+            "where pinned_instruments.ticker = instruments.yfinance_ticker)) "
+            "and (instruments.ticker = instruments.yfinance_ticker "
+            "or not (exists (select * from instruments as instruments_1 "
+            "where instruments_1.yfinance_ticker = instruments.yfinance_ticker "
+            "and instruments_1.ticker = instruments_1.yfinance_ticker))))"
         )
 
         for column in _PROTECTED_COLUMNS:
@@ -890,19 +947,27 @@ class TestSaveInstrumentsBatchPinnedRows:
 
         assert _reload(db_session, "EGLN").currency_code == "USD"
 
-    def test_pinned_row_is_not_rehomed_to_another_venue(self, db_session):
-        """A pinned symbol the Screener lists elsewhere stays where it is."""
+    def test_pinned_row_follows_the_screener_to_its_new_venue(self, db_session):
+        """A pinned symbol the Screener lists elsewhere is moved, not duplicated.
+
+        A second row would be a second active instrument for one symbol: the pin
+        matches by symbol text, so neither row could ever be delisted and the
+        sweep would fetch the symbol under two ids. Moving keeps the instrument
+        id, and with it the price history, and the pin still shields the
+        hand-set classification.
+        """
         repo = _repo(db_session)
         lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
         xetra = repo.save_exchange({"name": "Deutsche Börse Xetra", "id": 2})
         _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
         original_id = _rows_for(db_session, "EGLN")[0].id
 
-        repo.save_instruments_batch([_batch_row("EGLN", type="ETF")], xetra.id)
+        repo.save_instruments_batch([_screener_row("EGLN")], xetra.id)
 
-        by_venue = {r.exchange_id: r for r in _rows_for(db_session, "EGLN")}
-        assert by_venue[lse.id].id == original_id
-        assert by_venue[lse.id].asset_class == "commodity"
+        rows = _rows_for(db_session, "EGLN")
+        assert [(r.id, r.exchange_id) for r in rows] == [(original_id, xetra.id)]
+        assert rows[0].asset_class == "commodity"
+        assert rows[0].yfinance_ticker == "EGLN.L"
 
     def test_unpinned_row_is_still_rehomed(self, db_session):
         """The venue-change repair keeps working for rows nobody pinned."""

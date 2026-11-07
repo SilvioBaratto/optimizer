@@ -101,8 +101,16 @@ class TestCPCVConfig:
         cfg = CPCVConfig()
         assert cfg.n_folds == 10
         assert cfg.n_test_folds == 8
-        assert cfg.purged_size == 0
-        assert cfg.embargo_size == 0
+        assert cfg.purged_size == 5
+        assert cfg.embargo_size == 5
+
+    @pytest.mark.parametrize(
+        "cfg",
+        [CPCVConfig.for_statistical_testing(), CPCVConfig.for_small_sample()],
+    )
+    def test_presets_guard_against_leakage_by_default(self, cfg: CPCVConfig) -> None:
+        assert cfg.purged_size > 0
+        assert cfg.embargo_size > 0
 
     def test_frozen(self) -> None:
         cfg = CPCVConfig()

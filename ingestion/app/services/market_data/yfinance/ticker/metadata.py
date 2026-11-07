@@ -167,15 +167,24 @@ class MetadataClient(BaseClient):
         self,
         symbol: str,
         max_retries: int | None = None,
+        *,
+        raise_on_lost: bool = False,
     ) -> tuple[str, ...] | None:
         """Fetch available options expiration dates for symbol.
 
         Args:
             symbol: Ticker symbol.
             max_retries: Retry attempts; None uses the client default.
+            raise_on_lost: Raise instead of returning None when no attempt got an
+                answer, so a caller can tell an unreachable source from a symbol
+                that lists no options.
 
         Returns:
-            Tuple of ISO date strings, or None if no options are listed or all retries fail.
+            Tuple of ISO date strings, or None if no options are listed or, without
+            *raise_on_lost*, all retries fail.
+
+        Raises:
+            RequestLostError: *raise_on_lost* is set and every attempt failed.
         """
         logger.debug("Fetching options expirations for '%s'", symbol)
 
@@ -186,6 +195,7 @@ class MetadataClient(BaseClient):
             _action,
             max_retries,
             is_valid=lambda v: v is not None and len(v) > 0,
+            raise_on_lost=raise_on_lost,
         )
 
     def fetch_option_chain(

@@ -324,6 +324,41 @@ class TestSetupCommand:
         mock_run.assert_not_called()
 
 
+class TestDotenvDiscovery:
+    """The host CLI reads the `.env` of the directory it runs from."""
+
+    def test_the_env_file_is_found_from_the_cwd_not_from_the_package_dir(
+        self, tmp_path
+    ) -> None:
+        """Walking up from `ingestion/app` finds a leftover `ingestion/.env` before
+        the checkout's own `.env`, so an operator running `portopt` from the
+        checkout would get another file's values."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        (tmp_path / ".env").write_text("PORTOPT_TEST_MARK=root\n", encoding="utf-8")
+        workdir = tmp_path / "sub"
+        workdir.mkdir()
+        probe = tmp_path / "probe.py"
+        probe.write_text(
+            "import os\nimport app.cli\nprint(os.environ.get('PORTOPT_TEST_MARK'))\n",
+            encoding="utf-8",
+        )
+        ingestion = Path(__file__).resolve().parents[2]
+
+        result = subprocess.run(  # noqa: S603 - the test interpreter, a probe we wrote
+            [sys.executable, str(probe)],
+            cwd=workdir,
+            env={"PYTHONPATH": str(ingestion), "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.stdout.strip() == "root", result.stderr
+
+
 class TestLifecycleCommands:
     """`portopt start/stop/status` wire to lifecycle and map health to exit codes."""
 
@@ -395,18 +430,53 @@ class TestLifecycleCommands:
     def test_status_all_ok_exits_zero(self) -> None:
         with patch(
             "app.setup.lifecycle.run_status",
-            return_value={"docker": True, "db": True, "scheduler": True},
+            return_value={"docker": "ok", "db": "ok", "scheduler": "ok", "fund": "ok"},
         ):
             result = runner.invoke(app, ["status"])
         assert result.exit_code == 0
+        assert "fund: ok" in result.output
 
     def test_status_degraded_exits_nonzero(self) -> None:
         with patch(
             "app.setup.lifecycle.run_status",
-            return_value={"docker": True, "db": False, "scheduler": False},
+            return_value={"docker": "ok", "db": "down", "scheduler": "down"},
         ):
             result = runner.invoke(app, ["status"])
         assert result.exit_code == 1
+        assert "db: down" in result.output
+
+    def test_status_names_an_unhealthy_service_instead_of_calling_it_ok(self) -> None:
+        with patch(
+            "app.setup.lifecycle.run_status",
+            return_value={
+                "docker": "ok",
+                "db": "ok",
+                "scheduler": "unhealthy",
+                "fund": "restarting",
+            },
+        ):
+            result = runner.invoke(app, ["status"])
+        assert result.exit_code == 1
+        assert "scheduler: unhealthy" in result.output
+        assert "fund: restarting" in result.output
+
+    def test_status_with_the_fund_off_by_design_exits_zero_and_explains_it(
+        self,
+    ) -> None:
+        """A data-only install (no LLM backend) or a `portopt stop` is healthy."""
+        with patch(
+            "app.setup.lifecycle.run_status",
+            return_value={
+                "docker": "ok",
+                "db": "ok",
+                "scheduler": "ok",
+                "fund": "disabled",
+            },
+        ):
+            result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        assert "fund: disabled" in result.output
+        assert "portopt start" in result.output
 
 
 class TestSingleStepCommands:

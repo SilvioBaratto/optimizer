@@ -350,6 +350,8 @@ class DecisionsView(ShellView):
         self.selected_portfolio_id: uuid.UUID | None = None
         self.gate_text: str = ""
         self.gate_unavailable = False
+        # The gate on screen, so a decision is refused if the run has since moved on.
+        self.rendered_gate_id: str | None = None
         self._queue: list[RunSummary] = []
 
     def compose(self) -> ComposeResult:
@@ -392,9 +394,9 @@ class DecisionsView(ShellView):
         if read is None:
             self._paint_read_error()
             return
-        rows, gate, unavailable = read
+        rows, gate, unavailable, gate_id = read
         self._paint_queue(rows)
-        self._paint_gate(gate, unavailable=unavailable)
+        self._paint_gate(gate, unavailable=unavailable, gate_id=gate_id)
 
     def select_run(self, run_id: uuid.UUID) -> None:
         """Focus a queued run by id, then repaint the gate detail.
@@ -425,30 +427,36 @@ class DecisionsView(ShellView):
         if key is not None:
             self.select_run(uuid.UUID(key))
 
-    def _read(self) -> tuple[list[RunSummary], str | None, bool] | None:
+    def _read(self) -> tuple[list[RunSummary], str | None, bool, str | None] | None:
         """Read the queue + the selected run's gate text within one short session.
 
         Returns ``None`` on a queue read error — distinct from an empty queue, so the
         poll keeps the last-known queue and selection instead of mistaking a hiccup for
         a cleared inbox. The gate text is read only when the selection is still in the
         live queue, and a gate that cannot be rendered degrades to a one-line notice
-        (flagged by the third element) without discarding the queue.
+        (flagged by the third element) without discarding the queue. The fourth element
+        is the id of the gate rendered, read before its text: a run that moves between
+        the two reads then leaves an older id than the text, and a decision on it is
+        refused instead of landing on a gate nobody saw.
         """
         saver = self.shell._persistence.saver
         try:
             with self.read_session() as session:
                 rows = observe.pending_hitl(session, saver, None)
                 gate: str | None = None
+                gate_id: str | None = None
                 unavailable = False
                 if self.selected_run_id is not None and any(
                     row.run_id == self.selected_run_id for row in rows
                 ):
                     try:
+                        gate_id = _live_gate_id(session, saver, self.selected_run_id)
                         gate = _gate_text(session, saver, self.selected_run_id)
                     except Exception as exc:  # one bad gate must not hide the queue
                         gate = f"(gate unavailable: {exc})"
+                        gate_id = None
                         unavailable = True
-                return rows, gate, unavailable
+                return rows, gate, unavailable, gate_id
         except Exception:  # keep the poll loop alive on any read error
             return None
 
@@ -478,12 +486,29 @@ class DecisionsView(ShellView):
             self.selected_run_id = None
             self.selected_portfolio_id = None
 
-    def _paint_gate(self, gate: str | None, *, unavailable: bool = False) -> None:
+    def _paint_gate(
+        self,
+        gate: str | None,
+        *,
+        unavailable: bool = False,
+        gate_id: str | None = None,
+    ) -> None:
         self.gate_text = gate or ""
         self.gate_unavailable = unavailable
+        self.rendered_gate_id = gate_id
         self.query_one("#decisions-gate", Static).update(
             gate or "(select a paused gate)"
         )
+
+
+def _live_gate_id(session: Any, saver: Any, run_id: uuid.UUID) -> str | None:
+    """The id of the gate ``run_id`` is parked at, or ``None`` when it has none.
+
+    Lazy import of the run repository for the same reason as :func:`_gate_text`.
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    return observe.live_gate_id(saver, AgentRunRepository(session).get_run(run_id))
 
 
 def _gate_text(session: Any, saver: Any, run_id: uuid.UUID) -> str | None:
@@ -635,6 +660,16 @@ def _tick(flag: bool) -> str:
     return "✓" if flag else "✗"
 
 
+def _exact_percent(value: float) -> str:
+    """A fraction as a percentage with one or two decimals (``0.15`` -> ``15.0%``).
+
+    Two decimals keep a 1.5x stop of a 7.5% ceiling (11.25%) from reading as 11.2%;
+    the second is dropped when it is a zero, so round figures stay short.
+    """
+    text = f"{value:.2%}"
+    return f"{text[:-2]}%" if text.endswith("0%") else text
+
+
 def _format_caps(constraint_set: dict[str, Any]) -> str:
     """One-line summary of the numeric ConstraintSet caps, for display.
 
@@ -646,7 +681,7 @@ def _format_caps(constraint_set: dict[str, Any]) -> str:
     # tolerance (the hard ceiling), nu1 a soft warning below it and nu3 the 1.5x
     # absolute stop; one bare "drawdown" figure would read as the ceiling.
     tiers = [
-        f"{label} ≤{value:.1%}"
+        f"{label} ≤{_exact_percent(value)}"
         for label, key in (("warn", "nu1"), ("ceiling", "nu2"), ("stop", "nu3"))
         if isinstance(value := constraint_set.get(key), int | float)
     ]
@@ -654,7 +689,7 @@ def _format_caps(constraint_set: dict[str, Any]) -> str:
         parts.append("drawdown " + ", ".join(tiers))
     name_cap = (constraint_set.get("universe_filters") or {}).get("max_position_cap")
     if isinstance(name_cap, int | float):
-        parts.append(f"name ≤{name_cap:.0%}")
+        parts.append(f"name ≤{_exact_percent(name_cap)}")
     exclusions = (constraint_set.get("esg") or {}).get("exclusions") or []
     parts.append(f"ESG exclude {len(exclusions)}")
     return " · ".join(parts)
@@ -1229,6 +1264,34 @@ class PostureView(ShellView):
         if key is not None:
             self.shell.focus_portfolio(uuid.UUID(key))
 
+    def poll_task(self) -> tuple[Callable[[], Any], Callable[[Any], None]] | None:
+        """Read the roster and detail off the loop: each portfolio's book is marked.
+
+        The roster marks every portfolio's holdings against its price history and the
+        detail marks the focused one again, so on the event loop a tick cost more the
+        more portfolios the fund ran. The painted result is dropped when the focus
+        moved while the read was in flight; the next tick repaints it.
+        """
+        pid = self.shell._portfolio_id
+        session_factory = self.shell._session_factory
+
+        def read() -> tuple[uuid.UUID | None, list[_RosterRow], str, str | None]:
+            roster, strip = _load_roster(session_factory)
+            detail = _load_posture_detail(session_factory, pid) if pid else None
+            return pid, roster, strip, detail
+
+        def apply(
+            result: tuple[uuid.UUID | None, list[_RosterRow], str, str | None],
+        ) -> None:
+            read_pid, roster, strip, detail = result
+            if read_pid != self.shell._portfolio_id:
+                return
+            self.render_count += 1
+            self._paint_roster(roster, strip)
+            self._show_detail(detail if read_pid is not None else None)
+
+        return read, apply
+
     def _read_roster(self) -> tuple[list[_RosterRow], str]:
         """Read every portfolio's roster row + the fund-strip summary in one session.
 
@@ -1237,48 +1300,7 @@ class PostureView(ShellView):
         row instead. The strip mirrors the fund autonomy posture (ARMED/FROZEN) so it
         surfaces here too, not only in the header.
         """
-        try:
-            with self.read_session() as session:
-                rows = [
-                    self._roster_row_or_error(session, pid)
-                    for pid in observe.list_portfolios(session)
-                ]
-                posture = self._read_autonomy(session)
-        except Exception:  # keep the poll loop alive on any read error
-            return [], "0 pf"
-        return rows, f"{_fund_strip(rows)} · {posture}"
-
-    def _read_autonomy(self, session: Session) -> str:
-        """The fund autonomy posture glyph, read off the agent-stack-free repo."""
-        from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
-
-        # Read-only (``fund_posture`` never inserts) so a poll tick never mutates.
-        posture = AutonomyRepository(session).fund_posture()
-        return "❄ FROZEN" if posture == AutonomyState.FROZEN.value else "● ARMED"
-
-    def _roster_row_or_error(self, session: Session, pid: uuid.UUID) -> _RosterRow:
-        """One portfolio's roster row, or an ``error`` row when its read fails.
-
-        A stored mandate that no longer validates must not hide every healthy
-        portfolio, so the failure stays scoped to its own row.
-        """
-        try:
-            return self._roster_row(session, pid)
-        except Exception:  # keep the roster alive on one bad portfolio
-            # A database-level error leaves the transaction aborted, which would fail
-            # every later portfolio in this session too.
-            session.rollback()
-            dot, label = _HEALTH_UNREADABLE
-            return _RosterRow(pid, None, "?", dot, label)
-
-    def _roster_row(self, session: Session, pid: uuid.UUID) -> _RosterRow:
-        runs = observe.list_portfolio_runs(session, pid, limit=1)
-        status = runs[0].status if runs else None
-        mandate = observe.get_mandate(session, pid)
-        threshold = mandate.drift_l1_threshold if mandate is not None else None
-        drift = observe.portfolio_state(session, pid).drift_l1
-        dot, label = _posture_health(drift, threshold, status)
-        return _RosterRow(pid, status, _run_glyph(status), dot, label)
+        return _load_roster(self.shell._session_factory)
 
     def _paint_roster(self, rows: list[_RosterRow], strip: str) -> None:
         self._roster = rows
@@ -1296,21 +1318,87 @@ class PostureView(ShellView):
 
     def _paint_detail(self) -> None:
         pid = self.shell._portfolio_id
-        text = (
-            self._detail_text(pid)
+        self._show_detail(
+            _load_posture_detail(self.shell._session_factory, pid)
             if pid is not None
-            else "(no portfolio focused — ↵ a roster row)"
+            else None
+        )
+
+    def _show_detail(self, detail: str | None) -> None:
+        """Paint the focused-portfolio detail; ``None`` is the unfocused prompt."""
+        text = (
+            detail if detail is not None else "(no portfolio focused — ↵ a roster row)"
         )
         self.detail_text = text
         self.query_one("#posture-detail", Static).update(text)
 
-    def _detail_text(self, pid: uuid.UUID) -> str:
-        """Render the focused portfolio's detail in a short session (``""`` on fail)."""
-        try:
-            with self.read_session() as session:
-                return _render_posture_detail(session, pid)
-        except Exception:  # keep the poll loop alive on any read error
-            return ""
+
+def _load_roster(
+    session_factory: Callable[[], AbstractContextManager[Session]],
+) -> tuple[list[_RosterRow], str]:
+    """Every portfolio's roster row plus the fund strip, in one short session.
+
+    Takes the session factory rather than a view so a poll worker thread can run it
+    without touching the app. A failed portfolio list reads as ``([], "0 pf")``, and a
+    single unreadable portfolio degrades to an ``error`` row, so the poll loop stays
+    alive.
+    """
+    try:
+        with _short_session(session_factory) as session:
+            rows = [
+                _roster_row_or_error(session, pid)
+                for pid in observe.list_portfolios(session)
+            ]
+            posture = _read_autonomy(session)
+    except Exception:  # keep the poll loop alive on any read error
+        return [], "0 pf"
+    return rows, f"{_fund_strip(rows)} · {posture}"
+
+
+def _read_autonomy(session: Session) -> str:
+    """The fund autonomy posture glyph, read off the agent-stack-free repo."""
+    from fund.audit.autonomy_repository import AutonomyRepository, AutonomyState
+
+    # Read-only (``fund_posture`` never inserts) so a poll tick never mutates.
+    posture = AutonomyRepository(session).fund_posture()
+    return "❄ FROZEN" if posture == AutonomyState.FROZEN.value else "● ARMED"
+
+
+def _roster_row_or_error(session: Session, pid: uuid.UUID) -> _RosterRow:
+    """One portfolio's roster row, or an ``error`` row when its read fails.
+
+    A stored mandate that no longer validates must not hide every healthy
+    portfolio, so the failure stays scoped to its own row.
+    """
+    try:
+        return _roster_row(session, pid)
+    except Exception:  # keep the roster alive on one bad portfolio
+        # A database-level error leaves the transaction aborted, which would fail
+        # every later portfolio in this session too.
+        session.rollback()
+        dot, label = _HEALTH_UNREADABLE
+        return _RosterRow(pid, None, "?", dot, label)
+
+
+def _roster_row(session: Session, pid: uuid.UUID) -> _RosterRow:
+    runs = observe.list_portfolio_runs(session, pid, limit=1)
+    status = runs[0].status if runs else None
+    mandate = observe.get_mandate(session, pid)
+    threshold = mandate.drift_l1_threshold if mandate is not None else None
+    drift = observe.portfolio_state(session, pid).drift_l1
+    dot, label = _posture_health(drift, threshold, status)
+    return _RosterRow(pid, status, _run_glyph(status), dot, label)
+
+
+def _load_posture_detail(
+    session_factory: Callable[[], AbstractContextManager[Session]], pid: uuid.UUID
+) -> str:
+    """Render the focused portfolio's detail in a short session (blank on failure)."""
+    try:
+        with _short_session(session_factory) as session:
+            return _render_posture_detail(session, pid)
+    except Exception:  # keep the poll loop alive on any read error
+        return ""
 
 
 def _fund_strip(rows: list[_RosterRow]) -> str:
@@ -1335,8 +1423,11 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
     ``no marks yet`` line rather than a fabricated figure.
     """
     runs = observe.list_portfolio_runs(session, pid, limit=1)
+    warnings = _mandate_warning_lines(session, pid)
     if not runs:
-        return f"portfolio {_short(pid)}\nno runs yet · p profile to start"
+        return "\n".join(
+            [f"portfolio {_short(pid)}", "no runs yet · p profile to start", *warnings]
+        )
     latest = runs[0]
     state = observe.portfolio_state(session, pid)
     lines = [
@@ -1351,6 +1442,7 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
             f"mandate {mandate.base_currency} {mandate.capital} · "
             f"drift ≥{mandate.drift_l1_threshold}"
         )
+    lines.extend(warnings)
     lines.append(f"ACTIVE RUN #{_short(latest.run_id)} · {latest.status}")
     events = observe.recent_events(session, pid)
     if events.portfolio_events:
@@ -1358,6 +1450,18 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
         lines.append(f"RECENT {recent}")
     lines.append("Daily brief → d open")
     return "\n".join(lines)
+
+
+def _mandate_warning_lines(session: Session, pid: uuid.UUID) -> list[str]:
+    """The mandate's silent-disable warnings as detail lines (none if unreadable).
+
+    An unreadable mandate already shows as the roster's error row, so it must not
+    also blank the detail pane here.
+    """
+    try:
+        return [f"⚠ {warning}" for warning in observe.mandate_warnings(session, pid)]
+    except Exception:  # the roster row reports a mandate that does not validate
+        return []
 
 
 def _posture_nav_line(session: Session, pid: uuid.UUID) -> str:
@@ -3057,14 +3161,19 @@ class AskView(ShellView):
         """Write the conversation to ``path`` as markdown; return ``path``.
 
         Re-export overwrites (idempotent). Each turn renders as a bolded speaker label
-        over its text. Any write failure surfaces as ``OSError`` for the caller to
-        report on the status line.
+        over its text, quoted line by line. Any write failure surfaces as ``OSError``
+        for the caller to report on the status line.
         """
         from fund.tui.exports import open_private
 
         lines = ["# Ask conversation", ""]
         for speaker, text in self._log:
-            lines.append(f"**{speaker}:** {text}")
+            lines.append(f"**{speaker}:**")
+            lines.append("")
+            # Model text is free prose: quote every line, blanks included, so a "#" or
+            # "-" in an answer cannot become a heading or bullet of the exported file.
+            rows = str(text).splitlines() or [""]
+            lines.extend(f"> {row}" if row else ">" for row in rows)
             lines.append("")
         with open_private(path) as handle:
             handle.write("\n".join(lines))

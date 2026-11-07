@@ -30,7 +30,8 @@ class CleaningConfig:
             ``|max_abs_return|`` (and infinities) become NaN.
         treat_outliers: Insert an `OutlierTreater` step.
         winsorize_threshold: ``OutlierTreater`` z-score boundary between
-            normal and winsorised.
+            normal and winsorised. The default of 8 leaves genuine single-name
+            crashes intact; lower it only to smooth the tails on purpose.
         remove_threshold: ``OutlierTreater`` z-score boundary between
             winsorised and NaN-removed.
         imputer: Final imputation step. ``NONE`` leaves NaN in place (the
@@ -51,7 +52,7 @@ class CleaningConfig:
     validate: bool = True
     max_abs_return: float = 10.0
     treat_outliers: bool = True
-    winsorize_threshold: float = 3.0
+    winsorize_threshold: float = 8.0
     remove_threshold: float = 10.0
     imputer: ImputerStrategy = ImputerStrategy.NONE
     n_neighbors: int = 5

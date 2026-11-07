@@ -7,7 +7,16 @@ from collections.abc import Collection, Sequence
 from datetime import date
 from typing import Any
 
-from sqlalchemy import case, delete, exists, func, literal_column, select, update
+from sqlalchemy import (
+    and_,
+    case,
+    delete,
+    exists,
+    func,
+    literal_column,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, joinedload
@@ -15,6 +24,9 @@ from sqlalchemy.orm import Session, joinedload
 from portopt_db.models.market_data.yfinance_data import TickerProfile
 from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Exchange, Instrument
+from portopt_db.repositories.universe.pinned_instrument_repository import (
+    row_carries_symbol,
+)
 from portopt_db.repository import RepositoryBase
 
 logger = logging.getLogger(__name__)
@@ -23,6 +35,9 @@ logger = logging.getLogger(__name__)
 def _row_is_pinned() -> Any:
     """Correlated predicate: the instrument row being written is pinned.
 
+    A pin names a Yahoo symbol, so it protects the row that carries that symbol
+    (see :func:`row_carries_symbol`) and not a broker-era twin sharing it.
+
     The outer column is a literal reference, not ``Instrument.yfinance_ticker``:
     inside an ``INSERT ... ON CONFLICT DO UPDATE`` SQLAlchemy does not correlate
     the target table, so the ORM column would be added to the subquery's FROM and
@@ -30,8 +45,11 @@ def _row_is_pinned() -> Any:
     UPDATE that use this write ``instruments`` unaliased, so the name resolves to
     the row being written.
     """
-    return exists().where(
-        PinnedInstrument.ticker == literal_column("instruments.yfinance_ticker")
+    return and_(
+        exists().where(
+            PinnedInstrument.ticker == literal_column("instruments.yfinance_ticker")
+        ),
+        row_carries_symbol(),
     )
 
 
@@ -97,8 +115,8 @@ class UniverseRepository(RepositoryBase):
         batch row has none. ``delisted_at``/``delisting_return`` are cleared so a
         re-listed instrument is automatically re-activated. A symbol that already
         exists on another exchange is first re-homed onto ``exchange_id`` (see
-        :meth:`_rehome_moved_symbols`) so a venue change never yields a second
-        row. The session is flushed but not committed.
+        :meth:`_rehome_moved_symbols`), pinned or not, so a venue change never
+        yields a second row. The session is flushed but not committed.
 
         Rows pinned in ``pinned_instruments`` are operator-managed: their
         ``asset_class``, ``fi_subclass``, ``duration_bucket``, ``currency_code``
@@ -200,9 +218,11 @@ class UniverseRepository(RepositoryBase):
 
         A symbol is left alone when it already has a row on ``exchange_id`` (the
         move would violate the unique key) or when several rows exist elsewhere
-        (no way to tell which one is the predecessor). A pinned row is never
-        moved: the operator chose its venue, and the Screener listing the same
-        symbol elsewhere gets its own row instead.
+        (no way to tell which one is the predecessor). A pinned row moves like any
+        other: the pin names the symbol, not the venue, and a second row would
+        leave two active instruments for one symbol that no delisting could ever
+        reconcile. The upsert that follows still keeps the pinned row's
+        classification.
         """
         homed_here = set(
             self.session.execute(
@@ -228,7 +248,6 @@ class UniverseRepository(RepositoryBase):
             self.session.execute(
                 update(Instrument)
                 .where(Instrument.id.in_(moved_ids))
-                .where(~_row_is_pinned())
                 .values(exchange_id=exchange_id)
             )
 
@@ -414,8 +433,11 @@ class UniverseRepository(RepositoryBase):
         A run scoped to the broker drops exactly these names: a row the overlay never
         evaluated (NULL) is not refused, so a deployment without Trading 212 keeps its
         universe, and a symbol carried by several rows is refused only when every
-        row is flagged False. Delisting is not judged here; the caller's own
-        investability check owns that, point in time.
+        active row is flagged False. Delisted rows are left out of that judgement,
+        as in :meth:`get_t212_tradeable_tickers`: the overlay evaluates only active
+        rows, so a delisted twin of a moved symbol stays NULL for good and would
+        otherwise shield its live listing. Whether a delisted symbol is investable
+        is the caller's own point-in-time check.
 
         Args:
             tickers: Restrict the answer to these Yahoo symbols. ``None`` asks about
@@ -423,7 +445,7 @@ class UniverseRepository(RepositoryBase):
 
         Returns:
             Sorted, de-duplicated ``yfinance_ticker`` values flagged False on every
-            row, or ``None`` when no row has been evaluated at all, meaning there is
+            active row, or ``None`` when no row has been evaluated at all, meaning there is
             nothing to refuse and the caller must keep its universe unrestricted.
         """
         evaluated = self.session.execute(
@@ -436,6 +458,7 @@ class UniverseRepository(RepositoryBase):
         stmt = (
             select(Instrument.yfinance_ticker)
             .where(Instrument.yfinance_ticker.is_not(None))
+            .where(Instrument.delisted_at.is_(None))
             .group_by(Instrument.yfinance_ticker)
             .having(
                 func.max(case((Instrument.is_t212_tradeable.is_(False), 0), else_=1))
@@ -446,6 +469,40 @@ class UniverseRepository(RepositoryBase):
         if tickers is not None:
             stmt = stmt.where(Instrument.yfinance_ticker.in_(list(tickers)))
         # The WHERE already drops NULLs; the comprehension narrows the column type.
+        return [t for t in self.session.execute(stmt).scalars() if t is not None]
+
+    def get_t212_unevaluated_tickers(self, tickers: Collection[str]) -> list[str]:
+        """Return the given Yahoo symbols whose broker status the overlay never judged.
+
+        The overlay matches by ISIN, which exists only for suffix-less symbols or
+        when an operator supplied one, so a listing on a European venue is often left
+        NULL on every row. NULL is deliberately never refused (a deployment without
+        Trading 212 must keep its universe), which means a ``tradeable_only`` run
+        cannot tell such a name from a tradeable one; this lists them so the caller can
+        say so. Active rows only, like the tradeable and untradeable lists, and a
+        symbol with any evaluated active row (True or False) counts as judged.
+
+        Args:
+            tickers: Yahoo symbols to check; an empty collection asks about none.
+
+        Returns:
+            Sorted, de-duplicated ``yfinance_ticker`` values that have an active row
+            and no active row with a flag. A symbol with no active instrument is
+            absent: that is the caller's own eligibility check, not an overlay gap.
+        """
+        if not tickers:
+            return []
+        stmt = (
+            select(Instrument.yfinance_ticker)
+            .where(Instrument.yfinance_ticker.in_(list(tickers)))
+            .where(Instrument.delisted_at.is_(None))
+            .group_by(Instrument.yfinance_ticker)
+            .having(
+                func.max(case((Instrument.is_t212_tradeable.is_(None), 0), else_=1))
+                == 0
+            )
+            .order_by(Instrument.yfinance_ticker)
+        )
         return [t for t in self.session.execute(stmt).scalars() if t is not None]
 
     def set_isin_if_missing(self, *, ticker: str, exchange_id: Any, isin: str) -> bool:

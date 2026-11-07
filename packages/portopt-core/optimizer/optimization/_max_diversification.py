@@ -16,6 +16,7 @@ from skfolio.prior._base import BasePrior
 
 from optimizer.moments._config import MomentEstimationConfig
 from optimizer.moments._factory import build_prior
+from optimizer.optimization._capacity import CapacityCheckedMaximumDiversification
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,15 @@ class MaxDiversificationConfig:
         cls,
         max_weight: float = 0.10,
     ) -> MaxDiversificationConfig:
-        """Long-only with a per-asset weight cap (default 10%)."""
+        """Long-only with a per-asset weight cap (default 10%).
+
+        The cap needs a universe of at least ``1 / max_weight`` assets (10 by
+        default): with fewer, the weights cannot reach the budget and the fit
+        is infeasible.
+
+        Args:
+            max_weight: Per-asset upper bound.
+        """
         return cls(min_weights=0.0, max_weights=max_weight)
 
 
@@ -87,7 +96,7 @@ def build_max_diversification(
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)
 
-    return MaximumDiversification(
+    return CapacityCheckedMaximumDiversification(
         prior_estimator=prior_estimator,
         min_weights=config.min_weights,
         max_weights=config.max_weights,

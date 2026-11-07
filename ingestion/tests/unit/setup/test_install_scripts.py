@@ -187,7 +187,8 @@ class TestInstallSh:
             env={"PATH": f"{stubs}:/usr/bin:/bin", "HOME": str(home), **overrides},
         )
         recorded = calls.read_text(encoding="utf-8").splitlines()
-        assert recorded[0] == f"uv tool install --force {expected_spec}"
+        install = next(c for c in recorded if c.startswith("uv tool install"))
+        assert install == f"uv tool install --force {expected_spec}"
 
     def test_ensures_uv(self) -> None:
         """It bootstraps uv when missing."""
@@ -365,6 +366,33 @@ class TestInstallSh:
         assert rerun.result.returncode == 0, rerun.result.stderr
         assert _git(target, "rev-parse", "HEAD") == first
 
+    def test_stops_when_the_checkout_cannot_be_brought_to_the_requested_ref(
+        self, tmp_path: Path
+    ) -> None:
+        """The CLI is installed from the ref, the compose file comes from the
+        checkout: continuing on a stale checkout leaves the two out of step (the
+        secret names the CLI renders vs the ones the compose file mounts)."""
+        origin = tmp_path / "origin"
+        _make_origin(origin)
+        target = tmp_path / "checkout"
+        env = {"PORTOPT_REPO": origin.as_uri(), "PORTOPT_DIR": str(target)}
+        first = run_front_door("install.sh", tmp_path, env=env, real_git=True)
+        # A local commit plus a newer upstream one: no fast-forward is possible.
+        (target / "local").write_text("mine\n")
+        _git(target, "add", ".")
+        _git(target, "commit", "--quiet", "-m", "local")
+        (origin / "upstream").write_text("theirs\n")
+        _git(origin, "add", ".")
+        _git(origin, "commit", "--quiet", "-m", "upstream")
+
+        rerun = run_front_door("install.sh", tmp_path, env=env, real_git=True)
+
+        assert rerun.result.returncode != 0
+        assert "could not update" in rerun.result.stderr
+        assert "PORTOPT_DIR" in rerun.result.stderr
+        # The stub log is shared between the runs: the rerun adds nothing to it.
+        assert rerun.calls == first.calls
+
     def test_refuses_to_touch_a_checkout_of_a_different_repo(
         self, tmp_path: Path
     ) -> None:
@@ -447,6 +475,32 @@ class TestInstallPs1:
         """
         (line,) = _tool_install_lines("install.ps1")
         assert line.endswith('"git+$PortoptRepo@$PortoptRef#subdirectory=ingestion"')
+
+    def test_updates_an_existing_checkout_and_stops_when_that_fails(self) -> None:
+        """The CLI is installed from PORTOPT_REF, so a checkout left behind would pair
+        a new CLI with old compose files and migrations. Each git step is followed by
+        an explicit exit-code check, because ``$ErrorActionPreference = "Stop"`` does
+        not turn a native command's failure into an exception."""
+        text = _read("install.ps1")
+        for command in (
+            r"git -C \$PortoptHome fetch --quiet origin \$PortoptRef",
+            r"git -C \$PortoptHome checkout --quiet \$PortoptRef",
+            r"git -C \$PortoptHome merge --quiet --ff-only FETCH_HEAD",
+        ):
+            assert re.search(
+                command + r"\n\s*if \(\$LASTEXITCODE -ne 0\) \{ throw ", text
+            ), command
+        assert text.index("merge --quiet --ff-only") < text.index("$env:OPTIMIZER_REPO")
+
+    def test_refuses_a_checkout_of_a_different_repo(self) -> None:
+        """Updating rewrites the working copy, so a developer's own clone, or an
+        unrelated repo, must not be switched to PORTOPT_REF without a word."""
+        text = _read("install.ps1")
+        assert "remote get-url origin" in text
+        assert re.search(
+            r"\(Get-RepoId \$origin\) -ne \(Get-RepoId \$PortoptRepo\)", text
+        )
+        assert text.index("remote get-url origin") < text.index("fetch --quiet origin")
 
     def test_ensures_uv(self) -> None:
         """It bootstraps uv when missing."""

@@ -24,9 +24,17 @@ import datetime as dt
 import functools
 import logging
 import math
+import threading
 from collections.abc import Callable, Generator, Iterable, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, ParamSpec
+
+from fund.periods import (
+    DEFAULT_PERIODS_PER_YEAR,
+    MAX_PERIODS_PER_YEAR,
+    MIN_PERIODS_PER_YEAR,
+    periods_per_year,
+)
 
 if TYPE_CHECKING:
     from portopt_db.engine import DatabaseManager
@@ -45,9 +53,11 @@ ToolResult = dict[str, Any]
 # held to ``2 * n_assets`` instead, see ``thin_sample_error``.
 MIN_RETURN_OBSERVATIONS = 20
 
-# Daily bars per year: converts between the per-period figures skfolio works in and
-# the annual figures a client or an adviser reads.
-PERIODS_PER_YEAR = 252
+# An asset is too young for a panel when its history is under this share of the
+# panel's median depth. The common sample starts at the youngest asset's first quote,
+# so a listing only slightly past the absolute floor would still cut a multi-year
+# panel to a few weeks for every other asset.
+MIN_DEPTH_SHARE = 0.5
 
 P = ParamSpec("P")
 
@@ -72,13 +82,30 @@ def coerce_date(asof: dt.date | str) -> dt.date:
     return dt.date.fromisoformat(asof)
 
 
+def depth_floor(depths: Any) -> int:
+    """Return rows an asset needs to stay in a panel with these ``depths``.
+
+    Args:
+        depths: Each asset's own number of return observations, as a pandas Series.
+
+    Returns:
+        The larger of ``MIN_RETURN_OBSERVATIONS`` and ``MIN_DEPTH_SHARE`` of the
+        median depth, rounded up. The one rule ``estimate_moments`` drops by,
+        ``universe_filter`` screens by and ``thin_sample_error`` refuses by.
+    """
+    median = float(depths.median()) if len(depths) else 0.0
+    return max(MIN_RETURN_OBSERVATIONS, math.ceil(MIN_DEPTH_SHARE * median))
+
+
 def thin_sample_error(prices: Any, returns: Any, *, action: str) -> str | None:
     """Explain why the common return sample is too thin to ``action``, if it is.
 
-    The required depth is ``max(MIN_RETURN_OBSERVATIONS, 2 * n_assets)`` return
-    rows, so a wide universe also needs proportionally more history to keep the
-    sample covariance well conditioned. The message names the shortest-history
-    asset because dropping it is the usual remedy.
+    The required depth is the largest of ``MIN_RETURN_OBSERVATIONS``, ``2 *
+    n_assets`` (a wide universe needs proportionally more history to keep the sample
+    covariance well conditioned) and ``MIN_DEPTH_SHARE`` of the assets' median own
+    history (so one recent listing cannot swap a multi-year sample for a few weeks
+    without the caller noticing). The message names the shortest-history asset
+    because dropping it is the usual remedy.
 
     Args:
         prices: The wide price frame the returns were derived from.
@@ -90,10 +117,14 @@ def thin_sample_error(prices: Any, returns: Any, *, action: str) -> str | None:
         An error message, or ``None`` when the sample is deep enough.
     """
     n_obs, n_assets = returns.shape
-    required = max(MIN_RETURN_OBSERVATIONS, 2 * n_assets)
+    priced_days = prices.count()
+    required = max(
+        MIN_RETURN_OBSERVATIONS,
+        2 * n_assets,
+        depth_floor(priced_days - 1),
+    )
     if n_obs >= required:
         return None
-    priced_days = prices.count()
     shortest = priced_days.idxmin()
     return (
         f"insufficient common history to {action}: {n_obs} return observations "
@@ -103,25 +134,67 @@ def thin_sample_error(prices: Any, returns: Any, *, action: str) -> str | None:
     )
 
 
-def annualized_metrics(portfolio: Any) -> dict[str, float]:
+def dropped_by_returns(prices: Any, returns: Any) -> list[str]:
+    """Name the ``prices`` columns that ``prices_to_returns`` left out of ``returns``.
+
+    A column with no usable price at all (an FX conversion can blank one) vanishes
+    from the returns frame without a trace, so a caller that counts or weights
+    assets from ``prices`` would otherwise treat it as still present.
+
+    Args:
+        prices: The wide price frame the returns were derived from.
+        returns: The linear-returns frame after ``prices_to_returns``.
+
+    Returns:
+        The labels missing from ``returns``, in the order ``prices`` holds them.
+    """
+    kept = set(returns.columns)
+    return [str(column) for column in prices.columns if column not in kept]
+
+
+def per_period_rate(annual_rate: float, periods: int) -> float:
+    """Compound an annual rate down to the return frequency.
+
+    A client quotes the risk-free rate per year while the optimiser compares it with
+    per-bar returns, so the rate is converted with the same ``periods`` the returns
+    are annualised by.
+
+    Args:
+        annual_rate: The annual rate as a fraction (``0.04`` is 4%).
+        periods: Bars per year, normally from :func:`periods_per_year`.
+
+    Returns:
+        The per-bar rate whose ``periods``-fold compounding is ``annual_rate``.
+
+    Raises:
+        ValueError: ``annual_rate`` is -100% or lower, which has no real root.
+    """
+    if annual_rate <= -1.0:
+        raise ValueError(f"annual rate {annual_rate:g} is not above -100%")
+    return float((1.0 + annual_rate) ** (1.0 / periods) - 1.0)
+
+
+def annualized_metrics(portfolio: Any, periods: int) -> dict[str, float]:
     """Annualise a skfolio portfolio's per-bar mean, volatility and Sharpe ratio.
 
     skfolio reports these per observation (daily here), which reads as noise
     ("vol 0.01") next to the annual figures clients and thresholds are quoted in.
-    Return and volatility scale with ``PERIODS_PER_YEAR`` and ``sqrt`` of it
-    respectively, and so does the Sharpe ratio.
+    Return scales with ``periods`` and volatility with its square root, and so does
+    the Sharpe ratio.
 
     Args:
         portfolio: A skfolio ``Portfolio`` (anything exposing ``mean``,
             ``standard_deviation`` and ``sharpe_ratio``).
+        periods: Bars per year, normally from :func:`periods_per_year` on the
+            portfolio's return index.
 
     Returns:
         ``annualized_mean``, ``annualized_standard_deviation`` and
         ``annualized_sharpe_ratio``, in that order.
     """
-    root = math.sqrt(PERIODS_PER_YEAR)
+    root = math.sqrt(periods)
     return {
-        "annualized_mean": float(portfolio.mean) * PERIODS_PER_YEAR,
+        "annualized_mean": float(portfolio.mean) * periods,
         "annualized_standard_deviation": float(portfolio.standard_deviation) * root,
         "annualized_sharpe_ratio": float(portfolio.sharpe_ratio) * root,
     }
@@ -166,6 +239,50 @@ def _database_failure_message(exc: Exception) -> str | None:
     return None
 
 
+# Sessions with a SAVEPOINT owner, by identity, mapped to how many owners are open.
+# Keyed outside the session so any session-like object can be declared.
+_SAVEPOINT_OWNERS: dict[int, int] = {}
+_SAVEPOINT_OWNERS_LOCK = threading.Lock()
+
+
+@contextmanager
+def savepoint_owner(session: Session) -> Generator[None, None, None]:
+    """Declare that the caller owns a SAVEPOINT on ``session`` and will recover it.
+
+    A frozen tool called inside the block carries its own ``tool_envelope``, whose
+    default recovery is a rollback of the session's root transaction. That would
+    discard everything the run holds uncommitted (its ``agent_runs`` row, every
+    decision, the audit row) before the owner could roll its SAVEPOINT back. While
+    the block is open the envelope leaves the session alone and the owner, which
+    sees the failure as an ``ok: false`` result or an exception, rolls back to its
+    SAVEPOINT instead.
+
+    Args:
+        session: The session the caller opened a SAVEPOINT on. Owners may nest.
+
+    Yields:
+        Nothing; the declaration is lifted on exit even when the body raises.
+    """
+    key = id(session)
+    with _SAVEPOINT_OWNERS_LOCK:
+        _SAVEPOINT_OWNERS[key] = _SAVEPOINT_OWNERS.get(key, 0) + 1
+    try:
+        yield
+    finally:
+        with _SAVEPOINT_OWNERS_LOCK:
+            remaining = _SAVEPOINT_OWNERS[key] - 1
+            if remaining:
+                _SAVEPOINT_OWNERS[key] = remaining
+            else:
+                del _SAVEPOINT_OWNERS[key]
+
+
+def _has_savepoint_owner(session: Session) -> bool:
+    with _SAVEPOINT_OWNERS_LOCK:
+        owned = id(session) in _SAVEPOINT_OWNERS
+    return owned and session.in_nested_transaction()
+
+
 def _recover_sessions(exc: Exception, arguments: Iterable[Any]) -> None:
     """Roll back every session reachable from a failed tool's ``arguments``.
 
@@ -176,13 +293,14 @@ def _recover_sessions(exc: Exception, arguments: Iterable[Any]) -> None:
     ("rollback required") and a failed statement aborts a PostgreSQL transaction
     while the session still reports itself active; either way every later tool call
     and audit write would fail until someone rolls back. Other errors leave the
-    transaction intact, so the work already flushed in it is kept.
+    transaction intact, so the work already flushed in it is kept. A session whose
+    SAVEPOINT has an owner (``savepoint_owner``) is left to it.
     """
     from sqlalchemy.exc import DBAPIError
     from sqlalchemy.orm import Session
 
-    # A tool that ran inside its own SAVEPOINT already handed the session back usable;
-    # a full rollback would also discard the run's own uncommitted rows.
+    # A tool that ran inside its own SAVEPOINT already handed the session back usable,
+    # and a full rollback would also discard the run's own uncommitted rows.
     if getattr(exc, "session_recovered", False):
         return
     sessions: dict[int, Session] = {}
@@ -192,6 +310,8 @@ def _recover_sessions(exc: Exception, arguments: Iterable[Any]) -> None:
             sessions[id(candidate)] = candidate
 
     for session in sessions.values():
+        if _has_savepoint_owner(session):
+            continue
         if isinstance(exc, DBAPIError) or not session.is_active:
             try:
                 session.rollback()
@@ -307,13 +427,21 @@ def summarize_frame(frame: Any, *, name: str = "frame") -> dict[str, Any]:
 
 
 __all__ = [
+    "DEFAULT_PERIODS_PER_YEAR",
+    "MAX_PERIODS_PER_YEAR",
+    "MIN_DEPTH_SHARE",
+    "MIN_PERIODS_PER_YEAR",
     "MIN_RETURN_OBSERVATIONS",
-    "PERIODS_PER_YEAR",
     "ToolResult",
     "annualized_metrics",
     "coerce_date",
+    "depth_floor",
+    "dropped_by_returns",
     "err",
     "ok",
+    "per_period_rate",
+    "periods_per_year",
+    "savepoint_owner",
     "session_scope",
     "summarize_frame",
     "thin_sample_error",

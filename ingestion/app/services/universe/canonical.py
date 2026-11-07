@@ -314,6 +314,7 @@ def _pick_winner(
     ranked: list[tuple[Listing, Metrics]],
     incumbents: Collection[str],
     config: IngestionFloorConfig,
+    newcomer_venues: Collection[str] = (),
 ) -> tuple[Listing, Metrics]:
     """Best-ranked line, unless an incumbent is within the hysteresis margin.
 
@@ -322,6 +323,12 @@ def _pick_winner(
     cannot be compared, so it holds nothing. It must also still clear the floor as
     a member: the build drops a canonical line that fails it, so holding one that
     does not would delete an entity a challenger can carry.
+
+    A challenger on one of ``newcomer_venues`` never displaces an incumbent held
+    on another venue, however much more liquid it is. Widening the allowlist puts
+    the home line of every depositary receipt in the universe in front of its ADR,
+    and replacing the ADR would delist its row and restart the entity on a
+    suffixed symbol that carries no ISIN, hence no Trading 212 verdict.
     """
     challenger = ranked[0]
     if challenger[0].symbol in incumbents:
@@ -330,10 +337,18 @@ def _pick_winner(
         if member[0].symbol not in incumbents:
             continue
         held_addv, challenger_addv = member[1].addv_usd, challenger[1].addv_usd
+        outranked_by_venue_only = (
+            challenger[0].exchange in newcomer_venues
+            and member[0].exchange not in newcomer_venues
+        )
+        within_margin = (
+            challenger_addv is not None
+            and held_addv is not None
+            and challenger_addv <= held_addv * config.incumbent_addv_margin
+        )
         if (
             held_addv is not None
-            and challenger_addv is not None
-            and challenger_addv <= held_addv * config.incumbent_addv_margin
+            and (within_margin or outranked_by_venue_only)
             and passes_floor(member[1], config, is_member=True)
         ):
             return member
@@ -349,6 +364,7 @@ def dedup_canonical(
     exchange_pref: tuple[str, ...] = (),
     keep_dual_class: bool = True,
     incumbents: Collection[str] = (),
+    newcomer_venues: Collection[str] = (),
 ) -> list[Listing]:
     """Collapse cross-listings to one canonical listing per entity.
 
@@ -365,7 +381,9 @@ def dedup_canonical(
     USD and GBp), not another share class. ``incumbents`` are the symbols persisted by the
     previous build: one keeps its place unless a challenger beats its ADDV by
     ``incumbent_addv_margin`` or it no longer clears the member floor (see
-    :func:`_pick_winner`). Order of survivors is deterministic.
+    :func:`_pick_winner`); a challenger on one of ``newcomer_venues`` (Yahoo
+    exchange codes) cannot displace an incumbent on another venue by liquidity
+    alone. Order of survivors is deterministic.
 
     Raises:
         ValueError: A cross-listing group contains a line with price and volume
@@ -403,7 +421,7 @@ def dedup_canonical(
         members.sort(
             key=lambda lm: _rank_key(lm[0], lm[1], exchange_pref), reverse=True
         )
-        winner, winner_metrics = _pick_winner(members, incumbents, cfg)
+        winner, winner_metrics = _pick_winner(members, incumbents, cfg, newcomer_venues)
         survivors.append(winner)
         if keep_dual_class:
             for sibling, sib_metrics in members:

@@ -922,10 +922,10 @@ def test_nav_series_keeps_a_partly_invested_book_as_exposed_after_a_rebalance(
 ):
     """Repeating a 90% ticket keeps 90% of total wealth in the market.
 
-    The first ticket's 10,000 of cash stays outside NAV (NAV starts at the 90,000
-    deployed) but is still part of the wealth the second ticket is sized on. Rebalancing
-    at 120, where wealth is 118,000, puts 106,200 in A and 11,800 in cash, so NAV is
-    continuous at 108,000 and then moves with 106,200 of exposure, not 108,000.
+    The first ticket's 10,000 of cash is part of NAV from the first bar, so NAV starts
+    at the 100,000 of capital. Rebalancing at 120, where wealth is 118,000, puts
+    106,200 in A and 11,800 in cash, so NAV is continuous at 118,000 and then moves
+    with 106,200 of exposure, not 108,000.
     """
     prices = dict(zip(_DAYS, [100.0, 105.0, 110.0, 120.0, 126.0], strict=True))
     _seed_usd_floats(db_session, {"A": prices})
@@ -937,11 +937,9 @@ def test_nav_series_keeps_a_partly_invested_book_as_exposed_after_a_rebalance(
     points = build_nav_series(_PID, session=db_session, base_currency="USD")
 
     navs = {p.date: p.nav for p in points}
-    assert navs[_DAYS[0]] == pytest.approx(90_000.0)
-    assert navs[_DAYS[3]] == pytest.approx(108_000.0)
-    assert navs[_DAYS[4]] == pytest.approx(
-        106_200.0 * 126.0 / 120.0 + 11_800.0 - 10_000.0
-    )
+    assert navs[_DAYS[0]] == pytest.approx(100_000.0)
+    assert navs[_DAYS[3]] == pytest.approx(118_000.0)
+    assert navs[_DAYS[4]] == pytest.approx(106_200.0 * 126.0 / 120.0 + 11_800.0)
 
 
 def test_nav_series_denominates_the_first_ticket_in_mandate_capital(db_session):
@@ -966,7 +964,10 @@ def test_nav_series_denominates_the_first_ticket_in_mandate_capital(db_session):
 
 
 def test_nav_series_capital_keeps_the_undeployed_cash_weight(db_session):
-    """A ticket weighted 90% in the market deploys 90% of the mandate capital."""
+    """A ticket weighted 90% in the market deploys 90% of the mandate capital.
+
+    The other 10% is cash inside NAV, so the book still starts at the full capital.
+    """
     _seed_usd_floats(db_session, {"A": dict.fromkeys(_DAYS, 100.0)})
     _add_flat_ticket(db_session, fill=_DAYS[0], notionals={"A": 90_000.0}, key="h1")
     # The ticket's gross is its line sum here, so widen it to the 100k book it was
@@ -978,7 +979,10 @@ def test_nav_series_capital_keeps_the_undeployed_cash_weight(db_session):
         _PID, session=db_session, base_currency="USD", capital=200_000.0
     )
 
-    assert points[0].nav == pytest.approx(180_000.0)
+    assert points[0].nav == pytest.approx(200_000.0)
+    assert holding_marks(
+        _PID, session=db_session, base_currency="USD", capital=200_000.0
+    )[0].value == pytest.approx(180_000.0)
 
 
 def _seed_eur_fx(db_session, quote: str, rates: dict[dt.date, float]) -> None:
@@ -1226,7 +1230,9 @@ def test_nav_series_warns_when_a_ticket_line_cannot_be_priced(db_session, caplog
     with caplog.at_level("WARNING", logger="fund.performance"):
         points = build_nav_series(_PID, session=db_session, base_currency="USD")
 
-    assert points[0].nav == pytest.approx(60_000.0)  # the priced line still marks
+    # The priced line still marks; the 40,000 that cannot be priced is held as cash at
+    # par rather than vanishing from NAV, so the book starts at the deployed capital.
+    assert points[0].nav == pytest.approx(100_000.0)
     assert any("GHOST" in record.getMessage() for record in caplog.records)
 
 
