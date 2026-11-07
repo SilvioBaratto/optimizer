@@ -17,9 +17,9 @@ dependencies = [
     "SQLAlchemy==2.0.52",
     "psycopg2-binary==2.9.12",
     "alembic==1.19.1",
-    "pandas==3.0.6",
+    "pandas==3.1.0",
     # RepositoryBase's generic CRUD is typed against pydantic schemas.
-    "pydantic==2.14.1",
+    "pydantic==2.14.2",
 ]
 
 [project.optional-dependencies]
