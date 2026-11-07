@@ -421,7 +421,7 @@ cd ingestion && uv run pytest tests/
 
 # Shared DB layer (portopt-db)
 cd packages/portopt-db && uv run pytest
-cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # head: f4b6d8a0c2e3
+cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # head: b8d0f2a4c6e1
 
 # Fund bridge (portopt-fund)
 cd fund && uv run pytest tests/
@@ -439,13 +439,14 @@ ruff and mypy gates as the CI `lint`/`typecheck` jobs: ruff over the library,
 suite.
 
 **CI** (`.github/workflows/ci.yml`, push/PR to `main` and `development`, Ubuntu, Python 3.12 &
-3.13, uv-driven) runs nine jobs: `lint` (ruff check → ruff format --check on
+3.13, uv-driven) runs ten jobs: `lint` (ruff check → ruff format --check on
 all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.414`), `test`
 (`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
 `portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
 80%), `postgres-integration` (the Alembic upgrade to head on a real PostgreSQL plus
-the `integration`-marked tests), and `docker-images` (compose config + build of
-both images). `release.yml` publishes `portopt-core` to PyPI on `v*` tags, but only
+the `integration`-marked tests), `docker-images` (compose config + build of
+both images, then a boot of both stacks), and `windows-install` (`install.ps1` on a
+Windows runner under Windows PowerShell 5.1 and PowerShell 7). `release.yml` publishes `portopt-core` to PyPI on `v*` tags, but only
 after checking that the tagged commit is on `main`, that the tag equals
 `v<pyproject version>`, and that the whole CI workflow passes on it.
 

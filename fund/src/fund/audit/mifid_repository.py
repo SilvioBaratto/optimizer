@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 from portopt_db.models import MifidProfile
 from portopt_db.repository import RepositoryBase
+from pydantic import ValidationError
 from sqlalchemy import event, func, select
 
 from fund.schemas import ConstraintSet, ConstraintSetRef
@@ -293,39 +294,58 @@ def resolve_constraint_set(
     """Resolve a ``ConstraintSetRef`` back to its persisted ``ConstraintSet``.
 
     Reads the Store item at namespace ``(ref.portfolio_id,)`` / key
-    ``ref.store_key``. When the Store has nothing and a ``session`` is given, the
-    portfolio's active ``mifid_profiles`` row (the system of record) is used instead
-    and the Store entry is re-seeded once ``session`` commits, so a lost or recreated
-    cache never strands a profiled portfolio.
+    ``ref.store_key``. Given a ``session``, the portfolio's active ``mifid_profiles``
+    row (the system of record) is read too and wins over the cached item when they
+    differ: the Store write that follows a re-profile commit is best effort, so a
+    failed one would otherwise keep the previous limits in force for every later run.
+    The Store entry is then re-seeded once ``session`` commits, so a lost, recreated
+    or stale cache never strands a profiled portfolio.
 
     Args:
         store: LangGraph store instance to query.
         ref: Reference produced by a prior ``put_constraint_set`` call.
-        session: Optional session enabling the fallback to the profile row.
+        session: Optional session enabling the profile row to take precedence.
 
     Returns:
         The constraint set, or ``None`` if the reference is stale or missing (and,
-        with a ``session``, the portfolio has no profile).
+        with a ``session``, the portfolio has no profile). A profile row that no
+        longer validates leaves the cached item in force.
+
+    Raises:
+        pydantic.ValidationError: The Store holds nothing and the active profile row
+            does not validate as a ``ConstraintSet``.
     """
     item = store.get((ref.portfolio_id,), ref.store_key)
-    if item is not None:
-        return ConstraintSet.model_validate(item.value)
+    cached = None if item is None else ConstraintSet.model_validate(item.value)
     if session is None:
-        return None
+        return cached
     try:
         portfolio_id = uuid.UUID(ref.portfolio_id)
     except ValueError:
-        return None
+        return cached
     profile = MifidProfileRepository(session).get_active(portfolio_id)
     if profile is None:
-        return None
-    constraint_set = ConstraintSet.model_validate(profile.constraint_set)
-    # Deferred like every other cache write: the row read here may belong to a
-    # transaction that is still open and could yet roll back.
-    put_constraint_set_after_commit(
-        session, store, constraint_set, store_key=ref.store_key
-    )
-    return constraint_set
+        return cached
+    try:
+        recorded = ConstraintSet.model_validate(profile.constraint_set)
+    except ValidationError:
+        # With nothing cached the portfolio would resolve as unprofiled and run with
+        # no mandate screens at all, so only a working cache entry may stand in.
+        if cached is None:
+            raise
+        logger.exception(
+            "the active profile of portfolio %s no longer validates as a "
+            "ConstraintSet; keeping the cached one",
+            ref.portfolio_id,
+        )
+        return cached
+    if recorded != cached:
+        # Deferred like every other cache write: the row read here may belong to a
+        # transaction that is still open and could yet roll back.
+        put_constraint_set_after_commit(
+            session, store, recorded, store_key=ref.store_key
+        )
+    return recorded
 
 
 __all__ = [

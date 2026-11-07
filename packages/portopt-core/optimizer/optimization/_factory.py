@@ -13,6 +13,7 @@ from skfolio.prior._base import BasePrior
 
 from optimizer.factors._integration import FactorExposureConstraints
 from optimizer.moments._factory import build_prior
+from optimizer.optimization._capacity import CapacityCheckedMeanRisk
 from optimizer.optimization._config import (
     FallbackPolicy,
     MeanRiskConfig,
@@ -165,6 +166,48 @@ def _is_sector_label(value: object) -> bool:
     return isinstance(value, str) and bool(value)
 
 
+def _resolve_enforceable_floors(
+    min_sector_weights: dict[str, float],
+    groups: object,
+) -> dict[str, float]:
+    """Return the floors whose sector occurs in ``groups``, rejecting the rest.
+
+    skfolio drops, with only a ``UserWarning``, every constraint row naming a
+    group absent from ``groups``, so a floor whose label does not match the
+    mapping (``"Healthcare"`` against ``"Health Care"``) would leave the sector
+    free to fall to zero.  Unlike a regime band, a floor is an explicit
+    guarantee: a positive floor on a sector the universe lacks cannot be met,
+    so it raises instead of being skipped.  A zero floor on an absent sector
+    constrains nothing and is dropped.
+
+    Args:
+        min_sector_weights: Mapping from sector name to its floor weight.
+        groups: Asset -> sector mapping that skfolio will receive.  The
+            presence check only runs for a mapping; any other form (e.g. an
+            array) is passed through.
+
+    Returns:
+        The floors to emit as constraint rows.
+
+    Raises:
+        ValueError: If a sector with a positive floor does not occur in
+            ``groups``.
+    """
+    if not isinstance(groups, Mapping):
+        return dict(min_sector_weights)
+
+    present = {label for label in groups.values() if _is_sector_label(label)}
+    absent = sorted(s for s in min_sector_weights if s not in present)
+    unmet = [s for s in absent if min_sector_weights[s] > 0.0]
+    if unmet:
+        raise ValueError(
+            f"min_sector_weights sector(s) {unmet} do not occur in the sector "
+            f"mapping (sectors present: {sorted(present)}); check for a naming "
+            "mismatch."
+        )
+    return {s: f for s, f in min_sector_weights.items() if s in present}
+
+
 def _resolve_enforceable_bands(
     sector_bands: dict[str, tuple[float, float]],
     groups: object,
@@ -273,9 +316,10 @@ def build_mean_risk(
             (e.g. ``{"Healthcare": 0.08}``). Each entry emits a
             ``"<sector> >= <floor>"`` row appended to the sector-cap rows.
             Requires ``sector_mapping``; raises ``ValueError`` if not
-            supplied, if floors sum to > 1.0, or if any floor exceeds
-            ``config.max_sector_weight``. Empty dict is a no-op. The input
-            dict is not mutated.
+            supplied, if floors sum to > 1.0, if any floor exceeds
+            ``config.max_sector_weight``, or if a sector with a positive floor
+            does not occur in the mapping (typically a naming mismatch).
+            Empty dict is a no-op. The input dict is not mutated.
         sector_bands: Regime-conditional per-sector ``(floor, cap)`` bands
             from `resolve_sector_bands`. When provided, both floor rows
             (``"<sector> >= <floor>"``) and cap rows
@@ -358,7 +402,10 @@ def build_mean_risk(
             min_sector_weights, sector_mapping, config.max_sector_weight
         )
         kwargs.setdefault("groups", sector_mapping)
-        sector_constraints.extend(_build_sector_floor_constraints(min_sector_weights))
+        enforceable_floors = _resolve_enforceable_floors(
+            min_sector_weights, kwargs["groups"]
+        )
+        sector_constraints.extend(_build_sector_floor_constraints(enforceable_floors))
 
     if sector_bands:
         # skfolio drops (with only a UserWarning) every constraint row naming a
@@ -384,7 +431,7 @@ def build_mean_risk(
     if config.fallback_policy is FallbackPolicy.PREVIOUS_WEIGHTS:
         kwargs.setdefault("fallback", "previous_weights")
 
-    return MeanRisk(
+    return CapacityCheckedMeanRisk(
         objective_function=_OBJECTIVE_MAP[config.objective],
         risk_measure=_RISK_MEASURE_MAP[config.risk_measure],
         risk_aversion=config.risk_aversion,

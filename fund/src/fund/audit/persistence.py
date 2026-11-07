@@ -22,10 +22,11 @@ allows it, but persistence needs only ``portopt_db``-adjacent primitives.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+import time
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import psycopg
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -53,6 +54,10 @@ LANGGRAPH_TABLES: tuple[str, ...] = (
 # Every process bootstrapping the langgraph schema must take the same advisory-lock
 # key; the value itself is arbitrary.
 _BOOTSTRAP_LOCK_KEY = 0x4C47_5F42_4F4F_5453
+_BOOTSTRAP_LOCK_POLL_SECONDS = 0.25
+# A holder's setup is a handful of DDL statements on near-empty tables; ten minutes
+# only ever elapses on a wedged holder, and failing then beats waiting for ever.
+_BOOTSTRAP_LOCK_TIMEOUT_SECONDS = 600.0
 
 
 @dataclass(frozen=True)
@@ -94,7 +99,9 @@ def _require_conninfo(config: FundConfig) -> str:
     return normalize_conninfo(config.database_url)
 
 
-def create_schema(conninfo: str, schema: str) -> None:
+def create_schema(
+    conninfo: str, schema: str, connect_kwargs: Mapping[str, Any] | None = None
+) -> None:
     """``CREATE SCHEMA IF NOT EXISTS`` on a throwaway autocommit connection.
 
     Out-of-band because ``search_path`` redirects unqualified DDL but does not
@@ -104,13 +111,25 @@ def create_schema(conninfo: str, schema: str) -> None:
         conninfo: A bare ``postgresql://`` connection string (no SQLAlchemy
             driver suffix).
         schema: Name of the schema to create (e.g. ``"langgraph"``).
+        connect_kwargs: Extra libpq connection parameters; the default config's
+            connect timeout and keepalives when omitted.
     """
-    with psycopg.connect(conninfo, autocommit=True) as conn:
+    kwargs = _tcp_kwargs(connect_kwargs)
+    with psycopg.connect(conninfo, autocommit=True, **kwargs) as conn:
         conn.execute(SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(schema)))
 
 
+def _tcp_kwargs(connect_kwargs: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The libpq timeout/keepalive parameters for an out-of-band connection."""
+    if connect_kwargs is not None:
+        return dict(connect_kwargs)
+    return settings.tcp_connection_kwargs()
+
+
 @contextmanager
-def _bootstrap_lock(conninfo: str) -> Iterator[None]:
+def _bootstrap_lock(
+    conninfo: str, connect_kwargs: Mapping[str, Any] | None = None
+) -> Iterator[None]:
     """Hold a Postgres advisory lock so only one process bootstraps at a time.
 
     ``.setup()`` reads the applied migration version and then inserts the next one
@@ -119,11 +138,39 @@ def _bootstrap_lock(conninfo: str) -> Iterator[None]:
     and the loser dies on a ``UniqueViolation``. The lock is a session lock on its
     own autocommit connection, released when that connection closes.
 
+    The lock is polled with ``pg_try_advisory_lock`` rather than waited on. The
+    holder's ``.setup()`` runs ``CREATE INDEX CONCURRENTLY``, which waits for every
+    older snapshot to end; a waiter blocked inside ``pg_advisory_lock`` keeps its
+    statement snapshot open, so the two wait on each other and Postgres breaks the
+    cycle by cancelling the holder's index build with ``DeadlockDetected``, which
+    fails that process's first boot. Each poll is its own short autocommit
+    statement, so a waiter holds no snapshot while it sleeps.
+
     Args:
         conninfo: A bare ``postgresql://`` connection string.
+        connect_kwargs: Extra libpq connection parameters; the default config's
+            connect timeout and keepalives when omitted.
+
+    Raises:
+        TimeoutError: The lock stayed with another process for longer than
+            ``_BOOTSTRAP_LOCK_TIMEOUT_SECONDS``.
     """
-    with psycopg.connect(conninfo, autocommit=True) as conn:
-        conn.execute("SELECT pg_advisory_lock(%s)", (_BOOTSTRAP_LOCK_KEY,))
+    kwargs = _tcp_kwargs(connect_kwargs)
+    with psycopg.connect(conninfo, autocommit=True, **kwargs) as conn:
+        deadline = time.monotonic() + _BOOTSTRAP_LOCK_TIMEOUT_SECONDS
+        while True:
+            row = conn.execute(
+                "SELECT pg_try_advisory_lock(%s)", (_BOOTSTRAP_LOCK_KEY,)
+            ).fetchone()
+            if row is not None and row[0]:
+                break
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    "the LangGraph bootstrap lock stayed held by another process for "
+                    f"{_BOOTSTRAP_LOCK_TIMEOUT_SECONDS:.0f}s; is another fund process "
+                    "stuck in its schema setup?"
+                )
+            time.sleep(_BOOTSTRAP_LOCK_POLL_SECONDS)
         yield
 
 
@@ -191,8 +238,9 @@ def setup_langgraph(config: FundConfig | None = None) -> LangGraphPersistence:
     """
     cfg = config if config is not None else settings
     conninfo = _require_conninfo(cfg)
-    with _bootstrap_lock(conninfo):
-        create_schema(conninfo, cfg.langgraph_schema)
+    tcp = cfg.tcp_connection_kwargs()
+    with _bootstrap_lock(conninfo, tcp):
+        create_schema(conninfo, cfg.langgraph_schema, tcp)
         pool = build_pool(cfg)
         # The pool is already open (worker threads + connections); if setup fails no
         # caller ever receives it, so it must be closed here or it leaks.

@@ -29,6 +29,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy.orm import Session
 
+from app.services._shared import _noop
 from app.services.macro.macro_regime_service import (
     FRED_REVISION_LOOKBACK_DAYS,
     MacroRegimeService,
@@ -770,7 +771,7 @@ class TestFetchMacroNews:
             service.fetch_macro_news(fetch_full_content=True)
 
         fetcher_mock.fetch_all.assert_called_once_with(
-            max_articles=100, fetch_full_content=True
+            max_articles=100, fetch_full_content=True, on_progress=_noop
         )
 
 

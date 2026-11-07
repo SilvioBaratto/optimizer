@@ -55,10 +55,25 @@ _PLAIN_INSTRUMENT_TYPES: frozenset[str] = frozenset({"STOCK", "EQUITY", "ETF"})
 _STOCK_TYPES: frozenset[str] = frozenset({"STOCK", "EQUITY"})
 # A lookbehind rather than ``\b`` so a leading minus ("-1x") still anchors. The
 # pattern errs towards excluding: a restricted client losing an "Ultra Short Duration"
-# bond fund is cheaper than holding a leveraged ETF.
+# bond fund is cheaper than holding a leveraged ETF. A bare "short" is not enough (it
+# is also how plain bond funds are named), so it counts only beside the markers that
+# make it an inverse product: a "daily"/issuer prefix, or a stock index it sells short.
 _LEVERAGED_NAME = re.compile(
-    r"(?<!\w)(?:-?[123]x|leverage[d]?|inverse|ultra(?:pro|short)?|bull|bear)(?!\w)",
-    re.IGNORECASE,
+    r"""
+    (?<!\w)(?:
+        -?[1-9]x
+        | x[1-9]\d?
+        | leverage[d]?
+        | lev(?!el)\w*
+        | inverse
+        | ultra(?:pro|short)?
+        | bull
+        | bear
+        | (?:daily|proshares)\s+short
+        | short\s*(?:s&p|qqq|dow|nasdaq|russell|msci|ftse|dax|stoxx|nikkei|cac)\w*
+    )(?!\w)
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
 
 

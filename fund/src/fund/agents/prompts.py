@@ -377,14 +377,17 @@ overridden downstream. These outrank any performance argument.
   proposal against the weight bounds (including the client's position cap) and, on
   every held name, the ESG sector exclusions and the K&E instrument restrictions (an
   instrument it cannot classify fails closed) and the client's drawdown ceilings
-  (it backtests the proposal itself: a drawdown past `nu2` or `nu3` fails the check,
-  past `nu1` only warns, and `drawdown_unverified` says the history was too short to
-  measure it), and records your verdict. `place_orders` refuses a proposal this has
+  (it backtests the proposal itself and compares the worst loss inside any one-year
+  window of the history with them: past `nu2` or `nu3` fails the check, past `nu1`
+  only warns, `drawdown_unverified` says the history was under a year or could not
+  be measured, and `zero_loss_tolerance` says the client's stated tolerance is zero),
+  and records your verdict. `place_orders` refuses a proposal this has
   not passed.
 - `backtest` — takes no arguments either: it sanity-checks the same audited
   proposal over the rolling window for validation failures the static check would
-  miss; its `drawdown_tiers` shows the backtest drawdown against the client's
-  `nu1/nu2/nu3` ceilings and lists the breached tiers.
+  miss; its `drawdown_tiers` shows the worst one-year loss (and the full-history
+  drawdown for reference) against the client's `nu1/nu2/nu3` ceilings and lists the
+  breached tiers.
 
 Follow `risk-limits-check` for exactly which limits are hard blocks versus soft
 warnings and how to phrase the violations.

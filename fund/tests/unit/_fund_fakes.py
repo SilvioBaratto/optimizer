@@ -315,6 +315,11 @@ def _task_call(subagent: str, index: int) -> AIMessage:
 
 START = dt.date(2023, 11, 1)
 N_DAYS = 101
+# Calendar days of history seeded before ``START``. The risk gate judges the loss
+# ceilings on the worst year, so a panel shorter than a year of bars leaves them
+# unverified and blocks; the lead-in continues the same oscillation backwards, so
+# every close from ``START`` on is unchanged.
+LEAD_DAYS = 400
 # Decision bar (index 90): 90 return rows behind it, clear of the tools' common-sample
 # floor; bars 91..100 are future.
 ASOF = dt.date(2024, 1, 30)
@@ -357,8 +362,12 @@ def threaded_sqlite_engine(path: Path) -> Engine:
     return engine
 
 
-def seed_panel(session: Any, n_days: int = N_DAYS) -> None:
-    """Seed an ``n_days`` x 3 close panel (default extends past ``ASOF``)."""
+def seed_panel(session: Any, n_days: int = N_DAYS, lead_days: int = LEAD_DAYS) -> None:
+    """Seed an ``n_days`` x 3 close panel (default extends past ``ASOF``).
+
+    ``lead_days`` further bars precede ``START``, so the history behind ``ASOF``
+    spans more than a year and the risk gate can verify the loss ceilings.
+    """
     for ticker, (start, phase) in _SERIES.items():
         ex = Exchange(name=f"EX-{ticker}")
         session.add(ex)
@@ -373,7 +382,7 @@ def seed_panel(session: Any, n_days: int = N_DAYS) -> None:
         )
         session.add(inst)
         session.flush()
-        for i in range(n_days):
+        for i in range(-lead_days, n_days):
             session.add(
                 PriceHistory(
                     instrument_id=inst.id,

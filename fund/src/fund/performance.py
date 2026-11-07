@@ -28,14 +28,12 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
+from fund.periods import periods_per_year
+
 logger = logging.getLogger(__name__)
 
 _HORIZONS = ("1D", "1M", "YTD", "1Y", "max")
 
-# Daily-bar periods per year: the one scale the annualised figures of the Performance
-# strip share, so a Sharpe ratio never mixes scales (the tools' annualised metrics use
-# the same 252).
-TRADING_DAYS_PER_YEAR = 252.0
 
 # Calendar days of bars read before a book's earliest fill so the fill-day price, and
 # the 5-row FX forward-fill behind it, still resolve across weekends and holidays.
@@ -127,8 +125,9 @@ class HoldingMark:
         return_1m: Trailing ~1-month price return, or ``None``.
         return_1y: Trailing ~1-year price return, or ``None``.
         contribution: Value change over the NAV series' last return interval as a
-            share of the book value at its start, so the column sums to that NAV
-            return (``start weight × return`` on the NAV's carried-forward prices).
+            share of the NAV at its start (the book plus any cash beside it), so the
+            column sums to that NAV return (``start weight × return`` on the NAV's
+            carried-forward prices).
             The interval is the persisted NAV's last step; the holdings' own last two
             bars stand in when no NAV is persisted or it lags the latest bar. ``None``
             when no start-of-interval value exists.
@@ -243,6 +242,22 @@ def _carried_base_prices(
     return converted.reindex(prices.index)
 
 
+def _unit_rescale(row_unit: str | None, target_unit: str | None) -> float:
+    """Factor expressing a quote in ``row_unit`` as the same currency's ``target_unit``.
+
+    Covers the minor/major flip of one currency (pence to pounds) that a listing can
+    undergo in its stored history; units of different currencies cannot be related
+    without a rate, so those (and a missing unit) are left as quoted.
+    """
+    if not row_unit or not target_unit or row_unit == target_unit:
+        return 1.0
+    from optimizer.fx import normalize_currency_code
+
+    row_major, row_scale = normalize_currency_code(row_unit)
+    major, scale = normalize_currency_code(target_unit)
+    return scale / row_scale if row_major == major else 1.0
+
+
 def _load_price_frame(
     session: Any,
     tickers: list[str],
@@ -295,12 +310,20 @@ def _load_price_frame(
             rows = repo.get_price_history(
                 instrument.id, start_date=start, end_date=end, limit=newest
             )
-        closes = {r.date: float(r.close) for r in rows if r.close is not None}
+        # The newest bar's unit stands for the series however the rows were ordered, so
+        # the NAV read (oldest first) and the holdings read (newest first) agree.
+        newest_unit = max(
+            ((r.date, r.price_unit) for r in rows if r.price_unit), default=(None, None)
+        )[1]
+        closes = {
+            r.date: float(r.close) * _unit_rescale(r.price_unit, newest_unit)
+            for r in rows
+            if r.close is not None
+        }
         if not closes:
             continue
         series[ticker] = pd.Series(closes)
-        unit = next((r.price_unit for r in rows if r.price_unit), None)
-        unit = unit or instrument.currency_code
+        unit = newest_unit or instrument.currency_code
         if unit:
             currency_map[ticker] = unit
     if not series:
@@ -453,40 +476,59 @@ def _major_currency(code: str) -> str:
 
 
 class FxCoverageError(RuntimeError):
-    """Raised when a mandate has foreign holdings but no FX coverage for its base.
+    """Raised when a mandate holds foreign instruments with no FX rate to its base.
 
     Distinguishes a *misconfiguration* (the FX feed never populated this base —
-    e.g. a non-EUR mandate while the ingestion feed only writes EUR-base rows)
-    from the per-ticker ``T6`` graceful-degradation case (one currency missing
-    among several present). The former would silently mark NAV in mixed/listing
-    currency, so it fails loud instead; the NAV-mark step skips that portfolio.
+    e.g. a non-EUR mandate while the ingestion feed only writes EUR-base rows, or a
+    held currency the feed dropped) from the per-ticker ``T6`` graceful-degradation
+    case that still applies to non-holding series. The former would silently mark NAV
+    in mixed/listing currency, so it fails loud instead; the NAV-mark step skips that
+    portfolio.
     """
 
 
 def _require_fx_coverage(
-    base_currency: str, currency_map: dict[str, str], fx_rates: pd.DataFrame
+    base_currency: str,
+    currency_map: dict[str, str],
+    fx_rates: pd.DataFrame,
+    *,
+    every_currency: bool = False,
 ) -> None:
-    """Raise :class:`FxCoverageError` when foreign holdings have *zero* FX coverage.
+    """Raise :class:`FxCoverageError` when foreign tickers lack FX coverage.
 
-    Fires only when at least one held currency differs from the base *and none* of
-    those foreign currencies has a rate column — the "wrong base / feed never ran"
-    case. Partial coverage (some foreign currencies present, some missing) is left
-    to per-ticker graceful degradation in :func:`_to_base_prices`.
+    By default this fires only when at least one currency differs from the base *and
+    none* of those foreign currencies has a rate column — the "wrong base / feed never
+    ran" case — and leaves partial coverage to per-ticker graceful degradation in
+    :func:`_to_base_prices`. That degradation leaves an uncovered ticker in its listing
+    currency, which is acceptable for a universe read but not for a book: a held line
+    in an uncovered currency would be added into NAV as if it were base currency. A
+    caller marking holdings therefore passes ``every_currency=True`` and any missing
+    column raises.
 
     Args:
         base_currency: Mandate base currency the NAV is expressed in.
-        currency_map: ``{ticker: raw price_unit}`` for the loaded holdings.
+        currency_map: ``{ticker: raw price_unit}`` for the loaded tickers.
         fx_rates: The rate frame loaded for ``base_currency`` (quote-currency
             columns); empty when the feed has no rows for this base.
+        every_currency: Require a rate column for each foreign currency instead of
+            for at least one.
 
     Raises:
-        FxCoverageError: Foreign holdings exist but no foreign currency is covered.
+        FxCoverageError: A foreign currency is uncovered (every one, unless
+            ``every_currency``).
     """
     base_major = _major_currency(base_currency)
     foreign = {_major_currency(code) for code in currency_map.values()} - {base_major}
     if not foreign:
         return
-    available = set(fx_rates.columns) if not fx_rates.empty else set()
+    available = {str(col).upper() for col in fx_rates.columns}
+    missing = foreign - available
+    if every_currency and missing:
+        raise FxCoverageError(
+            f"no FX rates for base {base_major!r} covering {sorted(missing)}; those "
+            "holdings would be valued in their listing currency. Run the FX feed for "
+            "these currencies."
+        )
     if not (foreign & available):
         raise FxCoverageError(
             f"no FX rates for base {base_major!r} covering {sorted(foreign)}; the "
@@ -723,8 +765,8 @@ class _ChainLink:
 
     Attributes:
         scale: Factor multiplying the ticket's shares and base notionals.
-        offset: Undeployed cash, net of the first ticket's reserve, that sits beside
-            the book and belongs in NAV (zero for a ticket that deploys everything).
+        offset: Cash beside the book that belongs in NAV: what the ticket leaves
+            undeployed (zero for a ticket that deploys everything).
     """
 
     scale: float
@@ -736,6 +778,31 @@ def _entry_scale(gross: float, capital: float | None) -> float:
     if capital is not None and capital > 0 and gross > 0:
         return capital / gross
     return 1.0
+
+
+def _switch_values(
+    previous_book: dict[str, tuple[float, dt.date, float]],
+    book: dict[str, tuple[float, dt.date, float]],
+    base_prices: pd.DataFrame,
+    start: int,
+) -> tuple[float, float] | None:
+    """``(outgoing, incoming)`` book values on the first bar both books can be marked.
+
+    Starts at bar ``start`` (the ticket's first bar) and moves on while either side has
+    a line with no usable price there, so a stale FX rate on the switch bar defers the
+    hand-over to the first bar where wealth can be measured instead of dropping it.
+
+    Returns:
+        ``None`` when no bar from ``start`` on marks both books.
+    """
+    for ts in base_prices.index[start:]:
+        incoming = _book_value(book, ts, base_prices)
+        if not incoming:
+            continue
+        outgoing = _book_value(previous_book, ts, base_prices)
+        if outgoing is not None:
+            return outgoing, incoming
+    return None
 
 
 def _chain_links(
@@ -757,12 +824,14 @@ def _chain_links(
     hand-over.
 
     The first ticket has nothing to carry, so its wealth is ``capital`` (its own
-    ``gross`` when unknown). The cash it leaves undeployed is a reserve outside NAV, but
-    it is still wealth the later tickets are sized on, so a repeated 90% ticket stays
-    90% exposed instead of shrinking to 90% of 90%.
+    ``gross`` when unknown). The cash it leaves undeployed is part of that wealth from
+    the first bar, so NAV starts at ``capital`` and a later ticket that invests the cash
+    does not turn it into leverage.
 
-    When either side cannot be valued on the switch bar the previous link is carried
-    forward instead of resetting to the flat notional.
+    When a book cannot be valued on the ticket's first bar (a line whose FX rate is
+    stale) the hand-over happens on the first later bar where both books can be valued,
+    so the profit or loss earned in between is still carried. If no such bar exists the
+    previous link is carried forward instead of resetting to the flat notional.
 
     This is the single source of the per-ticket scale: :func:`build_nav_series` marks
     the rescaled books and :func:`holding_marks` applies the same factor to share
@@ -780,23 +849,30 @@ def _chain_links(
     previous_book: dict[str, tuple[float, dt.date, float]] | None = None
     scale = 1.0
     cash = 0.0
-    reserve = 0.0
     for (fill_day, book), gross in zip(ticket_books, grosses, strict=True):
         position = int(base_prices.index.searchsorted(pd.Timestamp(fill_day)))
-        ts = base_prices.index[position] if position < len(base_prices.index) else None
-        incoming = _book_value(book, ts, base_prices) if ts is not None else None
         if previous_book is None:
             scale = _entry_scale(gross, capital)
-            if incoming is not None:
-                wealth = scale * (gross if gross > 0 else incoming)
-                cash = reserve = wealth - scale * incoming
-        elif ts is not None and incoming:
-            outgoing = _book_value(previous_book, ts, base_prices)
-            if outgoing is not None:
+            first_bar = (
+                _book_value(book, base_prices.index[position], base_prices)
+                if position < len(base_prices.index)
+                else None
+            )
+            deployed = (
+                first_bar
+                if first_bar is not None
+                else sum(notional for _, _, notional in book.values())
+            )
+            wealth = scale * (gross if gross > 0 else deployed)
+            cash = wealth - scale * deployed
+        else:
+            switch = _switch_values(previous_book, book, base_prices, position)
+            if switch is not None:
+                outgoing, incoming = switch
                 wealth = outgoing + cash
                 scale = wealth / gross if gross > 0 else wealth / incoming
                 cash = wealth - scale * incoming
-        links.append(_ChainLink(scale, cash - reserve))
+        links.append(_ChainLink(scale, cash))
         previous_book = _scaled_book(book, scale)
     return links
 
@@ -865,10 +941,10 @@ def build_nav_series(
         overlapping prices, or no bars on/after ``since``.
 
     Raises:
-        FxCoverageError: The mandate holds foreign-currency instruments but no FX
-            rate for their currencies exists under ``base_currency`` (e.g. a
-            non-EUR mandate against the EUR-only feed), or a holding has no
-            resolvable price currency at all — marking would silently mix
+        FxCoverageError: The mandate holds a foreign-currency instrument whose
+            currency has no FX rate under ``base_currency`` (e.g. a non-EUR mandate
+            against the EUR-only feed, or one currency the feed dropped), or a holding
+            has no resolvable price currency at all — marking would silently mix
             currencies, so it fails loud instead.
     """
     from portopt_db.models.orders.paper_order import PaperOrder
@@ -917,7 +993,9 @@ def build_nav_series(
         for ticker, code in currency_map.items()
         if ticker in holding_tickers
     }
-    _require_fx_coverage(base_currency, holding_currency_map, fx_rates)
+    _require_fx_coverage(
+        base_currency, holding_currency_map, fx_rates, every_currency=True
+    )
     base_prices = _carried_base_prices(
         raw_prices,
         base_currency=base_currency,
@@ -1129,7 +1207,7 @@ def portfolio_metrics(
     portfolio_id: uuid.UUID,
     nav_points: list[NavPoint],
     *,
-    annualization_factor: float = TRADING_DAYS_PER_YEAR,
+    annualization_factor: float | None = None,
 ) -> PerformanceSummary:
     """Compute multi-horizon returns + risk metrics over a NAV series.
 
@@ -1146,11 +1224,18 @@ def portfolio_metrics(
     Args:
         portfolio_id: Portfolio the metrics describe.
         nav_points: The NAV series from :func:`build_nav_series` (ascending dates).
-        annualization_factor: Periods per year for annualizing vol/Sharpe/TE.
+        annualization_factor: Periods per year for annualizing vol/Sharpe/TE. By
+            default the bars the NAV series holds per calendar year
+            (:func:`fund.periods.periods_per_year`), the scale the tools use, so a
+            Sharpe ratio never mixes scales.
 
     Returns:
         A :class:`PerformanceSummary`; all-``None`` fields when the series is empty.
     """
+    if annualization_factor is None:
+        annualization_factor = float(
+            periods_per_year(pd.DatetimeIndex([p.date for p in nav_points]))
+        )
     navs = [p.nav for p in nav_points]
     port_returns = _linear_returns(navs)
     # Align observations to the (possibly truncated) returns so BasePortfolio gets
@@ -1364,7 +1449,7 @@ def _book_base_prices(
     fx_rates = pd.concat(fx_frames).sort_index() if fx_frames else pd.DataFrame()
     if not fx_rates.empty:
         fx_rates = fx_rates.loc[~fx_rates.index.duplicated(keep="first")]
-    _require_fx_coverage(base_currency, currency_map, fx_rates)
+    _require_fx_coverage(base_currency, currency_map, fx_rates, every_currency=True)
     base_prices = _carried_base_prices(
         raw_prices,
         base_currency=base_currency,
@@ -1505,8 +1590,8 @@ def holding_marks(
         empty when the portfolio has no paper orders.
 
     Raises:
-        FxCoverageError: Foreign holdings exist but no FX rate covers their currency
-            under ``base_currency``, or a holding has no resolvable price currency
+        FxCoverageError: A foreign holding's currency has no FX rate under
+            ``base_currency``, or a holding has no resolvable price currency
             (see :func:`build_nav_series`).
     """
     tickets = _tickets_through(session, portfolio_id, asof)
@@ -1546,6 +1631,7 @@ def holding_marks(
     ]
     current_book = priced[-1][1]
     scale = _entry_scale(float(ticket.notional or 0), capital)
+    cash = 0.0
     if current_book:
         priced = [entry for entry in priced if entry[1]]
         links = _chain_links(
@@ -1555,6 +1641,7 @@ def holding_marks(
             capital,
         )
         scale = links[-1].scale
+        cash = links[-1].offset
     # Holdings sit on the chain-linked NAV scale, so they sum to the latest NAV and
     # the cost basis is the value carried into the rebalance, not the flat notional.
     shares = {ticker: qty * scale for ticker, (qty, _, _) in current_book.items()}
@@ -1572,13 +1659,13 @@ def holding_marks(
     total = sum(value for _, value, _ in computed.values())
 
     # Contribution is each holding's value change over one interval divided by the
-    # book's value at the START of it: the only weighting under which the column sums
-    # to the NAV return over that interval. The interval is the one the persisted NAV
-    # series measures last (its calendar also carries the benchmark and earlier
-    # tickets, so it can differ from the holdings' own bars). Values run on the ffilled
-    # bars NAV uses, so a holding idle over it contributes 0, and a line filled inside
-    # it is carried at its notional beforehand (as in the NAV loop) so it earns nothing
-    # for the move that preceded its purchase.
+    # NAV (book plus cash) at the START of it: the only weighting under which the
+    # column sums to the NAV return over that interval. The interval is the one the
+    # persisted NAV series measures last (its calendar also carries the benchmark and
+    # earlier tickets, so it can differ from the holdings' own bars). Values run on the
+    # ffilled bars NAV uses, so a holding idle over it contributes 0, and a line filled
+    # inside it is carried at its notional beforehand (as in the NAV loop) so it earns
+    # nothing for the move that preceded its purchase.
     interval = _nav_last_interval(
         session, portfolio_id, asof, last_bar=base_prices.index[-1].date()
     )
@@ -1588,7 +1675,8 @@ def holding_marks(
     end_values: dict[str, float] = {}
     if interval is not None:
         for ticker in computed:
-            qty, line_fill, notional = current_book[ticker]
+            raw_qty, line_fill, raw_notional = current_book[ticker]
+            qty, notional = raw_qty * scale, raw_notional * scale
             prior = _line_value_on(
                 base_prices, ticker, qty, line_fill, notional, interval[0]
             )
@@ -1598,7 +1686,8 @@ def holding_marks(
             if prior is not None and end is not None:
                 prior_values[ticker] = prior
                 end_values[ticker] = end
-    prior_total = sum(prior_values.values())
+    # The cash beside the book is part of the NAV the 1D return is measured on.
+    prior_total = sum(prior_values.values()) + cash
 
     marks: list[HoldingMark] = []
     for ticker in order:
@@ -1666,8 +1755,8 @@ def marked_weights(
         to 1 for a fully invested book. ``None`` when the book cannot be marked.
 
     Raises:
-        FxCoverageError: Foreign holdings exist but no FX rate covers their currency
-            under ``base_currency`` (see :func:`build_nav_series`).
+        FxCoverageError: A foreign holding's currency has no FX rate under
+            ``base_currency`` (see :func:`build_nav_series`).
     """
     ticket = _active_ticket(session, portfolio_id, asof)
     if ticket is None:

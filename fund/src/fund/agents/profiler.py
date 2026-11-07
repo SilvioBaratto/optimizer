@@ -285,12 +285,14 @@ def _category(a_gamma: float) -> RiskToleranceBand:
 
 
 def _nu_tiers(capacity: CapacityAnswers) -> tuple[float, float, float]:
-    """Escalating drawdown tiers as fractions of capital (``20:32``, ``20:136``).
+    """Escalating loss tiers as fractions of capital (``20:32``, ``20:136``).
 
     Anchored on the stated one-year loss tolerance: a soft warning at half the
     tolerance, the hard ceiling at the tolerance itself, and an absolute stop at
     1.5x (clamped to 1.0). Emitted here; the bound ``backtest`` tool compares the
-    backtest drawdown with them.
+    worst loss inside any one-year window of the backtest with them, the horizon the
+    tolerance is stated over. A zero tolerance gives three zero tiers, which the risk
+    gate reports as ``zero_loss_tolerance`` rather than as an opaque limit-0 breach.
     """
     ceiling = capacity.max_1yr_loss_pct
     nu1 = ceiling * 0.5

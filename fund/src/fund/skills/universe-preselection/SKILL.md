@@ -46,7 +46,9 @@ emits weights. A ticker the database cannot price comes back as `missing`.
    requested order (big frames stay in the tool; only the ticker list returns). Names
    the client's mandate forbids (complex or leveraged products for a restricted client,
    an unclassifiable instrument) come back under `mandate_excluded`: report them to the
-   PM. A universe holding a ticker outside the eligible universe is refused with an
+   PM. A name whose own price history is under half the panel's median comes back
+   under `dropped_for_history`: report it too, and do not put it back, since a young
+   listing would shrink the sample every other name is fitted on. A universe holding a ticker outside the eligible universe is refused with an
    `ok: false` result naming each offender and its reason. An empty list is a valid
    outcome: report it, do not retry with other names.
 4. Call `estimate_moments(universe)` with the survivors for mu/cov (Ledoit-Wolf
@@ -58,7 +60,8 @@ emits weights. A ticker the database cannot price comes back as `missing`.
 
 ## What the filter applies
 Fixed defaults, no thresholds to choose: data validation and outlier treatment,
-incomplete-history and zero-variance drops, and a 0.95 pairwise-correlation cap. The
+short-history (under half the median) and zero-variance drops, and a 0.95
+pairwise-correlation cap. The
 tool then applies the client's mandate from the ConstraintSet: names in an
 ESG-excluded sector or breaching the K&E instrument restrictions (and any whose sector
 it cannot classify) are removed and listed as `mandate_excluded`. The tools take only

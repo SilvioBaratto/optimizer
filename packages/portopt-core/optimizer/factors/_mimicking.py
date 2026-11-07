@@ -133,6 +133,43 @@ def _compute_leg_beta(
     return cov_xy / var_x
 
 
+def _lagged_expanding_beta(
+    leg_returns: pd.Series, market_returns: pd.Series
+) -> pd.Series:
+    """OLS beta of a leg on the market, re-estimated at each date from the past.
+
+    The value at row ``t`` uses only rows before ``t``, so a backtest never
+    hedges a date with a beta fitted on its own or later returns.  Dates with
+    fewer than ``_MIN_BETA_OBSERVATIONS`` earlier shared observations, or whose
+    earlier market returns are constant, are NaN rather than back-filled.
+
+    The sums run on values centred at their overall mean (beta is shift
+    invariant), which keeps the variance of an early window from drowning in
+    cancellation error.
+    """
+    x = market_returns.reindex(leg_returns.index).to_numpy(dtype=np.float64)
+    y = leg_returns.to_numpy(dtype=np.float64)
+    valid = ~(np.isnan(x) | np.isnan(y))
+    if not valid.any():
+        return pd.Series(np.nan, index=leg_returns.index)
+    xc = np.where(valid, x - x[valid].mean(), 0.0)
+    yc = np.where(valid, y - y[valid].mean(), 0.0)
+
+    n = np.cumsum(valid)
+    sx, sy = np.cumsum(xc), np.cumsum(yc)
+    sxx, sxy = np.cumsum(xc * xc), np.cumsum(xc * yc)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        var_x = (sxx - sx * sx / n) / (n - 1)
+        cov_xy = (sxy - sx * sy / n) / (n - 1)
+        mean_square = sxx / n
+        beta = cov_xy / var_x
+    degenerate = (
+        (n < _MIN_BETA_OBSERVATIONS) | (var_x < 1e-20) | (var_x < 1e-12 * mean_square)
+    )
+    beta = np.where(degenerate, np.nan, beta)
+    return cast(pd.Series, pd.Series(beta, index=leg_returns.index).shift(1))
+
+
 def build_factor_mimicking_portfolios(
     scores: pd.DataFrame,
     returns: pd.DataFrame,
@@ -162,8 +199,18 @@ def build_factor_mimicking_portfolios(
             axis=1,
         )
 
+    Scores and returns are paired on the same date: the row of ``scores``
+    dated ``t`` ranks the assets that earn the return in the row of
+    ``returns`` dated ``t``.  The caller must therefore make ``scores`` *lead*
+    ``returns`` -- the score on a row has to be known before that row's return
+    is earned (for example, scores computed at the previous close, or a
+    ``scores.shift(1)`` of same-period scores).  Pairing a score with a return
+    from the same period it was computed on trades on information from the
+    future and inflates every statistic built from the result.
+
     Args:
-        scores: Dates × assets matrix of cross-sectional factor scores.
+        scores: Dates × assets matrix of cross-sectional factor scores, each
+            known before the return it is paired with (see above).
             Index = dates; columns = asset tickers.
         returns: Dates × assets matrix of asset returns, aligned with `scores`
             on the date index.  Columns may be a superset or subset of
@@ -178,7 +225,12 @@ def build_factor_mimicking_portfolios(
             their factor score.
         beta_neutral: When ``True``, hedge the long-short portfolio against market
             beta exposure.  The hedge ratio adjusts the short-leg weight
-            so that the portfolio beta is approximately zero.  In this path
+            so that the portfolio beta is approximately zero.  The betas are
+            expanding-window estimates lagged by one period, so the hedge at a
+            date uses only earlier returns; a date with fewer than 12 earlier
+            observations shared with ``market_returns`` (or whose earlier
+            market returns are constant) is NaN instead of being hedged with
+            later data.  In this path
             both legs are **equal-weighted**; the *weighting* argument only
             applies to the non-hedged (``beta_neutral=False``) path.
         market_returns: Market return series, required when ``beta_neutral=True``.
@@ -187,7 +239,8 @@ def build_factor_mimicking_portfolios(
         Dates × 1 DataFrame of long-short portfolio returns.  Column
         name is ``"factor_return"``.  Index is the intersection of
         *scores* and *returns* dates.  Missing periods (fewer than two
-        assets with both a score and a return) are filled with NaN.
+        assets with both a score and a return) are filled with NaN, as are
+        the hedge warm-up periods when ``beta_neutral=True``.
 
     Raises:
         ConfigurationError: If ``quantile`` is outside ``(0, 0.5]`` or ``weighting``
@@ -246,9 +299,17 @@ def build_factor_mimicking_portfolios(
             return pd.DataFrame(
                 {"factor_return": long_s}, index=common_dates, dtype=float
             )
-        beta_long = _compute_leg_beta(long_s, market_returns)
-        beta_short = _compute_leg_beta(short_s, market_returns)
-        hedge_ratio = beta_long / beta_short if abs(beta_short) > 1e-10 else 1.0
+        # Whole-sample fits only validate that a hedge is estimable at all;
+        # the ratios applied below are the lagged expanding ones.
+        _compute_leg_beta(long_s, market_returns)
+        _compute_leg_beta(short_s, market_returns)
+        beta_long = _lagged_expanding_beta(long_s, market_returns)
+        beta_short = _lagged_expanding_beta(short_s, market_returns)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.where(beta_short.abs() > 1e-10, beta_long / beta_short, 1.0)
+        hedge_ratio = pd.Series(ratio, index=long_s.index).where(
+            beta_long.notna() & beta_short.notna()
+        )
         hedged = long_s - hedge_ratio * short_s
         return pd.DataFrame(
             {"factor_return": hedged},
@@ -283,7 +344,9 @@ def build_all_factor_mimicking_portfolios(
     Args:
         factor_scores: Factor name → dates × assets matrix of cross-sectional scores for
             that factor.  Column order of the output follows the mapping's
-            insertion order.  Must be non-empty.
+            insertion order.  Must be non-empty.  Each score must be known
+            before the return of its own row (see
+            `build_factor_mimicking_portfolios`).
         returns: Dates × assets matrix of asset returns, shared by every factor.
         quantile: Fraction of the universe per leg.  Forwarded unchanged.
         weighting: Intra-leg weighting scheme.  Forwarded unchanged.
@@ -356,8 +419,13 @@ def compute_quintile_spread(
     Ties in scores are broken by rank order (``method="first"``), ensuring
     every bucket is populated at every date.
 
+    Scores and returns are paired on the same date, so ``scores`` must lead
+    ``returns``: a score has to be known before the return of its own row is
+    earned, otherwise the spread is measured with look-ahead.
+
     Args:
-        scores: Dates × assets matrix of cross-sectional factor scores.
+        scores: Dates × assets matrix of cross-sectional factor scores, each
+            known before the return it is paired with.
         returns: Dates × assets matrix of asset returns, aligned with `scores`.
         n_quantiles: Number of equal-count buckets.  5 = quintiles, 10 = deciles.
             Must be ≥ 2.

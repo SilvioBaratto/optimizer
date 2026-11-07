@@ -11,14 +11,22 @@ snapshot, in order:
 
 1. a commodity fund passes (its stored weights describe collateral, not exposure);
 2. a government or inflation-linked bond fund passes;
+   both exemptions rest on a name-derived label, so neither holds for a fund whose
+   latest asset-class allocation on or before the bar puts more in stocks than the
+   client's ``look_through_tolerance`` (a natural-gas equity fund is not collateral):
+   that fund is looked through like any other;
 3. every other fund (equity, multi-asset, corporate / aggregate / high-yield / EM /
    unclassified bonds) needs a snapshot no older than
    ``FundConfig.esg_sector_weights_max_age_days`` at the decision bar, whose non-null
-   weights sum to one within five points and whose labels all map to a GICS sector.
-   Otherwise it is barred ``esg_unclassified``;
-4. its exposure is the weight in excluded sectors; it is barred ``esg:<sector>``
-   (the excluded sector with the largest weight) when that is strictly above the
-   client's ``look_through_tolerance``. The default 0.0 is strict.
+   weights are finite, sum to one within five points and whose labels all map to a
+   GICS sector. Otherwise it is barred ``esg_unclassified``. A snapshot dated after
+   the bar is ignored, so a replayed run is judged on what was known then;
+4. its exposure is the weight in excluded sectors, plus the unreported remainder
+   (``1`` minus the total) while an excluded sector is missing from the snapshot,
+   since that is where it could be. It is barred ``esg:<sector>`` (the excluded
+   sector with the largest weight) when the exposure is strictly above the client's
+   ``look_through_tolerance``, or ``esg_unclassified`` when only the remainder
+   breaks it. The default tolerance of 0.0 is strict.
 
 Honest consequence: under ESG exclusions most corporate and aggregate bond ETFs stay
 barred, because their sector data is sparse (government 6 of 265, corporate 27 of 471,
@@ -46,9 +54,12 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
-from collections.abc import Iterable, Mapping
+import math
+import uuid
+from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
+from portopt_db.models.market_data.etf_metadata import ETFAssetClass
 from portopt_db.models.universe.universe import Instrument
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
@@ -82,6 +93,24 @@ TRADEABLE_NOT_EVALUATED_NOTE = (
     "tradeable_only is set but no instrument has been checked against the "
     "Trading 212 catalogue yet, so the broker restriction is not applied"
 )
+
+
+def unchecked_names_note(tickers: Sequence[str]) -> str:
+    """The caveat for allowlisted names the Trading 212 overlay could not judge.
+
+    The overlay matches by ISIN, which a venue-suffixed Yahoo symbol usually lacks, so
+    its flag stays NULL. NULL is never refused, which keeps the name in the universe;
+    this says which names that is, so a ``tradeable_only`` mandate is not mistaken for a
+    verified one.
+    """
+    return (
+        f"tradeable_only could not check {len(tickers)} allowlisted name(s) against "
+        f"the Trading 212 catalogue (no ISIN to match), so they are kept: "
+        f"{', '.join(tickers)}. Confirm the broker lists them, or store an ISIN with "
+        "`portopt add-instrument <TICKER> --isin <ISIN>` so they are checked."
+    )
+
+
 _ETF = "ETF"
 _COMMODITY = "commodity"
 _FIXED_INCOME = "fixed_income"
@@ -200,6 +229,7 @@ def _normalise(allowlist: Iterable[str]) -> tuple[str, ...]:
 class _InstrumentFacts:
     """What the look-through needs to know about an instrument, case-folded."""
 
+    instrument_id: uuid.UUID
     instrument_type: str
     asset_class: str
     fi_subclass: str
@@ -227,26 +257,73 @@ class _InstrumentFacts:
 def _instrument_facts(
     session: Session, tickers: Iterable[str]
 ) -> dict[str, _InstrumentFacts]:
-    """The classification of each ticker's instrument, in one query."""
+    """The classification of each ticker's instrument, in one query.
+
+    A symbol that moved venues leaves a delisted row beside its live one, classified
+    separately. The rows are ordered like ``get_instrument_by_yfinance_ticker`` (live
+    listing first, then the most recently delisted, then the newest) so the route a
+    fund takes never depends on row order.
+    """
     rows = session.execute(
         select(
             Instrument.yfinance_ticker,
+            Instrument.id,
             Instrument.instrument_type,
             Instrument.asset_class,
             Instrument.fi_subclass,
-        ).where(Instrument.yfinance_ticker.in_(list(tickers)))
+        )
+        .where(Instrument.yfinance_ticker.in_(list(tickers)))
+        .order_by(
+            Instrument.delisted_at.is_(None).desc(),
+            Instrument.delisted_at.desc(),
+            Instrument.created_at.desc(),
+            Instrument.ticker,
+            Instrument.id,
+        )
     ).all()
     facts: dict[str, _InstrumentFacts] = {}
-    for ticker, instrument_type, asset_class, fi_subclass in rows:
+    for ticker, instrument_id, instrument_type, asset_class, fi_subclass in rows:
         facts.setdefault(
             ticker,
             _InstrumentFacts(
+                instrument_id=instrument_id,
                 instrument_type=(instrument_type or "").strip().upper(),
                 asset_class=(asset_class or "").strip().lower(),
                 fi_subclass=(fi_subclass or "").strip().lower(),
             ),
         )
     return facts
+
+
+def _stock_shares(
+    session: Session, facts: Mapping[str, _InstrumentFacts], asof: dt.date
+) -> dict[str, float]:
+    """Each fund's stock share of NAV, from its newest allocation on or before ``asof``.
+
+    A fund with no allocation row, or one that reports no stock figure, is absent: the
+    label that exempted it then stands, since there is nothing to contradict it.
+    """
+    owner = {fact.instrument_id: ticker for ticker, fact in facts.items()}
+    if not owner:
+        return {}
+    rows = session.execute(
+        select(
+            ETFAssetClass.instrument_id, ETFAssetClass.as_of, ETFAssetClass.stock_pct
+        )
+        .where(
+            ETFAssetClass.instrument_id.in_(list(owner)), ETFAssetClass.as_of <= asof
+        )
+        .order_by(ETFAssetClass.as_of.desc())
+    ).all()
+    shares: dict[str, float] = {}
+    seen: set[uuid.UUID] = set()
+    for instrument_id, _, stock_pct in rows:
+        if instrument_id in seen:
+            continue
+        seen.add(instrument_id)
+        if stock_pct is not None:
+            shares[owner[instrument_id]] = float(stock_pct)
+    return shares
 
 
 def _stock_esg_reasons(
@@ -276,12 +353,18 @@ def _look_through(
     """The ESG bar of one fund judged by its sector snapshot, or ``None`` if it passes.
 
     Fails closed (``esg_unclassified``) whenever the snapshot cannot show the fund is
-    clean: absent, older than ``max_age_days`` at the decision bar, a label outside the
-    eleven GICS sectors, or non-null weights that do not sum to one. A NULL weight is
-    skipped rather than read as zero, so the completeness check is what catches a
-    snapshot missing the sector that matters.
+    clean: absent, dated after the decision bar or older than ``max_age_days`` at it, a
+    label outside the eleven GICS sectors, a weight that is not finite, or non-null
+    weights that do not sum to one. A NULL weight is skipped rather than read as zero,
+    so the completeness check is what catches a snapshot missing the sector that
+    matters; what that check lets through (up to five points unreported) counts as
+    possible exposure while an excluded sector is missing, so a strict tolerance is
+    strict.
     """
-    if snapshot is None or (asof - snapshot.as_of).days > max_age_days:
+    if snapshot is None:
+        return ESG_UNCLASSIFIED
+    age_days = (asof - snapshot.as_of).days
+    if age_days < 0 or age_days > max_age_days:
         return ESG_UNCLASSIFIED
     by_sector: dict[GicsSector, float] = {}
     total = 0.0
@@ -289,7 +372,7 @@ def _look_through(
         if weight is None:
             continue
         sector = _resolve_sector(label)
-        if sector is None:
+        if sector is None or not math.isfinite(weight):
             return ESG_UNCLASSIFIED
         total += weight
         by_sector[sector] = by_sector.get(sector, 0.0) + weight
@@ -301,8 +384,13 @@ def _look_through(
         for sector, weight in by_sector.items()
         if sector in exclusions
     }
-    if _snap(sum(exposed.values())) <= _snap(tolerance):
+    reported = sum(exposed.values())
+    missing_excluded = any(sector not in by_sector for sector in exclusions)
+    unreported = max(0.0, 1.0 - total) if missing_excluded else 0.0
+    if _snap(reported + unreported) <= _snap(tolerance):
         return None
+    if _snap(reported) <= _snap(tolerance):
+        return ESG_UNCLASSIFIED
     dominant = max(exposed, key=lambda sector: (exposed[sector], sector.value))
     return f"esg:{dominant.value}"
 
@@ -324,7 +412,9 @@ def _fund_esg_reasons(
     """
     if not tickers:
         return {}
-    snapshots = ETFMetadataRepository(session).get_latest_sector_weights(tickers)
+    snapshots = ETFMetadataRepository(session).get_latest_sector_weights(
+        tickers, on_or_before=asof
+    )
     reasons: dict[str, str] = {}
     for ticker in tickers:
         reason = _look_through(
@@ -357,17 +447,26 @@ def _esg_reasons(
     exclusions = frozenset(constraint_set.esg.exclusions)
     if not exclusions:
         return {}
+    tolerance = constraint_set.esg.look_through_tolerance
     facts = _instrument_facts(session, tickers)
     funds = [t for t in tickers if t in facts and facts[t].is_etf]
     stocks = [t for t in tickers if t not in funds]
-    judged_funds = [t for t in funds if not facts[t].holds_no_company_exposure]
+    exempt = {t: facts[t] for t in funds if facts[t].holds_no_company_exposure}
+    # The exemption is a label derived from the fund's name. A fund that reports more
+    # in stocks than the tolerance can put more than that in an excluded sector.
+    stock_share = _stock_shares(session, exempt, asof)
+    judged_funds = [
+        t
+        for t in funds
+        if t not in exempt or _snap(stock_share.get(t, 0.0)) > _snap(tolerance)
+    ]
     reasons = _stock_esg_reasons(session, stocks, exclusions)
     reasons.update(
         _fund_esg_reasons(
             session,
             judged_funds,
             exclusions,
-            constraint_set.esg.look_through_tolerance,
+            tolerance,
             asof=asof,
             max_age_days=max_age_days,
         )
@@ -428,6 +527,11 @@ def resolve_eligibility(
             notes = (TRADEABLE_NOT_EVALUATED_NOTE,)
         else:
             barred.update(dict.fromkeys(refused, NOT_T212_TRADEABLE))
+            unchecked = UniverseRepository(session).get_t212_unevaluated_tickers(
+                [t for t in tickers if t not in barred]
+            )
+            if unchecked:
+                notes = (unchecked_names_note(unchecked),)
     barred.update(
         _esg_reasons(
             session,

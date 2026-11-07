@@ -158,17 +158,18 @@ def test_when_randomized_scorer_has_rf_and_annualization_then_portfolio_params_s
     }
 
 
-def test_when_scorer_uses_defaults_then_portfolio_params_left_unset(
+def test_when_scorer_uses_defaults_then_its_zero_rate_is_still_applied(
     estimator: MeanRisk,
 ) -> None:
-    # Leaving portfolio_params unset lets skfolio inherit the optimizer's own
-    # risk_free_rate instead of forcing 0.0 over it.
+    # ScorerConfig.risk_free_rate is always applied, 0.0 included, so every
+    # candidate is scored at the same rate whatever its own risk_free_rate is.
     search = build_online_grid_search(
         _online_cfg(ScorerConfig()),
         estimator,
         {"prior_estimator__mu_estimator__half_life": [20.0, 40.0]},
     )
-    assert search.portfolio_params is None
+    assert search.portfolio_params == build_online_portfolio_params(ScorerConfig())
+    assert search.portfolio_params == {"risk_free_rate": 0.0}
 
 
 def test_when_scorer_sets_risk_free_rate_then_search_scores_change(

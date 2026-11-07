@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.services._shared import ProgressCallback, _noop
+
 from ..protocols import (
     ArticleScraperProtocol,
     SearchClientProtocol,
@@ -314,6 +316,7 @@ class MacroNewsFetcher:
         max_articles: int = 30,
         fetch_full_content: bool = False,
         max_per_ticker: int = 3,
+        on_progress: ProgressCallback = _noop,
     ) -> list[dict[str, Any]]:
         """Fetch macro news from all configured tickers and search queries.
 
@@ -333,6 +336,9 @@ class MacroNewsFetcher:
                 via the configured scraper and drop articles whose body cannot
                 be scraped, so caps and budgets only count scrapable articles.
             max_per_ticker: Per-ticker article cap to prevent domination.
+            on_progress: Receives the number of sources up front and a report
+                before each one is fetched, so the job's stall watch sees the
+                sweep advance through a long rate-limited run.
 
         Returns:
             List of article dicts sorted by publish time (newest first),
@@ -354,9 +360,14 @@ class MacroNewsFetcher:
         sources_delivering = 0
         sources_failed = 0
         sources_empty = 0
+        source_total = len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES)
+        sources_started = 0
+        on_progress(total=source_total)
 
         # 1. Ticker-based news (collected per-ticker for capping)
         for ticker, seed_themes in MACRO_TICKERS.items():
+            sources_started += 1
+            on_progress(current=sources_started, current_ticker=ticker)
             try:
                 news = self._news_client.fetch(ticker)
                 if news is None:
@@ -396,6 +407,8 @@ class MacroNewsFetcher:
 
         # 2. Search-query-based news
         for query, seed_themes in MACRO_SEARCH_QUERIES.items():
+            sources_started += 1
+            on_progress(current=sources_started, current_ticker=query)
             try:
                 result = self.search_client.search(query, max_results=8)
                 if result is None:

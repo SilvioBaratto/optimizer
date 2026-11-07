@@ -111,10 +111,14 @@ class MomentEstimationConfig:
             defaults to skfolio's 40.
         shrunk_cov_shrinkage: Shrinkage intensity for ``ShrunkCovariance``.
         gerber_threshold: Threshold for ``GerberCovariance``.
-        implied_annualization_factor: Number of periods per year forwarded to
+        implied_annualization_factor: Number of periods per year of the returns
+            (252 for daily, 52 for weekly, 12 for monthly) forwarded to
             ``ImpliedCovariance`` as ``annualization_factor`` (skfolio 1.0 renamed
             the former ``annualized_factor``; the old name is deprecated and removed
-            in 2.0). ``None`` lets skfolio infer it from the index frequency.
+            in 2.0). skfolio does not infer it from the index: left unset it would
+            assume 252, so ``build_cov_estimator`` requires an explicit positive
+            value whenever ``cov_estimator`` is ``IMPLIED`` and ignores it
+            otherwise.
         implied_window_size: Rolling window (in observations) used by
             ``ImpliedCovariance`` to regress realized on implied volatility.
         is_log_normal: Whether returns are log-normal (for multi-period scaling in
@@ -227,8 +231,13 @@ class MomentEstimationConfig:
 
     @classmethod
     def for_regime_adjusted_ew(cls) -> MomentEstimationConfig:
-        """Regime-adjusted EW prior with STVU multiplier."""
+        """Regime-adjusted EW prior with STVU multiplier.
+
+        Pairs the NaN-aware covariance with an EW mean: an empirical mean
+        rejects the ragged panels the covariance is chosen to handle.
+        """
         return cls(
+            mu_estimator=MuEstimatorType.EW,
             cov_estimator=CovEstimatorType.REGIME_ADJUSTED_EW,
             variance_estimator=VarianceEstimatorType.REGIME_ADJUSTED_EW,
             variance_half_life=23.0,

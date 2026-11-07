@@ -212,6 +212,10 @@ def main() -> None:
     logger.info(
         "Starting %s (environment=%s)", settings.project_name, settings.environment
     )
+    # Before the slow boot steps: as a container's PID 1 the process ignores SIGTERM
+    # until it has a handler, so a stop during boot would run out the grace period
+    # and end in SIGKILL.
+    _install_signal_handlers()
 
     _serve_metrics()
 
@@ -221,6 +225,11 @@ def main() -> None:
         logger.warning("Database health check failed — continuing startup")
 
     _reconcile_orphans()
+
+    if _shutdown.is_set():
+        logger.info("Shutdown requested during boot; not starting the scheduler")
+        close_db()
+        return
 
     scheduler = create_scheduler()
     scheduler.start()
@@ -234,7 +243,6 @@ def main() -> None:
         settings.scheduler_fred_monthly_cron,
     )
 
-    _install_signal_handlers()
     scheduler_died = _wait_for_shutdown_or_scheduler_death(scheduler)
     exit_code = 1 if scheduler_died else 0
 

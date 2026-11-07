@@ -33,9 +33,10 @@ NaN / ragged robustness:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import pandas as pd
 from skfolio.moments import (
     OAS,
     DenoiseCovariance,
@@ -142,24 +143,104 @@ def _normalise_market_weights(market_weights: np.ndarray) -> np.ndarray:
     return weights / total
 
 
+class _LabelAlignedEquilibriumMu(EquilibriumMu):  # type: ignore[misc]
+    """`EquilibriumMu` whose ``weights`` are a ticker-indexed Series.
+
+    skfolio takes the reference weights positionally, so any asset removed
+    between building the prior and fitting it (pre-selection, a delisting)
+    would leave the vector longer than the covariance.  Here the Series is
+    matched to the fitted columns by label and rescaled to sum to one over the
+    assets actually present.
+    """
+
+    def __init__(
+        self,
+        risk_aversion: float = 1,
+        weights: pd.Series | None = None,
+        covariance_estimator: BaseCovariance | None = None,
+    ) -> None:
+        super().__init__(
+            risk_aversion=risk_aversion,
+            weights=weights,  # pyright: ignore[reportArgumentType]
+            covariance_estimator=covariance_estimator,
+        )
+
+    def fit(
+        self, X: Any, y: None = None, **fit_params: Any
+    ) -> _LabelAlignedEquilibriumMu:
+        """Fit the equilibrium on the weights restricted to the columns of ``X``.
+
+        Args:
+            X: Asset returns with the asset names as columns.
+            y: Ignored; present for sklearn API compatibility.
+            **fit_params: Forwarded to the covariance estimator.
+
+        Returns:
+            The fitted estimator.
+
+        Raises:
+            ConfigurationError: If ``X`` has no named columns, a fitted asset has
+                no entry in ``weights``, or the fitted assets' weights sum to
+                zero.
+        """
+        columns = getattr(X, "columns", None)
+        if columns is None or self.weights is None:
+            raise ConfigurationError(
+                "ticker-indexed market_weights need returns with named columns"
+            )
+        aligned = _align_market_weights(cast("pd.Series", self.weights), list(columns))
+        inner = EquilibriumMu(
+            risk_aversion=self.risk_aversion,
+            weights=aligned,
+            covariance_estimator=self.covariance_estimator,
+        )
+        inner.fit(X, y, **fit_params)
+        self.mu_ = inner.mu_
+        self.covariance_estimator_ = inner.covariance_estimator_
+        self.n_features_in_ = inner.n_features_in_
+        if hasattr(inner, "feature_names_in_"):
+            self.feature_names_in_ = inner.feature_names_in_
+        return self
+
+
+def _align_market_weights(weights: pd.Series, columns: list[Any]) -> np.ndarray:
+    """Select the entries of *weights* for *columns* and rescale them to sum to one.
+
+    Raises:
+        ConfigurationError: If a column has no entry, or the selected entries
+            are not valid market weights (see `_normalise_market_weights`).
+    """
+    missing = [c for c in columns if c not in weights.index]
+    if missing:
+        raise ConfigurationError(
+            f"market_weights has no entry for fitted assets {missing}"
+        )
+    return _normalise_market_weights(weights.reindex(columns).to_numpy(dtype=float))
+
+
 def build_mu_estimator(
     config: MomentEstimationConfig,
     *,
-    market_weights: np.ndarray | None = None,
+    market_weights: np.ndarray | pd.Series | None = None,
 ) -> BaseMu:
     """Build a skfolio expected return estimator from config.
 
     Args:
         config: Moment estimation configuration.
-        market_weights: Market capitalisations or weights (aligned to the
-            asset-column order of the returns frame passed to ``fit``) for
+        market_weights: Market capitalisations or weights for
             ``EquilibriumMu``'s reverse-optimisation. Sourced from the DB
             (``shares_outstanding`` x price, or
             ``ticker_profiles.market_cap``); raw capitalisations are fine, they
-            are rescaled to sum to 1. As a non-serialisable array it is
-            a factory keyword, never a config field. ``None`` falls back to
-            skfolio's equal-weight default (i.e. a degenerate, non-cap-weighted
-            equilibrium). Ignored for non-``EQUILIBRIUM`` estimators.
+            are rescaled to sum to 1. A ticker-indexed ``pd.Series`` is
+            matched to the fitted columns by label at ``fit`` and rescaled over
+            the assets present, so it stays valid when pre-selection or a
+            delisting drops assets (prefer it inside a pipeline). A plain
+            array is positional: one entry per column of the frame passed to
+            ``fit``, in that order, and a different column count fails at fit.
+            As a non-serialisable object it is a factory keyword, never a
+            config field. ``None`` falls back to skfolio's equal-weight default
+            (i.e. a degenerate, non-cap-weighted equilibrium). Ignored for
+            non-``EQUILIBRIUM`` estimators.
 
     Returns:
         A fitted-ready skfolio expected return estimator.
@@ -167,14 +248,19 @@ def build_mu_estimator(
     Raises:
         ConfigurationError: If the mu estimator is unsupported, or
             ``market_weights`` is supplied for ``EQUILIBRIUM`` but is not a
-            non-empty 1-D array of finite, non-negative values with a
-            positive sum.
+            non-empty 1-D array or unique-index Series of finite, non-negative
+            values with a positive sum.
     """
     match config.mu_estimator:
         case MuEstimatorType.EMPIRICAL:
             return EmpiricalMu()
         case MuEstimatorType.SHRUNK:
-            return ShrunkMu(method=_SHRINKAGE_MAP[config.shrinkage_method])
+            # Without the configured covariance ShrunkMu shrinks towards a target
+            # computed with EmpiricalCovariance, diverging from the prior's own.
+            return ShrunkMu(
+                covariance_estimator=build_cov_estimator(config),
+                method=_SHRINKAGE_MAP[config.shrinkage_method],
+            )
         case MuEstimatorType.EW:
             return EWMu(
                 half_life=config.ew_mu_half_life,
@@ -185,6 +271,20 @@ def build_mu_estimator(
             # LedoitWolf/OAS/... prior stays internally consistent — skfolio's
             # default would silently use EmpiricalCovariance here) and the
             # supplied market-cap weights (else equal-weight equilibrium).
+            covariance = build_cov_estimator(config)
+            if isinstance(market_weights, pd.Series):
+                if not market_weights.index.is_unique:
+                    raise ConfigurationError(
+                        "market_weights index must not contain duplicate tickers"
+                    )
+                # Validated here so a malformed Series fails at build time; the
+                # per-fit rescale happens over whichever assets survive.
+                _normalise_market_weights(market_weights.to_numpy(dtype=float))
+                return _LabelAlignedEquilibriumMu(
+                    risk_aversion=config.risk_aversion,
+                    weights=market_weights,
+                    covariance_estimator=covariance,
+                )
             return EquilibriumMu(
                 risk_aversion=config.risk_aversion,
                 weights=(
@@ -192,7 +292,7 @@ def build_mu_estimator(
                     if market_weights is None
                     else _normalise_market_weights(market_weights)
                 ),
-                covariance_estimator=build_cov_estimator(config),
+                covariance_estimator=covariance,
             )
         case _:
             raise ConfigurationError(
@@ -208,6 +308,10 @@ def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
 
     Returns:
         A fitted-ready skfolio covariance estimator.
+
+    Raises:
+        ConfigurationError: If the estimator is unsupported, or ``IMPLIED`` is
+            requested without a positive ``implied_annualization_factor``.
     """
     match config.cov_estimator:
         case CovEstimatorType.EMPIRICAL:
@@ -236,10 +340,20 @@ def build_cov_estimator(config: MomentEstimationConfig) -> BaseCovariance:
                 covariance_estimator=EmpiricalCovariance(),
             )
         case CovEstimatorType.IMPLIED:
+            factor = config.implied_annualization_factor
+            # skfolio would fall back to 252 here, which is right only for daily
+            # data: the implied vol is divided by sqrt(factor), so a weekly or
+            # monthly panel would get a covariance several times too small.
+            if factor is None or not factor > 0:
+                raise ConfigurationError(
+                    "cov_estimator=IMPLIED requires a positive "
+                    "implied_annualization_factor (periods per year of the "
+                    f"returns, e.g. 252 for daily), got {factor!r}"
+                )
             # skfolio 1.0 renamed ``annualized_factor`` -> ``annualization_factor``
             # (old name deprecated, removed in 2.0). Always use the new name.
             return ImpliedCovariance(
-                annualization_factor=config.implied_annualization_factor,
+                annualization_factor=factor,
                 window_size=config.implied_window_size,
             )
         case CovEstimatorType.REGIME_ADJUSTED_EW:
@@ -348,7 +462,7 @@ def _reject_horizon_scaled_factor_prior(config: MomentEstimationConfig) -> None:
 def build_prior(
     config: MomentEstimationConfig | None = None,
     *,
-    market_weights: np.ndarray | None = None,
+    market_weights: np.ndarray | pd.Series | None = None,
 ) -> BasePrior:
     """Build a complete prior estimator from config.
 

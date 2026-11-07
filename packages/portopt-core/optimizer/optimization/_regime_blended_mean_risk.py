@@ -41,7 +41,7 @@ from optimizer.optimization._factory import build_mean_risk
 from optimizer.pre_selection._config import PreSelectionConfig
 from optimizer.pre_selection._pipeline import build_portfolio_pipeline
 from optimizer.validation._config import WalkForwardConfig
-from optimizer.validation._factory import build_walk_forward
+from optimizer.validation._factory import build_walk_forward, check_index_alignment
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +203,43 @@ class _ExternallyControlledRegimeCovariance(BaseCovariance):
         return self
 
 
+class _DateAlignedFactorModel(TimeSeriesFactorModel):
+    """`TimeSeriesFactorModel` that refuses factor returns on other dates.
+
+    skfolio regresses the assets on the factors row by row. A factor frame on
+    the same dates in another order, or from an offset calendar, would
+    otherwise be paired with the wrong rows without any error.
+    """
+
+    def fit(
+        self,
+        X: npt.ArrayLike,
+        y: None = None,
+        *,
+        factors: npt.ArrayLike,
+        **fit_params: Any,
+    ) -> _DateAlignedFactorModel:
+        """Fit after checking that ``factors`` share the row index of ``X``.
+
+        Args:
+            X: Asset returns of the fitted window.
+            y: Ignored. Present for API consistency.
+            factors: Factor returns. A pandas frame of the same length as ``X``
+                must carry ``X``'s index.
+            **fit_params: Forwarded to `TimeSeriesFactorModel.fit`.
+
+        Returns:
+            The fitted estimator.
+
+        Raises:
+            DataError: If ``factors`` and ``X`` have the same length but
+                different indexes.
+        """
+        check_index_alignment(X, "factors", factors)
+        super().fit(X, y, factors=factors, **fit_params)
+        return self
+
+
 def _name_keyed_weights(
     previous_weights: Mapping[str, float] | pd.Series | np.ndarray,
 ) -> dict[str, float] | np.ndarray:
@@ -245,7 +282,9 @@ def build_regime_blended_mean_risk(
       ``pipeline.fit(X, factors=factor_returns)`` or `run_cross_val` with
       ``params={"factors": factor_returns}``.
 
-    The spelling of the other setting raises at fit time.
+    The spelling of the other setting raises at fit time. The factors are paired
+    with the assets by row position, so a pandas frame must carry the index of
+    the asset returns; `fit` raises `DataError` otherwise.
 
     Args:
         config: Configuration. Defaults to `RegimeBlendedMeanRiskConfig`
@@ -303,7 +342,7 @@ def build_regime_blended_mean_risk(
     )
 
     empirical_prior = EmpiricalPrior(covariance_estimator=regime_cov)
-    factor_model = TimeSeriesFactorModel(factor_prior_estimator=empirical_prior)
+    factor_model = _DateAlignedFactorModel(factor_prior_estimator=empirical_prior)
 
     extra_kwargs: dict[str, Any] = {}
     if previous_weights is not None:

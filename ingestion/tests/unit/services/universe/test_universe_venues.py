@@ -194,6 +194,15 @@ class TestTablesAgree:
         for code, name in _ORIGINAL_CODE_TO_NAME.items():
             assert _CODE_TO_CONFIG_NAME[code] == name
 
+    def test_the_incumbent_shield_covers_exactly_the_venues_added_later(self) -> None:
+        """A line on a newcomer venue cannot displace an incumbent on an older one."""
+        original = set(_ORIGINAL_CODE_TO_NAME)
+        added = set(_CODE_TO_CONFIG_NAME) - original
+
+        assert set(yfinance_source._ORIGINAL_VENUES) == original
+        assert set(yfinance_source._NEWCOMER_VENUES) == added
+        assert set(_NEW_VENUES) <= added
+
     def test_original_venues_keep_their_etf_regions(self) -> None:
         """An original venue keeps the region its ETFs are queried by."""
         for code, region in _ORIGINAL_REGION.items():

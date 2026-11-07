@@ -120,8 +120,35 @@ class TestDistinctCurrencies:
         )
         db_session.flush()
 
-        got = _distinct_currencies(db_session, "EUR")
+        got = _distinct_currencies(db_session, "EUR", today=dt.date(2026, 10, 15))
         assert got == {"USD", "GBP"}
+
+    def test_price_units_of_old_bars_are_not_scanned(self, db_session) -> None:
+        """Only recent bars feed the set, so the scan stays on the date index."""
+        ex = Exchange(name="OLD")
+        db_session.add(ex)
+        db_session.flush()
+        stale = Instrument(
+            ticker="OLD1", short_name="O", exchange=ex, currency_code=None
+        )
+        db_session.add(stale)
+        db_session.flush()
+        db_session.add(
+            PriceHistory(
+                instrument_id=stale.id,
+                date=dt.date(2024, 1, 2),
+                close=100,
+                price_unit="JPY",
+            )
+        )
+        db_session.flush()
+
+        assert (
+            _distinct_currencies(db_session, "EUR", today=dt.date(2026, 11, 6)) == set()
+        )
+        assert _distinct_currencies(db_session, "EUR", today=dt.date(2024, 1, 20)) == {
+            "JPY"
+        }
 
 
 def _seed_eur_usd_gbp(db_session):

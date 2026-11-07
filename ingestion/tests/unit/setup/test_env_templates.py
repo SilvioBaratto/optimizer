@@ -75,6 +75,48 @@ def test_gating_keys_are_not_prefilled_with_a_truthy_placeholder(
     assert not dotenv_values(template).get(key)
 
 
+# LLM, Azure and AWS entries whose example value is a stand-in the operator must
+# replace. The host CLI loads the checkout's `.env`, and the setup wizard treats
+# any value it finds there as the operator's own: it skips the prompt, so a
+# `your-resource...` endpoint is stored (or fails validation) instead of asked for.
+_LLM_PLACEHOLDER_KEYS = [
+    "OLLAMA_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_API_KEY",
+    "GROQ_API_KEY",
+    "NVIDIA_API_KEY",
+    "HUGGINGFACEHUB_API_TOKEN",
+    "AWS_REGION",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_DEPLOYMENT_NAME",
+]
+
+
+@pytest.mark.parametrize("key", _LLM_PLACEHOLDER_KEYS)
+def test_llm_placeholders_are_not_active_in_the_root_template(key: str) -> None:
+    """Copying the template verbatim must not pre-answer the wizard's prompts."""
+    assert key not in dotenv_values(_ROOT_TEMPLATE)
+
+
+@pytest.mark.parametrize("key", _LLM_PLACEHOLDER_KEYS)
+def test_llm_placeholders_stay_documented_as_comments(key: str) -> None:
+    """Commented, not deleted: the template is where an operator finds the names."""
+    assert re.search(rf"^#\s*{key}=", _ROOT_TEMPLATE.read_text("utf-8"), re.MULTILINE)
+
+
+def test_root_template_has_no_active_placeholder_value() -> None:
+    """Nothing active may be a `your-...` stand-in, whatever its key."""
+    placeholders = {
+        key: value
+        for key, value in dotenv_values(_ROOT_TEMPLATE).items()
+        if value and "your-" in value
+    }
+    assert not placeholders
+
+
 @pytest.mark.parametrize(
     "template", _TEMPLATES, ids=lambda p: str(p.relative_to(_REPO_ROOT))
 )

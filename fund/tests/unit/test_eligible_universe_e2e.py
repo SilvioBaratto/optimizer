@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 from _fund_fakes import (
     ASOF,
+    LEAD_DAYS,
     N_DAYS,
     PORTFOLIO_ID,
     START,
@@ -86,7 +87,7 @@ def _seed_etfs(session: Any) -> None:
         )
         session.add(instrument)
         session.flush()
-        for i in range(N_DAYS):
+        for i in range(-LEAD_DAYS, N_DAYS):
             session.add(
                 PriceHistory(
                     instrument_id=instrument.id,

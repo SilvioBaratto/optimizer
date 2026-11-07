@@ -5,9 +5,11 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+import pandas as pd
 import pytest
 from skfolio.optimization import BenchmarkTracker
 
+from optimizer.exceptions import DataError
 from optimizer.optimization import (
     BenchmarkTrackerConfig,
     build_benchmark_tracker,
@@ -115,3 +117,46 @@ class TestIntegration:
         est = build_benchmark_tracker(BenchmarkTrackerConfig())
         with pytest.raises(ValueError, match="benchmark"):
             est.fit(returns)
+
+
+class TestBenchmarkIndexAlignment:
+    """The benchmark is paired with X by position, so the dates must agree."""
+
+    def test_when_benchmark_dates_are_reordered_then_fit_raises(
+        self, returns, benchmark
+    ) -> None:
+        est = build_benchmark_tracker(BenchmarkTrackerConfig())
+        with pytest.raises(DataError, match="benchmark"):
+            est.fit(returns, benchmark.sample(frac=1.0, random_state=0))
+
+    def test_when_benchmark_dates_are_offset_then_fit_raises(
+        self, returns, benchmark
+    ) -> None:
+        shifted = benchmark.copy()
+        shifted.index = shifted.index + pd.Timedelta(days=1)
+        est = build_benchmark_tracker(BenchmarkTrackerConfig())
+        with pytest.raises(DataError, match="benchmark"):
+            est.fit(returns, shifted)
+
+    def test_when_benchmark_dates_are_reordered_then_partial_fit_raises(
+        self, returns, benchmark
+    ) -> None:
+        est = build_benchmark_tracker(BenchmarkTrackerConfig())
+        with pytest.raises(DataError, match="benchmark"):
+            est.partial_fit(returns, benchmark.sample(frac=1.0, random_state=0))
+
+    def test_when_benchmark_is_a_bare_array_then_fit_uses_it_positionally(
+        self, returns, benchmark
+    ) -> None:
+        est = build_benchmark_tracker(BenchmarkTrackerConfig())
+        est.fit(returns, benchmark.to_numpy())
+        assert np.isclose(est.weights_.sum(), 1.0, atol=1e-6)
+
+    def test_when_benchmark_is_aligned_then_weights_match_the_plain_tracker(
+        self, returns, benchmark
+    ) -> None:
+        checked = build_benchmark_tracker(BenchmarkTrackerConfig()).fit(
+            returns, benchmark
+        )
+        plain = BenchmarkTracker().fit(returns, benchmark)
+        np.testing.assert_allclose(checked.weights_, plain.weights_)

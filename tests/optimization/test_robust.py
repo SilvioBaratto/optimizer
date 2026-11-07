@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+import pandas as pd
 import pytest
 from skfolio.optimization import MeanRisk
 from skfolio.uncertainty_set import (
@@ -116,6 +117,52 @@ class TestMuPresetsUseReturnObjective:
         plain = build_mean_risk(cfg.mean_risk_config).fit(returns)
 
         assert np.abs(robust.weights_ - plain.weights_).max() > 1e-3
+
+
+class TestMuPresetsSolveOnOrdinaryDailyData:
+    """The worst-case mu of a short, noisy sample is not positive.
+
+    A ratio objective is then infeasible, so the presets must not rely on one.
+    """
+
+    @staticmethod
+    def _daily_returns(
+        n_assets: int, n_obs: int, ann_drift: float, seed: int = 1
+    ) -> pd.DataFrame:
+        rng = np.random.default_rng(seed)
+        sd = 0.015
+        common = rng.normal(0, sd * 0.6, (n_obs, 1))
+        data = ann_drift / 252 + common + rng.normal(0, sd * 0.8, (n_obs, n_assets))
+        return pd.DataFrame(data, columns=[f"T{i}" for i in range(n_assets)])
+
+    @pytest.mark.parametrize(
+        "preset",
+        ["for_conservative", "for_moderate", "for_aggressive"],
+    )
+    @pytest.mark.parametrize(
+        ("n_assets", "n_obs", "ann_drift"),
+        [(8, 250, 0.13), (20, 504, 0.15)],
+    )
+    def test_when_mu_preset_fitted_then_solves_to_full_investment(
+        self, preset: str, n_assets: int, n_obs: int, ann_drift: float
+    ) -> None:
+        X = self._daily_returns(n_assets, n_obs, ann_drift)
+        model = build_robust_mean_risk(getattr(RobustMeanRiskConfig, preset)()).fit(X)
+
+        assert model.weights_.sum() == pytest.approx(1.0, abs=1e-6)
+        assert np.all(model.weights_ >= -1e-8)
+
+    def test_when_confidence_rises_then_weights_move_towards_min_variance(
+        self,
+    ) -> None:
+        X = self._daily_returns(20, 504, 0.15)
+        min_var = build_mean_risk(MeanRiskConfig.for_min_variance()).fit(X).weights_
+        gaps = []
+        for preset in ("for_aggressive", "for_moderate", "for_conservative"):
+            w = build_robust_mean_risk(getattr(RobustMeanRiskConfig, preset)())
+            gaps.append(np.abs(w.fit(X).weights_ - min_var).sum())
+
+        assert gaps[0] >= gaps[1] >= gaps[2]
 
 
 class TestBuildRobustMeanRisk:

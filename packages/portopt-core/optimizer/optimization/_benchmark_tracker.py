@@ -17,6 +17,55 @@ from optimizer.moments._config import MomentEstimationConfig
 from optimizer.moments._factory import build_prior
 from optimizer.optimization._config import RiskMeasureType
 from optimizer.optimization._factory import _RISK_MEASURE_MAP
+from optimizer.validation._factory import check_index_alignment
+
+
+class _DateAlignedBenchmarkTracker(BenchmarkTracker):  # type: ignore[misc]
+    """`BenchmarkTracker` that refuses a benchmark on another set of dates.
+
+    skfolio pairs ``y`` with ``X`` by row position. A benchmark with the same
+    dates in another order, or from an offset calendar, would otherwise fit
+    without error against the wrong rows and return different weights.
+    """
+
+    def fit(self, X: Any, y: Any = None, **fit_params: Any) -> BenchmarkTracker:
+        """Fit after checking that ``y`` shares the row index of ``X``.
+
+        Args:
+            X: Asset returns.
+            y: Benchmark returns. A pandas ``y`` of the same length as ``X``
+                must carry ``X``'s index; arrays are taken positionally.
+            **fit_params: Forwarded to `BenchmarkTracker.fit`.
+
+        Returns:
+            The fitted tracker.
+
+        Raises:
+            DataError: If ``y`` and ``X`` have the same length but different
+                indexes.
+        """
+        check_index_alignment(X, "benchmark returns (y)", y)
+        super().fit(X, y, **fit_params)
+        return self
+
+    def partial_fit(self, X: Any, y: Any = None, **fit_params: Any) -> BenchmarkTracker:
+        """Incrementally fit after checking that ``y`` shares the index of ``X``.
+
+        Args:
+            X: New asset returns.
+            y: Corresponding benchmark returns, checked like `fit`.
+            **fit_params: Forwarded to `BenchmarkTracker.partial_fit`.
+
+        Returns:
+            The updated tracker.
+
+        Raises:
+            DataError: If ``y`` and ``X`` have the same length but different
+                indexes.
+        """
+        check_index_alignment(X, "benchmark returns (y)", y)
+        super().partial_fit(X, y, **fit_params)
+        return self
 
 
 @dataclass(frozen=True)
@@ -93,7 +142,9 @@ def build_benchmark_tracker(
 
     Returns:
         A fitted-ready skfolio optimiser. Call
-        ``estimator.fit(X, y=benchmark_returns)`` to fit it.
+        ``estimator.fit(X, y=benchmark_returns)`` to fit it. A pandas
+        benchmark must carry the index of ``X``; ``fit`` raises `DataError`
+        otherwise instead of pairing the two by row position.
     """
     if config is None:
         config = BenchmarkTrackerConfig()
@@ -101,7 +152,7 @@ def build_benchmark_tracker(
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)
 
-    return BenchmarkTracker(
+    return _DateAlignedBenchmarkTracker(
         risk_measure=_RISK_MEASURE_MAP[config.risk_measure],
         prior_estimator=prior_estimator,
         min_weights=config.min_weights,

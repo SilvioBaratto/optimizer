@@ -135,6 +135,40 @@ _CODE_TO_CONFIG_NAME: dict[str, str] = {
 }
 
 
+# The venues the universe covered before the allowlist was widened. Every other
+# code in ``_CODE_TO_CONFIG_NAME`` is a newcomer: a line there never displaces an
+# incumbent canonical listing on a venue from this set by liquidity alone, so the
+# widening adds entities without re-pointing the ones already in the universe (the
+# ADR of a Japanese issuer would otherwise lose its row to the more liquid home
+# line). A venue added later is a newcomer by default; add it here only if it was
+# part of the original universe.
+_ORIGINAL_VENUES: frozenset[str] = frozenset(
+    {
+        "NMS",
+        "NGM",
+        "NCM",
+        "NYQ",
+        "PCX",
+        "ASE",
+        "LSE",
+        "IOB",
+        "PAR",
+        "AMS",
+        "BRU",
+        "LIS",
+        "GER",
+        "MUN",
+        "EBS",
+        "VIE",
+        "MIL",
+        "MCE",
+        "MAD",
+        "TOR",
+    }
+)
+_NEWCOMER_VENUES: frozenset[str] = frozenset(_CODE_TO_CONFIG_NAME) - _ORIGINAL_VENUES
+
+
 def resolve_exchange_name(code: str) -> str | None:
     """Map a Yahoo exchange code to the ``exchanges.name`` the universe build uses.
 
@@ -563,6 +597,7 @@ class YFinanceUniverseSource:
                 config=self.floor_config,
                 exchange_pref=_EXCHANGE_PREF,
                 incumbents=incumbents,
+                newcomer_venues=_NEWCOMER_VENUES,
             )
             if self.dedup
             else candidates

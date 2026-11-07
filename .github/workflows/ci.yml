@@ -83,7 +83,7 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras
-      - run: uv run pyright
+      - run: uv run pyright --warnings
 
   test:
     runs-on: ubuntu-latest
@@ -102,7 +102,7 @@ jobs:
       - run: uv sync --locked --all-packages --all-extras --python ${{ matrix.python-version }}
       - run: uv run --python ${{ matrix.python-version }} pytest tests/ -v --tb=short --cov=optimizer --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=90
       - if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v5
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
         with:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -193,15 +193,55 @@ jobs:
 
   # Parses the compose file and builds both shipped images, so a broken
   # Dockerfile or compose edit fails here instead of on a user's `portopt start`.
+  # install.ps1 is the Windows front door and no other job executes it. The check script
+  # runs it against stub git, uv and portopt under Windows PowerShell 5.1 (`shell:
+  # powershell`) and under PowerShell 7 (`shell: pwsh`).
+  windows-install:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: install.ps1 under Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/ci/check-install-ps1.ps1
+      - name: install.ps1 under PowerShell 7
+        shell: pwsh
+        run: ./scripts/ci/check-install-ps1.ps1
+
   docker-images:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # Secret files are git-ignored and rendered by `portopt start`; empty
-      # placeholders let the compose file resolve the same way it does there.
+      # placeholders let the compose file resolve the same way it does there. The
+      # fund worker refuses to start without a provider key, so that one secret holds
+      # a placeholder: building a chat client needs a key but makes no request.
       - run: |
           mkdir -p secrets
           grep -oE '\./secrets/[a-z0-9_]+' docker-compose.yml | xargs touch
+          echo placeholder-not-a-real-key > secrets/ollama_api_key
       - run: docker compose --profile ingestion --profile fund config --quiet
       - run: docker compose --profile ingestion --profile fund build
+      # Boots both stacks the way `portopt start` does. The unit suites cannot see an
+      # entrypoint that dies, a migration that fails on an empty database or a worker
+      # that never answers its healthcheck; `up --wait` fails the job on any of them.
+      - run: docker compose --profile ingestion --profile fund up -d --wait --wait-timeout 300
+      - name: Container logs
+        if: failure()
+        run: docker compose --profile ingestion --profile fund logs --no-color
+      # Both workers drain and exit 0 on SIGTERM; 137 means the stop was ignored
+      # until Docker's SIGKILL.
+      - name: A stop exits cleanly
+        run: |
+          docker compose --profile ingestion --profile fund stop scheduler fund
+          for name in optimizer_scheduler optimizer_fund; do
+            code="$(docker inspect --format '{{.State.ExitCode}}' "$name")"
+            if [ "$code" != "0" ]; then
+              echo "$name exited with $code on stop (expected 0)" >&2
+              exit 1
+            fi
+          done
+      - name: Tear down
+        if: always()
+        run: docker compose --profile ingestion --profile fund down --volumes

@@ -29,8 +29,11 @@ class MarketJournal(BaseModel):
     LLM-generated, so the row is reproducible for audit.
 
     Attributes:
-        as_of: Trading date this digest represents; unique per region.
-        region: Market region identifier, reserved for multi-region expansion.
+        as_of: Trading date this digest represents; the only unique key, so a
+            date holds a single digest.
+        region: Market region the digest describes; always ``"US"`` today. It is
+            not part of the key: the repository refuses to replace a digest with
+            one for another region.
         macro_deltas: Key FRED series latest-vs-prior-observation deltas.
         market_moves: Index and sector moves from ``market_summaries``.
         news_themes: Top ``macro_news_themes`` plus top-N ``ticker_news``

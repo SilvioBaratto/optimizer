@@ -755,6 +755,60 @@ def test_incumbent_listing_survives_a_near_tie(monkeypatch: pytest.MonkeyPatch) 
     assert [i["ticker"] for i in src.get_instruments()] == ["AZN"]
 
 
+def _toyota_pair() -> list[dict]:
+    # The home line trades 100x the ADR: far beyond the 1.5x hysteresis margin, so
+    # only the venue rule can keep the incumbent ADR in place.
+    adr = _quote(
+        "TM",
+        "NYQ",
+        longName="Toyota Motor Corporation",
+        financialCurrency="JPY",
+        regularMarketPrice=180.0,
+        averageDailyVolume3Month=330_000,
+    )
+    home = _quote(
+        "7203.T",
+        "JPX",
+        longName="Toyota Motor Corporation",
+        currency="JPY",
+        financialCurrency="JPY",
+        regularMarketPrice=180.0,
+        averageDailyVolume3Month=33_000_000,
+    )
+    return [adr, home]
+
+
+def test_incumbent_adr_is_not_displaced_by_its_line_on_a_newly_admitted_venue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The home line wins on liquidity alone only for an entity not yet in the universe.
+
+    Replacing the ADR would mark its row delisted and start the entity over on a
+    suffixed symbol, which carries no ISIN and so no tradability verdict.
+    """
+    src, _ = _source([{"quotes": _toyota_pair()}, {"quotes": []}], monkeypatch)
+    src.member_lookup = lambda: {("TM", "NYSE")}
+    assert [i["ticker"] for i in src.get_instruments()] == ["TM"]
+
+
+def test_new_entity_still_takes_the_most_liquid_line_on_a_new_venue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    src, _ = _source([{"quotes": _toyota_pair()}, {"quotes": []}], monkeypatch)
+    src.member_lookup = lambda: set()
+    assert [i["ticker"] for i in src.get_instruments()] == ["7203.T"]
+
+
+def test_incumbent_adr_that_fails_the_member_floor_hands_over_to_the_home_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pair = _toyota_pair()
+    pair[0]["averageDailyVolume3Month"] = 10  # 1.8k USD/day, under the exit band
+    src, _ = _source([{"quotes": pair}, {"quotes": []}], monkeypatch)
+    src.member_lookup = lambda: {("TM", "NYSE")}
+    assert [i["ticker"] for i in src.get_instruments()] == ["7203.T"]
+
+
 def _foo_pair(**incumbent_overrides: object) -> list[dict]:
     # FOO (the incumbent) trades 40k USD/day: under the 50k entry bar, over the 25k
     # member exit bar. FOO.DE trades 55k, inside the 1.5x hysteresis margin.

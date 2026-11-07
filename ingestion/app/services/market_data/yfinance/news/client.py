@@ -9,7 +9,12 @@ from typing import Any
 import yfinance as yf
 from yfinance.exceptions import YFDataException
 
-from .._base import fetch_with_resilience
+from .._base import TICKER_REQUEST_KEY, fetch_with_resilience
+from ..infrastructure import (
+    forget_cached_responses,
+    install_fault_witness,
+    watch_for_faults,
+)
 from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
 from .feed_health import TickerFeedHealth
 
@@ -28,6 +33,35 @@ def _search_news(symbol: str, count: int) -> list[dict[str, Any]]:
     (``uuid``/``link``/``providerPublishTime``).
     """
     return list(yf.Search(symbol, max_results=0, news_count=count).news or [])
+
+
+def _guarded_search_news(
+    symbol: str, yf_client: YFinanceClientProtocol, count: int
+) -> list[dict[str, Any]]:
+    """Run the search fallback under the controls every other ticker request has.
+
+    With the ticker feed skipped, this is the only request a ticker's news makes,
+    so it must wait on the shared limiter. yfinance memoises whole responses,
+    error pages included, and folds 5xx and 429 answers into an empty result; the
+    cache is dropped before the request and such a swallowed fault is raised
+    again, so the caller's retry, breaker and outcome tally see a lost request
+    instead of a ticker without news.
+
+    Raises:
+        Exception: A transient fault that left the search without articles, or
+            whatever the search itself raised.
+    """
+    install_fault_witness()
+    limiter = getattr(yf_client, "rate_limiter", None)
+    if limiter is not None:
+        limiter.acquire(TICKER_REQUEST_KEY)
+    forget_cached_responses()
+    with watch_for_faults() as watch:
+        articles = _search_news(symbol, count)
+    if not articles and watch.fault is not None:
+        forget_cached_responses()
+        raise watch.fault
+    return articles
 
 
 def fetch_yahoo_news(
@@ -56,14 +90,18 @@ def fetch_yahoo_news(
     Returns:
         Article dicts from the ticker feed, else from search. When both come back
         empty, the ticker feed's own empty value (``[]`` or ``None``) is returned
-        so callers keep seeing the signal they always did; ``None`` when the feed
-        failed.
+        so callers keep seeing the signal they always did. When the feed failed or
+        was skipped and search answered with no articles, ``[]``: Yahoo answered,
+        so the ticker is quiet rather than unavailable.
 
     Raises:
         YFDataException: The search fallback failed as well.
+        Exception: A rate limit or transient server error from either request;
+            it belongs to the caller's retry and circuit-breaker logic.
     """
     health = feed if feed is not None else TICKER_FEED_HEALTH
     news: list[dict[str, Any]] | None = None
+    feed_answered = False
     if health.allows_request():
         try:
             news = yf_client.get_ticker(symbol).news
@@ -72,9 +110,40 @@ def fetch_yahoo_news(
             logger.debug("ticker news feed failed for %s: %s", symbol, exc)
         else:
             health.record_success()
+            feed_answered = True
     if news:
         return news
-    return _search_news(symbol, count) or news
+    articles = _guarded_search_news(symbol, yf_client, count)
+    if articles:
+        return articles
+    return news if feed_answered else []
+
+
+def fetch_ticker_news(
+    symbol: str,
+    yf_client: YFinanceClientProtocol,
+    count: int = 10,
+    max_retries: int = 3,
+) -> list[dict[str, Any]] | None:
+    """Fetch a ticker's news under the shared retry, breaker and outcome tally.
+
+    Args:
+        symbol: Yahoo Finance ticker symbol.
+        yf_client: Client whose circuit breaker guards the requests.
+        count: Maximum articles requested from the search fallback.
+        max_retries: Attempt budget, including the first attempt.
+
+    Returns:
+        Article dicts; ``[]`` when Yahoo answered with none; ``None`` when Yahoo
+        gave no usable answer or every attempt failed. A rate limit opens the
+        breaker and a lost request is recorded in the active
+        :func:`~..infrastructure.track_request_outcomes` scope.
+    """
+    return fetch_with_resilience(
+        lambda: fetch_yahoo_news(symbol, yf_client, count),
+        max_retries,
+        circuit_breaker=yf_client.circuit_breaker,
+    )
 
 
 @dataclass
@@ -127,14 +196,7 @@ class NewsClient:
         """
         max_retries = max_retries or self.default_max_retries
 
-        def _action() -> list[dict[str, Any]] | None:
-            return fetch_yahoo_news(symbol, self.yf_client, self.news_count)
-
-        news = fetch_with_resilience(
-            _action,
-            max_retries,
-            circuit_breaker=self.yf_client.circuit_breaker,
-        )
+        news = fetch_ticker_news(symbol, self.yf_client, self.news_count, max_retries)
 
         self._record_feed(symbol, news)
 

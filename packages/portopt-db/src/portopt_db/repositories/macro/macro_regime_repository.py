@@ -600,18 +600,30 @@ class MacroRegimeRepository(RepositoryBase):
         A row whose ``full_content`` is ``None`` (a snippet-only fetch) never
         overwrites a body already stored for the same ``news_id``; every other
         column is still refreshed. A row carrying a body replaces the stored one.
+
+        A ``news_id`` repeated within *rows* is collapsed to its last row, keeping
+        a body an earlier occurrence carried when the last has none. A theme
+        repeated within one article is stored once.
         """
         # themes is no longer a DB column; must be extracted before upsert
         themes_by_news_id: dict[str, list[str]] = {}
-        clean_rows = []
+        latest: dict[str, dict[str, Any]] = {}
         for row in rows:
             row_copy = dict(row)
             raw_themes = row_copy.pop("themes", None)
             if raw_themes and isinstance(raw_themes, str):
-                themes_by_news_id[row_copy["news_id"]] = [
-                    t.strip() for t in raw_themes.split(",") if t.strip()
-                ]
-            clean_rows.append(row_copy)
+                themes_by_news_id[row_copy["news_id"]] = list(
+                    dict.fromkeys(t.strip() for t in raw_themes.split(",") if t.strip())
+                )
+            earlier = latest.get(row_copy["news_id"])
+            if (
+                earlier is not None
+                and row_copy.get("full_content") is None
+                and earlier.get("full_content") is not None
+            ):
+                row_copy["full_content"] = earlier["full_content"]
+            latest[row_copy["news_id"]] = row_copy
+        clean_rows = list(latest.values())
 
         with_body = [r for r in clean_rows if r.get("full_content") is not None]
         snippet_only = [r for r in clean_rows if r.get("full_content") is None]

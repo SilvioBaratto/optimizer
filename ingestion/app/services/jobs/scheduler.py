@@ -14,7 +14,7 @@ Scheduled jobs:
      Trading 212 ticker annotation. Runs *before* ``weekly_refetch`` so the
      yfinance rebuild sees the fresh instrument set.
   4. **weekly_refetch** (CronTrigger, default Saturday 03:00 UTC) — full yfinance
-     + macro rebuild.
+     + macro rebuild, then the ``ticker_news`` retention prune.
   5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — every
      FRED series (the daily-frequency ones are also refreshed by the daily
      pipeline).
@@ -137,6 +137,11 @@ _fx_jobs = BackgroundJobService(
 )
 _daily_events_jobs = BackgroundJobService(
     job_type="daily_events",
+    session_factory=database_manager.get_session,
+    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
+)
+_news_retention_jobs = BackgroundJobService(
+    job_type="news_retention",
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
@@ -605,6 +610,28 @@ def run_daily_events_step(*, attempt: int = 0) -> bool:
     )
 
 
+def run_news_retention_step(*, attempt: int = 0) -> bool:
+    """Delete per-ticker news older than ``NEWS_RETENTION_DAYS`` from ``ticker_news``.
+
+    Retention is a configuration state, not a failure: with the window at 0 the
+    step logs, returns ``False`` and never claims a job slot. The delete is
+    batched and each batch commits on its own, so a failure ends the step
+    (recorded on its own row) without undoing the batches already removed.
+    """
+    from app.services.market_data.news_retention_service import run_news_retention
+
+    if settings.news_retention_days <= 0:
+        logger.info("news_retention: skipped — NEWS_RETENTION_DAYS is 0")
+        return False
+
+    return _run_step(
+        "news_retention",
+        _news_retention_jobs,
+        run_news_retention,
+        attempt=attempt,
+    )
+
+
 def run_universe_step(*, attempt: int = 0) -> bool:
     """Rebuild the instrument universe from the yfinance Screener.
 
@@ -775,11 +802,21 @@ def run_midday_news_refresh() -> None:
 
 
 def run_weekly_refetch() -> None:
-    """Full yfinance + macro data rebuild (no news)."""
+    """Full yfinance + macro data rebuild (no macro news), then news retention.
+
+    Retention comes last and runs even when the sweep failed: it is housekeeping
+    that does not depend on fresh data, and running after the sweep keeps it from
+    competing with the writes it follows. A failing prune is logged and never
+    fails the refetch.
+    """
     logger.info("weekly_refetch: starting")
 
     run_yfinance_step(mode="full", period="5y", workers=settings.yfinance_fetch_workers)
     run_macro_step()
+    try:
+        run_news_retention_step()
+    except Exception:
+        logger.exception("weekly_refetch: news retention failed")
 
     logger.info("weekly_refetch: finished")
 
@@ -851,6 +888,7 @@ _RECLAIM_STEP: dict[str, Callable[..., bool]] = {
     "options_fetch": run_options_step,
     "fx_fetch": run_fx_step,
     "daily_events": run_daily_events_step,
+    "news_retention": run_news_retention_step,
 }
 
 

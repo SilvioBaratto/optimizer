@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 from portopt_db.models.universe.universe import Exchange, Instrument
 
+from app.services.universe import add_instrument as add_instrument_module
 from app.services.universe.add_instrument import (
     AddInstrumentError,
     AddInstrumentResult,
@@ -25,6 +26,12 @@ from app.services.universe.add_instrument import (
 
 XETRA = "Deutsche Börse Xetra"
 LSE = "London Stock Exchange"
+
+
+@pytest.fixture(autouse=True)
+def _no_trading212_catalogue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test reaches the broker: the catalogue is unavailable unless injected."""
+    monkeypatch.setattr(add_instrument_module, "_load_t212_tickers", lambda: None)
 
 
 def _etf_info(**overrides: Any) -> dict[str, Any]:
@@ -163,13 +170,97 @@ class TestCreatesTheRow:
         assert row.isin == "IE00BK5BQT80"
         assert row.name == "Vanguard All-World"
 
-    def test_a_given_t212_ticker_flags_the_row_tradeable(self, db_session) -> None:
-        """The operator naming the broker line is the evidence the overlay needs."""
+    def test_a_t212_ticker_found_in_the_catalogue_flags_the_row_tradeable(
+        self, db_session
+    ) -> None:
+        """The broker's own catalogue, not the operator's word, is the evidence."""
         xetra = _exchange(db_session)
 
-        _add(db_session, _client(_etf_info()), t212_ticker="VWCEd_EQ")
+        result = _add(
+            db_session,
+            _client(_etf_info()),
+            t212_ticker="VWCEd_EQ",
+            t212_catalogue=lambda: {"VWCEd_EQ", "AAPL_US_EQ"},
+        )
 
         assert _row(db_session, "VWCE.DE", xetra).is_t212_tradeable is True
+        assert result.warnings == []
+
+    def test_a_t212_ticker_missing_from_the_catalogue_is_stored_but_not_flagged(
+        self, db_session
+    ) -> None:
+        """A typo must not mark a name the broker cannot trade as tradeable."""
+        xetra = _exchange(db_session)
+
+        result = _add(
+            db_session,
+            _client(_etf_info()),
+            t212_ticker="VWCEx_EQ",
+            t212_catalogue=lambda: {"VWCEd_EQ"},
+        )
+
+        row = _row(db_session, "VWCE.DE", xetra)
+        assert row.t212_ticker == "VWCEx_EQ"
+        assert row.is_t212_tradeable is None
+        assert any("VWCEx_EQ" in w and "catalogue" in w for w in result.warnings)
+
+    def test_an_unreadable_catalogue_leaves_the_flag_alone_and_says_so(
+        self, db_session
+    ) -> None:
+        """Trading 212 unconfigured or down: nothing was checked, nothing is claimed."""
+        xetra = _exchange(db_session)
+
+        result = _add(
+            db_session,
+            _client(_etf_info()),
+            t212_ticker="VWCEd_EQ",
+            t212_catalogue=lambda: None,
+        )
+
+        row = _row(db_session, "VWCE.DE", xetra)
+        assert row.t212_ticker == "VWCEd_EQ"
+        assert row.is_t212_tradeable is None
+        assert any("catalogue" in w for w in result.warnings)
+
+    def test_a_stored_flag_survives_an_unreadable_catalogue(self, db_session) -> None:
+        """Re-running with the catalogue down does not erase an earlier verdict."""
+        xetra = _exchange(db_session)
+        _add(
+            db_session,
+            _client(_etf_info()),
+            t212_ticker="VWCEd_EQ",
+            t212_catalogue=lambda: {"VWCEd_EQ"},
+        )
+
+        _add(
+            db_session,
+            _client(_etf_info()),
+            t212_ticker="VWCEd_EQ",
+            t212_catalogue=lambda: None,
+        )
+
+        assert _row(db_session, "VWCE.DE", xetra).is_t212_tradeable is True
+
+    def test_the_catalogue_is_not_read_without_a_t212_ticker(self, db_session) -> None:
+        """Only a stated broker line needs checking."""
+        _exchange(db_session)
+        reads: list[bool] = []
+
+        _add(
+            db_session,
+            _client(_etf_info()),
+            t212_catalogue=lambda: reads.append(True) or {"X"},
+        )
+
+        assert reads == []
+
+    def test_isin_is_normalised_before_it_is_stored(self, db_session) -> None:
+        """Whitespace and case never reach the column that ISIN matching reads."""
+        xetra = _exchange(db_session)
+
+        _add(db_session, _client(_etf_info()), isin=" ie00bk5bqt80 ")
+
+        assert _row(db_session, "VWCE.DE", xetra).isin == "IE00BK5BQT80"
 
     def test_without_a_t212_ticker_the_flag_stays_unknown(self, db_session) -> None:
         """No broker line given means nothing was evaluated, not 'not tradeable'."""
@@ -192,6 +283,38 @@ class TestCreatesTheRow:
 
         client.fetch_history.assert_called_once()
         assert commits == []
+
+
+class TestIsinValidation:
+    """A mistyped ISIN is refused: a stored ISIN is never overwritten later."""
+
+    @pytest.mark.parametrize(
+        "isin",
+        [
+            "IE00BK5BQT81",  # wrong check digit
+            "IE00BK5BQT8",  # eleven characters
+            "1E00BK5BQT80",  # digit where the country code goes
+            "IE00BK5BQT8O",  # letter as check digit
+            "IE00BK5-BQT8",
+        ],
+    )
+    def test_a_malformed_isin_raises_and_writes_nothing(
+        self, db_session, isin: str
+    ) -> None:
+        xetra = _exchange(db_session)
+
+        with pytest.raises(AddInstrumentError, match="ISIN"):
+            _add(db_session, _client(_etf_info()), isin=isin)
+
+        assert db_session.query(Instrument).filter_by(exchange_id=xetra.id).count() == 0
+
+    def test_a_blank_isin_means_none_was_given(self, db_session) -> None:
+        xetra = _exchange(db_session)
+        _add(db_session, _client(_etf_info()), isin="IE00BK5BQT80")
+
+        _add(db_session, _client(_etf_info()), isin="  ")
+
+        assert _row(db_session, "VWCE.DE", xetra).isin == "IE00BK5BQT80"
 
 
 class TestIdempotency:

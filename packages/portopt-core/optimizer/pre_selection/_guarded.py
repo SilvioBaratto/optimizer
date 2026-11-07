@@ -69,8 +69,41 @@ class _SmallUniverseGuard:
         return super().transform(X)  # type: ignore[misc]
 
 
+# A column whose standard deviation is below this share of its largest absolute
+# value is constant up to floating-point noise: the rounding in ``mean`` leaves a
+# truly constant series with a variance near 1e-34 rather than exactly zero.
+_CONSTANT_RELATIVE_TOLERANCE = 1e-10
+
+
 class GuardedDropZeroVariance(_SmallUniverseGuard, DropZeroVariance):
-    """`DropZeroVariance` that tolerates an empty universe."""
+    """`DropZeroVariance` that tolerates an empty universe and keeps quiet assets.
+
+    Besides the parent's absolute ``variance > threshold`` test, a column is
+    always dropped when it is constant up to floating-point noise, so
+    ``threshold=0`` removes exactly the constant series.  An absolute cut-off
+    alone cannot tell a flat series from a quiet one: the daily variance of an
+    overnight-rate money-market fund is around 3e-9, below skfolio's default of
+    1e-8, yet it moves every day and diversifies an equity book.
+    """
+
+    def fit(self, X: Any, y: None = None) -> Any:
+        """Fit the parent selector, then drop numerically constant columns.
+
+        Args:
+            X: Returns of the assets, shape (n_observations, n_assets).
+            y: Ignored; present for sklearn API compatibility.
+
+        Returns:
+            The fitted selector.
+        """
+        super().fit(X, y)
+        if self.to_keep_.size == 0 or not np.shape(X)[0]:
+            return self
+        values = np.asarray(X, dtype=float)
+        scale = np.abs(values).max(axis=0)
+        constant = values.std(axis=0) <= _CONSTANT_RELATIVE_TOLERANCE * scale
+        self.to_keep_ = self.to_keep_ & ~constant
+        return self
 
 
 class GuardedDropCorrelated(_SmallUniverseGuard, DropCorrelated):

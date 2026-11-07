@@ -28,10 +28,11 @@ The bound closures also carry the load-bearing invariant into the audit trail:
   drops offending names, ``optimize_portfolio`` refuses a universe holding one,
   ``risk_check`` fails a held one, and ``place_orders`` re-checks the audited
   weights against the *current* mandate before a ticket exists. Screening fails
-  closed on an instrument it cannot classify. ``backtest`` compares its drawdown
-  to the client's ``nu1/nu2/nu3`` ceilings and reports the breached tiers, and
-  ``risk_check`` blocks on the same comparison past ``nu2`` / ``nu3`` (``nu1`` only
-  warns);
+  closed on an instrument it cannot classify. ``backtest`` compares the worst loss
+  inside any one-year window with the client's ``nu1/nu2/nu3`` ceilings (a one-year
+  tolerance) and reports the breached tiers, and ``risk_check`` blocks on the same
+  comparison past ``nu2`` / ``nu3`` (``nu1`` only warns), and fails closed when the
+  history is shorter than a year;
 * ``optimize_portfolio`` appends an ``agent_decision`` (allocator: the constraint
   set + the *effective* optimizer config actually applied + the optimizer's
   weights); ``risk_check`` appends the risk verdict on those weights; the PM-level
@@ -66,9 +67,9 @@ from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec
 
 from fund import tools as _tools
 from fund.config import DEFAULT_LOOKBACK_DAYS
-from fund.tools._base import ToolResult, err, ok, tool_envelope
+from fund.tools._base import ToolResult, err, ok, savepoint_owner, tool_envelope
 from fund.tools.eligibility import judges_funds_by_look_through, not_eligible_violations
-from fund.tools.mandate import HELD_TOL, constraint_set_breaches, held_tickers
+from fund.tools.mandate import constraint_set_breaches, held_tickers
 
 if TYPE_CHECKING:
     import datetime as dt
@@ -224,16 +225,22 @@ def _optimizer_constraints(cs: ConstraintSet) -> dict[str, Any]:
     """The mapped ``MeanRiskConfig`` fields ``optimize_portfolio`` consumes.
 
     The risk-free rate, which a client quotes annually while the optimiser compares
-    it with daily returns, is compounded down to a daily rate.
+    it with per-bar returns, travels as ``annual_risk_free_rate``: only the tool knows
+    the return calendar, so it compounds the rate to the same bars per year it
+    annualises the returns by. The moment estimators of ``moments_estimator`` ride
+    along as ``prior_config``, the same configuration ``estimate_moments`` is shown
+    with.
     """
-    from fund.tools._base import PERIODS_PER_YEAR
-    from fund.tools.optimize import _CONSTRAINT_FIELDS
+    from fund.tools.optimize import _CONSTRAINT_FIELDS, ANNUAL_RISK_FREE_RATE_KEY
 
     config = cs.to_mean_risk_config()
-    if config.risk_free_rate:
-        daily = (1.0 + config.risk_free_rate) ** (1.0 / PERIODS_PER_YEAR) - 1.0
-        config = dataclasses.replace(config, risk_free_rate=daily)
-    return {name: getattr(config, name) for name in _CONSTRAINT_FIELDS}
+    constraints = {
+        name: getattr(config, name)
+        for name in _CONSTRAINT_FIELDS
+        if name != "risk_free_rate"
+    }
+    constraints[ANNUAL_RISK_FREE_RATE_KEY] = config.risk_free_rate
+    return constraints
 
 
 def _instrument_breaches(
@@ -262,9 +269,9 @@ def _describe_breaches(breaches: list[dict[str, Any]]) -> str:
             or breach.get("reason")
             or ""
         )
-        parts.append(
-            f"{breach['asset']} ({breach['type']}{': ' + detail if detail else ''})"
-        )
+        # A portfolio-level breach (a drawdown tier, the budget) names no asset.
+        subject = breach.get("asset", "portfolio")
+        parts.append(f"{subject} ({breach['type']}{': ' + detail if detail else ''})")
     return "; ".join(parts)
 
 
@@ -274,16 +281,20 @@ def _describe_barred(barred: Iterable[tuple[str, str]]) -> str:
 
 
 def _effective_optimizer_config(
-    constraints: dict[str, Any] | None, risk_aversion: float
+    constraints: dict[str, Any] | None, risk_aversion: float, risk_free_rate: float
 ) -> dict[str, Any]:
     """The ``MeanRiskConfig`` ``optimize_portfolio`` ACTUALLY applied. Reuses the
     tool's own ``_resolve_config`` as the single source of truth, so the audit can
-    never drift from what shaped the weights. ``risk_aversion`` is the value the tool
-    reports having run with, since it rescales the mapped one to the risk measure."""
+    never drift from what shaped the weights. ``risk_aversion`` and ``risk_free_rate``
+    are the values the tool reports having run with: it rescales the mapped
+    aversion to the risk measure and compounds the annual risk-free rate to the
+    panel's own bar frequency."""
     from fund.tools.optimize import _resolve_config
 
     resolved = dataclasses.replace(
-        _resolve_config(constraints), risk_aversion=risk_aversion
+        _resolve_config(constraints),
+        risk_aversion=risk_aversion,
+        risk_free_rate=risk_free_rate,
     )
     return dataclasses.asdict(resolved)
 
@@ -368,7 +379,9 @@ def _serialised(
 
     A raised exception or an ``ok: false`` result rolls back the body's own writes
     and nothing else, so a swallowed failure (the envelope returns it to the model)
-    leaves the run's transaction usable for the next tool.
+    leaves the run's transaction usable for the next tool. The frozen tools the body
+    calls carry envelopes of their own; ``savepoint_owner`` keeps those from rolling
+    the whole session back underneath the SAVEPOINT.
     """
 
     @functools.wraps(fn)
@@ -376,7 +389,8 @@ def _serialised(
         with ctx.lock:
             savepoint = ctx.session.begin_nested()
             try:
-                result = fn(ctx, *args, **kwargs)
+                with savepoint_owner(ctx.session):
+                    result = fn(ctx, *args, **kwargs)
                 if result.get("ok") is False:
                     savepoint.rollback()
                 else:
@@ -475,9 +489,15 @@ def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
         return bad
     # ``ctx.lookback_days`` is recorded on the run but inert here — the frozen
     # ``estimate_moments`` takes no start bound, so moments use full history up to
-    # ``asof``.
+    # ``asof``. The estimators are the profile's, the same ones the optimizer's prior
+    # is built from, so the covariance shown to the PM is the covariance it optimises.
+    cs = _resolve_constraint_set(ctx)
     return _tools.estimate_moments(
-        ctx.session, ctx.asof, universe, base_currency=ctx.base_currency
+        ctx.session,
+        ctx.asof,
+        universe,
+        config=cs.to_moment_estimation_config() if cs is not None else None,
+        base_currency=ctx.base_currency,
     )
 
 
@@ -510,7 +530,11 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
         _append_allocator_decision(
             ctx,
             cs,
-            _effective_optimizer_config(constraints, result["data"]["risk_aversion"]),
+            _effective_optimizer_config(
+                constraints,
+                result["data"]["risk_aversion"],
+                result["data"]["risk_free_rate"],
+            ),
             result["data"]["weights"],
             result["data"]["metrics"],
             universe=list(universe),
@@ -562,23 +586,40 @@ def _check_weights_against_constraint_set(
     # The drawdown tiers are judged on the backtest of exactly these weights, so a
     # human edit is held to the same ceilings as the optimizer's proposal.
     backtested = _backtest_weights(ctx, cs, weights)
+    unverified: str | None = backtested.get("error")
     if backtested.get("ok"):
+        backtest_data = backtested["data"]
+        # The ceilings come from a one-year loss tolerance, so they are judged on the
+        # worst loss inside any year. A history shorter than a year cannot show that
+        # figure; its own drawdown is still a lower bound, which can prove a breach
+        # but never a pass.
+        observed = backtest_data["worst_rolling_loss"]
+        if observed is None:
+            observed = backtest_data["full_sample_max_drawdown"]
+            unverified = (
+                f"the common history is {backtest_data['n_sample_observations']} bars, "
+                f"shorter than the {backtest_data['rolling_loss_window']} bars of one "
+                "year, so the worst one-year loss cannot be measured"
+            )
         constraints.update(
-            nu1=cs.nu1,
-            nu2=cs.nu2,
-            nu3=cs.nu3,
-            observed_drawdown=backtested["data"]["full_sample_max_drawdown"],
+            nu1=cs.nu1, nu2=cs.nu2, nu3=cs.nu3, observed_drawdown=observed
         )
     result = _tools.risk_check(weights, constraints=constraints)
     if not result.get("ok"):
         return result
     data = result["data"]
-    if not backtested.get("ok"):
-        # Too little history to measure a drawdown: say so rather than implying the
-        # tiers were checked and found clean.
-        data["warnings"].append(
-            {"type": "drawdown_unverified", "reason": backtested.get("error")}
-        )
+    if unverified is not None:
+        # A drawdown that cannot be measured is a failed check: the ceilings are the
+        # client's loss limits, and a book whose history is too thin to test (a young
+        # listing, a weight the panel cannot price) has not shown it respects them.
+        data = {
+            **data,
+            "passed": False,
+            "violations": [
+                *data["violations"],
+                {"type": "drawdown_unverified", "reason": unverified},
+            ],
+        }
     breaches = _instrument_breaches(ctx, cs, held_tickers(weights))
     if breaches:
         data = {
@@ -690,16 +731,24 @@ def _backtest_weights(
         return result
     # The drawdown ceilings are compared to the optimizer's number here, in code,
     # so the risk agent reads a verdict instead of recalling the client's limits. The
-    # figure is the worst loss over the whole history, not the walk-forward window's:
-    # that skips the first lookback and would hide a loss inside it from the ceilings.
+    # ceilings derive from a one-year loss tolerance, so the figure is the worst loss
+    # inside any year of the whole history, not the walk-forward window's (that skips
+    # the first lookback and would hide a loss inside it) and not the multi-year
+    # peak-to-trough, which can span several years the tolerance does not cover. A
+    # history shorter than a year has no such figure: its own drawdown still counts as
+    # a lower bound that can prove a breach, and ``verified`` says the rest is unknown.
     # A non-finite drawdown compares False against every ceiling, i.e. breaches all.
-    max_drawdown = result["data"]["full_sample_max_drawdown"]
+    data = result["data"]
+    rolling = data["worst_rolling_loss"]
+    judged = rolling if rolling is not None else data["full_sample_max_drawdown"]
     ceilings = {"nu1": cs.nu1, "nu2": cs.nu2, "nu3": cs.nu3}
-    result["data"]["drawdown_tiers"] = {
+    data["drawdown_tiers"] = {
         **ceilings,
-        "max_drawdown": max_drawdown,
+        "worst_rolling_loss": rolling,
+        "max_drawdown": data["full_sample_max_drawdown"],
+        "verified": rolling is not None,
         "breached": [
-            tier for tier, ceiling in ceilings.items() if not max_drawdown <= ceiling
+            tier for tier, ceiling in ceilings.items() if not judged <= ceiling
         ],
     }
     return result
@@ -745,18 +794,17 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
     cs = _resolve_constraint_set(ctx)
     if cs is not None and audited:
         # The mandate can change between the audited proposal and the order (a
-        # re-profile), so the weights are re-checked against the current one.
-        cap = cs.effective_bounds().max_weights
-        violations = _instrument_breaches(ctx, cs, held_tickers(audited)) + [
-            {"type": "max_weight", "asset": ticker, "value": weight, "limit": cap}
-            for ticker, weight in audited.items()
-            if weight > cap + HELD_TOL
-        ]
-        if violations:
+        # re-profile), and the verdict is keyed on the weights alone. So the weights
+        # are judged again, in full (bounds, instrument screens and the drawdown
+        # tiers), against the constraint set in force now.
+        recheck = _check_weights_against_constraint_set(ctx, audited)
+        if not recheck.get("ok"):
+            return recheck
+        if not recheck["data"]["passed"]:
             return err(
                 "audited weights breach the client's mandate: "
-                f"{_describe_breaches(violations)}; send the proposal back to the "
-                "allocator"
+                f"{_describe_breaches(recheck['data']['violations'])}; send the "
+                "proposal back to the allocator"
             )
     sizing = {} if ctx.notional is None else {"notional": ctx.notional}
     result = _tools.place_orders(
@@ -897,11 +945,12 @@ def _bind_universe_filter(ctx: RunContext) -> BaseTool:
         """Prune ``universe`` (tickers taken from ``list_universe``) with the
         pre-selection stack, dropping any name the client's mandate forbids
         (ESG-excluded sector, complex or leveraged product for a restricted client,
-        or an unclassifiable instrument). Fails, naming each offender and why, if
-        the portfolio has an eligible universe and ``universe`` holds a name outside
-        it. Returns the ``{ok, data}`` envelope with the surviving tickers, in
-        requested order, and ``mandate_excluded`` naming each dropped ticker and
-        why."""
+        or an unclassifiable instrument) and any name whose own price history is under
+        half the panel's median (``dropped_for_history``). Fails, naming each
+        offender and why, if the portfolio has an eligible universe and ``universe``
+        holds a name outside it. Returns the ``{ok, data}`` envelope with the
+        surviving tickers, in requested order, and ``mandate_excluded`` naming each
+        dropped ticker and why."""
         return _universe_filter_impl(ctx, universe)
 
     return universe_filter
@@ -946,9 +995,12 @@ def _bind_risk_check(ctx: RunContext) -> BaseTool:
         profile: weight bounds and position cap, ESG sector exclusions and low-K&E
         instrument restrictions on every held name, and any held name outside the
         portfolio's eligible universe (a ``not_eligible`` violation with its
-        ``reason``). Takes no weights: the optimizer's
-        audited vector is checked, so the verdict covers exactly what would be placed.
-        Returns the ``{ok, data}`` envelope with ``passed`` and structured
+        ``reason``) and the client's loss ceilings, judged on the worst loss inside any
+        one year of history (a loss that cannot be measured, for want of a year of
+        common history, fails the check; a client who tolerates no loss at all is
+        reported as ``zero_loss_tolerance``). Takes no weights: the
+        optimizer's audited vector is checked, so the verdict covers exactly what would
+        be placed. Returns the ``{ok, data}`` envelope with ``passed`` and structured
         ``violations``."""
         return _risk_check_impl(ctx)
 
@@ -966,8 +1018,10 @@ def _bind_backtest(ctx: RunContext) -> BaseTool:
         consistency check, not independent validation. Takes no weights. Returns the
         ``{ok, data}`` envelope with ``metrics`` and ``drawdown_tiers``: the client's
         ``nu1`` (soft warning), ``nu2`` (hard ceiling) and ``nu3`` (absolute stop)
-        drawdown ceilings, the full-history ``max_drawdown``, and the ``breached``
-        tiers."""
+        loss ceilings, the ``worst_rolling_loss`` they are compared with (the worst
+        loss inside any one year; ``None`` and ``verified`` false when the history is
+        shorter), the full-history ``max_drawdown`` for information, and the
+        ``breached`` tiers."""
         return _backtest_impl(ctx)
 
     return backtest

@@ -59,7 +59,7 @@ split is load-bearing:
 - **Never** admit an ESG-excluded sector back into the universe.
 - The profiler only *emits* `nu1/nu2/nu3` / `esg` / `universe_filters`; the
   allocation gate enforces them (K&E position cap in the weight bounds, ESG block
-  on excluded names, drawdown tiers against the backtest).
+  on excluded names, loss tiers against the worst one-year loss of the backtest).
 
 ## Deeper detail
 

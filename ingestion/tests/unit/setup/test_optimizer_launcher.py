@@ -27,6 +27,7 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _LAUNCHER = _REPO_ROOT / "scripts" / "optimizer"
 _LAUNCHER_CMD = _REPO_ROOT / "scripts" / "optimizer.cmd"
+_PS_CALL = "docker compose --profile fund ps --services --filter status=running"
 
 
 def _launcher_text() -> str:
@@ -46,14 +47,29 @@ def _bash() -> str | None:
     return shutil.which("bash")
 
 
+# A docker stand-in that logs every call and, for the `compose ps` the launcher uses
+# to find out whether the fund is up, lists the running services in $STUB_RUNNING.
+_DOCKER_STUB = """#!/bin/sh
+echo "docker $*" >> {calls}
+case " $* " in
+  *" ps "*) printf '%s' "$STUB_RUNNING" ;;
+esac
+"""
+
+
 def _run_launcher_with_stubs(
-    tmp_path: Path, *args: str
+    tmp_path: Path, *args: str, running: str = "db\nscheduler\nfund\n"
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run a copy of the launcher in a fake repo with `portopt`/`docker` stubbed.
 
     The environment is built from scratch instead of inherited, so an exported
     ``PORTOPT_PASSPHRASE``, a real ``portopt``/``docker`` on the developer's PATH or a
     ``~/.portopt`` config can never decrypt secrets or touch the live compose stack.
+
+    Args:
+        tmp_path: Scratch directory for the fake repo, stubs and call log.
+        *args: Arguments for the launcher.
+        running: What the stubbed ``docker compose ps`` prints, one service per line.
 
     Returns:
         The completed process and the stub invocations in call order, one
@@ -74,7 +90,9 @@ def _run_launcher_with_stubs(
     for tool in ("portopt", "docker"):
         stub = stubs / tool
         stub.write_text(
-            f'#!/bin/sh\necho "{tool} $*" >> {shlex.quote(str(calls))}\n',
+            _DOCKER_STUB.format(calls=shlex.quote(str(calls)))
+            if tool == "docker"
+            else f'#!/bin/sh\necho "{tool} $*" >> {shlex.quote(str(calls))}\n',
             encoding="utf-8",
         )
         stub.chmod(0o755)
@@ -86,7 +104,11 @@ def _run_launcher_with_stubs(
         capture_output=True,
         text=True,
         stdin=subprocess.DEVNULL,
-        env={"PATH": f"{stubs}:/usr/bin:/bin", "HOME": str(home)},
+        env={
+            "PATH": f"{stubs}:/usr/bin:/bin",
+            "HOME": str(home),
+            "STUB_RUNNING": running,
+        },
     )
     recorded = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
     return result, recorded
@@ -167,6 +189,7 @@ def test_launcher_bare_invocation_opens_the_fund_wide_shell(tmp_path: Path) -> N
     assert result.returncode == 0, result.stderr
     assert calls == [
         "portopt start",
+        _PS_CALL,
         "docker compose --profile fund exec fund fund-tui",
     ]
 
@@ -177,8 +200,29 @@ def test_launcher_forwards_the_portfolio_id_to_the_tui(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert calls == [
         "portopt start",
+        _PS_CALL,
         "docker compose --profile fund exec fund fund-tui some-portfolio-id",
     ]
+
+
+def test_launcher_does_not_attach_when_the_fund_is_not_running(
+    tmp_path: Path,
+) -> None:
+    """`portopt start` exits 0 without the fund when no LLM backend is configured;
+    attaching anyway fails with a bare 'service is not running'."""
+    result, calls = _run_launcher_with_stubs(tmp_path, running="db\nscheduler\n")
+    assert result.returncode == 1
+    assert calls == ["portopt start", _PS_CALL]
+    assert "fund" in result.stderr
+    assert "portopt setup" in result.stderr
+
+
+def test_launcher_does_not_mistake_a_similar_service_name_for_the_fund(
+    tmp_path: Path,
+) -> None:
+    result, calls = _run_launcher_with_stubs(tmp_path, running="db\nfund-extra\n")
+    assert result.returncode == 1
+    assert not any("fund-tui" in call for call in calls)
 
 
 def test_launcher_outside_a_repo_reports_helpful_error(tmp_path: Path) -> None:
@@ -235,7 +279,7 @@ def test_launcher_pins_the_resolved_repo_for_portopt_start(tmp_path: Path) -> No
         encoding="utf-8",
     )
     docker = stubs / "docker"
-    docker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    docker.write_text("#!/bin/sh\necho fund\n", encoding="utf-8")
     portopt.chmod(0o755)
     docker.chmod(0o755)
     env = {**os.environ, "HOME": str(home), "PATH": f"{stubs}:{os.environ['PATH']}"}

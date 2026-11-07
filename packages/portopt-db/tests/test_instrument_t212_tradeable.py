@@ -284,6 +284,41 @@ class TestUntradeableTickers:
 
         assert _repo(db_session).get_t212_untradeable_tickers() == ["ABC"]
 
+    def test_a_delisted_twin_never_shields_the_active_listing(self, db_session) -> None:
+        """The overlay only evaluates active rows, so a delisted twin stays NULL.
+
+        Counting it would let a symbol that moved venue slip past the refusal list
+        although its live line is absent from the broker.
+        """
+        nasdaq = _exchange(db_session, "NASDAQ")
+        nyse = _exchange(db_session, "NYSE")
+        _instrument(db_session, nasdaq, "XYZ", delisted_at=date(2026, 9, 1))
+        _instrument(db_session, nyse, "XYZ", is_t212_tradeable=False)
+        _instrument(
+            db_session,
+            nasdaq,
+            "UVW",
+            is_t212_tradeable=True,
+            delisted_at=date(2026, 9, 1),
+        )
+        _instrument(db_session, nyse, "UVW", is_t212_tradeable=False)
+
+        assert _repo(db_session).get_t212_untradeable_tickers() == ["UVW", "XYZ"]
+
+    def test_a_delisted_false_row_alone_refuses_nothing(self, db_session) -> None:
+        """Delisting is the caller's own check, not a broker verdict."""
+        ex = _exchange(db_session)
+        _instrument(db_session, ex, "AAPL", is_t212_tradeable=True)
+        _instrument(
+            db_session,
+            ex,
+            "OLD",
+            is_t212_tradeable=False,
+            delisted_at=date(2025, 1, 1),
+        )
+
+        assert _repo(db_session).get_t212_untradeable_tickers() == []
+
     def test_uses_the_yahoo_symbol_and_skips_rows_without_one(self, db_session) -> None:
         """The refusals speak Yahoo symbols, the fund layer's ticker space."""
         ex = _exchange(db_session)
@@ -299,3 +334,57 @@ class TestUntradeableTickers:
         )
 
         assert _repo(db_session).get_t212_untradeable_tickers() == ["VWCE.DE"]
+
+
+class TestUnevaluatedTickers:
+    """``get_t212_unevaluated_tickers`` names the symbols the overlay could not judge."""
+
+    def test_lists_a_symbol_whose_rows_are_all_null(self, db_session) -> None:
+        """No ISIN to match means NULL on every row: the broker status is unknown."""
+        ex = _exchange(db_session)
+        _instrument(db_session, ex, "KNOWN", is_t212_tradeable=True)
+        _instrument(db_session, ex, "UNKNOWN")
+
+        assert _repo(db_session).get_t212_unevaluated_tickers(["KNOWN", "UNKNOWN"]) == [
+            "UNKNOWN"
+        ]
+
+    def test_a_flag_on_any_active_row_means_it_was_evaluated(self, db_session) -> None:
+        """One evaluated listing is enough: True and False are both answers."""
+        ex = _exchange(db_session)
+        other = _exchange(db_session, "XETRA")
+        _instrument(db_session, ex, "MIXED")
+        _instrument(db_session, other, "MIXED", is_t212_tradeable=False)
+        _instrument(db_session, ex, "REFUSED", is_t212_tradeable=False)
+
+        assert (
+            _repo(db_session).get_t212_unevaluated_tickers(["MIXED", "REFUSED"]) == []
+        )
+
+    def test_a_delisted_row_does_not_count_either_way(self, db_session) -> None:
+        """Only active rows are judged, as in the tradeable and untradeable lists."""
+        ex = _exchange(db_session)
+        other = _exchange(db_session, "LSE")
+        _instrument(db_session, ex, "MOVED", delisted_at=date(2026, 1, 5))
+        _instrument(db_session, other, "MOVED", is_t212_tradeable=True)
+        _instrument(
+            db_session,
+            ex,
+            "GONE",
+            delisted_at=date(2026, 1, 5),
+            is_t212_tradeable=True,
+        )
+
+        assert _repo(db_session).get_t212_unevaluated_tickers(["MOVED", "GONE"]) == []
+
+    def test_a_ticker_with_no_active_instrument_is_not_listed(self, db_session) -> None:
+        """An unknown symbol is the eligibility check's business, not an overlay gap."""
+        _instrument(db_session, _exchange(db_session), "KNOWN")
+
+        assert _repo(db_session).get_t212_unevaluated_tickers(["KNOWN", "NOPE"]) == [
+            "KNOWN"
+        ]
+
+    def test_an_empty_ask_is_an_empty_answer(self, db_session) -> None:
+        """No tickers asked about means none listed, without a query."""
+        assert _repo(db_session).get_t212_unevaluated_tickers([]) == []

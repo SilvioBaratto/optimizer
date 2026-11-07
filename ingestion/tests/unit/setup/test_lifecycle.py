@@ -83,6 +83,17 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         "fund_drivers",
         lambda **kw: calls.update(drivers_repo=kw.get("repo")) or [],
     )
+    calls["running"] = set()
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap,
+        "running_services",
+        lambda **kw: set(calls["running"]),
+    )
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap,
+        "restart_services",
+        lambda services, **kw: calls["compose"].append(f"restart:{','.join(services)}"),
+    )
     return calls
 
 
@@ -182,8 +193,8 @@ def test_run_start_restarts_the_scheduler_when_its_key_was_rotated(
     _rotate(
         patched,
         monkeypatch,
-        on_disk={"trading_212_api_key": "old"},
-        new={"trading_212_api_key": "new"},
+        on_disk={"trading_212_api_key": "old", "ollama_api_key": "same"},
+        new={"trading_212_api_key": "new", "ollama_api_key": "same"},
         running={"db", "fund", "scheduler"},
     )
     lifecycle.run_start("pw")
@@ -216,6 +227,184 @@ def test_run_start_does_not_restart_a_service_that_is_not_running(
     )
     lifecycle.run_start("pw")
     assert patched["compose"] == ["up"]
+
+
+def test_run_start_stops_a_fund_left_running_when_no_backend_is_configured(
+    patched: dict,
+) -> None:
+    """`up --profile ingestion` leaves a running fund untouched, so the container
+    started under an earlier config would keep serving the provider the CLI now
+    reports as not started."""
+    patched["running"] = {"db", "fund", "scheduler"}
+    lifecycle.run_start("pw")
+    assert patched["compose"] == ["up", "stop:fund"]
+
+
+def test_run_start_does_not_touch_a_fund_that_is_already_stopped(
+    patched: dict,
+) -> None:
+    patched["running"] = {"db", "scheduler"}
+    lifecycle.run_start("pw")
+    assert patched["compose"] == ["up"]
+
+
+def test_run_start_does_not_restart_a_disabled_fund_for_a_rotated_key(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restart keeps the container's old env_file values, so restarting a fund
+    that is about to be left off only prolongs the stale provider."""
+    _rotate(
+        patched,
+        monkeypatch,
+        on_disk={"groq_api_key": "revoked"},
+        new={"groq_api_key": "fresh"},
+        running={"db", "fund", "scheduler"},
+    )
+    lifecycle.run_start("pw")
+    assert "restart:fund" not in patched["compose"]
+    assert patched["compose"] == ["up", "stop:fund"]
+
+
+def test_run_start_keeps_a_disabled_fund_that_is_mid_round_and_says_so(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Stopping it would SIGKILL the round, so start leaves it and names the way
+    out instead of killing client work."""
+    patched["running"] = {"db", "fund", "scheduler"}
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "fund_drivers", lambda **kw: [_ROUND]
+    )
+    lifecycle.run_start("pw")
+    out = capsys.readouterr().out
+    assert patched["compose"] == ["up"]
+    assert _ROUND in out
+    assert "portopt stop" in out
+
+
+def test_run_start_leaves_an_enabled_fund_running(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    patched["running"] = {"db", "fund", "scheduler"}
+    _configure_llm(monkeypatch, config={}, secrets={"ollama_api_key": "k"})
+    lifecycle.run_start("pw")
+    assert patched["compose"] == ["up"]
+
+
+def test_run_start_creates_the_exports_dir_as_the_invoking_user(
+    patched: dict,
+) -> None:
+    """Compose creates a missing bind source as root, after which the fund
+    container's non-root user cannot write its TUI exports there."""
+    exports = patched["repo"] / "exports"
+    assert not exports.exists()
+    lifecycle.run_start("pw")
+    assert exports.is_dir()
+
+
+def test_run_start_creates_the_exports_dir_before_compose_sees_the_mount(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[bool] = []
+    exports = patched["repo"] / "exports"
+
+    def _build_and_up(**kw: object) -> list[str]:
+        seen.append(exports.is_dir())
+        return []
+
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", _build_and_up)
+    lifecycle.run_start("pw")
+    assert seen == [True]
+
+
+def test_run_start_keeps_an_existing_exports_dir_and_its_files(
+    patched: dict,
+) -> None:
+    exports = patched["repo"] / "exports"
+    exports.mkdir()
+    (exports / "audit.csv").write_text("kept", encoding="utf-8")
+    lifecycle.run_start("pw")
+    assert (exports / "audit.csv").read_text(encoding="utf-8") == "kept"
+
+
+@pytest.mark.parametrize(
+    ("platform", "owner_matches", "world_writable"),
+    [
+        ("linux", False, True),
+        ("linux", True, False),
+        ("darwin", False, False),
+    ],
+)
+def test_run_start_opens_the_exports_to_the_container_user_on_linux(
+    patched: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    platform: str,
+    owner_matches: bool,
+    world_writable: bool,
+) -> None:
+    """On a Linux host the bind mount keeps the host's numeric owner; the image's
+    user (uid 1000) then needs to own the directory or find it world-writable, so a
+    directory the invoking user owns is made writable (sticky, like /tmp) instead of
+    leaving the export to fail. Docker Desktop and Colima present host files as the
+    container user and need nothing."""
+    import os
+    import stat
+
+    monkeypatch.setattr(lifecycle.sys, "platform", platform)
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "fund_user_env", dict)
+    monkeypatch.setattr(
+        lifecycle, "_CONTAINER_UID", os.getuid() if owner_matches else os.getuid() + 1
+    )
+    lifecycle.run_start("pw")
+    mode = stat.S_IMODE((patched["repo"] / "exports").stat().st_mode)
+    assert bool(mode & 0o002) is world_writable
+    if world_writable:
+        assert mode & stat.S_ISVTX
+    assert "permission" not in capsys.readouterr().out
+
+
+def test_run_start_leaves_the_exports_alone_when_the_container_runs_as_the_invoker(
+    patched: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """With the fund container running as the invoking user, a directory that user
+    owns is already writable: widening its mode would only expose the exports."""
+    import os
+    import stat
+
+    monkeypatch.setattr(lifecycle.sys, "platform", "linux")
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap,
+        "fund_user_env",
+        lambda: {"PORTOPT_FUND_UID": str(os.getuid())},
+    )
+    lifecycle.run_start("pw")
+    mode = stat.S_IMODE((patched["repo"] / "exports").stat().st_mode)
+    assert not mode & 0o002
+    assert "permission" not in capsys.readouterr().out
+
+
+def test_run_start_warns_when_it_cannot_open_the_exports_to_the_container_user(
+    patched: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A directory left behind by root cannot be chmod-ed by the invoking user, so the
+    operator is told the exact command instead of seeing every export fail later."""
+    import os
+    from pathlib import Path
+
+    def refuse(self: Path, mode: int) -> None:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(lifecycle.sys, "platform", "linux")
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "fund_user_env", dict)
+    monkeypatch.setattr(lifecycle, "_CONTAINER_UID", os.getuid() + 1)
+    monkeypatch.setattr(Path, "chmod", refuse)
+    lifecycle.run_start("pw")
+    out = capsys.readouterr().out
+    assert "exports" in out and "permission" in out and "sudo chown" in out
 
 
 def test_run_start_requires_passphrase(patched: dict) -> None:
@@ -583,57 +772,132 @@ def test_run_stop_targets_the_repo_stack_from_any_directory(patched: dict) -> No
     assert not patched["env_fund_path"].exists()
 
 
-def test_run_status_queries_the_repo_stack_from_any_directory(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seen: list[object] = []
+def _states(*rows: tuple[str, str, str]) -> dict:
+    return {
+        name: lifecycle.docker_bootstrap.ServiceState(state, health)
+        for name, state, health in rows
+    }
 
-    def _running(**kw: object) -> set[str]:
-        seen.append(kw.get("repo"))
-        return {"db"}
 
-    monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: True)
-    monkeypatch.setattr(lifecycle.docker_bootstrap, "running_services", _running)
-    lifecycle.run_status()
-    assert seen == [patched["repo"]]
+def _status_with(
+    monkeypatch: pytest.MonkeyPatch, states: dict, *, docker: bool = True
+) -> dict[str, str]:
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: docker)
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "service_states", lambda **kw: states
+    )
+    return lifecycle.run_status()
 
 
 def test_run_status_all_up(patched: dict, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: True)
-    monkeypatch.setattr(
-        lifecycle.docker_bootstrap,
-        "running_services",
-        lambda **kw: {"db", "scheduler", "fund"},
-    )
-    assert lifecycle.run_status() == {
-        "docker": True,
-        "db": True,
-        "scheduler": True,
-        "fund": True,
-    }
+    assert _status_with(
+        monkeypatch,
+        _states(
+            ("db", "running", "healthy"),
+            ("scheduler", "running", "healthy"),
+            ("fund", "running", "healthy"),
+        ),
+    ) == {"docker": "ok", "db": "ok", "scheduler": "ok", "fund": "ok"}
 
 
 def test_run_status_reports_fund_independently(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: True)
-    monkeypatch.setattr(
-        lifecycle.docker_bootstrap, "running_services", lambda **kw: {"db", "fund"}
+    status = _status_with(
+        monkeypatch,
+        _states(("db", "running", "healthy"), ("fund", "running", "healthy")),
     )
-    status = lifecycle.run_status()
-    assert status["fund"] is True
-    assert status["scheduler"] is False
+    assert status["fund"] == "ok"
+    assert status["scheduler"] == "down"
 
 
 def test_run_status_docker_down(patched: dict, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: False)
-    status = lifecycle.run_status()
-    assert status == {
-        "docker": False,
-        "db": False,
-        "scheduler": False,
-        "fund": False,
+    assert _status_with(monkeypatch, {}, docker=False) == {
+        "docker": "down",
+        "db": "down",
+        "scheduler": "down",
+        "fund": "down",
     }
+
+
+def test_run_status_queries_the_repo_stack_from_any_directory(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[object] = []
+
+    def _states_of(**kw: object) -> dict:
+        seen.append(kw.get("repo"))
+        return {}
+
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "docker_available", lambda: True)
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "service_states", _states_of)
+    lifecycle.run_status()
+    assert seen == [patched["repo"]]
+
+
+@pytest.mark.parametrize(
+    "fund_row",
+    [
+        None,
+        ("fund", "exited", ""),
+        ("fund", "created", ""),
+    ],
+)
+def test_run_status_reports_a_stopped_or_never_started_fund_as_disabled(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, fund_row: tuple | None
+) -> None:
+    """No LLM backend, or `portopt stop`, leave the fund off on purpose; calling
+    that "down" made `status` fail for a healthy data-only install."""
+    rows = [("db", "running", "healthy"), ("scheduler", "running", "healthy")]
+    if fund_row:
+        rows.append(fund_row)
+    status = _status_with(monkeypatch, _states(*rows))
+    assert status["fund"] == "disabled"
+    assert lifecycle.status_ok(status)
+
+
+@pytest.mark.parametrize(
+    ("state", "health", "expected"),
+    [
+        ("running", "healthy", "ok"),
+        ("running", "", "ok"),
+        ("running", "starting", "starting"),
+        ("running", "unhealthy", "unhealthy"),
+        ("restarting", "", "restarting"),
+        ("exited", "", "down"),
+        ("paused", "", "down"),
+    ],
+)
+def test_run_status_reads_the_health_not_just_the_running_state(
+    patched: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+    health: str,
+    expected: str,
+) -> None:
+    """A crash-looping container is `running` between restarts and a hung one stays
+    `running` while its healthcheck fails; neither is up."""
+    status = _status_with(
+        monkeypatch,
+        _states(("db", "running", "healthy"), ("scheduler", state, health)),
+    )
+    assert status["scheduler"] == expected
+    assert lifecycle.status_ok(status) is (expected == "ok")
+
+
+def test_run_status_flags_a_crash_looping_fund_rather_than_disabling_it(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    status = _status_with(
+        monkeypatch,
+        _states(
+            ("db", "running", "healthy"),
+            ("scheduler", "running", "healthy"),
+            ("fund", "restarting", ""),
+        ),
+    )
+    assert status["fund"] == "restarting"
+    assert not lifecycle.status_ok(status)
 
 
 @pytest.fixture
@@ -652,6 +916,9 @@ def real_render(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: {})
     monkeypatch.setattr(lifecycle.docker_bootstrap, "ensure_docker", lambda: None)
     monkeypatch.setattr(lifecycle.docker_bootstrap, "build_and_up", lambda **kw: [])
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap, "running_services", lambda **kw: set()
+    )
     monkeypatch.setattr(
         lifecycle.docker_bootstrap, "stop_services", lambda s, **kw: None
     )

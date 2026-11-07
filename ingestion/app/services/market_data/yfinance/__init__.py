@@ -24,6 +24,7 @@ from .news import (
     MacroNewsFetcher,
     MacroTheme,
     NewsClient,
+    fetch_ticker_news,
     fetch_yahoo_news,
 )
 from .protocols import (
@@ -83,6 +84,7 @@ __all__ = [
     "YFinanceClient",
     "YFinanceClientProtocol",
     "configure_yfinance",
+    "fetch_ticker_news",
     "fetch_yahoo_news",
     "get_yfinance_client",
     "is_no_data_error",

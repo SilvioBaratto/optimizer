@@ -22,6 +22,11 @@ from app.setup import docker_bootstrap as db
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
+# What the patched fingerprint reports, so a "present" image is current when its
+# stamp equals it.
+_CURRENT = "current-hash"
+
+
 def _cp(returncode: int, stderr: str = "") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(
         args=[], returncode=returncode, stdout="", stderr=stderr
@@ -314,10 +319,13 @@ class TestBuildAndUp:
     def _checkout(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
         """Pin the checkout to a tmp dir so the real repo is never written to."""
         monkeypatch.setattr(db, "compose_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            db.image_source, "source_hash", lambda repo, image: _CURRENT
+        )
         return tmp_path
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=None)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_builds_when_image_absent_then_up_waits(
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
@@ -332,7 +340,7 @@ class TestBuildAndUp:
         assert "--wait-timeout" in up and "300" in up
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=True)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=_CURRENT)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_skips_build_when_image_present(
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
@@ -344,7 +352,7 @@ class TestBuildAndUp:
         assert any("up" in c for c in calls)
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=True)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=_CURRENT)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_force_build_rebuilds_even_when_image_present(
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
@@ -357,7 +365,7 @@ class TestBuildAndUp:
         assert any("build" in c for c in calls)
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=None)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_prints_slow_once_note_when_building(
         self,
@@ -371,7 +379,7 @@ class TestBuildAndUp:
         assert "slow" in capsys.readouterr().out.lower()
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=None)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_build_failure_raises(
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
@@ -381,7 +389,7 @@ class TestBuildAndUp:
             db.build_and_up(profiles=("fund",))
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=True)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=_CURRENT)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_up_failure_raises(
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
@@ -391,7 +399,7 @@ class TestBuildAndUp:
             db.build_and_up(profiles=("fund",))
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=["stale!"])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=True)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=_CURRENT)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_surfaces_version_warnings(
         self,
@@ -405,7 +413,7 @@ class TestBuildAndUp:
         assert "stale!" in capsys.readouterr().out
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=True)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=_CURRENT)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_brings_up_multiple_profiles(
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock
@@ -418,12 +426,266 @@ class TestBuildAndUp:
         assert {"fund", "ingestion"} <= set(up)
 
 
+class TestDockerCallsAreBounded:
+    """A frozen Docker VM (Colima after an external-volume drop) never answers; an
+    unbounded call would hang `start`, `stop` and `status` forever."""
+
+    @staticmethod
+    def _timeout(mock_run: MagicMock) -> float | None:
+        return mock_run.call_args.kwargs.get("timeout")
+
+    @patch("app.setup.docker_bootstrap.shutil.which", return_value="/usr/bin/docker")
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_the_daemon_probe_has_a_timeout(
+        self, mock_run: MagicMock, _which: MagicMock
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.check_docker()
+        assert self._timeout(mock_run) is not None
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_status_queries_have_a_timeout(self, mock_run: MagicMock, tmp_path) -> None:
+        mock_run.return_value = _cp(0)
+        db.running_services(repo=tmp_path)
+        assert self._timeout(mock_run) is not None
+        db.service_states(repo=tmp_path)
+        assert self._timeout(mock_run) is not None
+        db.fund_drivers(repo=tmp_path)
+        assert self._timeout(mock_run) is not None
+        db._image_source_hash("optimizer-fund:latest")
+        assert self._timeout(mock_run) is not None
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_stop_waits_out_the_longest_grace_period(
+        self, mock_run: MagicMock, tmp_path
+    ) -> None:
+        """The scheduler gets 60s to drain before Docker kills it."""
+        mock_run.return_value = _cp(0)
+        db.stop_services(["fund", "scheduler"], repo=tmp_path)
+        assert self._timeout(mock_run) > 60
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=None)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_build_and_up_outlast_their_own_waits(
+        self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, tmp_path
+    ) -> None:
+        mock_run.return_value = _cp(0)
+        db.build_and_up(profiles=("fund",), wait_timeout=300, repo=tmp_path)
+        build, up = (c.kwargs["timeout"] for c in mock_run.call_args_list)
+        assert build >= 1800
+        assert up > 300
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_a_hung_call_becomes_a_docker_error_naming_the_command(
+        self, mock_run: MagicMock, tmp_path
+    ) -> None:
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="docker", timeout=60)
+        with pytest.raises(db.DockerError, match="docker compose .*stop"):
+            db.stop_services(["fund"], repo=tmp_path)
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_status_reads_a_hung_daemon_as_nothing_running(
+        self, mock_run: MagicMock, tmp_path
+    ) -> None:
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="docker", timeout=60)
+        assert db.running_services(repo=tmp_path) == set()
+        assert db.service_states(repo=tmp_path) == {}
+        assert db.fund_drivers(repo=tmp_path) == []
+
+    @patch("app.setup.docker_bootstrap.shutil.which", return_value="/usr/bin/docker")
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_a_hung_daemon_is_not_available(
+        self, mock_run: MagicMock, _which: MagicMock
+    ) -> None:
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="docker", timeout=30)
+        assert db.docker_available() is False
+
+
+def _ps_json(*rows: dict) -> str:
+    import json
+
+    return "\n".join(json.dumps(row) for row in rows) + "\n"
+
+
+class TestServiceStates:
+    """`service_states` reads state and health, so a crash-looping container is not
+    reported like a healthy one."""
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_parses_one_json_object_per_line(
+        self, mock_run: MagicMock, tmp_path
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=_ps_json(
+                {"Service": "db", "State": "running", "Health": "healthy"},
+                {"Service": "fund", "State": "restarting", "Health": ""},
+            ),
+            stderr="",
+        )
+        assert db.service_states(repo=tmp_path) == {
+            "db": db.ServiceState("running", "healthy"),
+            "fund": db.ServiceState("restarting", ""),
+        }
+        argv = mock_run.call_args[0][0]
+        assert "--all" in argv
+        assert argv[argv.index("--format") + 1] == "json"
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_parses_a_json_array(self, mock_run: MagicMock, tmp_path) -> None:
+        """Older Compose prints one array instead of one object per line."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout='[{"Service": "db", "State": "exited", "Health": ""}]',
+            stderr="",
+        )
+        assert db.service_states(repo=tmp_path) == {"db": db.ServiceState("exited", "")}
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_empty_on_error_or_unparseable_output(
+        self, mock_run: MagicMock, tmp_path
+    ) -> None:
+        mock_run.return_value = _cp(1, "boom")
+        assert db.service_states(repo=tmp_path) == {}
+        mock_run.return_value = subprocess.CompletedProcess(
+            [], 0, stdout="not json\n", stderr=""
+        )
+        assert db.service_states(repo=tmp_path) == {}
+
+
+class TestStaleImages:
+    """An image built from older sources than the checkout is rebuilt on start.
+
+    `portopt setup` migrates the database with the checkout's migrations, so a start
+    that reused the images built before an upgrade would run old code against the new
+    schema, and the old entrypoint's `alembic upgrade head` would fail on a revision
+    it has never heard of.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _checkout(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(db, "compose_dir", lambda: tmp_path)
+        monkeypatch.setattr(
+            db.image_source, "source_hash", lambda repo, image: f"{image}-{_CURRENT}"
+        )
+        return tmp_path
+
+    @staticmethod
+    def _stamps(**by_ref: str | None):
+        return lambda ref: by_ref[ref.split(":")[0].removeprefix("optimizer-")]
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_rebuilds_an_image_whose_stamp_differs_from_the_checkout(
+        self, mock_run: MagicMock, _warn: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(db, "_image_source_hash", self._stamps(fund="fund-old"))
+        mock_run.return_value = _cp(0)
+
+        db.build_and_up(profiles=("fund",))
+
+        calls = [c[0][0] for c in mock_run.call_args_list]
+        assert any("build" in c for c in calls)
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_rebuilds_an_unstamped_image(
+        self, mock_run: MagicMock, _warn: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Built by a plain `docker compose build`: no way to know what it holds."""
+        monkeypatch.setattr(db, "_image_source_hash", self._stamps(scheduler=""))
+        mock_run.return_value = _cp(0)
+
+        db.build_and_up(profiles=("ingestion",))
+
+        assert any("build" in c[0][0] for c in mock_run.call_args_list)
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_reuses_images_stamped_with_the_current_hash(
+        self, mock_run: MagicMock, _warn: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            db,
+            "_image_source_hash",
+            self._stamps(fund=f"fund-{_CURRENT}", scheduler=f"scheduler-{_CURRENT}"),
+        )
+        mock_run.return_value = _cp(0)
+
+        db.build_and_up(profiles=("fund", "ingestion"))
+
+        assert not any("build" in c[0][0] for c in mock_run.call_args_list)
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_only_the_profiles_started_are_compared(
+        self, mock_run: MagicMock, _warn: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stale fund image must not slow a start that leaves the fund off."""
+        monkeypatch.setattr(
+            db,
+            "_image_source_hash",
+            self._stamps(fund="fund-old", scheduler=f"scheduler-{_CURRENT}"),
+        )
+        mock_run.return_value = _cp(0)
+
+        db.build_and_up(profiles=("ingestion",))
+
+        assert not any("build" in c[0][0] for c in mock_run.call_args_list)
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_the_build_stamps_the_hash_it_compared(
+        self, mock_run: MagicMock, _warn: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Compose reads the hash from the environment into the image label."""
+        monkeypatch.setattr(db, "_image_source_hash", lambda ref: None)
+        mock_run.return_value = _cp(0)
+
+        db.build_and_up(profiles=("fund", "ingestion"))
+
+        for call in mock_run.call_args_list:
+            env = call.kwargs["env"]
+            assert env["PORTOPT_FUND_SOURCE_HASH"] == f"fund-{_CURRENT}"
+            assert env["PORTOPT_SCHEDULER_SOURCE_HASH"] == f"scheduler-{_CURRENT}"
+
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_a_rebuild_is_announced_as_a_checkout_change(
+        self,
+        mock_run: MagicMock,
+        _warn: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(db, "_image_source_hash", self._stamps(fund="fund-old"))
+        mock_run.return_value = _cp(0)
+
+        db.build_and_up(profiles=("fund",))
+
+        assert "changed" in capsys.readouterr().out
+
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_other_compose_calls_do_not_pay_for_a_fingerprint(
+        self, mock_run: MagicMock
+    ) -> None:
+        mock_run.return_value = _cp(0)
+
+        db.stop_services(["fund"])
+
+        env = mock_run.call_args.kwargs["env"]
+        assert env is None or "PORTOPT_FUND_SOURCE_HASH" not in env
+
+
 class TestComposeRunsFromTheRepo:
     """With a checkout given, every compose call is anchored to it, so the files
     `portopt start` rendered there are the ones compose mounts."""
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=None)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_build_and_up_pins_build_and_up_to_the_repo(
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, tmp_path
@@ -458,19 +720,32 @@ class TestComposeRunsFromTheRepo:
         assert mock_run.call_args.kwargs["cwd"] == str(tmp_path)
 
 
-class TestImageExists:
-    """`_image_exists` reports whether a local image is present."""
+class TestImageSourceHash:
+    """`_image_source_hash` reads the stamp `portopt start` left on a built image."""
 
     @patch("app.setup.docker_bootstrap.subprocess.run")
-    def test_true_when_inspect_succeeds(self, mock_run: MagicMock) -> None:
-        mock_run.return_value = _cp(0)
-        assert db._image_exists("optimizer-fund:latest") is True
+    def test_returns_the_stamped_hash(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = subprocess.CompletedProcess(
+            [], 0, stdout='{"io.portopt.source-hash": "abc123"}\n', stderr=""
+        )
+        assert db._image_source_hash("optimizer-fund:latest") == "abc123"
         assert mock_run.call_args[0][0][:3] == ["docker", "image", "inspect"]
 
     @patch("app.setup.docker_bootstrap.subprocess.run")
-    def test_false_when_inspect_fails(self, mock_run: MagicMock) -> None:
+    def test_none_when_the_image_is_absent(self, mock_run: MagicMock) -> None:
         mock_run.return_value = _cp(1, "No such image")
-        assert db._image_exists("absent:latest") is False
+        assert db._image_source_hash("absent:latest") is None
+
+    @pytest.mark.parametrize("labels", ["null", "{}", '{"other": "x"}', "not json"])
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_empty_when_the_image_carries_no_stamp(
+        self, mock_run: MagicMock, labels: str
+    ) -> None:
+        """An image built by a plain `docker compose build` has no stamp."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            [], 0, stdout=labels + "\n", stderr=""
+        )
+        assert db._image_source_hash("optimizer-fund:latest") == ""
 
 
 class TestComposeRunsFromTheCheckout:
@@ -490,7 +765,7 @@ class TestComposeRunsFromTheCheckout:
         return repo
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=None)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_every_compose_command_runs_in_the_checkout(
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, checkout
@@ -601,7 +876,7 @@ class TestCaBundleBuildSecret:
         assert env is None or env["CA_BUNDLE_FILE"] == "/operator/bundle.pem"
 
     @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
-    @patch("app.setup.docker_bootstrap._image_exists", return_value=False)
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=None)
     @patch("app.setup.docker_bootstrap.subprocess.run")
     def test_build_and_up_writes_nothing_into_the_checkout(
         self, mock_run: MagicMock, _img: MagicMock, _warn: MagicMock, checkout: Path

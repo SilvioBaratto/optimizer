@@ -23,11 +23,15 @@ through:
   tool falls back to the full IN-SAMPLE series (``n_folds == 0``); those metrics
   are then in-sample, not walk-forward, and are flagged ``out_of_sample=False``.
   ``metrics.max_drawdown`` is the **compounded** wealth-path decline (see
-  :func:`backtest`), flagged ``drawdown_basis="compounded"``.
+  :func:`backtest`), flagged ``drawdown_basis="compounded"``. The ``nu`` ceilings are
+  judged on ``worst_rolling_loss``, the worst such decline inside any one year of the
+  panel's own calendar, because the loss tolerance they derive from is a one-year
+  figure; ``full_sample_max_drawdown`` is reported alongside for information.
 
 Contract (via ``tool_envelope``): every failure — empty weights, no priced
-assets, too few common return observations (see ``MIN_RETURN_OBSERVATIONS``), a
-bad constraint value, an invalid walk-forward window — is returned as
+assets, too few common return observations (see ``MIN_RETURN_OBSERVATIONS``, and
+``thin_sample_error`` for the share of the median history a young listing must
+reach), a bad constraint value, an invalid walk-forward window — is returned as
 ``{ok: false, error}``, never raised.
 """
 
@@ -48,8 +52,10 @@ from fund.tools._base import (
     ToolResult,
     annualized_metrics,
     coerce_date,
+    dropped_by_returns,
     err,
     ok,
+    periods_per_year,
     thin_sample_error,
     tool_envelope,
 )
@@ -74,6 +80,46 @@ _WINDOW_FIELDS: frozenset[str] = frozenset(
 )
 
 
+# Windows scored per vectorised block: bounds the (windows x bars) work array of
+# ``worst_window_drawdown`` on a multi-decade history.
+_WINDOW_BLOCK = 256
+
+
+def worst_window_drawdown(portfolio_returns: Any, window: int) -> float | None:
+    """Worst peak-to-trough decline of the wealth path inside any ``window`` bars.
+
+    The client's loss tolerance is a one-year figure, so the drawdown ceilings are
+    judged on the loss a holder could have suffered within a year, not on the decline
+    from the highest peak of a multi-year history to its lowest trough. Each window
+    starts at its own initial wealth (a loss on its first bar is a drawdown) and its
+    decline is compounded; the figure is the worst over every window of ``window``
+    consecutive bars, so it is never below the plain one-year return loss and never
+    above the full-sample drawdown.
+
+    Args:
+        portfolio_returns: The portfolio's linear return per bar.
+        window: Bars in one window, normally a year of the panel's calendar.
+
+    Returns:
+        The decline as a non-negative fraction, or ``None`` when the history holds
+        fewer than ``window`` bars or the figure is not finite: the one-year
+        loss cannot be measured, and nothing is invented for it.
+    """
+    bars = np.asarray(portfolio_returns, dtype=float)
+    if window < 1 or bars.size < window or not np.isfinite(bars).all():
+        return None
+    wealth = np.concatenate(([1.0], np.cumprod(1.0 + bars)))
+    windows = np.lib.stride_tricks.sliding_window_view(wealth, window + 1)
+    worst = 0.0
+    for lo in range(0, windows.shape[0], _WINDOW_BLOCK):
+        block = windows[lo : lo + _WINDOW_BLOCK]
+        peak = np.maximum.accumulate(block, axis=1)
+        # A wiped-out path has no peak left to fall from: nothing more to lose.
+        ratio = np.divide(block, peak, out=np.ones_like(block), where=peak > 0.0)
+        worst = max(worst, float(np.max(1.0 - ratio)))
+    return worst if math.isfinite(worst) else None
+
+
 @tool_envelope
 def risk_check(
     weights: dict[str, float],
@@ -96,7 +142,8 @@ def risk_check(
         ``ok`` with ``passed`` (``True`` iff no breach), ``violations`` (a list
         of structured breach records — ``min_weight`` / ``max_weight`` /
         ``esg_exclusion`` per asset, a ``drawdown_nu2`` / ``drawdown_nu3`` tier
-        breach, or a single ``budget`` entry) and ``warnings`` (the non-blocking
+        breach, ``zero_loss_tolerance`` when ``nu2`` is 0 and the book has any
+        drawdown, or a single ``budget`` entry) and ``warnings`` (the non-blocking
         ``drawdown_nu1`` soft tier). ``err`` on empty ``weights``; a non-numeric
         bound is caught by the envelope and returned as ``{ok: false}``.
     """
@@ -157,10 +204,28 @@ def _check_drawdown(
     The most severe breached tier is the one reported: past ``nu3`` the absolute
     stop, past ``nu2`` the hard ceiling (both block), past ``nu1`` only a soft
     warning. A non-finite measurement blocks, since every comparison against NaN
-    is ``False`` and would otherwise wave the allocation through.
+    is ``False`` and would otherwise wave the allocation through. A ``nu2`` of 0
+    (a client who tolerates no loss) is reported as ``zero_loss_tolerance`` instead
+    of as a tier breach at limit 0.
     """
     if not math.isfinite(observed):
         violations.append({"type": "drawdown_unverified", "value": observed})
+        return
+    hard_ceiling = bounds.get("nu2")
+    if hard_ceiling is not None and float(hard_ceiling) <= 0.0 and observed > 0.0:
+        # A zero tolerance fails every invested book, whatever the book does; the
+        # fault is in the profile, and a bare "limit 0.0" breach hides that.
+        violations.append(
+            {
+                "type": "zero_loss_tolerance",
+                "value": observed,
+                "limit": 0.0,
+                "reason": (
+                    "the client's one-year loss tolerance is 0, so no invested book "
+                    "can meet the drawdown ceilings; revisit capacity.max_1yr_loss_pct"
+                ),
+            }
+        )
         return
     for tier, blocking in (("nu3", True), ("nu2", True), ("nu1", False)):
         limit = bounds.get(tier)
@@ -229,9 +294,17 @@ def backtest(
         ``annualized_standard_deviation`` / ``annualized_sharpe_ratio`` plus the
         ``max_drawdown`` fraction, over the evaluated window),
         ``full_sample_max_drawdown`` (the same drawdown over every aligned return row,
-        including the initial training block the walk-forward blocks skip; the figure
-        to compare with a drawdown ceiling), ``drawdown_basis``, ``n_observations``
-        (evaluated rows), ``n_folds``, ``out_of_sample`` (``True`` iff at least one
+        including the initial training block the walk-forward blocks skip; reported
+        for information, since it can span several years),
+        ``worst_rolling_loss`` (the worst compounded peak-to-trough decline inside any
+        ``rolling_loss_window`` consecutive bars, one year of the panel's calendar;
+        the figure to compare with a drawdown ceiling, ``None`` when the history is
+        shorter than that window, so the ceilings cannot be verified),
+        ``rolling_loss_window`` / ``periods_per_year`` (bars in a year, from the
+        panel's own calendar; it annualises ``metrics``), ``drawdown_basis``,
+        ``n_observations``
+        (evaluated rows), ``n_sample_observations`` (every aligned return row),
+        ``n_folds``, ``out_of_sample`` (``True`` iff at least one
         walk-forward fold was produced and every test bar falls after ``fit_end``;
         ``False`` when the panel was too short and the full IN-SAMPLE series was
         evaluated, or when the weights were fitted on the test blocks — the metrics
@@ -240,15 +313,16 @@ def backtest(
         empty ``weights``, weights that do not sum to ``budget``, no priced assets, a
         non-zero weight on a ticker with no prices (the proposal cannot be evaluated as
         given), fewer than two return rows once the assets' histories are aligned, a
-        bad ``window``, or metrics that are not finite.
+        common sample shorter than half the assets' median history (a young listing
+        would otherwise hide an earlier drawdown), a bad ``window``, or metrics that
+        are not finite.
 
         ``max_drawdown`` is the peak-to-trough decline of the **compounded** wealth
         path (``drawdown_basis == "compounded"``), the loss an investor holding the
-        weights would have seen. The ``nu1`` / ``nu2`` / ``nu3`` drawdown ceilings
-        the optimizer enforces are measured on the **additive** cumulative-return
-        path (skfolio's convention), so the two can differ: treat this figure as the
-        realised decline, not a like-for-like reading of those ceilings, and do not
-        block or pass on a margin smaller than that basis gap.
+        weights would have seen. The ``nu1`` / ``nu2`` / ``nu3`` ceilings are not
+        enforced by the optimizer: ``risk_check`` compares them with
+        ``worst_rolling_loss`` on this same compounded basis, because they derive from
+        a one-year loss tolerance.
     """
     if not weights:
         return err("empty weights")
@@ -281,6 +355,14 @@ def backtest(
     # single row even when ``frame`` is long.
     if returns.shape[0] < 2:
         return err("insufficient price history to backtest")
+    # A weighted column ``prices_to_returns`` dropped (no usable price) would otherwise
+    # be evaluated as idle cash, the same understatement the ``missing`` check guards.
+    if dropped := [
+        ticker
+        for ticker in dropped_by_returns(frame, returns)
+        if float(weights[ticker]) != 0.0
+    ]:
+        return err(f"no prices for weighted tickers: {', '.join(dropped)}")
     if (reason := thin_sample_error(frame, returns, action="backtest")) is not None:
         return err(reason)
     weight_vector = np.array([float(weights[col]) for col in returns.columns])
@@ -304,16 +386,22 @@ def backtest(
     if splits and fit_end is not None:
         out_of_sample = oos.index.min().date() > coerce_date(fit_end)
 
-    # Compounded so max_drawdown is the wealth-path peak-to-trough decline, not the
-    # additive-return one the optimizer's ceilings use; ``drawdown_basis`` says so.
+    # Compounded so max_drawdown is the wealth-path peak-to-trough decline, the basis
+    # ``risk_check`` compares the nu ceilings on; ``drawdown_basis`` says so.
     portfolio = Portfolio(oos, weight_vector, compounded=True)
     full_sample_max_drawdown = (
         float(Portfolio(returns, weight_vector, compounded=True).max_drawdown)
         if splits
         else float(portfolio.max_drawdown)
     )
+    # One calendar for the whole panel: the test blocks are only part of it, so their
+    # own index could not say how many bars a year holds.
+    periods = periods_per_year(returns.index)
+    worst_rolling_loss = worst_window_drawdown(
+        returns.to_numpy(dtype=float) @ weight_vector, periods
+    )
     metrics = {
-        **annualized_metrics(portfolio),
+        **annualized_metrics(portfolio, periods),
         # skfolio yields -0.0 for a path with no drawdown; max() pins it to +0.0.
         "max_drawdown": max(0.0, float(portfolio.max_drawdown)),
     }
@@ -326,8 +414,12 @@ def backtest(
         {
             "metrics": metrics,
             "full_sample_max_drawdown": full_sample_max_drawdown,
+            "worst_rolling_loss": worst_rolling_loss,
+            "rolling_loss_window": periods,
+            "periods_per_year": periods,
             "drawdown_basis": "compounded",
             "n_observations": int(oos.shape[0]),
+            "n_sample_observations": int(returns.shape[0]),
             "n_folds": len(splits),
             "out_of_sample": out_of_sample,
             "sample_start": str(returns.index.min().date()),

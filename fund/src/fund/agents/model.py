@@ -29,12 +29,15 @@ lazily; the first request happens later at call time.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from fund.config import FundConfig, settings
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -48,8 +51,9 @@ __all__ = [
     "effective_temperature",
 ]
 
-# Ollama Cloud host marker: a `base_url` on this host is the cloud path and so
-# *requires* a key; a local `base_url` (e.g. http://localhost:11434) does not.
+# Ollama Cloud host: a `base_url` on this host (or a subdomain), over https, is the
+# cloud path and so *requires* a key and is the only place it is sent; a local
+# `base_url` (e.g. http://localhost:11434) needs none.
 _OLLAMA_CLOUD_HOST = "ollama.com"
 
 # OpenRouter has no dedicated LangChain package — it is `ChatOpenAI` aimed at this
@@ -177,32 +181,78 @@ def _temperature_kwargs(config: FundConfig, model_name: str) -> dict[str, float]
     return {} if temperature is None else {"temperature": temperature}
 
 
+def _is_ollama_cloud(base_url: str) -> bool:
+    """Whether ``base_url`` is Ollama Cloud: ``ollama.com`` or a subdomain, over https.
+
+    Matched on the parsed hostname, not a substring, so ``ollama.company.lan`` and
+    ``ollama.com.attacker.example`` are not the cloud.
+
+    Raises:
+        RuntimeError: The host is Ollama Cloud but the scheme is not https, which
+            would send the key in cleartext.
+    """
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "").lower()
+    if host != _OLLAMA_CLOUD_HOST and not host.endswith(f".{_OLLAMA_CLOUD_HOST}"):
+        return False
+    if parsed.scheme != "https":
+        raise RuntimeError(
+            "OLLAMA_BASE_URL points at Ollama Cloud over "
+            f"{parsed.scheme or 'an unknown scheme'}; use https so the API key is "
+            "never sent in cleartext."
+        )
+    return True
+
+
+def _normalized_ollama_base_url(base_url: str) -> str:
+    """``base_url`` without a trailing slash or ``/v1`` segment.
+
+    ``ChatOllama`` appends ``/api/chat`` itself, so the OpenAI-style ``/v1`` suffix an
+    operator may copy from another client answers 404.
+    """
+    trimmed = base_url.strip().rstrip("/")
+    if trimmed.endswith("/v1"):
+        logger.warning(
+            "OLLAMA_BASE_URL ends in /v1, which ChatOllama does not take; using %s",
+            trimmed.removesuffix("/v1"),
+        )
+        return trimmed.removesuffix("/v1").rstrip("/")
+    return trimmed
+
+
 def _build_ollama(config: FundConfig, model_name: str) -> BaseChatModel:
     """Build a ``ChatOllama`` (SPEC D4 default provider).
 
-    Cloud (``base_url`` on ``ollama.com``) **requires** ``OLLAMA_API_KEY``; a local
-    ``base_url`` needs none but is given an explicit ``num_ctx``
-    (:attr:`FundConfig.ollama_num_ctx`): a local server otherwise applies its own
-    small default window and silently truncates the oldest tokens (system prompt,
-    tool schemas). The bearer ``Authorization`` header is attached iff a key is
-    present (so a local run may still authenticate a proxy). ``reasoning``
-    (the non-thinking flash route) and ``temperature=0`` thread the D4 contract;
-    ``reasoning=`` is Ollama-only — never pass it to another provider's class.
+    Cloud (``https://ollama.com`` or a subdomain) **requires** ``OLLAMA_API_KEY`` and
+    is the only host that receives it; a local ``base_url`` needs none but is given an
+    explicit ``num_ctx`` (:attr:`FundConfig.ollama_num_ctx`): a local server otherwise
+    applies its own small default window and silently truncates the oldest tokens
+    (system prompt, tool schemas). A non-cloud server is sent the key only when
+    ``OLLAMA_BASE_URL_SEND_KEY`` opts in (a keyed gateway), because compose mounts the
+    cloud key into the container whatever the base URL is. ``OLLAMA_BASE_URL`` must not
+    embed credentials and loses a trailing ``/v1``. ``reasoning`` (the non-thinking
+    flash route) and ``temperature=0`` thread the D4 contract; ``reasoning=`` is
+    Ollama-only — never pass it to another provider's class.
     """
     import httpx
     from langchain_ollama import ChatOllama
 
-    is_cloud = _OLLAMA_CLOUD_HOST in config.ollama_base_url
-    if is_cloud:
+    _reject_url_credentials(config.ollama_base_url, "OLLAMA_BASE_URL")
+    base_url = _normalized_ollama_base_url(config.ollama_base_url)
+    is_cloud = _is_ollama_cloud(base_url)
+    api_key = (
         _require(config.ollama_api_key, "OLLAMA_API_KEY")
+        if is_cloud or config.ollama_base_url_send_key
+        else None
+    )
 
     client_kwargs: dict[str, Any] = {
         "timeout": httpx.Timeout(
             _READ_TIMEOUT_SECONDS, connect=_CONNECT_TIMEOUT_SECONDS
         ),
     }
-    if config.ollama_api_key:
-        client_kwargs["auth"] = _BearerAuth(config.ollama_api_key)
+    if api_key:
+        client_kwargs["auth"] = _BearerAuth(api_key)
 
     context_kwargs: dict[str, Any] = (
         {} if is_cloud else {"num_ctx": config.ollama_num_ctx}
@@ -210,7 +260,7 @@ def _build_ollama(config: FundConfig, model_name: str) -> BaseChatModel:
 
     return ChatOllama(
         model=model_name,
-        base_url=config.ollama_base_url,
+        base_url=base_url,
         client_kwargs=client_kwargs,
         temperature=config.model_temperature,
         reasoning=config.model_reasoning,

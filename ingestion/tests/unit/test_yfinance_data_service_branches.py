@@ -55,7 +55,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -2055,7 +2054,7 @@ class TestRebaseSpansWholeStoredSeries:
             float(bar.close)
             for bar in repo.get_price_history(instrument.id, limit=10_000)
         ]
-        assert len(closes) == len(stored_span) + 1
+        assert len(closes) == len(stored_span)
         assert set(closes) == {100.0}
 
 
@@ -2373,10 +2372,7 @@ class TestNewsScraperBranches:
 
     def test_article_with_a_stored_body_is_not_scraped_again(self) -> None:
         repo = _make_repo()
-        repo.get_news.return_value = [
-            SimpleNamespace(news_uuid="stored", full_content="body from last run"),
-            SimpleNamespace(news_uuid="unscraped", full_content=None),
-        ]
+        repo.get_scraped_news_uuids.return_value = {"stored"}
         yf_client = _make_yf_client_silent()
         articles = [
             {"id": "stored", "content": {"canonicalUrl": {"url": "https://x.test/1"}}},
@@ -2401,6 +2397,11 @@ class TestNewsScraperBranches:
         assert "full_content" not in articles[0]
         repo.upsert_news.assert_called_once()
         assert result["counts"]["news"] == 3
+        # Only the ids in today's feed are asked about; the stored article
+        # bodies are never loaded.
+        repo.get_news.assert_not_called()
+        asked = repo.get_scraped_news_uuids.call_args.args
+        assert asked[1] == ["stored", "new", "unscraped"]
 
     def test_when_news_list_empty_then_counts_news_is_zero(self) -> None:
         repo = _make_repo()

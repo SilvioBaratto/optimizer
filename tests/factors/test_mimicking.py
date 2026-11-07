@@ -291,12 +291,14 @@ class TestHalfQuantileOddUniverse:
         assert result["factor_return"].notna().all()
 
     def test_beta_neutral_odd_universe_is_not_nan(self) -> None:
-        sc, rt = self._panel(5)
+        # The hedge needs 12 prior observations, so the first 12 dates are
+        # warm-up NaN by design; the odd universe must not add more.
+        sc, rt = self._panel(5, n_dates=30)
         market = rt.mean(axis=1)
         result = build_factor_mimicking_portfolios(
             sc, rt, quantile=0.5, beta_neutral=True, market_returns=market
         )
-        assert result["factor_return"].notna().all()
+        assert result["factor_return"].iloc[12:].notna().all()
 
     def test_single_valid_asset_is_still_nan(self) -> None:
         sc, rt = self._panel(1, n_dates=3)
@@ -575,3 +577,81 @@ class TestBuildAllFactorMimickingPortfolios:
             build_all_factor_mimicking_portfolios(
                 {"value": scores}, returns, quantile=0.9
             )
+
+
+class TestBetaNeutralIsCausal:
+    """The hedge ratio at a date may only use returns observed before it."""
+
+    N = 60
+    K = 12
+
+    @classmethod
+    def _panel(cls) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
+        rng = np.random.default_rng(5)
+        dates = pd.date_range("2018-01-31", periods=cls.N, freq="ME")
+        cols = [f"S{i:02d}" for i in range(N_ASSETS)]
+        market = pd.Series(rng.normal(0.005, 0.04, cls.N), index=dates)
+        betas = rng.uniform(0.5, 1.5, N_ASSETS)
+        rt = pd.DataFrame(
+            np.outer(market.to_numpy(), betas)
+            + rng.normal(0.0, 0.02, (cls.N, N_ASSETS)),
+            index=dates,
+            columns=cols,
+        )
+        sc = pd.DataFrame(
+            rng.standard_normal((cls.N, N_ASSETS)), index=dates, columns=cols
+        )
+        return sc, rt, market
+
+    def test_changing_later_returns_leaves_earlier_hedged_returns_unchanged(
+        self,
+    ) -> None:
+        sc, rt, market = self._panel()
+        base = build_factor_mimicking_portfolios(
+            sc, rt, beta_neutral=True, market_returns=market
+        )
+
+        rt_later = rt.copy()
+        market_later = market.copy()
+        rt_later.iloc[40:] *= 3.0
+        market_later.iloc[40:] *= -2.0
+        changed = build_factor_mimicking_portfolios(
+            sc, rt_later, beta_neutral=True, market_returns=market_later
+        )
+
+        pd.testing.assert_series_equal(
+            base["factor_return"].iloc[:40],
+            changed["factor_return"].iloc[:40],
+        )
+
+    def test_hedge_ratio_uses_only_prior_observations(self) -> None:
+        sc, rt, market = self._panel()
+        k = self.K
+        long_s, short_s = [], []
+        for date in sc.index:
+            ranked = sc.loc[date].sort_values(ascending=False).index
+            long_s.append(rt.loc[date, ranked[:k]].mean())
+            short_s.append(rt.loc[date, ranked[-k:]].mean())
+        long_s = pd.Series(long_s, index=sc.index)
+        short_s = pd.Series(short_s, index=sc.index)
+
+        result = build_factor_mimicking_portfolios(
+            sc, rt, quantile=0.30, beta_neutral=True, market_returns=market
+        )["factor_return"]
+
+        t = 30
+        past = slice(0, t)
+        beta_long = np.polyfit(market.iloc[past], long_s.iloc[past], 1)[0]
+        beta_short = np.polyfit(market.iloc[past], short_s.iloc[past], 1)[0]
+        expected = long_s.iloc[t] - (beta_long / beta_short) * short_s.iloc[t]
+        assert result.iloc[t] == pytest.approx(expected)
+
+    def test_warm_up_periods_are_nan_not_back_filled(self) -> None:
+        sc, rt, market = self._panel()
+
+        result = build_factor_mimicking_portfolios(
+            sc, rt, beta_neutral=True, market_returns=market
+        )["factor_return"]
+
+        assert result.iloc[:12].isna().all()
+        assert result.iloc[12:].notna().all()

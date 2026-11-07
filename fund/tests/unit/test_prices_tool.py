@@ -387,10 +387,10 @@ class TestAllocatorToolsSeeBaseCurrencyReturns:
         eur = optimize_portfolio(db_session, _FX_ASOF, ["USDX"], base_currency="EUR")
 
         assert raw["data"]["metrics"]["annualized_mean"] == pytest.approx(
-            raw_mean * 252
+            raw_mean * 365
         )
         assert eur["data"]["metrics"]["annualized_mean"] == pytest.approx(
-            eur_mean * 252
+            eur_mean * 365
         )
 
     def test_backtest_metrics_include_the_fx_return(self, db_session) -> None:
@@ -401,10 +401,10 @@ class TestAllocatorToolsSeeBaseCurrencyReturns:
         eur = backtest(db_session, _FX_ASOF, {"USDX": 1.0}, base_currency="EUR")
 
         assert raw["data"]["metrics"]["annualized_mean"] == pytest.approx(
-            raw_mean * 252
+            raw_mean * 365
         )
         assert eur["data"]["metrics"]["annualized_mean"] == pytest.approx(
-            eur_mean * 252
+            eur_mean * 365
         )
 
     def test_universe_filter_forwards_base_currency_to_the_loader(
@@ -632,8 +632,10 @@ class TestGetPricesStatistics:
             "AAA"
         ]
 
-        trailing = pd.Series(closes).tail(253)
-        expected = trailing.pct_change().dropna().std(ddof=1) * np.sqrt(252)
+        # Consecutive calendar days: a year holds 365 bars, so the trailing window is
+        # 366 closes and the annualisation is sqrt(365).
+        trailing = pd.Series(closes).tail(366)
+        expected = trailing.pct_change().dropna().std(ddof=1) * np.sqrt(365)
         assert stats["realised_vol"] == pytest.approx(expected)
 
     def test_each_ticker_gets_its_own_statistics(self, db_session) -> None:

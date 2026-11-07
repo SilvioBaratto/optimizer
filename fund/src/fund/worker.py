@@ -8,9 +8,12 @@ orphan reaper — mirroring ``ingestion/app/worker.py`` with the fund deltas.
 Boot sequence (``main``):
 
 1. ``load_project_env()`` **first**, before any import reads the environment.
-2. ``_configure_logging()`` → ``_install_signal_handlers()`` (SIGTERM **and** SIGINT
-   set a module ``threading.Event``; installed before the slow steps because PID 1
-   ignores a signal it has no handler for).
+2. ``clear_heartbeat()`` (a heartbeat file left by a previous process must not
+   satisfy the container probe), ``_configure_logging()`` →
+   ``_install_signal_handlers()`` (SIGTERM **and** SIGINT set a module
+   ``threading.Event``; installed before the slow steps because PID 1 ignores a signal
+   it has no handler for — a bare exit-on-SIGTERM handler covers the imports before
+   that).
 3. ``init_db()`` + ``health_check()`` (a failed check warns but does not abort —
    the engine is lazy and a transient blip must not stop a deploy).
 4. Build the lifetime runtime **once** — ``build_primary``/``build_fallback``
@@ -44,6 +47,19 @@ so a bare ``import fund.worker`` stays agent-stack-free and imports no
 
 from __future__ import annotations
 
+# As the container's command the process is PID 1 after the entrypoint's exec, where
+# the kernel drops a SIGTERM that has no handler, and the imports below take seconds
+# before ``main`` installs the real ones. A stop landing in that window would run out
+# the grace period and end in SIGKILL; there is nothing to drain yet, so leave at once.
+if __name__ == "__main__":
+    import os as _os
+    import signal as _signal
+
+    def _exit_on_early_sigterm(signum: int, _frame: object) -> None:
+        _os._exit(128 + signum)
+
+    _signal.signal(_signal.SIGTERM, _exit_on_early_sigterm)
+
 # Load environment variables FIRST, before any other import reads them. An exported
 # variable keeps precedence over the .env (see ``load_project_env``).
 from fund.config import load_project_env
@@ -53,6 +69,7 @@ load_project_env()
 import logging
 import os
 import signal
+import socket
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -61,7 +78,7 @@ from typing import TYPE_CHECKING
 
 from fund.config import settings, silence_http_request_logs
 from fund.database import close_db, database_manager, init_db
-from fund.healthcheck import touch_heartbeat
+from fund.healthcheck import clear_heartbeat, touch_heartbeat
 from fund.scheduler import SchedulerRuntime, configure_runtime, create_scheduler
 
 if TYPE_CHECKING:
@@ -140,27 +157,49 @@ def _reconcile_orphans(*, session_factory: SessionFactory | None = None) -> None
 
 
 def _fail_in_flight_slots(*, session_factory: SessionFactory | None = None) -> None:
-    """Fail every active fund slot so an abandoned step is not left ``running``.
+    """Fail this process's active fund slots so an abandoned step is not left running.
 
     Run only after a timed-out drain, when the process is about to exit and the
     heartbeat thread dies with it. Without this the slot would stay ``running`` until
-    its lease expired, blocking the next scheduled run of that type. Lease timeout 0
-    matches every active row: with exactly one daemon per DB they are all this
-    process's. Status-guarded transitions mean the abandoned step's own late
-    ``mark_done`` can no longer flip the row back to ``completed``. **Non-fatal**: a
-    DB failure logs and returns so the exit is never blocked.
+    its lease expired, blocking the next scheduled run of that type. Only the rows this
+    process claimed are failed (``worker_pid`` and ``worker_host`` as stamped at claim):
+    a manual ``python -m fund.scheduler`` run holds a slot of its own, and failing it
+    would end its heartbeats and let the next daemon claim the same job type while that
+    run is still driving the portfolio. Status-guarded, so the abandoned step's own late
+    ``mark_done`` can no longer flip the row back to ``completed``. **Non-fatal**: a DB
+    failure logs and returns so the exit is never blocked.
     """
-    from fund.audit.fund_job_repository import FundJobRepository
+    from datetime import UTC, datetime
+
+    from portopt_db.models import BackgroundJob
+    from portopt_db.models.jobs.background_job import FUND_JOB_TYPES
+    from sqlalchemy import update
 
     factory = session_factory or database_manager.get_session
     try:
+        now = datetime.now(UTC)
         with factory() as session:
-            n = FundJobRepository(session).reap_orphans(
-                "abandoned at shutdown — drain timeout exceeded",
-                heartbeat_timeout_seconds=0,
+            result = session.execute(
+                update(BackgroundJob)
+                .where(
+                    BackgroundJob.job_type.in_(FUND_JOB_TYPES),
+                    BackgroundJob.status.in_(("pending", "running")),
+                    BackgroundJob.worker_pid == os.getpid(),
+                    BackgroundJob.worker_host == socket.gethostname(),
+                )
+                .values(
+                    status="failed",
+                    error="abandoned at shutdown — drain timeout exceeded",
+                    finished_at=now,
+                    updated_at=now,
+                ),
+                execution_options={"synchronize_session": False},
             )
             session.commit()
-        logger.warning("Failed %d in-flight fund job(s) abandoned at shutdown", n)
+        logger.warning(
+            "Failed %d in-flight fund job(s) abandoned at shutdown",
+            int(getattr(result, "rowcount", 0) or 0),
+        )
     except Exception as exc:
         logger.warning("Could not fail in-flight fund jobs at shutdown: %s", exc)
 
@@ -248,6 +287,7 @@ def main() -> None:
     """Run the fund daemon until a shutdown signal arrives."""
     _configure_logging()
     logger.info("Starting fund daemon")
+    clear_heartbeat()
     # First, before the slow boot steps: as a container's PID 1 the process ignores
     # SIGTERM until it has a handler, so a stop during boot would run out the grace
     # period and end in SIGKILL.

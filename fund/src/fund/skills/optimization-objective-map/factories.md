@@ -9,7 +9,10 @@ in the skill), so never present a skeleton as what was run, and never invent a k
 the skeleton shows but the ConstraintSet does not carry.
 
 Names used below come from the ConstraintSet: `a_gamma` (risk aversion), `beta` (tail
-confidence), `cap` (`bounds.max_weights`), `cardinality`. Each `MeanRiskConfig` block
+confidence), `cap` (`bounds.max_weights`), `cardinality`; `prior_config` carries the
+moment estimators of `moments_estimator` (shown for `ledoit_wolf`; `empirical` swaps
+the covariance estimator, `ew` the mean and covariance), the same ones
+`estimate_moments` is shown with. Each `MeanRiskConfig` block
 sets every knob the mapper sets, so it equals `to_mean_risk_config()` field for field:
 `risk_aversion` only acts under MAXIMIZE_UTILITY and each tail confidence only under
 its own measure (`cvar_beta` for CVAR, `cdar_beta` for CDAR), so swapping the risk
@@ -19,6 +22,7 @@ measure needs no other edit. Feed LINEAR returns (`prices_to_returns`) and keep
 ## protection → MINIMIZE_RISK (QP / LP)
 
 ```python
+from optimizer.moments import CovEstimatorType, MomentEstimationConfig
 from optimizer.optimization import (
     MeanRiskConfig,
     ObjectiveFunctionType,
@@ -36,6 +40,7 @@ config = MeanRiskConfig(
     max_weights=cap,
     budget=1.0,
     cardinality=cardinality,
+    prior_config=MomentEstimationConfig(cov_estimator=CovEstimatorType.LEDOIT_WOLF),
 )
 model = build_mean_risk(config)
 ```
@@ -43,6 +48,7 @@ model = build_mean_risk(config)
 ## income / growth → MAXIMIZE_UTILITY (QP)
 
 ```python
+from optimizer.moments import CovEstimatorType, MomentEstimationConfig
 from optimizer.optimization import (
     MeanRiskConfig,
     ObjectiveFunctionType,
@@ -60,6 +66,7 @@ config = MeanRiskConfig(
     max_weights=cap,
     budget=1.0,
     cardinality=cardinality,
+    prior_config=MomentEstimationConfig(cov_estimator=CovEstimatorType.LEDOIT_WOLF),
 )
 model = build_mean_risk(config)
 ```
@@ -67,6 +74,7 @@ model = build_mean_risk(config)
 ## max → MAXIMIZE_RATIO (SOCP)
 
 ```python
+from optimizer.moments import CovEstimatorType, MomentEstimationConfig
 from optimizer.optimization import (
     MeanRiskConfig,
     ObjectiveFunctionType,
@@ -85,6 +93,7 @@ config = MeanRiskConfig(
     max_weights=cap,
     budget=1.0,
     cardinality=cardinality,
+    prior_config=MomentEstimationConfig(cov_estimator=CovEstimatorType.LEDOIT_WOLF),
 )
 model = build_mean_risk(config)
 ```

@@ -31,10 +31,12 @@ import contextlib
 import logging
 import os
 import signal
+import socket
 import subprocess
 import sys
 import textwrap
 import threading
+import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -89,8 +91,19 @@ def _clear_shutdown() -> Generator[None, None, None]:
     worker._shutdown.clear()
 
 
-def _insert_slot(factory, *, job_type: str, heartbeat: str) -> None:
-    """Seed one active fund slot with a ``fresh`` or ``stale`` heartbeat."""
+def _insert_slot(
+    factory,
+    *,
+    job_type: str,
+    heartbeat: str,
+    pid: int | None = None,
+    host: str | None = None,
+) -> None:
+    """Seed one active fund slot with a ``fresh`` or ``stale`` heartbeat.
+
+    The slot is stamped as claimed by this process unless ``pid``/``host`` say
+    otherwise, the way ``claim_or_create`` stamps a real claim.
+    """
     hb = (
         datetime.now(UTC)
         if heartbeat == "fresh"
@@ -103,6 +116,8 @@ def _insert_slot(factory, *, job_type: str, heartbeat: str) -> None:
                 status="running",
                 started_at=datetime.now(UTC),
                 last_heartbeat_at=hb,
+                worker_pid=os.getpid() if pid is None else pid,
+                worker_host=socket.gethostname() if host is None else host,
             )
         )
         session.commit()
@@ -152,6 +167,32 @@ def test_fail_in_flight_slots_fails_a_fresh_active_fund_slot(job_factory) -> Non
     assert row.status == "failed"
     assert row.finished_at is not None
     assert "drain timeout" in (row.error or "")
+
+
+@pytest.mark.parametrize(
+    ("pid", "host"),
+    [(os.getpid() + 1, None), (None, "another-host")],
+    ids=["other-pid", "other-host"],
+)
+def test_fail_in_flight_slots_spares_a_slot_another_process_is_running(
+    job_factory, pid, host
+) -> None:
+    # A manual `python -m fund.scheduler rebalance-sweep` holds its own slot; failing
+    # it would stop its heartbeats and let the next daemon claim the type while the
+    # sweep is still driving the portfolio.
+    _insert_slot(
+        job_factory,
+        job_type="fund_rebalance_sweep",
+        heartbeat="fresh",
+        pid=pid,
+        host=host,
+    )
+
+    worker._fail_in_flight_slots(session_factory=job_factory)
+
+    with job_factory() as session:
+        row = session.query(BackgroundJob).one()
+    assert row.status == "running"
 
 
 def test_fail_in_flight_slots_spares_non_fund_jobs(job_factory) -> None:
@@ -449,6 +490,24 @@ def test_scheduler_alive_notices_a_loop_thread_killed_by_a_jobstore_error() -> N
         scheduler.shutdown(wait=False)
 
 
+def test_main_clears_a_heartbeat_left_by_the_previous_process(
+    monkeypatch, tmp_path
+) -> None:
+    # The file lives in /tmp and survives `compose restart`, so for up to its max age
+    # the probe would pass before the new worker had beaten once.
+    beat = tmp_path / "beat"
+    beat.touch()
+    monkeypatch.setenv("FUND_HEARTBEAT_FILE", str(beat))
+    stubs = _install_main_stubs(monkeypatch, healthy=True)
+    seen: list[bool] = []
+    monkeypatch.setattr(worker, "init_db", lambda: seen.append(beat.exists()))
+
+    worker.main()
+
+    assert seen == [False]
+    stubs.scheduler.start.assert_called_once()
+
+
 def test_main_beats_the_heartbeat_while_the_scheduler_thread_lives(monkeypatch) -> None:
     stubs = _install_main_stubs(monkeypatch, healthy=True)
     ticks = iter([False, False, True])
@@ -486,3 +545,51 @@ def test_import_fund_worker_is_agent_stack_free() -> None:
         """
     )
     subprocess.run([sys.executable, "-c", code], check=True)  # noqa: S603
+
+
+# --- SIGTERM while the module is still importing -----------------------------
+
+
+def test_sigterm_during_the_imports_is_handled_not_left_to_the_kernel(
+    tmp_path,
+) -> None:
+    # As the container's PID 1 the process has no default SIGTERM action: a signal that
+    # arrives before main() installs its handlers is dropped, and the stop ends in
+    # SIGKILL. The entrypoint's exec lands in these imports for a few seconds, so the
+    # module must already be handling the signal by then. A real PID 1 cannot be had
+    # here, so the test asserts the handler's exit status, which the default action
+    # (death by signal) would not produce.
+    stub = tmp_path / "stubs" / "apscheduler"
+    stub.mkdir(parents=True)
+    marker = tmp_path / "importing"
+    (stub / "__init__.py").write_text(
+        f"import pathlib, time\npathlib.Path({str(marker)!r}).touch()\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join(
+            [str(tmp_path / "stubs"), os.environ.get("PYTHONPATH", "")]
+        ),
+    }
+    env.pop("DATABASE_URL", None)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "fund.worker"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 60
+        while not marker.exists():
+            assert proc.poll() is None, "the worker exited before reaching the import"
+            assert time.monotonic() < deadline, "the import never started"
+            time.sleep(0.05)
+
+        proc.send_signal(signal.SIGTERM)
+
+        assert proc.wait(timeout=10) == 143
+    finally:
+        if proc.poll() is None:
+            proc.kill()

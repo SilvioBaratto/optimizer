@@ -902,3 +902,108 @@ class TestIntegration:
 
         # High confidence should be closer to the view target
         assert abs(mu_high - view_target) < abs(mu_low - view_target)
+
+
+class TestMarketWeightsSurvivePreSelection:
+    """Pre-selection drops assets inside a pipeline; label-indexed market caps
+    must still line up with the surviving columns."""
+
+    def test_portfolio_pipeline_fits_when_an_asset_is_dropped(self) -> None:
+        from skfolio.optimization import MeanRisk
+
+        from optimizer.pre_selection import build_portfolio_pipeline
+
+        rng = np.random.default_rng(0)
+        cols = list("ABCDEFGH")
+        X = pd.DataFrame(
+            rng.normal(0.0005, 0.01, (250, 8)),
+            index=pd.bdate_range("2023-01-02", periods=250),
+            columns=cols,
+        )
+        X["H"] = X["G"] + rng.normal(0, 1e-5, 250)
+        caps = pd.Series([5, 4, 3, 2, 1, 1, 1, 1], index=cols, dtype=float) * 1e11
+        cfg = BlackLittermanConfig.for_equilibrium(views=("B == 0.0004",))
+        bl = build_black_litterman(cfg, market_weights=caps)
+        pipe = build_portfolio_pipeline(MeanRisk(prior_estimator=bl))
+
+        pipe.fit(X)
+
+        kept = list(pipe[-1].feature_names_in_)
+        assert len(kept) == 7
+        assert pipe[-1].weights_.shape == (7,)
+
+
+class TestAvailableAssetViewsPrior:
+    """Views on assets absent from the fitted frame are set aside, and every
+    parameter indexed by view is subset with them."""
+
+    @staticmethod
+    def _returns(columns: str = "ABCD") -> pd.DataFrame:
+        rng = np.random.default_rng(0)
+        return pd.DataFrame(
+            rng.normal(0.0005, 0.01, (250, len(columns))),
+            index=pd.bdate_range("2023-01-02", periods=250),
+            columns=list(columns),
+        )
+
+    def test_empirical_omega_is_subset_with_the_views(self) -> None:
+        from optimizer.views._factory import AvailableAssetViewsPrior
+
+        cfg = BlackLittermanConfig(
+            views=("A == 0.0004", "Z == 0.0003"),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        template = build_black_litterman(cfg, omega=np.diag([1e-6, 2e-6]))
+        wrapped = AvailableAssetViewsPrior(template, ("A", "Z"))
+
+        wrapped.fit(self._returns())
+
+        direct = build_black_litterman(
+            BlackLittermanConfig(
+                views=("A == 0.0004",),
+                uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+            ),
+            omega=np.diag([1e-6]),
+        ).fit(self._returns())
+        np.testing.assert_allclose(
+            wrapped.return_distribution_.mu, direct.return_distribution_.mu
+        )
+
+    def test_empirical_omega_keeps_the_matching_diagonal_entry(self) -> None:
+        from optimizer.views._factory import AvailableAssetViewsPrior
+
+        cfg = BlackLittermanConfig(
+            views=("Z == 0.0003", "A == 0.0004"),
+            uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+        )
+        template = build_black_litterman(cfg, omega=np.diag([1e-6, 5e-6]))
+        wrapped = AvailableAssetViewsPrior(template, ("Z", "A"))
+
+        wrapped.fit(self._returns())
+
+        direct = build_black_litterman(
+            BlackLittermanConfig(
+                views=("A == 0.0004",),
+                uncertainty_method=ViewUncertaintyMethod.EMPIRICAL_TRACK_RECORD,
+            ),
+            omega=np.diag([5e-6]),
+        ).fit(self._returns())
+        np.testing.assert_allclose(
+            wrapped.return_distribution_.mu, direct.return_distribution_.mu
+        )
+
+    def test_no_surviving_view_falls_back_to_the_equilibrium_prior(self) -> None:
+        from skfolio.moments import EquilibriumMu
+        from skfolio.prior import EmpiricalPrior
+
+        from optimizer.views._factory import AvailableAssetViewsPrior
+
+        template = BlackLitterman(views=["Z == 0.001"])
+        returns = self._returns()
+
+        wrapped = AvailableAssetViewsPrior(template, ("Z",)).fit(returns)
+
+        equilibrium = (
+            EmpiricalPrior(mu_estimator=EquilibriumMu()).fit(returns)
+        ).return_distribution_
+        np.testing.assert_allclose(wrapped.return_distribution_.mu, equilibrium.mu)
