@@ -1,12 +1,12 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'win32'",
-    "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version >= '3.15' and sys_platform == 'emscripten'",
-    "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version >= '3.15' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.14.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version < '3.14' and sys_platform == 'win32'",
     "python_full_version < '3.14' and sys_platform == 'emscripten'",
@@ -1273,8 +1273,8 @@ name = "httpcore2"
 version = "2.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11", marker = "sys_platform != 'emscripten'" },
-    { name = "truststore", marker = "sys_platform != 'emscripten'" },
+    { name = "h11" },
+    { name = "truststore" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/15/8c/e925b1c92018abb3a1863ce1549d76d2381e334d21d65d4ac8f65dabd78a/httpcore2-2.13.0.tar.gz", hash = "sha256:2adc8be4fb285fbcd6d894298db3b52c177e74b6674eda3a76bd36be3292a3db", size = 67740, upload-time = "2026-09-14T14:18:04.717Z" }
 wheels = [
@@ -1736,7 +1736,7 @@ wheels = [
 
 [[package]]
 name = "langchain-openai"
-version = "1.6.5"
+version = "1.7.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
@@ -1744,9 +1744,9 @@ dependencies = [
     { name = "openai" },
     { name = "tiktoken" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/86/13/b33a75e2cda8589f8570c40ef1a1fe201291b725f68a3515c8282d83ac35/langchain_openai-1.6.5.tar.gz", hash = "sha256:d79b46b2009ce999c1efb1671173bab4932153fc6f6f495f7eb507294e9c5778", size = 3306162, upload-time = "2026-09-23T15:31:40.027Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/f5/a430230cb50b4b4ade021a5fe5df5a8c5adefa468435d460d2f77f2506ea/langchain_openai-1.7.3.tar.gz", hash = "sha256:c1d2d0fbd4f542ddcdf176c07abcf4d86c3b716513929250bbef04e3efc5e0b5", size = 3407726, upload-time = "2026-10-26T23:08:33.98Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/5e/5ef3bcf2cfcd718865c1d88355932bebd1757b9bc9b3645a5a14a76bad2f/langchain_openai-1.6.5-py3-none-any.whl", hash = "sha256:e98d66719024d15b124b556c216b4d22f51b2ebb0aec8a4cc7563cc089ed89f1", size = 127328, upload-time = "2026-09-23T15:31:38.823Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/52/5bcba40b1d7e46f352a727c57c231b820069bc83310f97933e10eccbd935/langchain_openai-1.7.3-py3-none-any.whl", hash = "sha256:0ab77cc4579b87c50823b7ccb5d8af48d6c6ae2084f156dcdc37151fcc0717e6", size = 146342, upload-time = "2026-10-26T23:08:32.577Z" },
 ]
 
 [[package]]
