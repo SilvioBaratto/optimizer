@@ -101,7 +101,7 @@ async def test_the_questionnaire_does_not_open_during_a_round(
     app = _shell(env)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        app._launch_run(PORTFOLIO_ID, None)
+        round_worker = app._launch_run(PORTFOLIO_ID, None)
         await _wait_until(pilot, blocking_run.entered.is_set)
 
         getattr(app, key)()
@@ -109,7 +109,13 @@ async def test_the_questionnaire_does_not_open_during_a_round(
 
         assert not isinstance(app.screen, QuestionnaireScreen)
         assert "in progress" in app.last_status
+
+        # The round reports back on the app's thread when it ends; leaving the app
+        # before that lands tears the status bar down under the callback (it lost
+        # that race on the slower Python 3.13 runner).
         blocking_run.release.set()
+        await round_worker.wait()
+        await _wait_until(pilot, lambda: not app._round_in_flight())
 
 
 @pytest.mark.asyncio
