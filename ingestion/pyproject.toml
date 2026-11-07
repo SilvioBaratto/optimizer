@@ -13,7 +13,7 @@ dependencies = [
     # Configuration
     "python-dotenv==1.2.3",
     "pydantic==2.14.1",
-    "pydantic-settings==2.15.0",
+    "pydantic-settings==2.16.2",
     # Database: the engine/models/migrations live in portopt-db (inherited via
     # the workspace dep below). SQLAlchemy stays a direct dep — services type
     # against Session / use text(); psycopg2-binary + alembic are transitive.
