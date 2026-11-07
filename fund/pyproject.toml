@@ -19,7 +19,7 @@ dependencies = [
     # Agent runtime. deepagents is pre-1.0 and moves fast — pinned exactly to the
     # version whose API was verified by live exit probes (StoreBackend
     # instance, ModelFallbackMiddleware, skills preload).
-    "deepagents==0.7.14",
+    "deepagents==0.7.32",
     "langgraph",
     # Durable checkpointer + store on a dedicated `langgraph` Postgres schema.
     # psycopg + pool are the connection layer PostgresSaver/PostgresStore drive.
