@@ -193,6 +193,21 @@ jobs:
 
   # Parses the compose file and builds both shipped images, so a broken
   # Dockerfile or compose edit fails here instead of on a user's `portopt start`.
+  # install.ps1 is the Windows front door and no other job executes it. The check script
+  # runs it against stub git, uv and portopt under Windows PowerShell 5.1 (`shell:
+  # powershell`) and under PowerShell 7 (`shell: pwsh`).
+  windows-install:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: install.ps1 under Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/ci/check-install-ps1.ps1
+      - name: install.ps1 under PowerShell 7
+        shell: pwsh
+        run: ./scripts/ci/check-install-ps1.ps1
+
   docker-images:
     runs-on: ubuntu-latest
     timeout-minutes: 45

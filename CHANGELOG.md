@@ -300,7 +300,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checkout's `uv.lock` (a failed pinned install is retried without them), and
   `install.ps1` now updates an existing checkout (fast-forward only, refusing a
   checkout of another repo) and stops when it cannot, as `install.sh` does. The CI
-  boot test also starts and stops the fund container on a placeholder provider key.
+  boot test also starts and stops the fund container on a placeholder provider key,
+  and a `windows-install` job runs `install.ps1` against stub git, uv and portopt on
+  a Windows runner under Windows PowerShell 5.1 and PowerShell 7.
 - **ops**: on a Linux host the fund container runs as the invoking user
   (`PORTOPT_FUND_UID` / `PORTOPT_FUND_GID`, handed to every compose call and
   defaulting to the image's 1000), so TUI exports to `./exports` are writable and

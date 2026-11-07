@@ -320,6 +320,39 @@ def test_pyright_gate_fails_on_warnings_in_ci_and_in_make() -> None:
     assert any("pyright" in line and "--warnings" in line for line in make_lines)
 
 
+_INSTALL_CHECK = _REPO_ROOT / "scripts" / "ci" / "check-install-ps1.ps1"
+
+
+def test_windows_job_runs_install_ps1_under_both_powershell_engines() -> None:
+    """``install.ps1`` is the Windows front door, so it runs on a real Windows runner.
+
+    ``shell: powershell`` is Windows PowerShell 5.1 and ``shell: pwsh`` is PowerShell
+    7; the script has to work under both, and no other job executes it.
+    """
+    job = _jobs()["windows-install"]
+    steps = [step for step in _steps(job) if "run" in step]
+
+    assert job["runs-on"] == "windows-latest"
+    assert {"powershell", "pwsh"} <= {step.get("shell") for step in steps}
+    assert all("check-install-ps1.ps1" in step["run"] for step in steps)
+    assert _INSTALL_CHECK.is_file()
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not installed")
+def test_the_install_ps1_check_passes_under_pwsh() -> None:
+    """The harness the Windows job runs also passes where PowerShell 7 is installed."""
+    pwsh = shutil.which("pwsh")
+    assert pwsh is not None
+    done = subprocess.run(  # noqa: S603 - fixed interpreter + our own check script
+        [pwsh, "-NoProfile", "-File", str(_INSTALL_CHECK)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+
+
 def _codecov_steps() -> list[dict[str, Any]]:
     return [
         step
