@@ -59,6 +59,7 @@ from textual.widgets import (
 from fund import observe
 from fund.config import FundConfig, settings
 from fund.tui import ask
+from fund.tui.ask_history import AskHistory, scope_of
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.exports import export_path
 from fund.tui.questionnaire import QuestionnaireScreen, describe_error
@@ -412,7 +413,7 @@ VIEW-SCOPED
   Decisions     e edit weights   s steer PM
   Mandate       x remove directive
   Performance   ↵ drill into a holding
-  Ask           ↵ ask   shift+tab log, then e export
+  Ask           ↵ ask   /clear delete history   shift+tab log, then e export
   Daily brief   ← / → day   ↵ deliberation   e export   esc sidebar"""
 
 
@@ -728,6 +729,10 @@ class ShellApp(App[None]):
         # Held by a profile / run / stream thread for as long as it lives (see
         # ``_round_flight``).
         self._round_lock = threading.Lock()
+        # Held for the length of one Ask turn: the turns of a scope share one agent
+        # thread, and ``exclusive=True`` only flags an older worker cancelled while its
+        # thread keeps running.
+        self._ask_lock = threading.Lock()
         # Serialises mandate saves: ``exclusive=True`` only flags the older worker
         # cancelled while its thread keeps running, so two ctrl+s presses would
         # otherwise write the same portfolio at once.
@@ -982,6 +987,8 @@ class ShellApp(App[None]):
         view = self._current_view()
         if view is not None:
             view.refresh_view()
+            if isinstance(view, AskView):
+                self._sync_ask_history(view)
 
     def _current_view(self) -> ShellView | None:
         """The visible content pane's view, or ``None`` before one is selected."""
@@ -2753,6 +2760,90 @@ class ShellApp(App[None]):
             return
         self._set_status(f"exported ask to {written}")
 
+    def _sync_ask_history(self, view: AskView) -> None:
+        """Show the focused scope's saved conversation, loading it only on a change.
+
+        Runs on every repaint of the Ask view, so a portfolio picked in the header
+        switches the conversation on the next tick. A history that cannot be read leaves
+        Ask working in memory, as before, and says so on the status line.
+        """
+        scope = scope_of(self._portfolio_id)
+        if view.history_scope == scope:
+            return
+        store = getattr(self._persistence, "store", None)
+        try:
+            view.bind_history(
+                AskHistory(store, scope) if store is not None else None, scope
+            )
+        except Exception as exc:  # an unreadable history must not end the cockpit
+            logger.warning("ask history unreadable", exc_info=True)
+            view.bind_history(None, scope)
+            self._set_status(f"saved Ask history unavailable: {exc}")
+
+    def _ask_busy(self) -> bool:
+        """Whether an Ask answer is still being produced.
+
+        Read from the lock rather than the worker list: a cancelled worker is reported
+        finished while its agent thread is still writing.
+        """
+        return self._ask_lock.locked()
+
+    def ask_clear(self) -> None:
+        """Delete the focused scope's Ask conversation after a confirmation.
+
+        Typed as ``/clear`` in the Ask box.
+
+        The confirm names what goes: every saved message and the agent's memory of
+        them. It defaults to Cancel, since the deletion cannot be undone. Refused while
+        an answer is still being written, because the agent would save its memory again
+        after the delete.
+        """
+        view = self._active_ask_view()
+        if view is None:
+            return
+        if self._ask_busy():
+            self._set_status("wait for the answer before clearing the history")
+            return
+        scope = scope_of(self._portfolio_id)
+
+        def _resolved(ok: bool | None) -> None:
+            if ok:
+                self.last_worker = self._ask_clear_worker(view, scope)
+
+        label = "the whole fund" if scope == "fund" else f"portfolio {scope[:8]}"
+        self.push_screen(
+            ConfirmScreen(
+                f"Delete the Ask conversation for {label}?\n\n"
+                "Every saved question and answer is erased for good and Ask forgets "
+                "them. This cannot be undone."
+            ),
+            _resolved,
+        )
+
+    @work(thread=True, group="ask-clear")
+    def _ask_clear_worker(self, view: AskView, scope: str) -> None:
+        """Delete the saved messages, then the agent's memory and files, off the loop.
+
+        The screen is emptied only after both deletions succeed, so a failure never
+        shows a conversation as gone while it is still stored.
+        """
+        from fund.agents.ask_agent import clear_ask_state
+
+        store = getattr(self._persistence, "store", None)
+        try:
+            removed = AskHistory(store, scope).clear() if store is not None else 0
+            clear_ask_state(self._persistence.saver, scope)
+        except Exception as exc:  # report it; never claim a clear that did not happen
+            logger.warning("clearing the Ask history failed", exc_info=True)
+            self.call_from_thread(
+                self._set_status, f"could not delete the history: {exc}"
+            )
+            return
+        self.call_from_thread(view.clear_log)
+        self.call_from_thread(
+            self._set_status, f"Ask history deleted ({removed} messages)"
+        )
+
     def _active_ask_view(self) -> AskView | None:
         """The Ask view when it is the active content pane, else ``None``."""
         try:
@@ -2765,20 +2856,20 @@ class ShellApp(App[None]):
 
     @work(thread=True, exclusive=True, group="ask")
     def _ask_worker(self, turn: str, view: AskView) -> None:
-        """Summarize a grounded context into an answer off the event loop (lazy model).
+        """Answer one question with the read-only deep agent, off the event loop.
 
-        Builds the grounded context from the agent-stack-free read model, lazily builds
-        the chat model via the injected factory, invokes it on this worker thread, and
-        marshals the answer back via ``call_from_thread``. ``view`` is resolved by the
-        caller on the event loop and passed in — this thread never queries the DOM,
-        touching the view only through ``call_from_thread``. A missing/failed model
-        degrades to a status line + a log note, never a crash. A newer question cancels
-        this worker, but a thread cannot be force-stopped, so every paint is dropped
-        once it is cancelled: a slow stale reply never lands under the newer question.
-        The langchain message types are imported lazily so ``import fund.tui.app`` stays
-        agent-stack-light.
+        Lazily builds the chat model via the injected factory and the agent over it,
+        runs the question on this worker thread (each tool the agent calls is shown on
+        the status line as it happens), and marshals the answer back via
+        ``call_from_thread``. ``view`` is resolved by the caller on the event loop and
+        passed in — this thread never queries the DOM, touching the view only through
+        ``call_from_thread``. A missing/failed model degrades to a status line + a log
+        note, never a crash. A newer question cancels this worker, but a thread cannot
+        be force-stopped, so every paint is dropped once it is cancelled: a slow stale
+        reply never lands under the newer question. The turns of one scope share one
+        agent thread, so they run one at a time under ``_ask_lock``. The agent stack is
+        imported lazily so ``import fund.tui.app`` stays agent-stack-light.
         """
-        from langchain_core.messages import HumanMessage, SystemMessage
         from textual.worker import get_current_worker
 
         worker = get_current_worker()
@@ -2804,21 +2895,34 @@ class ShellApp(App[None]):
             deliver(self._set_status, "no model configured")
             deliver(view.append_log, "ask", "(no model configured)")
             return
-        try:
-            with self._session_factory() as session:
-                context = ask.build_context(
-                    session, self._persistence.saver, focus, turn
+        from fund.agents.ask_agent import build_ask_agent, run_ask_turn
+
+        scope = scope_of(focus)
+        with self._ask_lock:
+            if worker.is_cancelled:
+                return
+            try:
+                agent = build_ask_agent(
+                    model=model,
+                    session_factory=self._session_factory,
+                    persistence=self._persistence,
+                    scope=scope,
+                    focus=focus,
+                    config=self._config,
                 )
-                session.rollback()
-            prompt = [
-                SystemMessage(content=_ASK_SYSTEM),
-                HumanMessage(content=f"{context}\n\nQUESTION: {turn}"),
-            ]
-            answer = _answer_text(model.invoke(prompt))
-        except Exception as exc:  # surface a clean message, never crash the App
-            deliver(self._set_status, f"ask failed: {exc}")
-            deliver(view.append_log, "ask", f"(ask failed: {exc})")
-            return
+                answer = run_ask_turn(
+                    agent,
+                    scope=scope,
+                    question=turn,
+                    on_step=lambda step: deliver(self._set_status, f"ask: {step}…"),
+                    max_steps=self._config.ask_max_steps,
+                    timeout_seconds=self._config.ask_timeout_seconds,
+                )
+            except Exception as exc:  # surface a clean message, never crash the App
+                deliver(self._set_status, f"ask failed: {exc}")
+                deliver(view.append_log, "ask", f"(ask failed: {exc})")
+                return
+        deliver(self._set_status, "ask: answered")
         deliver(view.set_answer, answer)
 
     # --- header picker + run state -----------------------------------------
@@ -2959,16 +3063,6 @@ class ShellApp(App[None]):
         self.query_one("#status-bar", Static).update(message)
 
 
-# The Ask summarizer's system prompt. Deliberately carries no fund-role marker (unlike
-# the PM/subagent prompts) so it never trips a role-aware scripted model into a wrong
-# script, and instructs the model to answer only from the grounded context.
-_ASK_SYSTEM = (
-    "You are the fund supervisor's analyst. Answer the question using only the "
-    "grounded FUND STATE context below. Be concise and specific; if the context does "
-    "not contain the answer, say so plainly rather than speculating."
-)
-
-
 def _recorded_train_size(optimizer_config: dict[str, Any] | None) -> int | None:
     """The backtest training window a run recorded, or ``None`` if it recorded none.
 
@@ -2976,18 +3070,6 @@ def _recorded_train_size(optimizer_config: dict[str, Any] | None) -> int | None:
     """
     config = optimizer_config or {}
     return config.get("backtest_train_size", config.get("lookback_days"))
-
-
-def _answer_text(message: Any) -> str:
-    """Flatten a chat model reply's ``content`` (a str or a list of content blocks)."""
-    content = getattr(message, "content", "")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return " ".join(
-            block.get("text", "") for block in content if isinstance(block, dict)
-        )
-    return str(content)
 
 
 # The spelled-out consequence per Ask action verb, for the confirm dialog.

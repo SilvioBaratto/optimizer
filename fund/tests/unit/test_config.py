@@ -133,6 +133,9 @@ def test_daemon_fields_default_to_the_phase9_contract():
     # sit above the context window of a 128k model and never fire.
     assert cfg.summary_token_threshold is None
     assert cfg.summary_messages_to_keep == 6
+    # One Ask question may use 25 model rounds and 3 minutes before it is stopped.
+    assert cfg.ask_max_steps == 25
+    assert cfg.ask_timeout_seconds == 180.0
 
 
 def test_blank_summary_threshold_means_unset():
@@ -218,6 +221,8 @@ def test_daemon_fields_parse_from_fund_env_aliases():
             "FUND_REPROFILE_INTERVAL_DAYS": "180",
             "FUND_SUMMARY_TOKEN_THRESHOLD": "120000",
             "FUND_SUMMARY_MESSAGES_TO_KEEP": "8",
+            "FUND_ASK_MAX_STEPS": "12",
+            "FUND_ASK_TIMEOUT_SECONDS": "90.5",
         }
     )
 
@@ -235,6 +240,8 @@ def test_daemon_fields_parse_from_fund_env_aliases():
     assert cfg.reprofile_interval_days == 180
     assert cfg.summary_token_threshold == 120000
     assert cfg.summary_messages_to_keep == 8
+    assert cfg.ask_max_steps == 12
+    assert cfg.ask_timeout_seconds == 90.5
 
 
 def test_cost_cap_fields_unchanged_by_daemon_additions():

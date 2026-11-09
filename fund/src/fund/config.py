@@ -196,6 +196,12 @@ class FundConfig:
     summary_token_threshold: int | None = None
     summary_messages_to_keep: int = 6
 
+    # --- The Ask view's read-only agent: the most model rounds one question may use,
+    # and the wall-clock seconds after which the next step is not started. A cap on
+    # both, because a model that picks its own steps can otherwise loop or stall. ---
+    ask_max_steps: int = 25
+    ask_timeout_seconds: float = 180.0
+
     def tcp_connection_kwargs(self) -> dict[str, Any]:
         """libpq parameters that bound how long a dead database peer can stall a call.
 
@@ -448,6 +454,10 @@ def load_config(
         summary_token_threshold=_optional_int(env, "FUND_SUMMARY_TOKEN_THRESHOLD"),
         summary_messages_to_keep=int(
             env.get("FUND_SUMMARY_MESSAGES_TO_KEEP", defaults.summary_messages_to_keep)
+        ),
+        ask_max_steps=int(env.get("FUND_ASK_MAX_STEPS", defaults.ask_max_steps)),
+        ask_timeout_seconds=float(
+            env.get("FUND_ASK_TIMEOUT_SECONDS", defaults.ask_timeout_seconds)
         ),
     )
 

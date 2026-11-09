@@ -8864,6 +8864,10 @@ class _CannedAskModel(BaseChatModel):
     def _llm_type(self) -> str:
         return "canned-ask"
 
+    def bind_tools(self, tools, **_):
+        """The Ask agent binds its tools; this model never calls any of them."""
+        return self
+
     def _generate(self, messages, stop=None, run_manager=None, **_):
         """Return the canned answer regardless of the prompt (no network)."""
         from langchain_core.messages import AIMessage
@@ -8982,6 +8986,10 @@ class _GatedAskModel(BaseChatModel):
     def _llm_type(self) -> str:
         return "gated-ask"
 
+    def bind_tools(self, tools, **_):
+        """The Ask agent binds its tools; this model never calls any of them."""
+        return self
+
     def _generate(self, messages, stop=None, run_manager=None, **_):
         """Wait for ``release`` (when gated), then answer or raise."""
         from langchain_core.messages import AIMessage
@@ -9010,7 +9018,9 @@ async def test_ask_superseded_query_never_paints_its_stale_reply(
     """A newer question cancels the older one; its late reply must not reach the log.
 
     A cancelled thread worker keeps running, so without a guard its answer (or error
-    note) lands after the newer question's answer and reads as the reply to it.
+    note) lands under the newer question and reads as the reply to it. The turns of one
+    scope share one agent thread, so the newer question starts only once the older
+    turn has ended, and the older turn's reply is dropped.
     """
     entered, release, finished = (threading.Event() for _ in range(3))
     models = iter(
@@ -9035,15 +9045,14 @@ async def test_ask_superseded_query_never_paints_its_stale_reply(
         view.submit_turn("what about drift?")
         second = app.last_worker
         assert second is not None
-        await second.wait()
-        await pilot.pause()
-        assert view.last_answer == "ANSWER-2 (fast)"
-        status_after_answer = app.last_status
 
         release.set()
         assert await asyncio.to_thread(finished.wait, 5)
+        await second.wait()
         await asyncio.sleep(0.2)  # let a stale paint through if the guard is missing
         await pilot.pause()
+        assert view.last_answer == "ANSWER-2 (fast)"
+        status_after_answer = app.last_status
 
         log = _rendered(view.query_one("#ask-log", Static))
         assert "ANSWER-2 (fast)" in log
@@ -11369,6 +11378,10 @@ class _FailingAskModel(BaseChatModel):
     @property
     def _llm_type(self) -> str:
         return "failing-ask"
+
+    def bind_tools(self, tools, **_):
+        """The Ask agent binds its tools; this model fails before it could use any."""
+        return self
 
     def _generate(self, messages, stop=None, run_manager=None, **_):
         """Raise an error whose text looks like Textual markup (no network)."""

@@ -48,6 +48,8 @@ from textual.widgets.data_table import RowDoesNotExist
 from fund import observe
 from fund.observe import DailyBrief, RunSummary
 from fund.tui import ask
+from fund.tui.ask_history import AskHistory
+from fund.tui.prose import format_ask_log, format_market_digest
 from fund.tui.readouts import attribution_bar, render_readout
 from fund.tui.stream import StepStatus, StreamEvent
 
@@ -97,6 +99,10 @@ class _ShellContext(Protocol):
 
     def ask_submit(self, turn: str) -> None:
         """Handle a submitted Ask turn: resolve a pending action, else route it."""
+        ...
+
+    def ask_clear(self) -> None:
+        """Ask for confirmation, then delete the focused scope's Ask conversation."""
         ...
 
 
@@ -2622,10 +2628,18 @@ def _brief_event_lines(events: tuple[dict[str, Any], ...]) -> list[str]:
     """Render journal rows as dated narrative bullets, or a no-data line."""
     if not events:
         return [_NO_DATA]
-    return [
-        f"  • {event.get('narrative', '')}  ({event.get('as_of', '')})"
-        for event in events
-    ]
+    lines: list[str] = []
+    for event in events:
+        narrative = event.get("narrative", "")
+        # The market digest is one machine-written line of ~150 words; laid out as
+        # short labelled lines it can be read, and its own header carries the day.
+        digest = format_market_digest(narrative)
+        if digest is None:
+            lines.append(f"  • {narrative}  ({event.get('as_of', '')})")
+            continue
+        lines.append(f"  • {digest[0]}")
+        lines.extend(f"    {row}" for row in digest[1:])
+    return lines
 
 
 def _brief_economist_lines(brief: DailyBrief) -> list[str]:
@@ -3053,6 +3067,10 @@ def _holding_detail(mark: HoldingMark) -> str:
     )
 
 
+# Typed into the Ask box instead of a question: deletes the saved conversation.
+CLEAR_COMMAND = "/clear"
+
+
 class AskView(ShellView):
     """Conversational Q&A over the fund state: a log, an input, and a grounded answer.
 
@@ -3068,10 +3086,16 @@ class AskView(ShellView):
     classify/retrieve helpers (:mod:`fund.tui.ask`), so ``import fund.tui.app`` stays
     agent-stack-light.
 
+    The conversation is saved per portfolio (:mod:`fund.tui.ask_history`): the shell
+    binds the focused scope's history when Ask opens or the focus changes, every line
+    is saved as it is logged, and ``/clear`` deletes it after a confirmation.
+
     Attributes:
         last_answer: Mirror of the most recent rendered answer — a headless-test hook.
         pending_action: A resolved-but-unconfirmed action awaiting disambiguation, or
             ``None`` — the cross-turn state the disambiguation flow carries.
+        history: The focused scope's saved conversation, or ``None`` when unavailable.
+        history_scope: The scope ``history`` belongs to, or ``None`` before first bind.
     """
 
     # Focusable so the view-scoped ``e`` export reaches this view's binding; ``e`` is
@@ -3086,6 +3110,8 @@ class AskView(ShellView):
         super().__init__(view_key, view_title, **kwargs)
         self.last_answer: str = ""
         self.pending_action: ask.PendingAction | None = None
+        self.history: AskHistory | None = None
+        self.history_scope: str | None = None
         self._log: list[tuple[str, str]] = []
 
     def compose(self) -> ComposeResult:
@@ -3102,7 +3128,7 @@ class AskView(ShellView):
             )
         yield Input(placeholder="ask…", id="ask-input")
         yield Static(
-            "↵ ask · shift+tab to the log, then e export",
+            "↵ ask · /clear deletes this history · shift+tab to the log, then e export",
             id="ask-hint",
             classes="ask-hint",
         )
@@ -3135,12 +3161,50 @@ class AskView(ShellView):
         shared confirm + ``apply_action`` path. Nothing mutates here — the view only
         logs and hands off, so an action never executes from this call.
         """
+        if turn.strip().lower() == CLEAR_COMMAND:
+            self.shell.ask_clear()
+            return
         self.append_log("you", turn)
         self.shell.ask_submit(turn)
 
+    def bind_history(self, history: AskHistory | None, scope: str) -> None:
+        """Show ``scope``'s saved conversation and keep saving to it.
+
+        Called when Ask opens and whenever the focused portfolio changes, so the log on
+        screen is always the conversation of the portfolio in the header. A carried
+        disambiguation belongs to the previous conversation and is dropped.
+
+        Args:
+            history: The scope's saved conversation, or ``None`` when it cannot be read
+                (the log then lives in memory only, as it always did).
+            scope: The scope the log now belongs to.
+        """
+        self.history = history
+        self.history_scope = scope
+        self._log = history.load() if history is not None else []
+        self.last_answer = ""
+        self.pending_action = None
+        self._repaint_log()
+
+    def clear_log(self) -> None:
+        """Empty the log on screen after its saved conversation was deleted."""
+        self._log = []
+        self.last_answer = ""
+        self.pending_action = None
+        self._repaint_log()
+
     def append_log(self, speaker: str, text: str) -> None:
-        """Append a ``(speaker, text)`` line to the conversation and repaint the log."""
+        """Append a ``(speaker, text)`` line to the conversation and repaint the log.
+
+        The line is also saved, so it is there next time Ask opens. A save that fails
+        is logged and dropped: losing a line of history must not end the cockpit.
+        """
         self._log.append((speaker, text))
+        if self.history is not None:
+            try:
+                self.history.append(speaker, text)
+            except Exception:
+                logger.warning("saving an Ask message failed", exc_info=True)
         self._repaint_log()
 
     def set_answer(self, answer: str) -> None:
@@ -3153,8 +3217,14 @@ class AskView(ShellView):
         self.render_count += 1
 
     def _repaint_log(self) -> None:
-        body = "\n".join(f"{speaker}: {text}" for speaker, text in self._log)
-        self.query_one("#ask-log", Static).update(body or "ask about the fund…")
+        log = self.query_one("#ask-log", Static)
+        log.update(format_ask_log(self._log) if self._log else "ask about the fund…")
+        # The new text changes the log's height only on the next layout pass, so
+        # scrolling now would stop short of the newest message.
+        self.call_after_refresh(self._scroll_log_to_end)
+
+    def _scroll_log_to_end(self) -> None:
+        """Scroll the conversation to its newest line."""
         self.query_one("#ask-log-wrap", VerticalScroll).scroll_end(animate=False)
 
     def export_markdown(self, path: str) -> str:

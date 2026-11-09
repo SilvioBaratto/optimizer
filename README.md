@@ -329,7 +329,8 @@ Two more entry points ship with it:
   Deliberation, Decisions, Mandate, Audit, Performance, Ask, Daily brief). Every
   action it takes (approve, reject, freeze, mandate edits) goes through a confirm
   and lands in the audit log; **Ask** answers questions about the fund in plain
-  language. Press `?` for the key map.
+  language by reading its data, docs and source (read-only), keeps a saved
+  conversation per portfolio, and `/clear` deletes it. Press `?` for the key map.
 
 #### Restricting a portfolio to a set of instruments
 

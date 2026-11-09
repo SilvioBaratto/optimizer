@@ -10,7 +10,7 @@ from _fund_fakes import PORTFOLIO_ID, threaded_sqlite_engine
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from sqlalchemy.orm import sessionmaker
-from textual.widgets import ContentSwitcher
+from textual.widgets import ContentSwitcher, Static
 
 from fund.tui.app import ShellApp
 from fund.tui.views import AskView, _format_caps
@@ -94,3 +94,96 @@ async def test_an_ask_export_quotes_model_text_so_it_cannot_restructure_the_file
     assert "> # Injected heading" in lines
     assert "> - injected bullet" in lines
     assert "> how are we doing?" in lines
+
+
+_DIGEST = (
+    "Market digest for 2026-11-06 (US). "
+    "Macro: 2 series — BAA10Y 1.57 as of 2026-11-05 (delta 0.05), "
+    "VIXCLS 28.18 as of 2026-11-05 (delta -11.57). "
+    "Markets: US: GC=F, ^DJI. News themes: business_cycle (13), sector_rotation (5)."
+)
+
+
+def _brief_with(events):
+    """A brief that carries only the given market journal events."""
+    from datetime import date
+
+    from fund import observe
+    from fund.attribution import AttributionResult
+
+    attribution = AttributionResult(
+        total_return=0.0,
+        contributions={},
+        residual=0.0,
+        factor_names=(),
+        insufficient_history=True,
+    )
+    return observe.DailyBrief(
+        portfolio_id=PORTFOLIO_ID,
+        asof=date(2026, 11, 6),
+        prev_day=None,
+        next_day=None,
+        performance=None,
+        attribution=attribution,
+        market_events=events,
+        economist_read=None,
+        economist_read_date=None,
+        deliberation_run_id=None,
+        fund_events=(),
+    )
+
+
+def _happened(detail: str) -> list[str]:
+    """The lines of the "what happened" section of a rendered brief."""
+    lines = detail.splitlines()
+    start = lines.index("WHAT HAPPENED (market_journal)") + 1
+    end = lines.index("ECONOMIST READ")
+    return [line for line in lines[start:end] if line]
+
+
+def test_the_daily_brief_shows_the_market_digest_as_short_lines() -> None:
+    """The digest is not one paragraph the width of the screen."""
+    from fund.tui.views import _render_brief_detail
+
+    detail = _render_brief_detail(
+        _brief_with(({"as_of": "2026-11-06", "narrative": _DIGEST},))
+    )
+
+    lines = _happened(detail)
+    assert len(lines) >= 6
+    assert max(len(line) for line in lines) <= 100
+    assert any("BAA10Y" in line and "1.57" in line for line in lines)
+    assert any("VIXCLS" in line and "Δ -11.57" in line for line in lines)
+    assert lines[0].startswith("  • Market digest")
+
+
+def test_the_daily_brief_leaves_other_journal_notes_as_they_were() -> None:
+    """A note that is not a digest keeps its one-line bullet and its date."""
+    from fund.tui.views import _render_brief_detail
+
+    detail = _render_brief_detail(
+        _brief_with(({"as_of": "2026-10-06", "narrative": "CPI < expected"},))
+    )
+
+    assert _happened(detail) == ["  • CPI < expected  (2026-10-06)"]
+
+
+@pytest.mark.asyncio
+async def test_the_ask_log_formats_the_answer_and_spaces_the_turns(shell) -> None:
+    """Bold marks and bullets are laid out, and each turn is a separate block."""
+    async with shell.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        shell.query_one(ContentSwitcher).current = "view-ask"
+        shell._refresh()
+        await pilot.pause()
+        view = shell.query_one("#view-ask", AskView)
+        view.append_log("you", "how are we doing?")
+        view.append_log("ask", "## Status\n**Healthy** overall\n- one\n- two")
+        await pilot.pause()
+
+        shown = str(view.query_one("#ask-log", Static).render())
+
+    assert "**" not in shown
+    assert "##" not in shown
+    assert "• one" in shown
+    assert "you: how are we doing?\n\nask: Status\nHealthy overall" in shown
