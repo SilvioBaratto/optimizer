@@ -1162,51 +1162,30 @@ def test_an_error_with_control_characters_or_no_message_is_shown_safely() -> Non
     assert len(ask_agent.describe_error(ValueError("x" * 5000))) < 400
 
 
-def test_old_checkpoints_of_a_conversation_are_pruned_after_each_turn(
-    repo, runtime
-) -> None:
-    """After each turn the saver is asked to keep only the thread's latest state."""
-    calls: list[tuple[list[str], str]] = []
+def test_a_conversations_checkpoints_are_never_pruned(repo, runtime) -> None:
+    """Old checkpoints hold what the latest one is built from, so they stay.
 
-    class PruningSaver(MemorySaver):
-        """Records the prune requests it receives."""
+    Pruning them to save space was tried and wiped the agent's memory on Postgres: the
+    latest checkpoint no longer carried the conversation. The thread only shrinks when
+    the adviser clears it.
+    """
+
+    class NoPruneSaver(MemorySaver):
+        """A saver that fails the test if anything tries to prune."""
 
         def prune(self, thread_ids, *, strategy="keep_latest"):
-            """Remember which threads were pruned and how."""
-            calls.append((list(thread_ids), strategy))
+            """Pruning is never allowed."""
+            raise AssertionError("the Ask thread must not be pruned")
 
-    saver = PruningSaver()
-    _, agent = _agent(repo, runtime, [AIMessage("a"), AIMessage("b")], "A", saver)
+    _, agent = _agent(
+        repo, runtime, [AIMessage("a"), AIMessage("b")], "A", NoPruneSaver()
+    )
 
     run_ask_turn(agent, scope="A", question="one")
     run_ask_turn(agent, scope="A", question="two")
 
-    assert calls == [(["ask:A"], "keep_latest")] * 2
-
-
-def test_a_saver_that_cannot_prune_is_left_alone(repo, runtime, caplog) -> None:
-    """The in-memory saver has no pruning; that is not an error worth reporting."""
-    _, agent = _agent(repo, runtime, [AIMessage("a")], "A", MemorySaver())
-
-    with caplog.at_level("WARNING"):
-        run_ask_turn(agent, scope="A", question="one")
-
-    assert "pruning" not in caplog.text
-
-
-def test_a_saver_whose_prune_fails_does_not_fail_the_turn(repo, runtime) -> None:
-    """Space saving is best effort: the answer is still delivered."""
-
-    class BrokenSaver(MemorySaver):
-        """A saver whose prune raises."""
-
-        def prune(self, thread_ids, *, strategy="keep_latest"):
-            """Fail the way a lost connection does."""
-            raise ConnectionError("db down")
-
-    _, agent = _agent(repo, runtime, [AIMessage("still answered")], "A", BrokenSaver())
-
-    assert run_ask_turn(agent, scope="A", question="one") == "still answered"
+    thread = {"configurable": {"thread_id": ask_thread_id("A")}}
+    assert len(agent.get_state(thread).values["messages"]) == 4
 
 
 def test_a_follow_up_reaches_the_model_with_the_earlier_words(repo, runtime) -> None:

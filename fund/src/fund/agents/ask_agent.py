@@ -35,7 +35,6 @@ import enum
 import functools
 import hashlib
 import json
-import logging
 import os
 import re
 import shutil
@@ -66,13 +65,10 @@ __all__ = [
     "clear_ask_state",
     "describe_error",
     "describe_step",
-    "prune_ask_checkpoints",
     "run_ask_turn",
     "scope_scratch_dir",
     "stage_ask_workspace",
 ]
-
-logger = logging.getLogger(__name__)
 
 _RUNTIME_DIR = _FUND_DIR / ".runtime"
 _ASK_FS_DIR = "ask-fs"
@@ -769,25 +765,6 @@ def _text(content: Any) -> str:
     return str(content)
 
 
-def prune_ask_checkpoints(saver: Any, scope: str) -> None:
-    """Keep only the latest checkpoint of a scope's agent thread.
-
-    Every step of every turn writes a full checkpoint, so a long conversation would grow
-    without bound and keep old answers around until ``/clear``. The latest one holds the
-    state the next turn needs; time travel is not used here. A saver that cannot prune
-    (or that fails to) is left alone: this only saves space.
-    """
-    prune = getattr(saver, "prune", None)
-    if not callable(prune):
-        return
-    try:
-        prune([ask_thread_id(scope)], strategy="keep_latest")
-    except NotImplementedError:
-        return
-    except Exception:  # best effort; the conversation itself is unaffected
-        logger.warning("pruning the Ask checkpoints failed", exc_info=True)
-
-
 def run_ask_turn(
     agent: Any,
     *,
@@ -857,9 +834,7 @@ def run_ask_turn(
                 msg = f"no answer after {timeout_seconds:.0f}s"
                 raise AskTimeoutError(msg)
     except GraphRecursionError:
-        prune_ask_checkpoints(getattr(agent, "checkpointer", None), scope)
         return _STOPPED
-    prune_ask_checkpoints(getattr(agent, "checkpointer", None), scope)
     return answer or _NO_ANSWER
 
 
