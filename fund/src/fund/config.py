@@ -455,7 +455,9 @@ def load_config(
         summary_messages_to_keep=int(
             env.get("FUND_SUMMARY_MESSAGES_TO_KEEP", defaults.summary_messages_to_keep)
         ),
-        ask_max_steps=int(env.get("FUND_ASK_MAX_STEPS", defaults.ask_max_steps)),
+        ask_max_steps=max(
+            1, int(env.get("FUND_ASK_MAX_STEPS", defaults.ask_max_steps))
+        ),
         ask_timeout_seconds=float(
             env.get("FUND_ASK_TIMEOUT_SECONDS", defaults.ask_timeout_seconds)
         ),

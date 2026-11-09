@@ -108,9 +108,9 @@ def test_text_that_is_not_a_digest_is_not_touched() -> None:
 
 def test_a_digest_with_an_unreadable_series_is_left_as_written() -> None:
     """If one entry does not parse, the whole line stays as the source wrote it."""
-    broken = DIGEST.replace("BAA10Y 1.57 as of 2026-11-05 (delta 0.05)", "BAA10Y ???")
+    broken = DIGEST.replace("BAA10Y 1.57 as of 2026-11-05 (delta 0.05)", "BAA10Y")
 
-    assert format_market_digest(broken.replace("???", "")) is None
+    assert format_market_digest(broken) is None
 
 
 def test_a_digest_without_macro_data_still_reads() -> None:
@@ -228,3 +228,132 @@ def test_your_own_question_is_never_reformatted() -> None:
     content = format_ask_log([("you", "what is **this** and # that")])
 
     assert content.plain == "you: what is **this** and # that"
+
+
+def test_terminal_control_sequences_in_an_answer_are_removed() -> None:
+    """Escape codes a model echoes from untrusted text never reach the terminal."""
+    hostile = "ok \x1b]52;c;QUFB\x07 \x1b]0;pwned\x07 \x1b[2J \x9b31m done"
+
+    plain = format_answer(hostile).plain
+
+    assert "\x1b" not in plain
+    assert "\x9b" not in plain
+    assert "\x07" not in plain
+    assert plain.startswith("ok ")
+    assert plain.endswith(" done")
+
+
+def test_your_own_typed_text_is_stripped_of_control_codes_too() -> None:
+    """What you typed is shown as typed, minus anything a terminal would obey."""
+    content = format_ask_log([("you", "hello \x1b[2J there")])
+
+    assert content.plain == "you: hello [2J there"
+
+
+def test_newlines_and_tabs_are_kept_when_control_codes_are_removed() -> None:
+    """Layout characters survive; only terminal-affecting ones go."""
+    assert format_answer("a\tb\nc").plain == "a\tb\nc"
+
+
+def test_windows_line_endings_are_shown_as_plain_line_breaks() -> None:
+    """A model's CRLF text reads as ordinary lines (the carriage return is dropped)."""
+    assert format_answer("one\r\ntwo\r\n").plain == "one\ntwo\n"
+
+
+def test_trailing_whitespace_and_blank_lines_are_kept() -> None:
+    """Plain text with no marks comes back exactly, paragraph breaks included."""
+    text = "first paragraph  \n\nsecond paragraph\n"
+
+    assert format_answer(text).plain == text
+
+
+def test_a_very_long_message_is_cut_with_a_marker() -> None:
+    """A message past the size limit is shortened, not rendered in full."""
+    plain = format_answer("x" * 100_000).plain
+
+    assert len(plain) < 25_000
+    assert "more characters" in plain
+
+
+def test_a_heading_followed_by_endless_spaces_renders_in_a_blink() -> None:
+    """A degenerate model line cannot make the regex take seconds."""
+    import time
+
+    started = time.monotonic()
+    format_answer("# a" + " " * 4000 + "b")
+
+    assert time.monotonic() - started < 0.5
+
+
+def test_thousands_of_unclosed_bold_marks_render_in_a_blink() -> None:
+    """Unbalanced ``**`` runs stay linear, not quadratic."""
+    import time
+
+    started = time.monotonic()
+    format_answer("**a " * 20_000)
+
+    assert time.monotonic() - started < 1.5
+
+
+def test_a_heading_with_bold_text_and_closing_hashes_is_clean() -> None:
+    """``## **x** ##`` reads as a bold ``x``."""
+    content = format_answer("## **x** ##")
+
+    assert content.plain == "x"
+    assert any("bold" in str(span.style) for span in content.spans)
+
+
+def test_a_tiny_series_value_is_shown_as_written() -> None:
+    """Rounding to four decimals never turns a real value into zero."""
+    digest = DIGEST.replace("BAA10Y 1.57", "BAA10Y 0.00001234")
+
+    lines = format_market_digest(digest)
+
+    assert lines is not None
+    assert any("0.00001234" in line for line in lines)
+
+
+def test_a_digest_with_text_before_the_sections_is_left_as_written() -> None:
+    """Unexpected extra text means the layout cannot be trusted, so none is applied."""
+    digest = DIGEST.replace("(US). ", "(US). Preamble nobody expected. ")
+
+    assert format_market_digest(digest) is None
+
+
+def test_a_gigantic_digest_is_not_parsed() -> None:
+    """A huge machine line is returned unchanged quickly instead of being scanned."""
+    import time
+
+    started = time.monotonic()
+    huge = "Market digest for 2026-11-06 (US). " + "Macro: " * 8000
+    result = format_market_digest(huge)
+
+    assert result is None
+    assert time.monotonic() - started < 0.5
+
+
+def test_a_news_line_that_is_not_a_theme_list_is_shown_as_written() -> None:
+    """Whatever the builder writes after ``News themes:`` is never dropped."""
+    digest = DIGEST.replace("business_cycle (13), commodity_inflation (3)", "odd text")
+
+    lines = format_market_digest(digest)
+
+    assert lines is not None
+    assert any(line.strip() == "odd text" for line in lines)
+
+
+def test_inline_code_is_underlined() -> None:
+    """Code is set apart with an underline, not just stripped of its backticks."""
+    content = format_answer("run `fund status` now")
+
+    assert any("underline" in str(span.style) for span in content.spans)
+
+
+def test_the_series_value_column_ends_where_the_date_column_starts() -> None:
+    """Values are right-aligned so the figures line up under each other."""
+    lines = format_market_digest(DIGEST)
+
+    assert lines is not None
+    series = [line for line in lines if "as of" in line]
+    ends = {line.index("as of") for line in series}
+    assert len(ends) == 1

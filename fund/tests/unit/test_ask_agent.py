@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from langchain_core.language_models.chat_models import BaseChatModel
+from _fund_fakes import NoToolsChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.memory import MemorySaver
@@ -33,12 +33,13 @@ PID = uuid.UUID("11111111-2222-3333-4444-555555555555")
 # --------------------------------------------------------------------------- fakes
 
 
-class ScriptedAskModel(BaseChatModel):
+class ScriptedAskModel(NoToolsChatModel):
     """A network-free chat model that plays back a script, one reply per call."""
 
     script: list[Any] = Field(default_factory=list)
     _calls: int = PrivateAttr(default=0)
     _seen: list[int] = PrivateAttr(default_factory=list)
+    _texts: list[str] = PrivateAttr(default_factory=list)
 
     @property
     def _llm_type(self) -> str:
@@ -49,12 +50,18 @@ class ScriptedAskModel(BaseChatModel):
         """How many messages each model call was given."""
         return self._seen
 
-    def bind_tools(self, tools: Any, **_: Any) -> ScriptedAskModel:
-        """Tool binding is a no-op: the script already says which tools to call."""
-        return self
+    @property
+    def texts(self) -> list[str]:
+        """The text of every message each model call was given, joined."""
+        return self._texts
+
+    def reset(self) -> None:
+        """Start the script again from its first reply."""
+        self._calls = 0
 
     def _generate(self, messages, stop=None, run_manager=None, **_):
         self._seen.append(len(messages))
+        self._texts.append(" | ".join(str(m.content) for m in messages))
         reply = (
             self.script[self._calls]
             if self._calls < len(self.script)
@@ -284,6 +291,7 @@ def test_a_follow_up_question_is_answered_with_the_earlier_turns_in_mind(
     run_ask_turn(agent, scope="fund", question="and the second one?")
 
     assert model.seen[1] > model.seen[0]
+    assert "how are we doing?" in model.texts[1]
 
 
 def test_each_scope_has_its_own_conversation(repo, runtime) -> None:
@@ -416,7 +424,7 @@ def test_the_turn_is_bound_to_its_scopes_thread_and_step_cap() -> None:
     run_ask_turn(agent, scope="A", question="q", max_steps=10)
 
     assert agent.config["configurable"]["thread_id"] == ask_thread_id("A")
-    assert agent.config["recursion_limit"] >= 10
+    assert agent.config["recursion_limit"] == 21
 
 
 def test_a_turn_that_runs_out_of_steps_says_so_instead_of_failing() -> None:
@@ -431,13 +439,20 @@ def test_a_turn_that_runs_out_of_steps_says_so_instead_of_failing() -> None:
 
 
 def test_a_turn_that_takes_too_long_stops_starting_new_steps() -> None:
-    """Past the time limit the turn ends with a clear error."""
+    """Past the time limit an unfinished turn ends with a clear error."""
     agent = _FakeAgent(
         [
             {
                 "model": {
                     "messages": [
                         _ai("", [{"name": "ls", "args": {"path": "/"}, "id": "1"}])
+                    ]
+                }
+            },
+            {
+                "model": {
+                    "messages": [
+                        _ai("", [{"name": "ls", "args": {"path": "/x"}, "id": "2"}])
                     ]
                 }
             },
@@ -600,3 +615,806 @@ def test_the_tools_only_read(monkeypatch) -> None:
     tools["list_portfolios"].invoke({})
 
     assert rolled == [True]
+
+
+# ------------------------------------------------------- review hardening: staging
+
+
+def test_a_symlinked_file_is_never_staged(repo, runtime) -> None:
+    """A link in the source tree is not followed, so it cannot copy a secret in."""
+    secret = repo.parent / "outside-secret.txt"
+    secret.write_text("TOP-SECRET")
+    (repo / "fund/src/fund/linked.md").symlink_to(secret)
+
+    root = _staged(repo, runtime)
+
+    assert not (root / "code/fund/linked.md").exists()
+    assert "TOP-SECRET" not in " ".join(
+        p.read_text() for p in root.rglob("*") if p.is_file() and p.suffix == ".md"
+    )
+
+
+def test_a_broken_symlink_does_not_stop_staging(repo, runtime) -> None:
+    """A dangling editor lock file in the tree must not make every question fail."""
+    (repo / "fund/src/fund/.#observe.py").symlink_to(repo / "does-not-exist.py")
+
+    root = _staged(repo, runtime)
+
+    assert (root / "code/fund/observe.py").exists()
+
+
+def test_a_symlinked_source_root_is_not_followed(repo, runtime) -> None:
+    """A whole directory that is a link to somewhere else is skipped."""
+    elsewhere = repo.parent / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "plan.md").write_text("outside")
+    (repo / "optimizerwiki").rename(repo / "wiki-real")
+    (repo / "optimizerwiki").symlink_to(elsewhere)
+
+    root = _staged(repo, runtime)
+
+    assert not (root / "docs/optimizerwiki/plan.md").exists()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "credentials.yaml",
+        "secrets.toml",
+        "my_secret_notes.md",
+        ".ENV.md",
+        "Password.txt",
+    ],
+)
+def test_files_with_secret_looking_names_are_not_staged(repo, runtime, name) -> None:
+    """The suffix allowlist is not the only gate: telling names are skipped too."""
+    (repo / "fund/src/fund" / name).write_text("value")
+
+    root = _staged(repo, runtime)
+
+    assert not (root / "code/fund" / name).exists()
+
+
+@pytest.mark.parametrize(
+    "folder", ["tests", "__pycache__", ".obsidian", "secrets", ".git", ".venv"]
+)
+def test_skipped_folders_hold_nothing_that_is_staged(repo, runtime, folder) -> None:
+    """A readable file inside a skipped folder is still left out."""
+    inside = repo / "fund/src/fund" / folder
+    inside.mkdir(parents=True, exist_ok=True)
+    (inside / "note.md").write_text("hidden")
+
+    root = _staged(repo, runtime)
+
+    assert not (root / "code/fund" / folder / "note.md").exists()
+
+
+def test_a_restage_that_fails_halfway_is_redone_next_time(
+    repo, runtime, monkeypatch
+) -> None:
+    """A half-copied workspace is never mistaken for a finished one."""
+    import os
+
+    target = repo / "fund/src/fund/observe.py"
+    original = target.read_text()
+    root = _staged(repo, runtime)
+    before = target.stat()
+    target.write_text("def changed():\n    return 2\n")
+
+    def failing_copy(src, dst, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ask_agent.shutil, "copyfile", failing_copy)
+    with pytest.raises(OSError):
+        _staged(repo, runtime)
+    monkeypatch.undo()
+    # The sources go back to exactly what the finished stage saw, so only the marker can
+    # tell a finished workspace from the half-copied one.
+    target.write_text(original)
+    os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+    root = _staged(repo, runtime)
+
+    assert (root / "code/fund/observe.py").read_text() == original
+
+
+def test_the_real_source_mapping_still_matches_the_real_tree() -> None:
+    """The copy list names paths that exist and stages only readable text."""
+    from fund.agents.backend import _REPO_ROOT
+
+    files = ask_agent._source_files(_REPO_ROOT)
+    names = [dest for dest, _ in files]
+
+    assert len(files) > 100
+    assert "docs/README.md" in names
+    assert "code/fund/observe.py" in names
+    assert all(Path(n).suffix in ask_agent._SUFFIXES for n in names)
+    assert not any(
+        part in ask_agent._SKIPPED_DIRS for n in names for part in Path(n).parts
+    )
+
+
+def test_the_workspace_folders_are_private_to_the_owner(repo, runtime) -> None:
+    """Offloaded history holds portfolio details, so no other user may read it."""
+    import stat
+
+    _, agent = _agent(repo, runtime, [AIMessage("ok")], "A")
+    run_ask_turn(agent, scope="A", question="hi")
+    root = runtime / "ask-fs"
+
+    for folder in (root, root / "asks", ask_agent.scope_scratch_dir(root, "A")):
+        assert stat.S_IMODE(folder.stat().st_mode) == 0o700
+
+
+# ------------------------------------------------------ review hardening: the agent
+
+
+def test_a_delegated_helper_cannot_run_past_its_call_cap(repo, runtime) -> None:
+    """The ``task`` helper is bounded, so one turn cannot spend thousands of calls."""
+    loop = [tool_call("ls", {"path": "/"}, f"c{i}") for i in range(60)]
+    model, agent = _agent(
+        repo,
+        runtime,
+        [
+            tool_call(
+                "task", {"description": "dig", "subagent_type": "general-purpose"}
+            ),
+            *loop,
+        ],
+    )
+
+    run_ask_turn(agent, scope="fund", question="delegate", max_steps=3)
+
+    assert len(model.seen) <= 14
+
+
+def test_every_write_is_denied_not_only_under_code(repo, runtime) -> None:
+    """The scratch folder is read-only to the agent too."""
+    root = _staged(repo, runtime)
+    _, agent = _agent(
+        repo,
+        runtime,
+        [
+            tool_call("write_file", {"file_path": "/notes.md", "content": "x"}),
+            tool_call(
+                "write_file",
+                {"file_path": "/conversation_history/x.md", "content": "x"},
+                "c2",
+            ),
+            AIMessage("done"),
+        ],
+    )
+
+    run_ask_turn(agent, scope="fund", question="write")
+
+    results = " ".join(_tool_results(agent)).lower()
+    assert results.count("permission denied") == 2
+    scratch = ask_agent.scope_scratch_dir(root, "fund")
+    assert not (scratch / "notes.md").exists()
+    assert not (scratch / "conversation_history/x.md").exists()
+
+
+def test_a_command_is_refused_and_nothing_is_run(repo, runtime) -> None:
+    """``execute`` is answered with a refusal and leaves no file behind."""
+    _, agent = _agent(
+        repo,
+        runtime,
+        [tool_call("execute", {"command": "touch ran.txt"}), AIMessage("done")],
+    )
+
+    run_ask_turn(agent, scope="fund", question="run it")
+
+    assert "not available" in " ".join(_tool_results(agent)).lower()
+    assert not list(runtime.rglob("ran.txt"))
+
+
+@pytest.mark.parametrize(
+    "path", ["/code/fund/a..b.py", "/code/fund/x\x00y.py", "/docs/..hidden"]
+)
+def test_an_odd_path_is_answered_with_an_error_not_a_crash(repo, runtime, path) -> None:
+    """A model-chosen path the backend rejects ends in a message, not a failed turn."""
+    _, agent = _agent(
+        repo,
+        runtime,
+        [tool_call("read_file", {"file_path": path}), AIMessage("done")],
+    )
+
+    answer = run_ask_turn(agent, scope="fund", question="read it")
+
+    assert answer == "done"
+    assert any("error" in r.lower() for r in _tool_results(agent))
+
+
+def test_a_finished_answer_is_kept_even_if_the_deadline_passed_meanwhile() -> None:
+    """The last model call may end past the limit; its answer is still delivered."""
+    agent = _FakeAgent([{"model": {"messages": [_ai("the complete answer")]}}])
+    ticks = iter([0.0, 500.0, 500.0])
+
+    answer = run_ask_turn(
+        agent,
+        scope="fund",
+        question="q",
+        timeout_seconds=100.0,
+        clock=lambda: next(ticks),
+    )
+
+    assert answer == "the complete answer"
+
+
+def test_a_message_with_text_and_a_tool_call_is_not_the_answer() -> None:
+    """Thinking aloud before a tool call does not count as the final answer."""
+    agent = _FakeAgent(
+        [
+            {
+                "model": {
+                    "messages": [
+                        _ai(
+                            "let me check",
+                            [{"name": "ls", "args": {}, "id": "1"}],
+                        )
+                    ]
+                }
+            }
+        ]
+    )
+
+    assert run_ask_turn(agent, scope="fund", question="q").startswith("(the agent")
+
+
+def test_a_zero_step_cap_still_allows_one_round() -> None:
+    """A mistaken ``0`` never turns into an invalid recursion limit."""
+    agent = _FakeAgent([{"model": {"messages": [_ai("hi")]}}])
+
+    run_ask_turn(agent, scope="fund", question="q", max_steps=0)
+
+    assert agent.config["recursion_limit"] == 3
+
+
+# ------------------------------------------------------- review hardening: clearing
+
+
+def test_clearing_reports_a_scratch_folder_that_could_not_be_removed(
+    repo, runtime
+) -> None:
+    """A clear that left portfolio details on disk raises, not claims success."""
+    saver = MemorySaver()
+    _, agent = _agent(repo, runtime, [AIMessage("a")], "A", saver)
+    run_ask_turn(agent, scope="A", question="q")
+    root = _staged(repo, runtime)
+    scratch = ask_agent.scope_scratch_dir(root, "A")
+    history = scratch / "conversation_history"
+    history.mkdir(parents=True, exist_ok=True)
+    (history / "session.md").write_text("portfolio details")
+    history.chmod(0o555)
+    try:
+        with pytest.raises(OSError):
+            clear_ask_state(saver, "A", runtime_root=runtime)
+    finally:
+        history.chmod(0o755)
+
+
+def test_clearing_one_scope_leaves_the_other_scopes_files(repo, runtime) -> None:
+    """Each scope's offloaded history is its own to delete."""
+    saver = MemorySaver()
+    _, agent_a = _agent(repo, runtime, [AIMessage("a")], "A", saver)
+    _, agent_b = _agent(repo, runtime, [AIMessage("b")], "B", saver)
+    run_ask_turn(agent_a, scope="A", question="qa")
+    run_ask_turn(agent_b, scope="B", question="qb")
+    root = _staged(repo, runtime)
+    keep = ask_agent.scope_scratch_dir(root, "B") / "keep.md"
+    keep.write_text("B's history")
+
+    clear_ask_state(saver, "A", runtime_root=runtime)
+
+    assert keep.exists()
+    assert not ask_agent.scope_scratch_dir(root, "A").exists()
+
+
+# ------------------------------------------------------- review hardening: the tools
+
+
+def test_the_data_tools_pass_their_arguments_through(monkeypatch) -> None:
+    """Each tool calls the right reader with the right portfolio and bounds."""
+    calls: dict[str, tuple] = {}
+
+    def recorder(name, result=None):
+        """Build a stand-in reader that remembers how it was called."""
+
+        def fake(*args, **kwargs):
+            """Record the call and return a small result."""
+            calls[name] = (args[1:], kwargs)
+            return result if result is not None else {"ok": name}
+
+        return fake
+
+    tools = _tools(
+        monkeypatch,
+        list_portfolios=lambda session: [PID],
+        portfolio_state=recorder("state"),
+        holdings_summary=recorder("holdings", []),
+        list_portfolio_runs=recorder("runs", []),
+        audit_timeline=recorder("audit", []),
+        pending_hitl=recorder("gates", []),
+        get_mandate=recorder("mandate"),
+        mandate_warnings=recorder("warnings", []),
+    )
+
+    tools["portfolio_state"].invoke({})
+    tools["holdings"].invoke({})
+    tools["list_runs"].invoke({"limit": 500})
+    tools["audit_trail"].invoke({"limit": 500})
+    tools["pending_gates"].invoke({})
+    tools["mandate"].invoke({})
+
+    assert calls["state"][0] == (PID,)
+    assert calls["holdings"][0] == (PID,)
+    assert calls["runs"][1] == {"limit": 50}
+    assert calls["audit"][1] == {"portfolio_id": PID}
+    assert calls["gates"][0][1:] == (None,)
+    assert calls["mandate"][0] == (PID,)
+    assert calls["warnings"][0] == (PID,)
+
+
+def test_a_blank_audit_scope_with_no_focus_means_every_portfolio(monkeypatch) -> None:
+    """With nothing focused, an empty id reads the whole fund's audit trail."""
+    from fund import observe
+
+    seen: list[Any] = []
+    monkeypatch.setattr(
+        observe,
+        "audit_timeline",
+        lambda session, *, portfolio_id=None, **kw: seen.append(portfolio_id) or [],
+    )
+    tools = {
+        t.name: t
+        for t in ask_agent.build_ask_tools(
+            session_factory=_no_session, saver=MemorySaver(), focus=None
+        )
+    }
+
+    tools["audit_trail"].invoke({"portfolio_id": "  "})
+
+    assert seen == [None]
+
+
+def test_an_unknown_run_and_a_bad_date_are_reported_as_text(monkeypatch) -> None:
+    """Bad ids and dates the model invents come back as ``error:`` lines."""
+    tools = _tools(monkeypatch)
+
+    assert tools["run_transcript"].invoke({"run_id": "not-a-uuid"}).startswith("error:")
+    assert tools["daily_brief"].invoke({"day": "11/09/2026"}).startswith("error:")
+
+
+def test_enum_and_numpy_values_are_rendered_as_values() -> None:
+    """Readers' enums and numpy numbers become their values, not ``{}`` or strings."""
+    import enum
+
+    import numpy as np
+
+    class Mode(enum.Enum):
+        """A plain, non-string enum."""
+
+        ON = "on"
+
+    text = ask_agent._render(
+        {"mode": Mode.ON, "count": np.int64(5), "x": np.float64(0.5)}
+    )
+
+    assert '"mode": "on"' in text
+    assert '"count": 5' in text
+    assert '"x": 0.5' in text
+
+
+def test_the_tools_ask_postgres_for_a_read_only_transaction() -> None:
+    """On Postgres each read declares itself read-only, whatever the account can do."""
+    executed: list[str] = []
+
+    class FakeSession:
+        """A session that looks like Postgres and records what it is asked to run."""
+
+        def get_bind(self):
+            """Report a Postgres dialect."""
+            return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def execute(self, statement):
+            """Remember the statement text."""
+            executed.append(str(statement))
+
+        def rollback(self):
+            """Nothing to undo."""
+
+    @contextmanager
+    def session_factory():
+        """Hand out the fake session."""
+        yield FakeSession()
+
+    from fund import observe
+
+    observe_original = observe.list_portfolios
+    observe.list_portfolios = lambda session: [PID]
+    try:
+        tools = {
+            t.name: t
+            for t in ask_agent.build_ask_tools(
+                session_factory=session_factory, saver=MemorySaver(), focus=PID
+            )
+        }
+        tools["list_portfolios"].invoke({})
+    finally:
+        observe.list_portfolios = observe_original
+
+    assert executed == ["SET TRANSACTION READ ONLY"]
+
+
+# ----------------------------------------------- findings left open in the first pass
+
+
+def test_a_file_with_a_private_key_inside_is_not_staged(repo, runtime) -> None:
+    """A secret value in an innocently named file still keeps the file out."""
+    (repo / "fund/src/fund/notes.md").write_text(
+        "deploy notes\n-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n"
+    )
+    (repo / "fund/src/fund/tokens_doc.md").write_text("AKIAABCDEFGHIJKLMNOP")
+    (repo / "fund/src/fund/plain.md").write_text("nothing secret here")
+
+    root = _staged(repo, runtime)
+
+    assert not (root / "code/fund/notes.md").exists()
+    assert (root / "code/fund/plain.md").exists()
+
+
+def test_a_tampered_workspace_is_restored_on_the_next_question(repo, runtime) -> None:
+    """A planted or changed file in the staged copy is not trusted just because the
+    source did not change."""
+    root = _staged(repo, runtime)
+    (root / "code/fund/planted.md").write_text("planted")
+    (root / "code/fund/observe.py").write_text("tampered")
+
+    root = _staged(repo, runtime)
+
+    assert not (root / "code/fund/planted.md").exists()
+    assert "def hello" in (root / "code/fund/observe.py").read_text()
+
+
+def test_a_conversation_about_one_portfolio_cannot_read_another(monkeypatch) -> None:
+    """With a portfolio focused, tools refuse every other portfolio's data."""
+    other = uuid.UUID("99999999-9999-9999-9999-999999999999")
+    tools = _tools(monkeypatch, list_portfolios=lambda session: [PID, other])
+
+    text = tools["performance"].invoke({"portfolio_id": str(other)})
+
+    assert text.startswith("error:")
+    assert "about portfolio" in text
+
+
+def test_the_portfolio_list_of_a_focused_conversation_is_only_that_portfolio(
+    monkeypatch,
+) -> None:
+    """Other portfolios' ids are not even listed."""
+    other = uuid.UUID("99999999-9999-9999-9999-999999999999")
+    tools = _tools(monkeypatch, list_portfolios=lambda session: [PID, other])
+
+    assert tools["list_portfolios"].invoke({}) == f'["{PID}"]'
+
+
+def test_pending_gates_of_a_focused_conversation_are_only_its_own(monkeypatch) -> None:
+    """A gate that waits on another portfolio is not shown."""
+    other = uuid.UUID("99999999-9999-9999-9999-999999999999")
+    gates = [
+        SimpleNamespace(portfolio_id=PID, run_id="mine"),
+        SimpleNamespace(portfolio_id=other, run_id="theirs"),
+    ]
+    tools = _tools(monkeypatch, pending_hitl=lambda session, saver, pid=None: gates)
+
+    text = tools["pending_gates"].invoke({})
+
+    assert "mine" in text
+    assert "theirs" not in text
+
+
+def test_a_run_of_another_portfolio_cannot_be_opened(monkeypatch) -> None:
+    """A run id from another portfolio is refused in a focused conversation."""
+    other = uuid.UUID("99999999-9999-9999-9999-999999999999")
+    run_id = uuid.uuid4()
+
+    class FakeRepo:
+        """Returns a run that belongs to a different portfolio."""
+
+        def __init__(self, session):
+            pass
+
+        def get_run(self, rid):
+            """Hand back a run of the other portfolio."""
+            return SimpleNamespace(id=rid, portfolio_id=other)
+
+    import fund.audit.repository as repository
+
+    monkeypatch.setattr(repository, "AgentRunRepository", FakeRepo)
+    tools = _tools(monkeypatch)
+
+    text = tools["run_transcript"].invoke({"run_id": str(run_id)})
+
+    assert text.startswith("error:")
+
+
+def test_a_database_error_is_shown_without_its_statement_and_parameters() -> None:
+    """The text that reaches the model, the screen and the history is one safe line."""
+    from sqlalchemy.exc import DBAPIError
+
+    class DriverError(Exception):
+        """A stand-in for the driver's own error."""
+
+    exc = DBAPIError(
+        "SELECT secret FROM clients WHERE token = %s", ("hunter2",), DriverError("boom")
+    )
+
+    shown = ask_agent.describe_error(exc)
+
+    assert "hunter2" not in shown
+    assert "SELECT" not in shown
+    assert "boom" in shown
+
+
+def test_an_error_with_control_characters_or_no_message_is_shown_safely() -> None:
+    """Control codes go, a blank message uses the error name, length is capped."""
+    assert ask_agent.describe_error(ValueError("bad \x1b[2J input")) == "bad [2J input"
+    assert ask_agent.describe_error(ValueError()) == "ValueError"
+    assert len(ask_agent.describe_error(ValueError("x" * 5000))) < 400
+
+
+def test_old_checkpoints_of_a_conversation_are_pruned_after_each_turn(
+    repo, runtime
+) -> None:
+    """After each turn the saver is asked to keep only the thread's latest state."""
+    calls: list[tuple[list[str], str]] = []
+
+    class PruningSaver(MemorySaver):
+        """Records the prune requests it receives."""
+
+        def prune(self, thread_ids, *, strategy="keep_latest"):
+            """Remember which threads were pruned and how."""
+            calls.append((list(thread_ids), strategy))
+
+    saver = PruningSaver()
+    _, agent = _agent(repo, runtime, [AIMessage("a"), AIMessage("b")], "A", saver)
+
+    run_ask_turn(agent, scope="A", question="one")
+    run_ask_turn(agent, scope="A", question="two")
+
+    assert calls == [(["ask:A"], "keep_latest")] * 2
+
+
+def test_a_saver_that_cannot_prune_is_left_alone(repo, runtime, caplog) -> None:
+    """The in-memory saver has no pruning; that is not an error worth reporting."""
+    _, agent = _agent(repo, runtime, [AIMessage("a")], "A", MemorySaver())
+
+    with caplog.at_level("WARNING"):
+        run_ask_turn(agent, scope="A", question="one")
+
+    assert "pruning" not in caplog.text
+
+
+def test_a_saver_whose_prune_fails_does_not_fail_the_turn(repo, runtime) -> None:
+    """Space saving is best effort: the answer is still delivered."""
+
+    class BrokenSaver(MemorySaver):
+        """A saver whose prune raises."""
+
+        def prune(self, thread_ids, *, strategy="keep_latest"):
+            """Fail the way a lost connection does."""
+            raise ConnectionError("db down")
+
+    _, agent = _agent(repo, runtime, [AIMessage("still answered")], "A", BrokenSaver())
+
+    assert run_ask_turn(agent, scope="A", question="one") == "still answered"
+
+
+def test_a_follow_up_reaches_the_model_with_the_earlier_words(repo, runtime) -> None:
+    """The second call carries the first question and its answer, verbatim."""
+    model, agent = _agent(
+        repo, runtime, [AIMessage("first answer"), AIMessage("second")]
+    )
+
+    run_ask_turn(agent, scope="fund", question="how are we doing?")
+    run_ask_turn(agent, scope="fund", question="and the second one?")
+
+    second_call = model.texts[1]
+    assert "how are we doing?" in second_call
+    assert "first answer" in second_call
+    assert "and the second one?" in second_call
+
+
+def test_a_looping_model_is_stopped_after_exactly_the_step_cap(repo, runtime) -> None:
+    """``max_steps`` model calls, then a plain message; the next turn still works."""
+    loop = [tool_call("ls", {"path": "/"}, f"c{i}") for i in range(40)]
+    model, agent = _agent(repo, runtime, loop)
+
+    answer = run_ask_turn(agent, scope="fund", question="loop", max_steps=4)
+
+    assert len(model.seen) == 4
+    assert "narrower question" in answer
+    model.script = [AIMessage("fine now")]
+    model.reset()
+    assert run_ask_turn(agent, scope="fund", question="again") == "fine now"
+
+
+def test_a_slow_model_stops_the_turn_at_the_time_limit(repo, runtime) -> None:
+    """Between steps, a turn past its limit raises instead of carrying on."""
+    import time
+
+    class SlowModel(ScriptedAskModel):
+        """Takes a moment on every call."""
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            time.sleep(0.4)
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    model = SlowModel(
+        script=[tool_call("ls", {"path": "/"}, f"c{i}") for i in range(10)]
+    )
+    agent = build_ask_agent(
+        model=model,
+        session_factory=_no_session,
+        persistence=SimpleNamespace(saver=MemorySaver(), store=InMemoryStore()),
+        scope="fund",
+        focus=None,
+        config=FundConfig(),
+        repo_root=repo,
+        runtime_root=runtime,
+    )
+
+    with pytest.raises(AskTimeoutError):
+        run_ask_turn(agent, scope="fund", question="slow", timeout_seconds=0.5)
+
+
+def test_compaction_offloads_history_into_the_scope_and_clearing_removes_it(
+    repo, runtime
+) -> None:
+    """With a small compaction trigger, the evicted history lands in that scope's
+    scratch folder, and a clear removes it without touching another scope."""
+    config = FundConfig(summary_token_threshold=300, summary_messages_to_keep=2)
+    saver = MemorySaver()
+    model = ScriptedAskModel(
+        script=[AIMessage(f"answer number {i} " + "word " * 80) for i in range(12)]
+    )
+
+    def build(scope):
+        return build_ask_agent(
+            model=model,
+            session_factory=_no_session,
+            persistence=SimpleNamespace(saver=saver, store=InMemoryStore()),
+            scope=scope,
+            focus=None,
+            config=config,
+            repo_root=repo,
+            runtime_root=runtime,
+        )
+
+    agent_a, agent_b = build("A"), build("B")
+    for index in range(5):
+        run_ask_turn(agent_a, scope="A", question=f"question {index} " + "pad " * 80)
+    run_ask_turn(agent_b, scope="B", question="only one")
+    root = _staged(repo, runtime)
+    offloaded = list(
+        (ask_agent.scope_scratch_dir(root, "A") / "conversation_history").glob("*.md")
+    )
+
+    assert offloaded, "compaction never offloaded anything"
+    clear_ask_state(saver, "A", runtime_root=runtime)
+    assert not ask_agent.scope_scratch_dir(root, "A").exists()
+    assert ask_agent.scope_scratch_dir(root, "B").exists()
+
+
+def test_a_reply_made_of_text_blocks_keeps_its_paragraph_breaks() -> None:
+    """Providers that return content blocks do not run paragraphs together."""
+    blocks = [{"type": "text", "text": "first"}, {"type": "text", "text": "second"}]
+
+    assert ask_agent._text(blocks) == "first\n\nsecond"
+    assert (
+        ask_agent._text(["plain", {"type": "text", "text": "more"}]) == "plain\n\nmore"
+    )
+
+
+def test_each_step_phrase_covers_every_kind_of_tool() -> None:
+    """The status line has plain words for listing, finding, planning and delegating."""
+    assert ask_agent.describe_step("ls", {"path": "/docs"}) == "listing /docs"
+    assert ask_agent.describe_step("ls", {}) == "listing /"
+    assert ask_agent.describe_step("glob", {"pattern": "*.py"}) == "finding files *.py"
+    assert ask_agent.describe_step("write_todos", {}) == "planning"
+    assert ask_agent.describe_step("task", {}) == "asking a helper agent"
+    assert "not allowed" in ask_agent.describe_step("write_file", {"file_path": "/x"})
+
+
+def test_a_stream_chunk_that_is_not_a_dict_is_ignored() -> None:
+    """Unexpected chunk shapes never break a turn."""
+    assert list(ask_agent._update_messages(["not", "a", "dict"])) == []
+    assert list(ask_agent._update_messages({"node": None})) == []
+    assert list(ask_agent._update_messages({"node": {"messages": "text"}})) == []
+
+
+def test_all_eleven_tools_work_through_the_real_agent(
+    repo, runtime, monkeypatch
+) -> None:
+    """Every tool is callable by the model with its documented arguments."""
+    from fund import observe
+
+    quiet = lambda *a, **k: {"ok": True}  # noqa: E731
+    for name in (
+        "portfolio_state",
+        "performance_summary",
+        "holdings_summary",
+        "get_mandate",
+        "mandate_warnings",
+        "list_portfolio_runs",
+        "daily_brief",
+    ):
+        monkeypatch.setattr(observe, name, quiet)
+    monkeypatch.setattr(observe, "audit_timeline", lambda *a, **k: [])
+    monkeypatch.setattr(observe, "list_portfolios", lambda session: [PID])
+    monkeypatch.setattr(observe, "pending_hitl", lambda session, saver, pid=None: [])
+    names = [
+        "fund_snapshot",
+        "list_portfolios",
+        "portfolio_state",
+        "performance",
+        "holdings",
+        "mandate",
+        "pending_gates",
+        "list_runs",
+        "daily_brief",
+        "audit_trail",
+    ]
+    script = [tool_call(n, {}, f"c{i}") for i, n in enumerate(names)] + [
+        AIMessage("ok")
+    ]
+    model = ScriptedAskModel(script=script)
+    agent = build_ask_agent(
+        model=model,
+        session_factory=_no_session,
+        persistence=SimpleNamespace(saver=MemorySaver(), store=InMemoryStore()),
+        scope="fund",
+        focus=PID,
+        config=FundConfig(),
+        repo_root=repo,
+        runtime_root=runtime,
+    )
+    from fund.tui import ask as ask_module
+
+    monkeypatch.setattr(ask_module, "build_context", lambda *a, **k: "FUND STATE")
+
+    run_ask_turn(agent, scope="fund", question="use everything", max_steps=40)
+
+    results = _tool_results(agent)
+    assert len(results) == len(names)
+    assert not [r for r in results if str(r).startswith("error:")]
+
+
+def test_an_edit_that_keeps_the_file_size_is_still_picked_up(repo, runtime) -> None:
+    """Same length, new content: the change is noticed through the modified time."""
+    import os
+
+    target = repo / "fund/src/fund/observe.py"
+    root = _staged(repo, runtime)
+    text = target.read_text()
+    stat = target.stat()
+    target.write_text(text.replace("hi", "ho"))
+    os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+
+    root = _staged(repo, runtime)
+
+    assert "return 'ho'" in (root / "code/fund/observe.py").read_text()
+
+
+def test_a_tool_message_is_never_taken_as_the_answer() -> None:
+    """Only the model's own text counts, not what a tool returned."""
+    agent = _FakeAgent(
+        [
+            {
+                "tools": {
+                    "messages": [ToolMessage(content="tool output", tool_call_id="1")]
+                }
+            }
+        ]
+    )
+
+    assert run_ask_turn(agent, scope="fund", question="q").startswith("(the agent")

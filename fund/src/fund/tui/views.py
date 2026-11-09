@@ -32,6 +32,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.content import Content
 from textual.coordinate import Coordinate
 from textual.widgets import (
     Checkbox,
@@ -51,10 +52,11 @@ from fund.tui import ask
 from fund.tui.ask_history import AskHistory
 from fund.tui.prose import format_ask_log, format_market_digest
 from fund.tui.readouts import attribution_bar, render_readout
+from fund.tui.safe_text import defang_markdown, strip_control
 from fund.tui.stream import StepStatus, StreamEvent
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Hashable
+    from collections.abc import Callable, Generator, Hashable, Sequence
     from contextlib import AbstractContextManager
 
     from sqlalchemy.orm import Session
@@ -103,6 +105,14 @@ class _ShellContext(Protocol):
 
     def ask_clear(self) -> None:
         """Ask for confirmation, then delete the focused scope's Ask conversation."""
+        ...
+
+    def ask_persist(self, history: AskHistory, speaker: str, text: str) -> None:
+        """Save one Ask message to ``history`` off the event loop, in order."""
+        ...
+
+    def ask_turn_refused(self) -> bool:
+        """Whether a typed turn must wait (the history is being deleted); says why."""
         ...
 
 
@@ -3067,8 +3077,10 @@ def _holding_detail(mark: HoldingMark) -> str:
     )
 
 
-# Typed into the Ask box instead of a question: deletes the saved conversation.
 CLEAR_COMMAND = "/clear"
+# Messages drawn at once. The whole conversation stays saved and is exported in full,
+# but re-laying-out hundreds of long answers on every new line made each one slow.
+_ASK_RENDER_LIMIT = 100
 
 
 class AskView(ShellView):
@@ -3112,6 +3124,7 @@ class AskView(ShellView):
         self.pending_action: ask.PendingAction | None = None
         self.history: AskHistory | None = None
         self.history_scope: str | None = None
+        self._loading = False
         self._log: list[tuple[str, str]] = []
 
     def compose(self) -> ComposeResult:
@@ -3164,10 +3177,17 @@ class AskView(ShellView):
         if turn.strip().lower() == CLEAR_COMMAND:
             self.shell.ask_clear()
             return
+        if self.shell.ask_turn_refused():
+            return
         self.append_log("you", turn)
         self.shell.ask_submit(turn)
 
-    def bind_history(self, history: AskHistory | None, scope: str) -> None:
+    def bind_history(
+        self,
+        history: AskHistory | None,
+        scope: str,
+        rows: Sequence[tuple[str, str]] = (),
+    ) -> None:
         """Show ``scope``'s saved conversation and keep saving to it.
 
         Called when Ask opens and whenever the focused portfolio changes, so the log on
@@ -3178,12 +3198,30 @@ class AskView(ShellView):
             history: The scope's saved conversation, or ``None`` when it cannot be read
                 (the log then lives in memory only, as it always did).
             scope: The scope the log now belongs to.
+            rows: The messages already read from ``history``, oldest first.
         """
         self.history = history
         self.history_scope = scope
-        self._log = history.load() if history is not None else []
+        self._log = list(rows)
+        self._loading = False
         self.last_answer = ""
         self.pending_action = None
+        self._repaint_log()
+
+    def begin_binding(self, history: AskHistory, scope: str) -> None:
+        """Switch to ``scope`` now and show a placeholder while its messages are read.
+
+        The read happens off the event loop. Lines typed meanwhile are kept and saved,
+        and :meth:`finish_binding` puts the read messages in front of them.
+        """
+        self.bind_history(history, scope)
+        self._loading = True
+        self._repaint_log()
+
+    def finish_binding(self, rows: Sequence[tuple[str, str]]) -> None:
+        """Show the messages that were read, ahead of any typed while reading."""
+        self._log = [*rows, *self._log]
+        self._loading = False
         self._repaint_log()
 
     def clear_log(self) -> None:
@@ -3193,18 +3231,17 @@ class AskView(ShellView):
         self.pending_action = None
         self._repaint_log()
 
-    def append_log(self, speaker: str, text: str) -> None:
+    def append_log(self, speaker: str, text: str, *, save: bool = True) -> None:
         """Append a ``(speaker, text)`` line to the conversation and repaint the log.
 
-        The line is also saved, so it is there next time Ask opens. A save that fails
-        is logged and dropped: losing a line of history must not end the cockpit.
+        The line is also saved, so it is there next time Ask opens, unless ``save`` is
+        false: an error note belongs on screen, not in the record of what was said. A
+        save runs off the event loop; one that fails is logged and dropped, since losing
+        a line of history must not end the cockpit.
         """
         self._log.append((speaker, text))
-        if self.history is not None:
-            try:
-                self.history.append(speaker, text)
-            except Exception:
-                logger.warning("saving an Ask message failed", exc_info=True)
+        if save and self.history is not None:
+            self.shell.ask_persist(self.history, speaker, text)
         self._repaint_log()
 
     def set_answer(self, answer: str) -> None:
@@ -3218,10 +3255,27 @@ class AskView(ShellView):
 
     def _repaint_log(self) -> None:
         log = self.query_one("#ask-log", Static)
-        log.update(format_ask_log(self._log) if self._log else "ask about the fund…")
+        placeholder = (
+            "loading the saved conversation…"
+            if self._loading
+            else "ask about the fund…"
+        )
+        log.update(self._log_content() if self._log else placeholder)
         # The new text changes the log's height only on the next layout pass, so
         # scrolling now would stop short of the newest message.
         self.call_after_refresh(self._scroll_log_to_end)
+
+    def _log_content(self) -> Content:
+        """The newest messages as styled content, noting any older ones left out."""
+        shown = self._log[-_ASK_RENDER_LIMIT:]
+        content = format_ask_log(shown)
+        hidden = len(self._log) - len(shown)
+        if hidden <= 0:
+            return content
+        note = (
+            f"… {hidden} earlier messages are saved but not shown (e exports them all)"
+        )
+        return Content.assemble((note, "dim"), "\n\n", content)
 
     def _scroll_log_to_end(self) -> None:
         """Scroll the conversation to its newest line."""
@@ -3242,7 +3296,7 @@ class AskView(ShellView):
             lines.append("")
             # Model text is free prose: quote every line, blanks included, so a "#" or
             # "-" in an answer cannot become a heading or bullet of the exported file.
-            rows = str(text).splitlines() or [""]
+            rows = defang_markdown(strip_control(str(text))).splitlines() or [""]
             lines.extend(f"> {row}" if row else ">" for row in rows)
             lines.append("")
         with open_private(path) as handle:

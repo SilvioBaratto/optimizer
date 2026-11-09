@@ -16,6 +16,8 @@ from collections.abc import Sequence
 
 from textual.content import Content
 
+from fund.tui.safe_text import clip, strip_control
+
 _DIGEST = re.compile(
     r"^Market digest for (?P<day>\d{4}-\d{2}-\d{2}) \((?P<region>[^)]*)\)\. "
     r"(?P<body>.+)$",
@@ -40,12 +42,16 @@ _THEME_JOIN = " · "
 _THEMES_WIDTH = 72
 
 _RULE = re.compile(r"^\s{0,3}([-*_])(?:\s*\1){2,}\s*$")
-_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(?P<text>.*?)\s*#*\s*$")
+_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(?P<text>.*)$")
 _BULLET = re.compile(r"^(?P<indent>\s*)[-*+]\s+(?P<text>.*)$")
 _FENCE = re.compile(r"^\s*```")
-_INLINE = re.compile(r"\*\*(?=\S)(?P<bold>.+?)(?<=\S)\*\*|`(?P<code>[^`\n]+)`")
-_BOLD_MARKS = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*")
 _DIVIDER = "─" * 24
+# How far past an opening ``**`` or backtick a closer is looked for. A bound, so a model
+# line of thousands of unclosed marks costs a fixed amount per mark, not the rest of the
+# line.
+_MARK_WINDOW = 1_000
+# A machine-written digest is a few kilobytes; text far beyond that is not one.
+_MAX_DIGEST_CHARS = 20_000
 
 
 def _number(text: str) -> str:
@@ -53,6 +59,8 @@ def _number(text: str) -> str:
     try:
         value = float(text)
     except ValueError:
+        return text
+    if value != 0 and round(value, 4) == 0:
         return text
     shown = f"{round(value, 4):.4f}".rstrip("0").rstrip(".")
     return "0" if shown in ("", "-0") else shown
@@ -121,6 +129,8 @@ def format_market_digest(narrative: str) -> list[str] | None:
         Markets with one market per line, and the news themes), or ``None`` when the
         text is not a digest of exactly that shape, so the caller shows it unchanged.
     """
+    if len(narrative) > _MAX_DIGEST_CHARS:
+        return None
     head = _DIGEST.match(narrative.strip())
     if head is None:
         return None
@@ -156,21 +166,55 @@ def format_market_digest(narrative: str) -> list[str] | None:
     return lines
 
 
+def _bold_end(text: str, start: int) -> int:
+    """Index of the ``**`` closing the bold run opened at ``start``, or ``-1``.
+
+    The run needs a non-space right after the opener and right before the closer, and
+    the closer is searched for within :data:`_MARK_WINDOW` characters.
+    """
+    if text[start + 2 : start + 3].strip() == "":
+        return -1
+    limit = min(len(text), start + 2 + _MARK_WINDOW)
+    closer = text.find("**", start + 3, limit)
+    while closer != -1:
+        if not text[closer - 1].isspace():
+            return closer
+        closer = text.find("**", closer + 1, limit)
+    return -1
+
+
 def _inline_parts(text: str) -> list[str | tuple[str, str]]:
-    """Split one line into plain text, bold runs and code runs."""
+    """Split one line into plain text, bold runs and code runs, in a single pass."""
     parts: list[str | tuple[str, str]] = []
-    cursor = 0
-    for match in _INLINE.finditer(text):
-        if match.start() > cursor:
-            parts.append(text[cursor : match.start()])
-        if match["bold"] is not None:
-            parts.append((match["bold"], "bold"))
-        else:
-            parts.append((match["code"], "underline"))
-        cursor = match.end()
-    if cursor < len(text):
-        parts.append(text[cursor:])
+    plain_from = 0
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "*" and text.startswith("**", index):
+            closer = _bold_end(text, index)
+            if closer != -1:
+                if index > plain_from:
+                    parts.append(text[plain_from:index])
+                parts.append((text[index + 2 : closer], "bold"))
+                index = plain_from = closer + 2
+                continue
+        elif char == "`":
+            closer = text.find("`", index + 1, index + 1 + _MARK_WINDOW)
+            if closer > index + 1:
+                if index > plain_from:
+                    parts.append(text[plain_from:index])
+                parts.append((text[index + 1 : closer], "underline"))
+                index = plain_from = closer + 1
+                continue
+        index += 1
+    if plain_from < len(text):
+        parts.append(text[plain_from:])
     return parts
+
+
+def _plain(parts: list[str | tuple[str, str]]) -> str:
+    """The text of a list of inline parts, without their styles."""
+    return "".join(part if isinstance(part, str) else part[0] for part in parts)
 
 
 def format_answer(text: str) -> Content:
@@ -186,12 +230,14 @@ def format_answer(text: str) -> Content:
 
     Returns:
         The styled content; its ``plain`` text equals ``text`` when the answer holds no
-        formatting marks.
+        formatting marks, no terminal control characters (removed, as is the carriage
+        return of a Windows line ending) and is within the message size limit (longer
+        text is cut with a note).
     """
     parts: list[str | tuple[str, str] | Content] = []
     in_code = False
     emitted = False
-    for line in text.split("\n"):
+    for line in clip(strip_control(text)).split("\n"):
         if _FENCE.match(line):
             in_code = not in_code
             continue
@@ -206,7 +252,8 @@ def format_answer(text: str) -> Content:
         if _RULE.match(line):
             parts.append(_DIVIDER)
         elif heading is not None:
-            parts.append((_BOLD_MARKS.sub(r"\1", heading["text"]), "bold"))
+            title = heading["text"].rstrip().rstrip("#").rstrip()
+            parts.append((_plain(_inline_parts(title)), "bold"))
         elif bullet is not None:
             parts.append(f"{bullet['indent']}• ")
             parts.extend(_inline_parts(bullet["text"]))
@@ -229,7 +276,9 @@ def format_ask_log(turns: Sequence[tuple[str, str]]) -> Content:
     for index, (speaker, text) in enumerate(turns):
         if index:
             parts.append("\n\n")
-        parts.append((speaker, "bold"))
+        parts.append((strip_control(speaker), "bold"))
         parts.append(": ")
-        parts.append(format_answer(text) if speaker == "ask" else str(text))
+        parts.append(
+            format_answer(text) if speaker == "ask" else clip(strip_control(str(text)))
+        )
     return Content.assemble(*parts)

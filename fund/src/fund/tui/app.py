@@ -32,7 +32,9 @@ import datetime as dt
 import functools
 import logging
 import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Concatenate, ParamSpec
@@ -63,6 +65,8 @@ from fund.tui.ask_history import AskHistory, scope_of
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.exports import export_path
 from fund.tui.questionnaire import QuestionnaireScreen, describe_error
+from fund.tui.safe_text import describe_error as describe_ask_error
+from fund.tui.safe_text import strip_control
 from fund.tui.views import (
     RAIL_LABELS,
     VIEW_SPECS,
@@ -733,6 +737,20 @@ class ShellApp(App[None]):
         # thread, and ``exclusive=True`` only flags an older worker cancelled while its
         # thread keeps running.
         self._ask_lock = threading.Lock()
+        # Questions dispatched and not yet finished, and whether a clear is running.
+        # Both are touched on the event loop only, so a question still building its
+        # model, or a clear that has not yet taken the lock, is already counted.
+        self._ask_pending = 0
+        self._ask_clearing = False
+        # Earliest time a failed history load is retried, so a brief outage does not
+        # switch saving off for the whole session and a long one is not hammered.
+        self._ask_history_retry_at = 0.0
+        # Every read, write and delete of the saved conversation runs here, one at a
+        # time and in order, so a slow or stalled database never freezes the screen and
+        # a clear cannot overtake the messages saved before it.
+        self._ask_io = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="ask-history"
+        )
         # Serialises mandate saves: ``exclusive=True`` only flags the older worker
         # cancelled while its thread keeps running, so two ctrl+s presses would
         # otherwise write the same portfolio at once.
@@ -2532,7 +2550,13 @@ class ShellApp(App[None]):
         view = self._active_ask_view()
         if view is None:
             return
-        self.last_worker = self._ask_worker(turn, view)
+        # The worker answers for the scope on screen *now*: the adviser may switch
+        # portfolio before it finishes, and the answer must stay with its own question.
+        focus = self._portfolio_id
+        scope = scope_of(focus)
+        history = view.history if view.history_scope == scope else None
+        self._ask_pending += 1
+        self.last_worker = self._ask_worker(turn, view, focus, scope, history)
 
     def ask_action(self, turn: str) -> None:
         """Route an Ask action turn through resolve → confirm → ``apply_action``.
@@ -2764,29 +2788,104 @@ class ShellApp(App[None]):
         """Show the focused scope's saved conversation, loading it only on a change.
 
         Runs on every repaint of the Ask view, so a portfolio picked in the header
-        switches the conversation on the next tick. A history that cannot be read leaves
-        Ask working in memory, as before, and says so on the status line.
+        switches the conversation at once: the screen shows a placeholder and the
+        messages are read off the event loop (:meth:`_load_history`). A history that
+        cannot be read leaves Ask working in memory, as before, says so on the status
+        line, and is tried again after a pause.
         """
         scope = scope_of(self._portfolio_id)
-        if view.history_scope == scope:
+        if view.history_scope == scope and (
+            view.history is not None or time.monotonic() < self._ask_history_retry_at
+        ):
             return
         store = getattr(self._persistence, "store", None)
+        if store is None:
+            view.bind_history(None, scope)
+            return
+        history = AskHistory(store, scope)
+        view.begin_binding(history, scope)
+        with suppress(RuntimeError):  # the executor is shut down while quitting
+            self._ask_io.submit(self._load_history, view, history, scope)
+
+    def _load_history(self, view: AskView, history: AskHistory, scope: str) -> None:
+        """Read a scope's saved messages (history thread), then hand them over."""
+        rows: list[tuple[str, str]] | None = None
+        error: Exception | None = None
         try:
-            view.bind_history(
-                AskHistory(store, scope) if store is not None else None, scope
-            )
+            rows = history.load()
         except Exception as exc:  # an unreadable history must not end the cockpit
             logger.warning("ask history unreadable", exc_info=True)
-            view.bind_history(None, scope)
-            self._set_status(f"saved Ask history unavailable: {exc}")
+            error = exc
+        with suppress(RuntimeError):  # the app may be gone by now
+            self.call_from_thread(
+                self._history_loaded, view, history, scope, rows, error
+            )
+
+    def _history_loaded(
+        self,
+        view: AskView,
+        history: AskHistory,
+        scope: str,
+        rows: list[tuple[str, str]] | None,
+        error: Exception | None,
+    ) -> None:
+        """Show the messages that were read, unless the adviser has moved on since."""
+        if view.history is not history:
+            return
+        if rows is not None:
+            self._ask_history_retry_at = 0.0
+            view.finish_binding(rows)
+            return
+        view.bind_history(None, scope)
+        self._ask_history_retry_at = time.monotonic() + _ASK_HISTORY_RETRY_SECONDS
+        reason = describe_ask_error(error) if error else "unknown error"
+        self._set_status(f"saved Ask history unavailable: {reason}")
+
+    def ask_persist(self, history: AskHistory, speaker: str, text: str) -> None:
+        """Save one Ask message off the event loop; a failure is logged and dropped."""
+        with suppress(RuntimeError):  # the executor is shut down while quitting
+            self._ask_io.submit(self._save_message, history, speaker, text)
+
+    def _save_message(self, history: AskHistory, speaker: str, text: str) -> None:
+        """Write one message (history thread)."""
+        try:
+            history.append(speaker, text)
+        except Exception:
+            logger.warning("saving an Ask message failed", exc_info=True)
+
+    def flush_ask_history(self, timeout: float = 10.0) -> None:
+        """Block until every queued history read, write and delete has finished.
+
+        A test hook, and what a caller needs before reading the store directly.
+        """
+        self._ask_io.submit(lambda: None).result(timeout)
+
+    def on_unmount(self) -> None:
+        """Stop accepting history work; what is queued still finishes in its thread."""
+        self._ask_io.shutdown(wait=False)
 
     def _ask_busy(self) -> bool:
-        """Whether an Ask answer is still being produced.
+        """Whether a question has been dispatched and has not finished.
 
-        Read from the lock rather than the worker list: a cancelled worker is reported
-        finished while its agent thread is still writing.
+        Counted when the question is dispatched, not when its worker takes the lock: the
+        worker first builds the model, and a cancelled worker is reported finished while
+        its agent thread is still writing.
         """
-        return self._ask_lock.locked()
+        return self._ask_pending > 0
+
+    def _ask_done(self) -> None:
+        """A dispatched question has ended, however it ended."""
+        self._ask_pending = max(0, self._ask_pending - 1)
+
+    def ask_turn_refused(self) -> bool:
+        """Whether a typed turn must wait because the history is being deleted.
+
+        Says why on the status line, so the adviser knows to retype it.
+        """
+        if self._ask_clearing:
+            self._set_status("Ask history is being deleted - try again in a moment")
+            return True
+        return False
 
     def ask_clear(self) -> None:
         """Delete the focused scope's Ask conversation after a confirmation.
@@ -2799,7 +2898,7 @@ class ShellApp(App[None]):
         after the delete.
         """
         view = self._active_ask_view()
-        if view is None:
+        if view is None or self._ask_clearing:
             return
         if self._ask_busy():
             self._set_status("wait for the answer before clearing the history")
@@ -2807,7 +2906,8 @@ class ShellApp(App[None]):
         scope = scope_of(self._portfolio_id)
 
         def _resolved(ok: bool | None) -> None:
-            if ok:
+            if ok and not self._ask_busy() and not self._ask_clearing:
+                self._ask_clearing = True
                 self.last_worker = self._ask_clear_worker(view, scope)
 
         label = "the whole fund" if scope == "fund" else f"portfolio {scope[:8]}"
@@ -2815,7 +2915,8 @@ class ShellApp(App[None]):
             ConfirmScreen(
                 f"Delete the Ask conversation for {label}?\n\n"
                 "Every saved question and answer is erased for good and Ask forgets "
-                "them. This cannot be undone."
+                "them. This cannot be undone. Conversations you exported to a file "
+                "with e are not touched."
             ),
             _resolved,
         )
@@ -2824,25 +2925,47 @@ class ShellApp(App[None]):
     def _ask_clear_worker(self, view: AskView, scope: str) -> None:
         """Delete the saved messages, then the agent's memory and files, off the loop.
 
-        The screen is emptied only after both deletions succeed, so a failure never
-        shows a conversation as gone while it is still stored.
+        The screen follows the saved messages: once they are deleted it is emptied, even
+        if the agent's memory then fails to delete, and that failure is named on the
+        status line. The screen is touched only if it still shows ``scope``.
         """
         from fund.agents.ask_agent import clear_ask_state
 
+        def empty_screen() -> None:
+            if view.history_scope == scope:
+                view.clear_log()
+
         store = getattr(self._persistence, "store", None)
+        messages_gone = False
+        removed = 0
         try:
-            removed = AskHistory(store, scope).clear() if store is not None else 0
-            clear_ask_state(self._persistence.saver, scope)
+            with self._ask_lock:
+                removed = (
+                    self._ask_io.submit(AskHistory(store, scope).clear).result()
+                    if store is not None
+                    else 0
+                )
+                messages_gone = True
+                clear_ask_state(self._persistence.saver, scope)
         except Exception as exc:  # report it; never claim a clear that did not happen
             logger.warning("clearing the Ask history failed", exc_info=True)
+            if messages_gone:
+                self.call_from_thread(empty_screen)
             self.call_from_thread(
-                self._set_status, f"could not delete the history: {exc}"
+                self._set_status,
+                f"could not delete the history: {describe_ask_error(exc)}",
             )
+            self.call_from_thread(self._ask_clear_done)
             return
-        self.call_from_thread(view.clear_log)
+        self.call_from_thread(empty_screen)
         self.call_from_thread(
             self._set_status, f"Ask history deleted ({removed} messages)"
         )
+        self.call_from_thread(self._ask_clear_done)
+
+    def _ask_clear_done(self) -> None:
+        """The clear has ended; questions are accepted again."""
+        self._ask_clearing = False
 
     def _active_ask_view(self) -> AskView | None:
         """The Ask view when it is the active content pane, else ``None``."""
@@ -2855,7 +2978,14 @@ class ShellApp(App[None]):
         return view if isinstance(view, AskView) else None
 
     @work(thread=True, exclusive=True, group="ask")
-    def _ask_worker(self, turn: str, view: AskView) -> None:
+    def _ask_worker(
+        self,
+        turn: str,
+        view: AskView,
+        focus: uuid.UUID | None,
+        scope: str,
+        history: AskHistory | None,
+    ) -> None:
         """Answer one question with the read-only deep agent, off the event loop.
 
         Lazily builds the chat model via the injected factory and the agent over it,
@@ -2867,12 +2997,32 @@ class ShellApp(App[None]):
         note, never a crash. A newer question cancels this worker, but a thread cannot
         be force-stopped, so every paint is dropped once it is cancelled: a slow stale
         reply never lands under the newer question. The turns of one scope share one
-        agent thread, so they run one at a time under ``_ask_lock``. The agent stack is
-        imported lazily so ``import fund.tui.app`` stays agent-stack-light.
+        agent thread, so they run one at a time under ``_ask_lock``. ``scope`` and
+        ``history`` are the conversation the question was asked in, captured when it was
+        dispatched: if the adviser has moved to another portfolio by the time the answer
+        arrives, it is saved to its own conversation and not shown in the new one. The
+        agent stack is imported lazily so ``import fund.tui.app`` stays
+        agent-stack-light.
         """
         from textual.worker import get_current_worker
 
         worker = get_current_worker()
+        try:
+            self._answer_in_scope(turn, view, focus, scope, history, worker)
+        finally:
+            with suppress(Exception):
+                self.call_from_thread(self._ask_done)
+
+    def _answer_in_scope(
+        self,
+        turn: str,
+        view: AskView,
+        focus: uuid.UUID | None,
+        scope: str,
+        history: AskHistory | None,
+        worker: Any,
+    ) -> None:
+        """Run one question to its answer on the worker thread (see ``_ask_worker``)."""
 
         def deliver(paint: Callable[..., None], *args: Any) -> None:
             # Cancellation is checked on the event loop, where the newer question
@@ -2884,20 +3034,37 @@ class ShellApp(App[None]):
 
             self.call_from_thread(guarded)
 
-        focus = self._portfolio_id
+        def note(text: str) -> None:
+            """Show an error note, never saving it as if it were an answer."""
+            if view.history_scope == scope:
+                view.append_log("ask", text, save=False)
+
+        def answer_arrived(text: str) -> None:
+            """Show the answer here, or keep it with the scope it belongs to."""
+            if view.history_scope == scope:
+                view.set_answer(text)
+                return
+            if history is not None:
+                try:
+                    history.append("ask", text)
+                except Exception:
+                    logger.warning("saving an Ask answer failed", exc_info=True)
+            self._set_status("an answer for another portfolio was saved to its history")
+
         try:
             model = self._model_factory()
         except Exception as exc:  # surface a clean message, never crash the App
-            deliver(self._set_status, f"model unavailable: {exc}")
-            deliver(view.append_log, "ask", f"(model unavailable: {exc})")
+            deliver(self._set_status, f"model unavailable: {describe_ask_error(exc)}")
+            deliver(note, f"(model unavailable: {describe_ask_error(exc)})")
             return
         if model is None:
             deliver(self._set_status, "no model configured")
-            deliver(view.append_log, "ask", "(no model configured)")
+            deliver(note, "(no model configured)")
             return
         from fund.agents.ask_agent import build_ask_agent, run_ask_turn
 
-        scope = scope_of(focus)
+        if self._ask_lock.locked():
+            deliver(self._set_status, "ask: waiting for the previous answer…")
         with self._ask_lock:
             if worker.is_cancelled:
                 return
@@ -2919,11 +3086,11 @@ class ShellApp(App[None]):
                     timeout_seconds=self._config.ask_timeout_seconds,
                 )
             except Exception as exc:  # surface a clean message, never crash the App
-                deliver(self._set_status, f"ask failed: {exc}")
-                deliver(view.append_log, "ask", f"(ask failed: {exc})")
+                deliver(self._set_status, f"ask failed: {describe_ask_error(exc)}")
+                deliver(note, f"(ask failed: {describe_ask_error(exc)})")
                 return
         deliver(self._set_status, "ask: answered")
-        deliver(view.set_answer, answer)
+        deliver(answer_arrived, answer)
 
     # --- header picker + run state -----------------------------------------
 
@@ -3059,8 +3226,13 @@ class ShellApp(App[None]):
         return f"⟨{str(portfolio_id)[:8]}⟩"
 
     def _set_status(self, message: str) -> None:
+        message = strip_control(message)
         self.last_status = message
         self.query_one("#status-bar", Static).update(message)
+
+
+# Seconds before a failed load of the saved Ask history is tried again.
+_ASK_HISTORY_RETRY_SECONDS = 30.0
 
 
 def _recorded_train_size(optimizer_config: dict[str, Any] | None) -> int | None:

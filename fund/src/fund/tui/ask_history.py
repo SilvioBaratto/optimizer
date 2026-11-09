@@ -14,10 +14,11 @@ pulls no ``langgraph``.
 from __future__ import annotations
 
 import datetime as dt
-import itertools
 import time
 import uuid
 from typing import Any
+
+from fund.tui.safe_text import clip, strip_control
 
 __all__ = ["FUND_WIDE", "MAX_MESSAGES", "AskHistory", "scope_of"]
 
@@ -29,9 +30,9 @@ MAX_MESSAGES = 500
 _NAMESPACE_ROOT = ("ask", "history")
 # One store search returns at most `limit` rows (10 by default), so reads page.
 _PAGE = 100
-# Breaks ties between two messages written in the same clock tick, so append order is
-# always read order within one process.
-_SEQUENCE = itertools.count()
+# The newest key this process has issued. A key is never below it, so a wall clock that
+# steps back (a time sync) cannot reorder this process's own messages.
+_LAST_KEY_NS = 0
 
 
 def scope_of(portfolio_id: uuid.UUID | None) -> str:
@@ -40,8 +41,14 @@ def scope_of(portfolio_id: uuid.UUID | None) -> str:
 
 
 def _new_key() -> str:
-    """A store key that sorts in the order messages were written."""
-    return f"{time.time_ns():020d}-{next(_SEQUENCE):09d}"
+    """A store key that sorts in the order messages were written.
+
+    The random tail keeps two processes that write in the same nanosecond from
+    overwriting each other.
+    """
+    global _LAST_KEY_NS
+    _LAST_KEY_NS = max(time.time_ns(), _LAST_KEY_NS + 1)
+    return f"{_LAST_KEY_NS:020d}-{uuid.uuid4().hex[:8]}"
 
 
 class AskHistory:
@@ -60,16 +67,20 @@ class AskHistory:
     def append(self, speaker: str, text: str) -> None:
         """Save one message, in the exact words it was said.
 
+        Terminal control characters are removed and a message past the size limit is cut
+        (:mod:`fund.tui.safe_text`): what is saved is replayed on every open of Ask, so
+        a        poisoned or runaway answer must not be able to live on there.
+
         Args:
             speaker: ``you`` for the adviser, ``ask`` for the answer.
-            text: The message, markdown and brackets untouched.
+            text: The message; markdown and brackets are kept untouched.
         """
         self._store.put(
             self._namespace,
             _new_key(),
             {
-                "speaker": speaker,
-                "text": text,
+                "speaker": strip_control(speaker),
+                "text": clip(strip_control(text)),
                 "at": dt.datetime.now(dt.UTC).isoformat(),
             },
             # A store configured for semantic search would otherwise send every
@@ -86,16 +97,9 @@ class AskHistory:
         items = self._items()
         excess = len(items) - MAX_MESSAGES
         if excess > 0:
-            for key, _ in items[:excess]:
-                self._store.delete(self._namespace, key)
+            self._delete_many([key for key, _ in items[:excess]])
             items = items[excess:]
         return [(value["speaker"], value["text"]) for _, value in items]
-
-    def recent(self, count: int) -> list[tuple[str, str]]:
-        """The last ``count`` messages, oldest first; empty for a count of zero."""
-        if count <= 0:
-            return []
-        return self.load()[-count:]
 
     def clear(self) -> int:
         """Delete every message of this scope for good.
@@ -103,10 +107,22 @@ class AskHistory:
         Returns:
             How many messages were removed.
         """
-        items = self._items()
-        for key, _ in items:
+        keys = [key for key, _ in self._items()]
+        self._delete_many(keys)
+        return len(keys)
+
+    def _delete_many(self, keys: list[str]) -> None:
+        """Delete rows in one round trip when the store can batch, else one by one."""
+        if not keys:
+            return
+        batch = getattr(self._store, "batch", None)
+        if callable(batch):
+            from langgraph.store.base import PutOp
+
+            batch([PutOp(self._namespace, key, None) for key in keys])
+            return
+        for key in keys:
             self._store.delete(self._namespace, key)
-        return len(items)
 
     def _items(self) -> list[tuple[str, dict[str, Any]]]:
         """All ``(key, value)`` rows of the scope in write order, read page by page.
@@ -114,13 +130,13 @@ class AskHistory:
         A store's own result order is not part of its contract (the Postgres store
         returns most recently updated first), so the keys, which sort by time, decide.
         """
-        rows: list[tuple[str, dict[str, Any]]] = []
+        rows: dict[str, dict[str, Any]] = {}
         offset = 0
         while True:
             page = self._store.search(self._namespace, limit=_PAGE, offset=offset)
-            rows.extend((item.key, dict(item.value)) for item in page)
+            # Keyed, so a row shifted onto two pages by a concurrent writer counts once.
+            rows.update((item.key, dict(item.value)) for item in page)
             if len(page) < _PAGE:
                 break
             offset += _PAGE
-        rows.sort(key=lambda row: row[0])
-        return rows
+        return sorted(rows.items())

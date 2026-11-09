@@ -678,3 +678,9 @@ def test_every_logging_setup_in_the_package_silences_http_request_logs():
     assert configuring
     for path in configuring:
         assert "silence_http_request_logs()" in path.read_text(encoding="utf-8"), path
+
+
+def test_the_ask_step_limit_is_never_below_one():
+    """A mistaken ``FUND_ASK_MAX_STEPS=0`` still lets a question run one round."""
+    assert load_config(env={"FUND_ASK_MAX_STEPS": "0"}).ask_max_steps == 1
+    assert load_config(env={"FUND_ASK_MAX_STEPS": "-4"}).ask_max_steps == 1
