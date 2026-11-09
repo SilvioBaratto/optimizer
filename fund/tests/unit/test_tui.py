@@ -34,6 +34,7 @@ from _fund_fakes import (
     ASOF,
     PORTFOLIO_ID,
     UNIVERSE,
+    NoToolsChatModel,
     ScriptedFundModel,
     expected_weights,
     make_constraint_set,
@@ -41,7 +42,6 @@ from _fund_fakes import (
     seed_panel,
     threaded_sqlite_engine,
 )
-from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import Exchange, HumanAuditLog, PaperOrder
@@ -8855,7 +8855,7 @@ async def test_posture_detail_nav_tile_degrades_when_unmarked(shell_env) -> None
 # --- Ask view (Phase 08 T5) -------------------------------------------------
 
 
-class _CannedAskModel(BaseChatModel):
+class _CannedAskModel(NoToolsChatModel):
     """A network-free chat model returning one fixed answer, for the Ask query path."""
 
     answer: str = "grounded: the fund looks healthy"
@@ -8940,7 +8940,7 @@ async def test_ask_sidebar_pick_focuses_the_input_so_typing_is_not_a_binding(
 
 @pytest.mark.asyncio
 async def test_ask_query_returns_grounded_answer(shell_env) -> None:
-    """A query turn builds grounded context, invokes the lazy model, logs the answer."""
+    """A query turn goes to the Ask agent over the lazy model and logs its answer."""
     with shell_env.get_session() as session:
         _seed_run(session, _PID_A, seed=1)
         session.commit()
@@ -8965,7 +8965,7 @@ async def test_ask_query_returns_grounded_answer(shell_env) -> None:
         assert "how are we doing?" in str(view.query_one("#ask-log", Static).render())
 
 
-class _GatedAskModel(BaseChatModel):
+class _GatedAskModel(NoToolsChatModel):
     """A chat model that can park inside ``invoke`` until released, then answer or fail.
 
     ``entered`` is set as soon as the call starts and ``finished`` once it is about to
@@ -9010,7 +9010,9 @@ async def test_ask_superseded_query_never_paints_its_stale_reply(
     """A newer question cancels the older one; its late reply must not reach the log.
 
     A cancelled thread worker keeps running, so without a guard its answer (or error
-    note) lands after the newer question's answer and reads as the reply to it.
+    note) lands under the newer question and reads as the reply to it. The turns of one
+    scope share one agent thread, so the newer question starts only once the older
+    turn has ended, and the older turn's reply is dropped.
     """
     entered, release, finished = (threading.Event() for _ in range(3))
     models = iter(
@@ -9035,15 +9037,14 @@ async def test_ask_superseded_query_never_paints_its_stale_reply(
         view.submit_turn("what about drift?")
         second = app.last_worker
         assert second is not None
-        await second.wait()
-        await pilot.pause()
-        assert view.last_answer == "ANSWER-2 (fast)"
-        status_after_answer = app.last_status
 
         release.set()
         assert await asyncio.to_thread(finished.wait, 5)
+        await second.wait()
         await asyncio.sleep(0.2)  # let a stale paint through if the guard is missing
         await pilot.pause()
+        assert view.last_answer == "ANSWER-2 (fast)"
+        status_after_answer = app.last_status
 
         log = _rendered(view.query_one("#ask-log", Static))
         assert "ANSWER-2 (fast)" in log
@@ -11363,7 +11364,7 @@ async def test_order_edit_error_with_bracketed_input_is_plain_text(shell_env) ->
         assert "[/x]" in str(screen.query_one("#edit-error", Static).render())
 
 
-class _FailingAskModel(BaseChatModel):
+class _FailingAskModel(NoToolsChatModel):
     """A chat model whose call raises a pydantic-style bracketed error message."""
 
     @property

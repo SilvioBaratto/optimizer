@@ -126,6 +126,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Ask is a read-only deep agent with a saved conversation.** A question is now
+  answered by an agent that reads the fund's data (read-only tools over
+  `fund.observe`) and a read-only staged copy of the docs and source, deciding its
+  own steps (shown live on the status line), capped by `FUND_ASK_MAX_STEPS` and
+  `FUND_ASK_TIMEOUT_SECONDS`. Follow-up questions work: each scope keeps one
+  checkpointer thread that deepagents compacts automatically. The exact
+  conversation is saved per portfolio (and for the fund-wide view) and shown when
+  Ask opens; `/clear`, behind a confirm, deletes the saved messages, the agent's
+  memory and its offloaded history files.
+- **The Daily brief and Ask text is laid out to be read.** The market digest is a
+  table (one macro series per line with value, date and signed change, then the
+  markets and news themes), and Ask answers render their headings, bold, bullets
+  and dividers instead of showing the markdown marks, with a blank line between
+  turns.
 - Structured logging with `NullHandler` pattern across all modules (#36)
 - CI Python version matrix testing (3.10, 3.11, 3.12) (#38)
 - Test coverage reporting with Codecov integration (#39)

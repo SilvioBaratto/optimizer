@@ -46,6 +46,24 @@ def _isolate_agent_fs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_ask_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the Ask agent at a tiny stand-in checkout and a per-test runtime dir.
+
+    Every Ask question stages the docs and source it may read. Staging the real tree
+    would copy megabytes per test and write into the shared ``fund/.runtime``, so each
+    test gets a three-file checkout and its own runtime directory instead.
+    """
+    import fund.agents.ask_agent as ask_mod
+
+    repo = tmp_path / "ask-repo"
+    (repo / "fund/src/fund").mkdir(parents=True)
+    (repo / "fund/src/fund/observe.py").write_text("def read_model():\n    return 1\n")
+    (repo / "README.md").write_text("# Optimizer\n")
+    monkeypatch.setattr(ask_mod, "_REPO_ROOT", repo)
+    monkeypatch.setattr(ask_mod, "_RUNTIME_DIR", tmp_path / "ask-runtime")
+
+
+@pytest.fixture(autouse=True)
 def _fresh_exposure_cache() -> None:
     """Start every test with an empty macro-exposure memo.
 

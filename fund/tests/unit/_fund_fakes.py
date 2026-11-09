@@ -101,6 +101,18 @@ def _count_tool_calls(messages: list[BaseMessage], name: str) -> int:
     )
 
 
+class NoToolsChatModel(BaseChatModel):
+    """Base for fake chat models an agent drives: binding tools changes nothing.
+
+    A deep agent binds its tools to the model before calling it, and the stock base
+    class refuses, so every network-free fake used with an agent needs this.
+    """
+
+    def bind_tools(self, tools: Any, **_: Any) -> NoToolsChatModel:
+        """Return the same model; the fake decides for itself what to say."""
+        return self
+
+
 class ScriptedFundModel(BaseChatModel):
     """Role-aware, network-free stand-in for the DeepSeek chat model.
 
