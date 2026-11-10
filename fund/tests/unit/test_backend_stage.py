@@ -418,7 +418,8 @@ def test_every_role_loads_its_skills_through_the_run_backend(staged_workdir, rol
     update = middleware.before_agent({}, None, {})
 
     assert update is not None
-    assert update.get("skills_load_errors") is None
+    # The key may be absent or an empty list; either means nothing failed to load.
+    assert not update.get("skills_load_errors")
     assert {s["name"] for s in update["skills_metadata"]} == set(SKILLS_BY_AGENT[role])
 
 
