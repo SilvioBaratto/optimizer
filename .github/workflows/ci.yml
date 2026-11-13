@@ -201,6 +201,21 @@ jobs:
         env:
           FUND_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fund_test
 
+  # Advisory, not a required status: it exists only on pull requests (a push has no base
+  # to diff against), so branch protection must not wait for it. See ADR-0007.
+  changelog:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/ci/check_changelog.py --base "origin/$BASE_REF" --skip-label "$SKIP_LABEL"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          SKIP_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+
   # Parses the compose file and builds both shipped images, so a broken
   # Dockerfile or compose edit fails here instead of on a user's `portopt start`.
   # install.ps1 is the Windows front door and no other job executes it. The check script

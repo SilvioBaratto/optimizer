@@ -264,6 +264,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/nfr.md` records dated scalability, performance and maintainability baselines
   against their targets, `docs/test-plan.md` maps the critical functions to their
   tests, and `docs/requirements.md` holds the (still empty) requirement registry.
+  An advisory `changelog` CI job (`scripts/ci/check_changelog.py`, pull requests only)
+  fails a pull request that changes shipped code without a `CHANGELOG.md` entry; the
+  `skip-changelog` label overrides it.
 
 ### Removed
 
