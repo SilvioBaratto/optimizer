@@ -741,22 +741,13 @@ def benjamini_hochberg(
         alpha: FDR significance level.
 
     Returns:
-        Boolean series indicating significant factors.
+        Boolean series indicating significant factors. A NaN p-value is not a
+        test: it is left out of the family size and is never significant.
     """
-    sorted_pvals = p_values.sort_values()
-    n = len(sorted_pvals)
-    thresholds: npt.NDArray[np.float64] = alpha * (np.arange(1, n + 1) / n)
-    pval_arr: npt.NDArray[np.float64] = sorted_pvals.to_numpy(
-        dtype=np.float64,
-    )
-    significant = pval_arr <= thresholds
-    # All factors up to the last significant one are significant
-    if significant.any():
-        last_sig = int(np.max(np.where(significant)))
-        significant[: last_sig + 1] = True
-    return pd.Series(significant, index=sorted_pvals.index, dtype=bool).reindex(
-        p_values.index
-    )
+    # Delegating keeps a single step-up implementation; a second copy that
+    # counted NaN in the family size once disagreed with ``correct_pvalues``.
+    adjusted = correct_pvalues(p_values.to_numpy(dtype=np.float64), alpha).bh
+    return pd.Series(adjusted <= alpha, index=p_values.index, dtype=bool)
 
 
 def _factor_to_group_name(factor_name: str) -> str:
