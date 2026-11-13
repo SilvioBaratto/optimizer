@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -42,7 +42,9 @@ class DbConfig:
             and the whole unit of work is lost.
     """
 
-    url: str
+    # The URL carries the password; keep it out of repr so a log line or traceback
+    # that renders the config cannot leak it.
+    url: str = field(repr=False)
     echo: bool = False
     pool_size: int = 5
     max_overflow: int = 10

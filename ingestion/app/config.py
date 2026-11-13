@@ -29,9 +29,12 @@ class Settings(BaseSettings):
     project_name: str = "Optimizer Ingestion Daemon"
     version: str = "1.0.0"
 
+    # Secret fields are repr=False: a log line or traceback that renders the
+    # settings object must not print the DB password or an API key.
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:54320/optimizer_db",
         alias="DATABASE_URL",
+        repr=False,
     )
 
     database_pool_size: int = Field(default=5)
@@ -61,11 +64,15 @@ class Settings(BaseSettings):
     enable_metrics: bool = Field(default=True)
     metrics_port: int = Field(default=9000, alias="METRICS_PORT")
 
-    trading_212_api_key: str = Field(default="", alias="TRADING_212_API_KEY")
-    trading_212_secret_key: str = Field(default="", alias="TRADING_212_SECRET_KEY")
+    trading_212_api_key: str = Field(
+        default="", alias="TRADING_212_API_KEY", repr=False
+    )
+    trading_212_secret_key: str = Field(
+        default="", alias="TRADING_212_SECRET_KEY", repr=False
+    )
     trading_212_mode: str = Field(default="live", alias="TRADING_212_MODE")
 
-    fred_api_key: str = Field(default="", alias="FRED_API_KEY")
+    fred_api_key: str = Field(default="", alias="FRED_API_KEY", repr=False)
 
     # Scheduler — cron expressions (5-field: min hour dom month dow)
     scheduler_daily_pipeline_cron: str = Field(
@@ -227,9 +234,11 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Webhook URLs (Slack, Discord) carry their token in the path.
     notification_webhook_url: str | None = Field(
         default=None,
         alias="NOTIFICATION_WEBHOOK_URL",
+        repr=False,
     )
 
     debug: bool = Field(default=False)

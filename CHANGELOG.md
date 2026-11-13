@@ -258,6 +258,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **fund, ingestion, portopt-db**: API keys, the broker secret, database
+  passwords and the notification webhook URL no longer appear in `repr()` or
+  `str()` of `FundConfig`, `DbConfig` or the ingestion `Settings`. A traceback that renders locals or a stray
+  `logger.info(config)` used to print every provider key and the DB URL.
 - **fund**: the risk gate and the weighting tools no longer judge a book on its
   youngest holding. The drawdown ceiling, `optimize_portfolio` and
   `estimate_moments` share one sample-depth rule (a fit needs at least half the
