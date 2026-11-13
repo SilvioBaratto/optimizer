@@ -184,25 +184,6 @@ def test_naive_reference_time_is_read_as_utc() -> None:
 
 
 @pytest.mark.parametrize(
-    ("age_hours", "fresh_hours", "expected"),
-    [
-        (20, 24, False),
-        (20, None, True),
-        (5, 4, True),
-        (5, None, False),
-    ],
-    ids=["longer-window-keeps-it", "own-window-expired", "shorter-window", "own"],
-)
-def test_fresh_hours_replaces_the_marker_window(
-    age_hours: int, fresh_hours: int | None, expected: bool
-) -> None:
-    """An explicit window overrides the marker's own 13 h dividends window."""
-    plan = _plan({"dividends_updated_at": _aged(age_hours)})
-
-    assert plan.is_due("dividends_updated_at", fresh_hours) is expected
-
-
-@pytest.mark.parametrize(
     ("mode", "staleness"),
     [
         (FetchMode.INCREMENTAL, {_UNKNOWN_MARKER: _NOW}),
@@ -217,12 +198,6 @@ def test_unknown_marker_raises_key_error_naming_it(
     """A marker with no window is a programming error in every mode."""
     with pytest.raises(KeyError, match=_UNKNOWN_MARKER):
         _plan(staleness, mode=mode).is_due(_UNKNOWN_MARKER)
-
-
-def test_fresh_hours_does_not_admit_an_unknown_marker() -> None:
-    """An explicit window does not stand in for a marker the plan does not know."""
-    with pytest.raises(KeyError, match=_UNKNOWN_MARKER):
-        _plan({}).is_due(_UNKNOWN_MARKER, fresh_hours=24)
 
 
 @pytest.mark.parametrize(

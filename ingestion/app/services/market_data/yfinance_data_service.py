@@ -61,6 +61,7 @@ from app.services.market_data.yfinance.categories import (
     CategorySpec,
     FetchResult,
     is_empty_collection,
+    is_settled,
     run_category,
     write_in_savepoint,
 )
@@ -299,6 +300,38 @@ def _date_valuation_columns(df: pd.DataFrame, as_of: date) -> pd.DataFrame:
     dated = df.iloc[:, keep].copy()
     dated.columns = pd.DatetimeIndex(resolved_dates)
     return dated
+
+
+def _dated_valuation_panel(panel: pd.DataFrame, ctx: FetchContext) -> pd.DataFrame:
+    """Date the columns of a valuation panel, warning when none of them resolves.
+
+    Args:
+        panel: Yahoo's valuation panel, one column per period plus ``"Current"``.
+        ctx: The sweep's context; its time stamps ``"Current"`` and its ticker
+            names the panel in the warning.
+
+    Returns:
+        The panel with datetime column labels; empty when no column resolved,
+        which leaves the category with nothing to store.
+    """
+    dated = _date_valuation_columns(panel, ctx.now.date())
+    if dated.empty:
+        logger.warning(
+            "valuation_measures for %s: none of the columns %s "
+            "resolved to a date; nothing stored",
+            ctx.yfinance_ticker,
+            list(panel.columns)[:5],
+        )
+    return dated
+
+
+def _has_no_share_counts(shares: Any) -> bool:
+    """Report whether a share-count answer holds nothing to store.
+
+    An answer without a frame's ``empty`` flag counts as nothing to store
+    rather than failing the category.
+    """
+    return shares is None or bool(getattr(shares, "empty", True))
 
 
 # Re-fetched closes inside this relative band of the stored ones share one
@@ -694,30 +727,8 @@ class YFinanceDataService:
                 instrument_id, marker_key, thresholds.no_data_hours, now
             )
 
-        # A gate is settled when its marker is inside its freshness window (the
-        # plan's window for the marker unless given), or when the last fetch came
-        # back empty recently: an empty answer writes no row, so without the
-        # second clause a category Yahoo has nothing for would be requested on
-        # every run.
-        def _settled(marker_key: str, fresh_hours: int | None = None) -> bool:
-            return not plan.is_due(marker_key, fresh_hours) or (
-                plan.uses_staleness and _recently_empty(marker_key)
-            )
-
-        event_windows = {
-            "dividends_updated_at": thresholds.dividends_hours,
-            "splits_updated_at": thresholds.splits_hours,
-            "recommendations_updated_at": thresholds.recommendations_hours,
-            "price_targets_updated_at": thresholds.price_targets_hours,
-            "institutional_holders_updated_at": thresholds.institutional_holders_hours,
-            "mutualfund_holders_updated_at": thresholds.mutualfund_holders_hours,
-            "insider_transactions_updated_at": thresholds.insider_transactions_hours,
-        }
-
-        # Corporate-action, analyst and holder categories refresh on their own,
-        # shorter windows than the fundamentals.
-        def _event_fresh(marker_key: str) -> bool:
-            return _settled(marker_key, event_windows[marker_key])
+        def _settled(marker_key: str) -> bool:
+            return is_settled(plan, marker_key, _recently_empty)
 
         # Gated per category on the marker of the category's own table: a
         # category whose fetch failed while the statements were stored must not
@@ -760,13 +771,13 @@ class YFinanceDataService:
                 and all(
                     _fundamentals_fresh(category) for category in FUNDAMENTAL_CATEGORIES
                 )
-                and _event_fresh("dividends_updated_at")
-                and _event_fresh("splits_updated_at")
-                and _event_fresh("recommendations_updated_at")
-                and _event_fresh("price_targets_updated_at")
-                and _event_fresh("institutional_holders_updated_at")
-                and _event_fresh("mutualfund_holders_updated_at")
-                and _event_fresh("insider_transactions_updated_at")
+                and _settled("dividends_updated_at")
+                and _settled("splits_updated_at")
+                and _settled("recommendations_updated_at")
+                and _settled("price_targets_updated_at")
+                and _settled("institutional_holders_updated_at")
+                and _settled("mutualfund_holders_updated_at")
+                and _settled("insider_transactions_updated_at")
                 and _prices_are_current(
                     staleness.get("price_max_date"), exchange_name, now.date()
                 )
@@ -1023,243 +1034,15 @@ class YFinanceDataService:
                 errors.append(f"financials: {e}")
                 logger.warning("Failed financials for %s: %s", yfinance_ticker, e)
 
-        # 3a. Valuation measures (Ticker.valuation, 9-metric panel).
-        # Open-EAV reuse of financial_statements: no migration, no new model.
-        # Market cap and EV are quote-based, so the rows carry the listing
-        # currency's major.
-        if _fundamentals_fresh("valuation_measures"):
-            skipped.append("valuation_measures")
-        else:
-            try:
-                val_df = self._timed(
-                    lambda: self.yf_client.metadata.fetch_valuation_measures(
-                        yfinance_ticker
-                    )
-                )
-                if val_df is not None and not val_df.empty:
-                    dated_val_df = _date_valuation_columns(val_df, now.date())
-                    if dated_val_df.empty:
-                        logger.warning(
-                            "valuation_measures for %s: none of the columns %s "
-                            "resolved to a date; nothing stored",
-                            yfinance_ticker,
-                            list(val_df.columns)[:5],
-                        )
-                        counts["valuation_measures"] = 0
-                    else:
-                        counts["valuation_measures"] = self._write(
-                            self.repo.upsert_financial_statements,
-                            instrument_id,
-                            dated_val_df,
-                            VALUATION_MEASURES_STATEMENT_TYPE,
-                            VALUATION_MEASURES_PERIOD_TYPE,
-                            currency_code=listing_major_currency,
-                        )
-                else:
-                    counts["valuation_measures"] = 0
-            except Exception as e:
-                errors.append(f"valuation_measures: {e}")
-                logger.warning(
-                    "Failed valuation_measures for %s: %s", yfinance_ticker, e
-                )
-
-        # 3b. EPS trend — the consensus EPS estimate for each forward period as it
-        # stood now vs 7/30/60/90 days ago. The panel is indexed by period label
-        # ("0q", "+1q", "0y", "+1y") with snapshot-age columns; neither axis is a
-        # date, so it lands in the typed eps_trend table (not financial_statements).
-        if _fundamentals_fresh("eps_trend"):
-            skipped.append("eps_trend")
-        else:
-            try:
-                eps_trend_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_eps_trend(yfinance_ticker)
-                )
-                counts["eps_trend"] = (
-                    self._write(self.repo.upsert_eps_trend, instrument_id, eps_trend_df)
-                    if eps_trend_df is not None and not eps_trend_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"eps_trend: {e}")
-                logger.warning("Failed eps_trend for %s: %s", yfinance_ticker, e)
-
-        # 3c. EPS revisions — up/down revision counts over the trailing 7/30-day
-        # windows, per forward-period label. Same period-label index as eps_trend;
-        # stored in the typed eps_revisions table.
-        if _fundamentals_fresh("eps_revisions"):
-            skipped.append("eps_revisions")
-        else:
-            try:
-                eps_rev_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_eps_revisions(yfinance_ticker)
-                )
-                counts["eps_revisions"] = (
-                    self._write(
-                        self.repo.upsert_eps_revisions, instrument_id, eps_rev_df
-                    )
-                    if eps_rev_df is not None and not eps_rev_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"eps_revisions: {e}")
-                logger.warning("Failed eps_revisions for %s: %s", yfinance_ticker, e)
-
-        # 3d/3e/3f. Analyst estimates (earnings / revenue / growth) — dedicated
-        # typed tables, each gated on its own fundamentals-window marker.
-        if _fundamentals_fresh("earnings_estimate"):
-            skipped.append("earnings_estimate")
-        else:
-            try:
-                ee_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_earnings_estimate(
-                        yfinance_ticker
-                    )
-                )
-                counts["earnings_estimate"] = (
-                    self._write(
-                        self.repo.upsert_earnings_estimate, instrument_id, ee_df
-                    )
-                    if ee_df is not None and not ee_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"earnings_estimate: {e}")
-                logger.warning(
-                    "Failed earnings_estimate for %s: %s", yfinance_ticker, e
-                )
-
-        if _fundamentals_fresh("revenue_estimate"):
-            skipped.append("revenue_estimate")
-        else:
-            try:
-                re_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_revenue_estimate(
-                        yfinance_ticker
-                    )
-                )
-                counts["revenue_estimate"] = (
-                    self._write(self.repo.upsert_revenue_estimate, instrument_id, re_df)
-                    if re_df is not None and not re_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"revenue_estimate: {e}")
-                logger.warning("Failed revenue_estimate for %s: %s", yfinance_ticker, e)
-
-        if _fundamentals_fresh("growth_estimates"):
-            skipped.append("growth_estimates")
-        else:
-            try:
-                ge_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_growth_estimates(
-                        yfinance_ticker
-                    )
-                )
-                counts["growth_estimates"] = (
-                    self._write(self.repo.upsert_growth_estimates, instrument_id, ge_df)
-                    if ge_df is not None and not ge_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"growth_estimates: {e}")
-                logger.warning("Failed growth_estimates for %s: %s", yfinance_ticker, e)
-
-        # 3g. Earnings history (past-quarter EPS surprise).
-        if _fundamentals_fresh("earnings_history"):
-            skipped.append("earnings_history")
-        else:
-            try:
-                eh_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_earnings_history(
-                        yfinance_ticker
-                    )
-                )
-                counts["earnings_history"] = (
-                    self._write(self.repo.upsert_earnings_history, instrument_id, eh_df)
-                    if eh_df is not None and not eh_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"earnings_history: {e}")
-                logger.warning("Failed earnings_history for %s: %s", yfinance_ticker, e)
-
-        # 3h. Earnings dates (past + upcoming).
-        if _fundamentals_fresh("earnings_dates"):
-            skipped.append("earnings_dates")
-        else:
-            try:
-                ed_df = self._timed(
-                    lambda: self.yf_client.metadata.fetch_earnings_dates(
-                        yfinance_ticker
-                    )
-                )
-                counts["earnings_dates"] = (
-                    self._write(self.repo.upsert_earnings_dates, instrument_id, ed_df)
-                    if ed_df is not None and not ed_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"earnings_dates: {e}")
-                logger.warning("Failed earnings_dates for %s: %s", yfinance_ticker, e)
-
-        # 3i. Analyst upgrade/downgrade actions (analyst-rating cadence).
-        if _event_fresh("recommendations_updated_at"):
-            skipped.append("analyst_actions")
-        else:
-            try:
-                ad_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_upgrades_downgrades(
-                        yfinance_ticker
-                    )
-                )
-                counts["analyst_actions"] = (
-                    self._write(self.repo.upsert_analyst_actions, instrument_id, ad_df)
-                    if ad_df is not None and not ad_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"analyst_actions: {e}")
-                logger.warning("Failed analyst_actions for %s: %s", yfinance_ticker, e)
-
-        # 3k. SEC filings (list of dicts; fundamentals window).
-        if _fundamentals_fresh("sec_filings"):
-            skipped.append("sec_filings")
-        else:
-            try:
-                filings = self._timed(
-                    lambda: self.yf_client.financials.fetch_sec_filings(yfinance_ticker)
-                )
-                counts["sec_filings"] = (
-                    self._write(self.repo.upsert_sec_filings, instrument_id, filings)
-                    if filings
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"sec_filings: {e}")
-                logger.warning("Failed sec_filings for %s: %s", yfinance_ticker, e)
-
-        # 3l. Shares outstanding (fundamentals window; point-in-time float).
-        if _fundamentals_fresh("shares_outstanding"):
-            skipped.append("shares_outstanding")
-        else:
-            try:
-                shares = self._timed(
-                    lambda: self.yf_client.corporate_actions.fetch_shares_full(
-                        yfinance_ticker
-                    )
-                )
-                counts["shares_outstanding"] = (
-                    self._write(
-                        self.repo.upsert_shares_outstanding, instrument_id, shares
-                    )
-                    if shares is not None and not getattr(shares, "empty", True)
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"shares_outstanding: {e}")
-                logger.warning(
-                    "Failed shares_outstanding for %s: %s", yfinance_ticker, e
-                )
+        for spec in self._fundamental_specs(ctx, listing_major_currency):
+            run_category(
+                spec,
+                ctx,
+                plan,
+                fetch_result,
+                session=self.repo.session,
+                recently_empty=_recently_empty,
+            )
 
         # A category present in counts was fetched without raising; its count says
         # whether Yahoo had anything.
@@ -1402,6 +1185,119 @@ class YFinanceDataService:
                 statement_type,
                 period_type,
                 options=lambda _ctx: {"currency_code": statement_currency()},
+            ),
+        )
+
+    def _fundamental_specs(
+        self, ctx: FetchContext, listing_currency: str | None
+    ) -> tuple[CategorySpec[Any], ...]:
+        """Return the specs of the fundamentals step, in the order it fetches them.
+
+        Each category is gated on its own ``<category>_updated_at`` marker on the
+        fundamentals window, except analyst actions: they are gated on the
+        recommendations window but fetched in this step, since fetching them
+        elsewhere would reorder the sweep's requests and errors.
+
+        Args:
+            ctx: The sweep's context; its time dates the valuation panel.
+            listing_currency: Major unit of the listing currency. It labels the
+                valuation rows, because market cap and EV are quote-based.
+
+        Returns:
+            The specs of the sweep's fundamentals step.
+        """
+        return (
+            CategorySpec(
+                name="valuation_measures",
+                marker="valuation_measures_updated_at",
+                fetch=self._request(
+                    lambda client: client.metadata.fetch_valuation_measures
+                ),
+                transform=lambda panel: _dated_valuation_panel(panel, ctx),
+                # Reuses the open EAV statements table under its own statement
+                # type, so the panel needs no table or migration of its own.
+                store=self._upsert(
+                    lambda repo: repo.upsert_financial_statements,
+                    VALUATION_MEASURES_STATEMENT_TYPE,
+                    VALUATION_MEASURES_PERIOD_TYPE,
+                    options=lambda _ctx: {"currency_code": listing_currency},
+                ),
+            ),
+            CategorySpec(
+                name="eps_trend",
+                marker="eps_trend_updated_at",
+                fetch=self._request(lambda client: client.analysis.fetch_eps_trend),
+                store=self._upsert(lambda repo: repo.upsert_eps_trend),
+            ),
+            CategorySpec(
+                name="eps_revisions",
+                marker="eps_revisions_updated_at",
+                fetch=self._request(lambda client: client.analysis.fetch_eps_revisions),
+                store=self._upsert(lambda repo: repo.upsert_eps_revisions),
+            ),
+            CategorySpec(
+                name="earnings_estimate",
+                marker="earnings_estimate_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_earnings_estimate
+                ),
+                store=self._upsert(lambda repo: repo.upsert_earnings_estimate),
+            ),
+            CategorySpec(
+                name="revenue_estimate",
+                marker="revenue_estimate_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_revenue_estimate
+                ),
+                store=self._upsert(lambda repo: repo.upsert_revenue_estimate),
+            ),
+            CategorySpec(
+                name="growth_estimates",
+                marker="growth_estimates_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_growth_estimates
+                ),
+                store=self._upsert(lambda repo: repo.upsert_growth_estimates),
+            ),
+            CategorySpec(
+                name="earnings_history",
+                marker="earnings_history_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_earnings_history
+                ),
+                store=self._upsert(lambda repo: repo.upsert_earnings_history),
+            ),
+            CategorySpec(
+                name="earnings_dates",
+                marker="earnings_dates_updated_at",
+                fetch=self._request(
+                    lambda client: client.metadata.fetch_earnings_dates
+                ),
+                store=self._upsert(lambda repo: repo.upsert_earnings_dates),
+            ),
+            CategorySpec(
+                name="analyst_actions",
+                marker="recommendations_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_upgrades_downgrades
+                ),
+                store=self._upsert(lambda repo: repo.upsert_analyst_actions),
+            ),
+            CategorySpec(
+                name="sec_filings",
+                marker="sec_filings_updated_at",
+                fetch=self._request(lambda client: client.financials.fetch_sec_filings),
+                store=self._upsert(lambda repo: repo.upsert_sec_filings),
+                is_empty=is_empty_collection,
+            ),
+            CategorySpec(
+                name="shares_outstanding",
+                marker="shares_outstanding_updated_at",
+                fetch=self._request(
+                    lambda client: client.corporate_actions.fetch_shares_full
+                ),
+                store=self._upsert(lambda repo: repo.upsert_shares_outstanding),
+                is_empty=_has_no_share_counts,
             ),
         )
 
