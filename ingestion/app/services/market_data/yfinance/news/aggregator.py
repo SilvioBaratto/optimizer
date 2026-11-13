@@ -10,6 +10,7 @@ from typing import Any
 from dateutil import parser as dateutil_parser
 
 from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
+from ._links import content_link, extract_article_link
 
 logger = logging.getLogger(__name__)
 
@@ -208,11 +209,7 @@ class CountryNewsFetcher:
             if isinstance(content.get("provider"), dict)
             else content.get("publisher", "")
         )
-        link = (
-            content.get("canonicalUrl", {}).get("url", "")
-            if isinstance(content.get("canonicalUrl"), dict)
-            else content.get("link", "")
-        )
+        link = extract_article_link(article, content_link)
 
         pub_date = _parse_article_date(pub_time)
         date_str = pub_date.strftime("%Y-%m-%d %H:%M") if pub_date else str(pub_time)

@@ -21,6 +21,7 @@ from ..protocols import (
     SearchClientProtocol,
     YFinanceClientProtocol,
 )
+from ._links import content_link, extract_article_link
 from .aggregator import _is_article_recent, _parse_article_date
 
 logger = logging.getLogger(__name__)
@@ -589,11 +590,7 @@ class MacroNewsFetcher:
         if title in self._seen_titles:
             return None
 
-        link = (
-            content.get("canonicalUrl", {}).get("url", "")
-            if isinstance(content.get("canonicalUrl"), dict)
-            else content.get("link", "")
-        )
+        link = extract_article_link(raw, content_link)
 
         pub_date = _parse_article_date(pub_time)
         pub_time_iso = pub_date.isoformat() if pub_date else None

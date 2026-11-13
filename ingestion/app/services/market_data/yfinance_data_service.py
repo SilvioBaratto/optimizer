@@ -20,7 +20,7 @@ import contextvars
 import logging
 import math
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from dataclasses import dataclass, replace
@@ -80,6 +80,7 @@ from app.services.market_data.yfinance.fetch_plan import is_fresh as _is_fresh
 # Imported as a module so the scraper class is looked up when a sweep builds
 # one, which is where tests replace it.
 from app.services.market_data.yfinance.news import scraper as news_scraper
+from app.services.market_data.yfinance.news._links import extract_article_link
 from app.services.market_data.yfinance.price_policy import (
     PriceBasis,
     PriceStorageDecision,
@@ -397,15 +398,14 @@ def _article_id(article: dict[str, Any]) -> Any:
     return article.get("id") or article.get("uuid")
 
 
-def _article_link(article: dict[str, Any]) -> Any:
-    """Return the page a feed article points to; falsy when it names none.
+def _preview_or_feed_link(
+    article: Mapping[str, Any], content: Mapping[str, Any]
+) -> str | None:
+    """Fall back from a missing canonical URL to the preview URL, then ``link``.
 
-    The canonical URL wins, then the preview URL, then the legacy ``link``.
+    Only the article's own ``link`` counts, not one inside ``content``. The sweep
+    only tests the answer for truth, so a falsy one means nothing to scrape.
     """
-    content = article.get("content", article)
-    canonical = content.get("canonicalUrl")
-    if isinstance(canonical, dict):
-        return canonical.get("url", "")
     return content.get("previewUrl") or article.get("link")
 
 
@@ -1430,7 +1430,7 @@ class YFinanceDataService:
             news_id = _article_id(article)
             if news_id is not None and str(news_id) in scraped_ids:
                 continue
-            link = _article_link(article)
+            link = extract_article_link(article, _preview_or_feed_link)
             if not link:
                 continue
             page = scraper.fetch(link)
