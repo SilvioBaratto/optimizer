@@ -290,6 +290,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of repeating the incremental-mode check before every category.
   `StalenessThresholds` moved into that module and is still importable from
   `yfinance_data_service`. Behaviour is unchanged.
+- **ingestion**: the yfinance sweep refreshes its six financial-statement groups,
+  its fundamentals and its corporate-action, analyst and holder categories through
+  one `run_category` (`app/services/market_data/yfinance/categories.py`), driven by
+  a `CategorySpec` per category, instead of a copy-pasted fetch, store and error
+  block for each. The savepoint every repository write runs in moved into that
+  module, and `FetchPlan.is_due` no longer takes a `fresh_hours` override, which
+  only repeated each event marker's own window. Counts, errors, skips and the
+  memory of empty answers are unchanged; the failure warning of a migrated
+  category now comes from the `categories` logger and names it by its key (for
+  example `price_targets`, `financials.balance_sheet.annual`).
 
 ### Removed
 

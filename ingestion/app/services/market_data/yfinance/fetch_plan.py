@@ -179,14 +179,12 @@ class FetchPlan:
         """
         return self.mode == FetchMode.INCREMENTAL and self.staleness is not None
 
-    def is_due(self, marker: str, fresh_hours: int | None = None) -> bool:
+    def is_due(self, marker: str) -> bool:
         """Report whether the category behind *marker* has to be fetched.
 
         Args:
             marker: Staleness key of the category, e.g. ``"dividends_updated_at"``
                 or ``"balance_sheet_annual_updated_at"``.
-            fresh_hours: Window that replaces the marker's own for this one
-                decision; ``None`` keeps the marker's window.
 
         Returns:
             False only when the plan uses staleness and the marker's latest write
@@ -196,8 +194,7 @@ class FetchPlan:
             KeyError: *marker* is not one the sweep gates on. Raised in every
                 mode, so a misspelt marker never passes for a due one.
         """
-        own_window = _window_hours(self.thresholds, marker)
-        window = own_window if fresh_hours is None else fresh_hours
+        window = _window_hours(self.thresholds, marker)
         staleness = self.staleness
         if self.mode != FetchMode.INCREMENTAL or staleness is None:
             return True

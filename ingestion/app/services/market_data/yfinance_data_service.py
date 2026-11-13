@@ -40,7 +40,6 @@ from portopt_db.repositories.market_data.yfinance_repository import (
     YFinanceRepository,
     statement_staleness_key,
 )
-from sqlalchemy.exc import StatementError
 
 from app.services._shared import (
     ProgressCallback,
@@ -58,7 +57,16 @@ from app.services.market_data.yfinance import (
     record_failure,
     track_request_outcomes,
 )
+from app.services.market_data.yfinance.categories import (
+    CategorySpec,
+    FetchResult,
+    is_empty_collection,
+    is_settled,
+    run_category,
+    write_in_savepoint,
+)
 from app.services.market_data.yfinance.fetch_plan import (
+    FetchContext,
     FetchMode,
     FetchPlan,
     StalenessThresholds,
@@ -165,9 +173,6 @@ DEFAULT_THRESHOLDS = StalenessThresholds()
 # forgotten before the next daily run could use it.
 SHARED_EMPTY_FETCHES = EmptyFetchMemory()
 
-# Longest per-category error text kept in logs and the job's error rows.
-_MAX_ERROR_CHARS = 300
-
 # Staleness marker -> the categories gated on it. An empty answer settles a
 # marker only when every one of its categories came back empty.
 _EVENT_MARKER_CATEGORIES: dict[str, tuple[str, ...]] = {
@@ -183,6 +188,9 @@ _EVENT_MARKER_CATEGORIES: dict[str, tuple[str, ...]] = {
         "insider_roster",
     ),
 }
+
+# Period type of the statement groups requested with ``quarterly=True``.
+_QUARTERLY = "quarterly"
 
 # Sentinel: distinguishes "caller did not supply staleness" (query it) from
 # "caller supplied None" (no data yet → treat as stale) on fetch_and_store.
@@ -219,31 +227,6 @@ def _prices_are_current(
     if isinstance(price_max_date, datetime):
         price_max_date = price_max_date.date()
     return price_max_date >= last_completed_session(exchange_name, today)
-
-
-def _describe_statement_error(exc: StatementError) -> str:
-    """Return the cause of a failed statement without the statement itself.
-
-    SQLAlchemy's message embeds the whole SQL text, and a multi-row upsert of a
-    5y price history runs to ~300 KB. Kept as is, one such error per category
-    would flood the container log, the sweep's in-memory error list and the
-    job's stored error rows.
-
-    Args:
-        exc: The failed-statement error raised by a repository write.
-
-    Returns:
-        ``"<DriverError>: <message>"`` on one line, cut to ``_MAX_ERROR_CHARS``.
-    """
-    cause: Any = exc.orig
-    if cause is None:
-        text = str(exc.args[0]) if exc.args else type(exc).__name__
-    else:
-        text = f"{type(cause).__name__}: {cause}"
-    text = " ".join(text.split())
-    if len(text) > _MAX_ERROR_CHARS:
-        text = text[: _MAX_ERROR_CHARS - 3] + "..."
-    return text
 
 
 def _financial_currency(info: dict[str, Any] | None) -> str | None:
@@ -317,6 +300,38 @@ def _date_valuation_columns(df: pd.DataFrame, as_of: date) -> pd.DataFrame:
     dated = df.iloc[:, keep].copy()
     dated.columns = pd.DatetimeIndex(resolved_dates)
     return dated
+
+
+def _dated_valuation_panel(panel: pd.DataFrame, ctx: FetchContext) -> pd.DataFrame:
+    """Date the columns of a valuation panel, warning when none of them resolves.
+
+    Args:
+        panel: Yahoo's valuation panel, one column per period plus ``"Current"``.
+        ctx: The sweep's context; its time stamps ``"Current"`` and its ticker
+            names the panel in the warning.
+
+    Returns:
+        The panel with datetime column labels; empty when no column resolved,
+        which leaves the category with nothing to store.
+    """
+    dated = _date_valuation_columns(panel, ctx.now.date())
+    if dated.empty:
+        logger.warning(
+            "valuation_measures for %s: none of the columns %s "
+            "resolved to a date; nothing stored",
+            ctx.yfinance_ticker,
+            list(panel.columns)[:5],
+        )
+    return dated
+
+
+def _has_no_share_counts(shares: Any) -> bool:
+    """Report whether a share-count answer holds nothing to store.
+
+    An answer without a frame's ``empty`` flag counts as nothing to store
+    rather than failing the category.
+    """
+    return shares is None or bool(getattr(shares, "empty", True))
 
 
 # Re-fetched closes inside this relative band of the stored ones share one
@@ -428,12 +443,8 @@ class YFinanceDataService:
     def _write(self, write: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
         """Run one category's repository write inside its own SAVEPOINT.
 
-        PostgreSQL aborts the whole transaction after any failed statement, and
-        COMMIT of an aborted transaction silently becomes ROLLBACK. With one
-        shared session, a single bad category would therefore fail every later
-        category and discard the ticker's earlier writes, while ``counts`` still
-        reported them. The savepoint rolls back only the category that raised;
-        the exception still propagates to that category's own handler.
+        The same savepoint ``run_category`` stores through; see
+        ``write_in_savepoint`` for why every category needs one.
 
         Args:
             write: Repository upsert to run.
@@ -448,11 +459,7 @@ class YFinanceDataService:
                 is the driver's cause, without the SQL text; the original error
                 stays on ``__cause__``.
         """
-        try:
-            with self.repo.session.begin_nested():
-                return write(*args, **kwargs)
-        except StatementError as exc:
-            raise RuntimeError(_describe_statement_error(exc)) from exc
+        return write_in_savepoint(self.repo.session, write, *args, **kwargs)
 
     def _overlap_was_readjusted(
         self,
@@ -664,6 +671,9 @@ class YFinanceDataService:
         counts: dict[str, int] = {}
         errors: list[str] = []
         skipped: list[str] = []
+        # Holds the same dict and lists, so the steps that run through
+        # run_category and the steps still written out here report into one place.
+        fetch_result = FetchResult(counts=counts, errors=errors, skipped=skipped)
 
         if thresholds is None:
             thresholds = DEFAULT_THRESHOLDS
@@ -697,35 +707,28 @@ class YFinanceDataService:
             thresholds=thresholds,
             now=now,
         )
+        ctx = FetchContext(
+            instrument_id=instrument_id,
+            yfinance_ticker=yfinance_ticker,
+            period=period,
+            mode=plan.mode,
+            exchange_name=exchange_name,
+            currency_code=currency_code,
+            asset_class=asset_class,
+            instrument_type=instrument_type,
+            now=now,
+            thresholds=thresholds,
+        )
 
-        # A gate is settled when its marker is inside its freshness window (the
-        # plan's window for the marker unless given), or when the last fetch came
-        # back empty recently: an empty answer writes no row, so without the
-        # second clause a category Yahoo has nothing for would be requested on
-        # every run. The empty-answer memory is read here, lazily, because the
-        # sweep adds to it while it runs.
-        def _settled(marker_key: str, fresh_hours: int | None = None) -> bool:
-            return not plan.is_due(marker_key, fresh_hours) or (
-                plan.uses_staleness
-                and self._empty_fetches.is_recent(
-                    instrument_id, marker_key, thresholds.no_data_hours, now
-                )
+        # Read lazily, on each call, because the sweep adds to the memory while it
+        # runs.
+        def _recently_empty(marker_key: str) -> bool:
+            return self._empty_fetches.is_recent(
+                instrument_id, marker_key, thresholds.no_data_hours, now
             )
 
-        event_windows = {
-            "dividends_updated_at": thresholds.dividends_hours,
-            "splits_updated_at": thresholds.splits_hours,
-            "recommendations_updated_at": thresholds.recommendations_hours,
-            "price_targets_updated_at": thresholds.price_targets_hours,
-            "institutional_holders_updated_at": thresholds.institutional_holders_hours,
-            "mutualfund_holders_updated_at": thresholds.mutualfund_holders_hours,
-            "insider_transactions_updated_at": thresholds.insider_transactions_hours,
-        }
-
-        # Corporate-action, analyst and holder categories refresh on their own,
-        # shorter windows than the fundamentals.
-        def _event_fresh(marker_key: str) -> bool:
-            return _settled(marker_key, event_windows[marker_key])
+        def _settled(marker_key: str) -> bool:
+            return is_settled(plan, marker_key, _recently_empty)
 
         # Gated per category on the marker of the category's own table: a
         # category whose fetch failed while the statements were stored must not
@@ -768,13 +771,13 @@ class YFinanceDataService:
                 and all(
                     _fundamentals_fresh(category) for category in FUNDAMENTAL_CATEGORIES
                 )
-                and _event_fresh("dividends_updated_at")
-                and _event_fresh("splits_updated_at")
-                and _event_fresh("recommendations_updated_at")
-                and _event_fresh("price_targets_updated_at")
-                and _event_fresh("institutional_holders_updated_at")
-                and _event_fresh("mutualfund_holders_updated_at")
-                and _event_fresh("insider_transactions_updated_at")
+                and _settled("dividends_updated_at")
+                and _settled("splits_updated_at")
+                and _settled("recommendations_updated_at")
+                and _settled("price_targets_updated_at")
+                and _settled("institutional_holders_updated_at")
+                and _settled("mutualfund_holders_updated_at")
+                and _settled("insider_transactions_updated_at")
                 and _prices_are_current(
                     staleness.get("price_max_date"), exchange_name, now.date()
                 )
@@ -785,7 +788,7 @@ class YFinanceDataService:
                     yfinance_ticker,
                 )
                 skipped.append("all:fresh")
-                return {"counts": counts, "errors": errors, "skipped": skipped}
+                return fetch_result.to_response()
 
         profile_info: dict[str, Any] | None = None
 
@@ -1009,305 +1012,37 @@ class YFinanceDataService:
             skipped.append("financials")
         else:
             try:
-                fs_count = 0
-                for stmt_type, fetch_method, quarterly_flag in [
-                    (
-                        "income_statement",
-                        self.yf_client.financials.fetch_income_stmt,
-                        False,
-                    ),
-                    (
-                        "income_statement",
-                        self.yf_client.financials.fetch_income_stmt,
-                        True,
-                    ),
-                    (
-                        "balance_sheet",
-                        self.yf_client.financials.fetch_balance_sheet,
-                        False,
-                    ),
-                    (
-                        "balance_sheet",
-                        self.yf_client.financials.fetch_balance_sheet,
-                        True,
-                    ),
-                    ("cashflow", self.yf_client.financials.fetch_cashflow, False),
-                    ("cashflow", self.yf_client.financials.fetch_cashflow, True),
-                ]:
-                    period_type = "quarterly" if quarterly_flag else "annual"
-                    if _statement_fresh(stmt_type, period_type):
-                        continue
-                    _fm, _qf = fetch_method, quarterly_flag
-                    try:
-                        df = self._timed(
-                            lambda m=_fm, q=_qf: m(yfinance_ticker, quarterly=q)
-                        )
-                        group_rows = 0
-                        if df is not None and not df.empty:
-                            group_rows = self._write(
-                                self.repo.upsert_financial_statements,
-                                instrument_id,
-                                df,
-                                stmt_type,
-                                period_type,
-                                currency_code=_statement_currency(),
-                            )
-                            fs_count += group_rows
-                        _record_fetch(
-                            statement_staleness_key(stmt_type, period_type), group_rows
-                        )
-                    except Exception as e:
-                        errors.append(f"financials.{stmt_type}.{period_type}: {e}")
-                        logger.warning(
-                            "Failed %s %s for %s: %s",
-                            stmt_type,
-                            period_type,
-                            yfinance_ticker,
-                            e,
-                        )
-
-                counts["financials"] = fs_count
+                # The groups report failures under their own labels but count, and
+                # are skipped, as the one "financials" category: they share only the
+                # sweep's errors.
+                groups = FetchResult(errors=fetch_result.errors)
+                for spec in self._statement_specs(_statement_currency):
+                    run_category(
+                        spec,
+                        ctx,
+                        plan,
+                        groups,
+                        session=self.repo.session,
+                        recently_empty=_recently_empty,
+                    )
+                    # Each group has its own marker, so an empty group is
+                    # remembered whatever its siblings answered.
+                    if spec.name in groups.counts:
+                        _record_fetch(spec.marker, groups.counts[spec.name])
+                fetch_result.counts["financials"] = sum(groups.counts.values())
             except Exception as e:
                 errors.append(f"financials: {e}")
                 logger.warning("Failed financials for %s: %s", yfinance_ticker, e)
 
-        # 3a. Valuation measures (Ticker.valuation, 9-metric panel).
-        # Open-EAV reuse of financial_statements: no migration, no new model.
-        # Market cap and EV are quote-based, so the rows carry the listing
-        # currency's major.
-        if _fundamentals_fresh("valuation_measures"):
-            skipped.append("valuation_measures")
-        else:
-            try:
-                val_df = self._timed(
-                    lambda: self.yf_client.metadata.fetch_valuation_measures(
-                        yfinance_ticker
-                    )
-                )
-                if val_df is not None and not val_df.empty:
-                    dated_val_df = _date_valuation_columns(val_df, now.date())
-                    if dated_val_df.empty:
-                        logger.warning(
-                            "valuation_measures for %s: none of the columns %s "
-                            "resolved to a date; nothing stored",
-                            yfinance_ticker,
-                            list(val_df.columns)[:5],
-                        )
-                        counts["valuation_measures"] = 0
-                    else:
-                        counts["valuation_measures"] = self._write(
-                            self.repo.upsert_financial_statements,
-                            instrument_id,
-                            dated_val_df,
-                            VALUATION_MEASURES_STATEMENT_TYPE,
-                            VALUATION_MEASURES_PERIOD_TYPE,
-                            currency_code=listing_major_currency,
-                        )
-                else:
-                    counts["valuation_measures"] = 0
-            except Exception as e:
-                errors.append(f"valuation_measures: {e}")
-                logger.warning(
-                    "Failed valuation_measures for %s: %s", yfinance_ticker, e
-                )
-
-        # 3b. EPS trend — the consensus EPS estimate for each forward period as it
-        # stood now vs 7/30/60/90 days ago. The panel is indexed by period label
-        # ("0q", "+1q", "0y", "+1y") with snapshot-age columns; neither axis is a
-        # date, so it lands in the typed eps_trend table (not financial_statements).
-        if _fundamentals_fresh("eps_trend"):
-            skipped.append("eps_trend")
-        else:
-            try:
-                eps_trend_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_eps_trend(yfinance_ticker)
-                )
-                counts["eps_trend"] = (
-                    self._write(self.repo.upsert_eps_trend, instrument_id, eps_trend_df)
-                    if eps_trend_df is not None and not eps_trend_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"eps_trend: {e}")
-                logger.warning("Failed eps_trend for %s: %s", yfinance_ticker, e)
-
-        # 3c. EPS revisions — up/down revision counts over the trailing 7/30-day
-        # windows, per forward-period label. Same period-label index as eps_trend;
-        # stored in the typed eps_revisions table.
-        if _fundamentals_fresh("eps_revisions"):
-            skipped.append("eps_revisions")
-        else:
-            try:
-                eps_rev_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_eps_revisions(yfinance_ticker)
-                )
-                counts["eps_revisions"] = (
-                    self._write(
-                        self.repo.upsert_eps_revisions, instrument_id, eps_rev_df
-                    )
-                    if eps_rev_df is not None and not eps_rev_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"eps_revisions: {e}")
-                logger.warning("Failed eps_revisions for %s: %s", yfinance_ticker, e)
-
-        # 3d/3e/3f. Analyst estimates (earnings / revenue / growth) — dedicated
-        # typed tables, each gated on its own fundamentals-window marker.
-        if _fundamentals_fresh("earnings_estimate"):
-            skipped.append("earnings_estimate")
-        else:
-            try:
-                ee_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_earnings_estimate(
-                        yfinance_ticker
-                    )
-                )
-                counts["earnings_estimate"] = (
-                    self._write(
-                        self.repo.upsert_earnings_estimate, instrument_id, ee_df
-                    )
-                    if ee_df is not None and not ee_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"earnings_estimate: {e}")
-                logger.warning(
-                    "Failed earnings_estimate for %s: %s", yfinance_ticker, e
-                )
-
-        if _fundamentals_fresh("revenue_estimate"):
-            skipped.append("revenue_estimate")
-        else:
-            try:
-                re_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_revenue_estimate(
-                        yfinance_ticker
-                    )
-                )
-                counts["revenue_estimate"] = (
-                    self._write(self.repo.upsert_revenue_estimate, instrument_id, re_df)
-                    if re_df is not None and not re_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"revenue_estimate: {e}")
-                logger.warning("Failed revenue_estimate for %s: %s", yfinance_ticker, e)
-
-        if _fundamentals_fresh("growth_estimates"):
-            skipped.append("growth_estimates")
-        else:
-            try:
-                ge_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_growth_estimates(
-                        yfinance_ticker
-                    )
-                )
-                counts["growth_estimates"] = (
-                    self._write(self.repo.upsert_growth_estimates, instrument_id, ge_df)
-                    if ge_df is not None and not ge_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"growth_estimates: {e}")
-                logger.warning("Failed growth_estimates for %s: %s", yfinance_ticker, e)
-
-        # 3g. Earnings history (past-quarter EPS surprise).
-        if _fundamentals_fresh("earnings_history"):
-            skipped.append("earnings_history")
-        else:
-            try:
-                eh_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_earnings_history(
-                        yfinance_ticker
-                    )
-                )
-                counts["earnings_history"] = (
-                    self._write(self.repo.upsert_earnings_history, instrument_id, eh_df)
-                    if eh_df is not None and not eh_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"earnings_history: {e}")
-                logger.warning("Failed earnings_history for %s: %s", yfinance_ticker, e)
-
-        # 3h. Earnings dates (past + upcoming).
-        if _fundamentals_fresh("earnings_dates"):
-            skipped.append("earnings_dates")
-        else:
-            try:
-                ed_df = self._timed(
-                    lambda: self.yf_client.metadata.fetch_earnings_dates(
-                        yfinance_ticker
-                    )
-                )
-                counts["earnings_dates"] = (
-                    self._write(self.repo.upsert_earnings_dates, instrument_id, ed_df)
-                    if ed_df is not None and not ed_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"earnings_dates: {e}")
-                logger.warning("Failed earnings_dates for %s: %s", yfinance_ticker, e)
-
-        # 3i. Analyst upgrade/downgrade actions (analyst-rating cadence).
-        if _event_fresh("recommendations_updated_at"):
-            skipped.append("analyst_actions")
-        else:
-            try:
-                ad_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_upgrades_downgrades(
-                        yfinance_ticker
-                    )
-                )
-                counts["analyst_actions"] = (
-                    self._write(self.repo.upsert_analyst_actions, instrument_id, ad_df)
-                    if ad_df is not None and not ad_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"analyst_actions: {e}")
-                logger.warning("Failed analyst_actions for %s: %s", yfinance_ticker, e)
-
-        # 3k. SEC filings (list of dicts; fundamentals window).
-        if _fundamentals_fresh("sec_filings"):
-            skipped.append("sec_filings")
-        else:
-            try:
-                filings = self._timed(
-                    lambda: self.yf_client.financials.fetch_sec_filings(yfinance_ticker)
-                )
-                counts["sec_filings"] = (
-                    self._write(self.repo.upsert_sec_filings, instrument_id, filings)
-                    if filings
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"sec_filings: {e}")
-                logger.warning("Failed sec_filings for %s: %s", yfinance_ticker, e)
-
-        # 3l. Shares outstanding (fundamentals window; point-in-time float).
-        if _fundamentals_fresh("shares_outstanding"):
-            skipped.append("shares_outstanding")
-        else:
-            try:
-                shares = self._timed(
-                    lambda: self.yf_client.corporate_actions.fetch_shares_full(
-                        yfinance_ticker
-                    )
-                )
-                counts["shares_outstanding"] = (
-                    self._write(
-                        self.repo.upsert_shares_outstanding, instrument_id, shares
-                    )
-                    if shares is not None and not getattr(shares, "empty", True)
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"shares_outstanding: {e}")
-                logger.warning(
-                    "Failed shares_outstanding for %s: %s", yfinance_ticker, e
-                )
+        for spec in self._fundamental_specs(ctx, listing_major_currency):
+            run_category(
+                spec,
+                ctx,
+                plan,
+                fetch_result,
+                session=self.repo.session,
+                recently_empty=_recently_empty,
+            )
 
         # A category present in counts was fetched without raising; its count says
         # whether Yahoo had anything.
@@ -1315,215 +1050,15 @@ class YFinanceDataService:
             if category in counts:
                 _record_fetch(f"{category}_updated_at", counts[category])
 
-        # 4. Dividends
-        if _event_fresh("dividends_updated_at"):
-            skipped.append("dividends")
-        else:
-            try:
-                dividends = self._timed(
-                    lambda: self.yf_client.corporate_actions.fetch_dividends(
-                        yfinance_ticker
-                    )
-                )
-                if dividends is not None and not dividends.empty:
-                    counts["dividends"] = self._write(
-                        self.repo.upsert_dividends,
-                        instrument_id,
-                        dividends,
-                        price_currency=currency_code,
-                    )
-                else:
-                    counts["dividends"] = 0
-            except Exception as e:
-                errors.append(f"dividends: {e}")
-                logger.warning("Failed dividends for %s: %s", yfinance_ticker, e)
-
-        # 5. Stock splits
-        if _event_fresh("splits_updated_at"):
-            skipped.append("splits")
-        else:
-            try:
-                splits = self._timed(
-                    lambda: self.yf_client.corporate_actions.fetch_splits(
-                        yfinance_ticker
-                    )
-                )
-                if splits is not None and not splits.empty:
-                    counts["splits"] = self._write(
-                        self.repo.upsert_splits, instrument_id, splits
-                    )
-                else:
-                    counts["splits"] = 0
-            except Exception as e:
-                errors.append(f"splits: {e}")
-                logger.warning("Failed splits for %s: %s", yfinance_ticker, e)
-
-        # 6. Analyst recommendations
-        if _event_fresh("recommendations_updated_at"):
-            skipped.append("recommendations")
-        else:
-            try:
-                rec_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_recommendations_summary(
-                        yfinance_ticker
-                    )
-                )
-                if rec_df is not None and not rec_df.empty:
-                    counts["recommendations"] = self._write(
-                        self.repo.upsert_recommendations, instrument_id, rec_df
-                    )
-                else:
-                    counts["recommendations"] = 0
-            except Exception as e:
-                errors.append(f"recommendations: {e}")
-                logger.warning("Failed recommendations for %s: %s", yfinance_ticker, e)
-
-        # 7. Analyst price targets
-        if _event_fresh("price_targets_updated_at"):
-            skipped.append("price_targets")
-        else:
-            try:
-                targets = self._timed(
-                    lambda: self.yf_client.analysis.fetch_analyst_price_targets(
-                        yfinance_ticker
-                    )
-                )
-                if targets:
-                    counts["price_targets"] = self._write(
-                        self.repo.upsert_price_targets, instrument_id, targets
-                    )
-                else:
-                    counts["price_targets"] = 0
-            except Exception as e:
-                errors.append(f"price_targets: {e}")
-                logger.warning("Failed price targets for %s: %s", yfinance_ticker, e)
-
-        # 8. Institutional holders
-        if _event_fresh("institutional_holders_updated_at"):
-            skipped.append("institutional_holders")
-        else:
-            try:
-                inst_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_institutional_holders(
-                        yfinance_ticker
-                    )
-                )
-                if inst_df is not None and not inst_df.empty:
-                    counts["institutional_holders"] = self._write(
-                        self.repo.upsert_institutional_holders, instrument_id, inst_df
-                    )
-                else:
-                    counts["institutional_holders"] = 0
-            except Exception as e:
-                errors.append(f"institutional_holders: {e}")
-                logger.warning(
-                    "Failed institutional holders for %s: %s", yfinance_ticker, e
-                )
-
-        # 9. Mutual fund holders
-        if _event_fresh("mutualfund_holders_updated_at"):
-            skipped.append("mutualfund_holders")
-        else:
-            try:
-                mf_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_mutualfund_holders(
-                        yfinance_ticker
-                    )
-                )
-                if mf_df is not None and not mf_df.empty:
-                    counts["mutualfund_holders"] = self._write(
-                        self.repo.upsert_mutualfund_holders, instrument_id, mf_df
-                    )
-                else:
-                    counts["mutualfund_holders"] = 0
-            except Exception as e:
-                errors.append(f"mutualfund_holders: {e}")
-                logger.warning(
-                    "Failed mutual fund holders for %s: %s", yfinance_ticker, e
-                )
-
-        # 10. Insider transactions
-        if _event_fresh("insider_transactions_updated_at"):
-            skipped.append("insider_transactions")
-        else:
-            try:
-                insiders_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_insider_transactions(
-                        yfinance_ticker
-                    )
-                )
-                if insiders_df is not None and not insiders_df.empty:
-                    counts["insider_transactions"] = self._write(
-                        self.repo.upsert_insider_transactions,
-                        instrument_id,
-                        insiders_df,
-                    )
-                else:
-                    counts["insider_transactions"] = 0
-            except Exception as e:
-                errors.append(f"insider_transactions: {e}")
-                logger.warning(
-                    "Failed insider transactions for %s: %s", yfinance_ticker, e
-                )
-
-        # 10b. Major holders (ownership breakdown; institutional window).
-        if _event_fresh("institutional_holders_updated_at"):
-            skipped.append("major_holders")
-        else:
-            try:
-                mh_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_major_holders(yfinance_ticker)
-                )
-                counts["major_holders"] = (
-                    self._write(self.repo.upsert_major_holders, instrument_id, mh_df)
-                    if mh_df is not None and not mh_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"major_holders: {e}")
-                logger.warning("Failed major_holders for %s: %s", yfinance_ticker, e)
-
-        # 10c/10d. Insider purchases + roster (insider window).
-        insider_fresh = _event_fresh("insider_transactions_updated_at")
-        if insider_fresh:
-            skipped.append("insider_purchases")
-        else:
-            try:
-                ip_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_insider_purchases(
-                        yfinance_ticker
-                    )
-                )
-                counts["insider_purchases"] = (
-                    self._write(
-                        self.repo.upsert_insider_purchases, instrument_id, ip_df
-                    )
-                    if ip_df is not None and not ip_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"insider_purchases: {e}")
-                logger.warning(
-                    "Failed insider_purchases for %s: %s", yfinance_ticker, e
-                )
-
-        if insider_fresh:
-            skipped.append("insider_roster")
-        else:
-            try:
-                ir_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_insider_roster_holders(
-                        yfinance_ticker
-                    )
-                )
-                counts["insider_roster"] = (
-                    self._write(self.repo.upsert_insider_roster, instrument_id, ir_df)
-                    if ir_df is not None and not ir_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"insider_roster: {e}")
-                logger.warning("Failed insider_roster for %s: %s", yfinance_ticker, e)
+        for spec in self._event_specs():
+            run_category(
+                spec,
+                ctx,
+                plan,
+                fetch_result,
+                session=self.repo.session,
+                recently_empty=_recently_empty,
+            )
 
         # A marker whose categories were all fetched without raising and stored
         # nothing is one Yahoo holds no rows for; remember it so the next run does
@@ -1591,7 +1126,384 @@ class YFinanceDataService:
                 skipped,
             )
 
-        return {"counts": counts, "errors": errors, "skipped": skipped}
+        return fetch_result.to_response()
+
+    def _statement_specs(
+        self, statement_currency: Callable[[], str | None]
+    ) -> tuple[CategorySpec[Any], ...]:
+        """Return one spec per financial-statement group, in the sweep's order.
+
+        The client's statement requests are looked up here, before any group
+        runs, so a client that cannot serve statements at all fails them as one
+        ``financials`` error instead of six.
+
+        Args:
+            statement_currency: Resolves the currency the company reports its
+                statements in; called only when a group has rows to store.
+
+        Returns:
+            The specs of ``FINANCIAL_STATEMENT_GROUPS``, each named
+            ``"financials.<statement>.<period>"`` and gated on its own marker.
+        """
+        financials = self.yf_client.financials
+        requests: dict[str, Callable[..., pd.DataFrame | None]] = {
+            "income_statement": financials.fetch_income_stmt,
+            "balance_sheet": financials.fetch_balance_sheet,
+            "cashflow": financials.fetch_cashflow,
+        }
+        return tuple(
+            self._statement_spec(
+                statement_type,
+                period_type,
+                requests[statement_type],
+                statement_currency,
+            )
+            for statement_type, period_type in FINANCIAL_STATEMENT_GROUPS
+        )
+
+    def _statement_spec(
+        self,
+        statement_type: str,
+        period_type: str,
+        request: Callable[..., pd.DataFrame | None],
+        statement_currency: Callable[[], str | None],
+    ) -> CategorySpec[Any]:
+        """Return the spec of one statement group; see ``_statement_specs``."""
+        quarterly = period_type == _QUARTERLY
+
+        def fetch(ctx: FetchContext) -> Any:
+            return self._timed(
+                lambda: request(ctx.yfinance_ticker, quarterly=quarterly)
+            )
+
+        return CategorySpec(
+            name=f"financials.{statement_type}.{period_type}",
+            marker=statement_staleness_key(statement_type, period_type),
+            fetch=fetch,
+            store=self._upsert(
+                lambda repo: repo.upsert_financial_statements,
+                statement_type,
+                period_type,
+                options=lambda _ctx: {"currency_code": statement_currency()},
+            ),
+        )
+
+    def _fundamental_specs(
+        self, ctx: FetchContext, listing_currency: str | None
+    ) -> tuple[CategorySpec[Any], ...]:
+        """Return the specs of the fundamentals step, in the order it fetches them.
+
+        Each category is gated on its own ``<category>_updated_at`` marker on the
+        fundamentals window, except analyst actions: they are gated on the
+        recommendations window but fetched in this step, since fetching them
+        elsewhere would reorder the sweep's requests and errors.
+
+        Args:
+            ctx: The sweep's context; its time dates the valuation panel.
+            listing_currency: Major unit of the listing currency. It labels the
+                valuation rows, because market cap and EV are quote-based.
+
+        Returns:
+            The specs of the sweep's fundamentals step.
+        """
+        return (
+            self._valuation_spec(ctx, listing_currency),
+            *self._eps_specs(),
+            *self._estimate_specs(),
+            *self._earnings_specs(),
+            *self._filing_and_share_specs(),
+        )
+
+    def _valuation_spec(
+        self, ctx: FetchContext, listing_currency: str | None
+    ) -> CategorySpec[Any]:
+        """Return the valuation-measures spec; see ``_fundamental_specs``."""
+        return CategorySpec(
+            name="valuation_measures",
+            marker="valuation_measures_updated_at",
+            fetch=self._request(
+                lambda client: client.metadata.fetch_valuation_measures
+            ),
+            transform=lambda panel: _dated_valuation_panel(panel, ctx),
+            # Reuses the open EAV statements table under its own statement
+            # type, so the panel needs no table or migration of its own.
+            store=self._upsert(
+                lambda repo: repo.upsert_financial_statements,
+                VALUATION_MEASURES_STATEMENT_TYPE,
+                VALUATION_MEASURES_PERIOD_TYPE,
+                options=lambda _ctx: {"currency_code": listing_currency},
+            ),
+        )
+
+    def _eps_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the EPS trend and EPS revisions specs, in sweep order."""
+        return (
+            CategorySpec(
+                name="eps_trend",
+                marker="eps_trend_updated_at",
+                fetch=self._request(lambda client: client.analysis.fetch_eps_trend),
+                store=self._upsert(lambda repo: repo.upsert_eps_trend),
+            ),
+            CategorySpec(
+                name="eps_revisions",
+                marker="eps_revisions_updated_at",
+                fetch=self._request(lambda client: client.analysis.fetch_eps_revisions),
+                store=self._upsert(lambda repo: repo.upsert_eps_revisions),
+            ),
+        )
+
+    def _estimate_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the earnings, revenue and growth estimate specs, in sweep order."""
+        return (
+            CategorySpec(
+                name="earnings_estimate",
+                marker="earnings_estimate_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_earnings_estimate
+                ),
+                store=self._upsert(lambda repo: repo.upsert_earnings_estimate),
+            ),
+            CategorySpec(
+                name="revenue_estimate",
+                marker="revenue_estimate_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_revenue_estimate
+                ),
+                store=self._upsert(lambda repo: repo.upsert_revenue_estimate),
+            ),
+            CategorySpec(
+                name="growth_estimates",
+                marker="growth_estimates_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_growth_estimates
+                ),
+                store=self._upsert(lambda repo: repo.upsert_growth_estimates),
+            ),
+        )
+
+    def _earnings_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the earnings history and dates specs, then analyst actions."""
+        return (
+            CategorySpec(
+                name="earnings_history",
+                marker="earnings_history_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_earnings_history
+                ),
+                store=self._upsert(lambda repo: repo.upsert_earnings_history),
+            ),
+            CategorySpec(
+                name="earnings_dates",
+                marker="earnings_dates_updated_at",
+                fetch=self._request(
+                    lambda client: client.metadata.fetch_earnings_dates
+                ),
+                store=self._upsert(lambda repo: repo.upsert_earnings_dates),
+            ),
+            CategorySpec(
+                name="analyst_actions",
+                marker="recommendations_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_upgrades_downgrades
+                ),
+                store=self._upsert(lambda repo: repo.upsert_analyst_actions),
+            ),
+        )
+
+    def _filing_and_share_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the SEC filings and shares outstanding specs, in sweep order."""
+        return (
+            CategorySpec(
+                name="sec_filings",
+                marker="sec_filings_updated_at",
+                fetch=self._request(lambda client: client.financials.fetch_sec_filings),
+                store=self._upsert(lambda repo: repo.upsert_sec_filings),
+                is_empty=is_empty_collection,
+            ),
+            CategorySpec(
+                name="shares_outstanding",
+                marker="shares_outstanding_updated_at",
+                fetch=self._request(
+                    lambda client: client.corporate_actions.fetch_shares_full
+                ),
+                store=self._upsert(lambda repo: repo.upsert_shares_outstanding),
+                is_empty=_has_no_share_counts,
+            ),
+        )
+
+    def _event_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the corporate-action, analyst-rating and holder specs, in order.
+
+        Each category is gated on the marker of its own event window. Major
+        holders share the institutional holders' marker, and insider purchases
+        and the insider roster share the insider transactions' marker, which is
+        why ``_EVENT_MARKER_CATEGORIES`` remembers a marker as empty only when
+        every category behind it answered empty.
+
+        Returns:
+            The specs of the sweep's event step, in the order it fetches them.
+        """
+        return (
+            *self._corporate_action_specs(),
+            *self._analyst_rating_specs(),
+            *self._holder_specs(),
+            *self._shared_marker_holder_specs(),
+        )
+
+    def _corporate_action_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the dividends and splits specs, in sweep order."""
+        return (
+            CategorySpec(
+                name="dividends",
+                marker="dividends_updated_at",
+                fetch=self._request(
+                    lambda client: client.corporate_actions.fetch_dividends
+                ),
+                store=self._upsert(
+                    lambda repo: repo.upsert_dividends,
+                    options=lambda ctx: {"price_currency": ctx.currency_code},
+                ),
+            ),
+            CategorySpec(
+                name="splits",
+                marker="splits_updated_at",
+                fetch=self._request(
+                    lambda client: client.corporate_actions.fetch_splits
+                ),
+                store=self._upsert(lambda repo: repo.upsert_splits),
+            ),
+        )
+
+    def _analyst_rating_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the analyst recommendation and price target specs, in sweep order."""
+        return (
+            CategorySpec(
+                name="recommendations",
+                marker="recommendations_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_recommendations_summary
+                ),
+                store=self._upsert(lambda repo: repo.upsert_recommendations),
+            ),
+            CategorySpec(
+                name="price_targets",
+                marker="price_targets_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_analyst_price_targets
+                ),
+                store=self._upsert(lambda repo: repo.upsert_price_targets),
+                is_empty=is_empty_collection,
+            ),
+        )
+
+    def _holder_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the holder specs gated on a marker of their own, in sweep order."""
+        return (
+            CategorySpec(
+                name="institutional_holders",
+                marker="institutional_holders_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_institutional_holders
+                ),
+                store=self._upsert(lambda repo: repo.upsert_institutional_holders),
+            ),
+            CategorySpec(
+                name="mutualfund_holders",
+                marker="mutualfund_holders_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_mutualfund_holders
+                ),
+                store=self._upsert(lambda repo: repo.upsert_mutualfund_holders),
+            ),
+            CategorySpec(
+                name="insider_transactions",
+                marker="insider_transactions_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_insider_transactions
+                ),
+                store=self._upsert(lambda repo: repo.upsert_insider_transactions),
+            ),
+        )
+
+    def _shared_marker_holder_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the holder specs gated on another category's marker, in order."""
+        return (
+            CategorySpec(
+                name="major_holders",
+                marker="institutional_holders_updated_at",
+                fetch=self._request(lambda client: client.holders.fetch_major_holders),
+                store=self._upsert(lambda repo: repo.upsert_major_holders),
+            ),
+            CategorySpec(
+                name="insider_purchases",
+                marker="insider_transactions_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_insider_purchases
+                ),
+                store=self._upsert(lambda repo: repo.upsert_insider_purchases),
+            ),
+            CategorySpec(
+                name="insider_roster",
+                marker="insider_transactions_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_insider_roster_holders
+                ),
+                store=self._upsert(lambda repo: repo.upsert_insider_roster),
+            ),
+        )
+
+    def _request(
+        self, pick: Callable[[YFinanceClient], Callable[[str], Any]]
+    ) -> Callable[[FetchContext], Any]:
+        """Return a fetch that makes one client request for the sweep's ticker.
+
+        The request is looked up when the fetch runs, not here, so a sub-client
+        that cannot serve it fails that category alone.
+
+        Args:
+            pick: Selects the request, e.g.
+                ``lambda client: client.corporate_actions.fetch_splits``.
+
+        Returns:
+            A fetch that calls the request with the context's ticker, under the
+            service's request timeout.
+        """
+
+        def fetch(ctx: FetchContext) -> Any:
+            return self._timed(lambda: pick(self.yf_client)(ctx.yfinance_ticker))
+
+        return fetch
+
+    def _upsert(
+        self,
+        pick: Callable[[YFinanceRepository], Callable[..., int]],
+        *args: Any,
+        options: Callable[[FetchContext], dict[str, Any]] | None = None,
+    ) -> Callable[[Any, FetchContext], int]:
+        """Return a store that hands a category's answer to a repository write.
+
+        The write is only named here: ``run_category`` calls the store inside the
+        category's savepoint, the one place besides ``_write`` a repository write
+        runs.
+
+        Args:
+            pick: Selects the write, e.g. ``lambda repo: repo.upsert_splits``.
+            *args: Arguments the write takes after the instrument id and the
+                answer.
+            options: Builds the write's keyword arguments from the sweep's
+                context. Called when the store runs, so only for an answer with
+                rows to store.
+
+        Returns:
+            A store that calls ``write(instrument_id, answer, *args, **options)``
+            and returns the rows it stored.
+        """
+
+        def store(payload: Any, ctx: FetchContext) -> int:
+            keywords = options(ctx) if options is not None else {}
+            return pick(self.repo)(ctx.instrument_id, payload, *args, **keywords)
+
+        return store
 
     def _fetch_etf_metadata(
         self,
