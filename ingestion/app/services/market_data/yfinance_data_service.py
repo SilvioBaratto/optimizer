@@ -64,7 +64,8 @@ from app.services.market_data.yfinance.fetch_plan import (
     StalenessThresholds,
 )
 
-# Bound under the private name the service's existing tests import it by.
+# Kept under its private name: this module calls it by that name, and its
+# tests import it from here.
 from app.services.market_data.yfinance.fetch_plan import is_fresh as _is_fresh
 from app.utils.currency import to_major_currency
 
@@ -670,7 +671,7 @@ class YFinanceDataService:
         # In incremental mode, query staleness info once upfront — unless the
         # caller (a bulk sweep) pre-loaded it in one grouped query and injected
         # it here, avoiding a per-instrument round-trip.
-        if mode != "incremental":
+        if mode != FetchMode.INCREMENTAL:
             staleness = None
         elif staleness is _UNSET:
             try:
@@ -687,7 +688,11 @@ class YFinanceDataService:
         plan = FetchPlan(
             # Any mode other than "incremental" has always fetched everything,
             # where FetchMode(mode) would reject it.
-            mode=FetchMode.INCREMENTAL if mode == "incremental" else FetchMode.FULL,
+            mode=(
+                FetchMode.INCREMENTAL
+                if mode == FetchMode.INCREMENTAL
+                else FetchMode.FULL
+            ),
             staleness=staleness,
             thresholds=thresholds,
             now=now,
