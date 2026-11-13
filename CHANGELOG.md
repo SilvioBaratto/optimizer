@@ -244,7 +244,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now describes the uv workspace, the per-member test commands, branching from
   `development` and releasing through a `release/` branch, and the `portopt-db` README
   documents the migration process (validation, rollback, one-way revisions) with an ER
-  diagram; new Alembic revisions get a dated file name.
+  diagram; new Alembic revisions get a dated file name. `docs/integrations.md`
+  documents every external system (Yahoo Finance, FRED, Trading 212, Trading
+  Economics, Il Sole 24 Ore, Business Insider and the LLM providers) with its API,
+  authentication, failure impact, risk and mitigation, plus a communication diagram
+  and two sequence diagrams, and a test checks that each cited source file exists.
 
 ### Removed
 

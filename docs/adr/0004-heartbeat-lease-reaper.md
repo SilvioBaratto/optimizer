@@ -24,6 +24,11 @@ observability only; there is no host-scoped reap predicate. A synchronous step m
 its work in `scheduler._heartbeat()`, because only the heartbeat thread stamps the row.
 Exactly one daemon runs per database. The fund worker's job slot mirrors this design.
 
+What happens to a reaped row is a setting. `SCHEDULER_ORPHAN_STRATEGY=fail`, the default,
+records the orphan as `failed`. `reclaim` re-dispatches the job instead, up to
+`SCHEDULER_ORPHAN_MAX_RECLAIM_ATTEMPTS` (3) times, with `attempt` on the row recording the
+generation.
+
 ## Alternatives considered
 
 - **A flat timeout on the claim.** Rejected in `docs/ARCHITECTURE.md` §5.3: it reaps slow
@@ -31,8 +36,8 @@ Exactly one daemon runs per database. The fund worker's job slot mirrors this de
 - **A host-scoped reap predicate.** An earlier design used it; it was removed, and
   `CLAUDE.md` calls any description of it stale.
 - **Reclaim and re-queue instead of failing the row.** `docs/ARCHITECTURE.md` §5.3 marks
-  it adopted but gated on idempotent writes (§5.4). The implemented reaper fails the row,
-  so re-queueing is not in effect.
+  it adopted but gated on idempotent writes (§5.4). It exists as the opt-in `reclaim`
+  strategy; the default stays `fail` until every step is known to be safe to run twice.
 
 ## Consequences
 
@@ -40,5 +45,5 @@ Exactly one daemon runs per database. The fund worker's job slot mirrors this de
   reaped and flips to `failed` mid-run, so new work is added as a step wrapped in
   `_heartbeat()`, never as a CLI-only branch.
 - Two daemons on one database would reap each other's rows, so the deployment keeps one.
-- A reaped job is recorded as `failed`; the reaper does not re-queue it (see the
-  alternatives above).
+- Under the default strategy a reaped job is recorded as `failed` and not re-queued.
+  Switching to `reclaim` re-runs it, so every step must then tolerate running twice.
