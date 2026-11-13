@@ -270,6 +270,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `development` and releasing through a `release/` branch, and the `portopt-db` README
   documents the migration process (validation, rollback, one-way revisions) with an ER
   diagram; new Alembic revisions get a dated file name.
+- **ingestion**: the yfinance sweep decides which categories are due for a fetch
+  through a pure, unit-tested `FetchPlan`
+  (`app/services/market_data/yfinance/fetch_plan.py`), built once per ticker,
+  instead of repeating the incremental-mode check before every category.
+  `StalenessThresholds` moved into that module and is still importable from
+  `yfinance_data_service`. Behaviour is unchanged.
 
 ### Removed
 
