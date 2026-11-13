@@ -26,7 +26,6 @@
   "ingestion/app/services/market_data/yfinance/market/calendars.py::CalendarsClient._paginate": 11,
   "ingestion/app/services/market_data/yfinance/market/calendars.py::CalendarsClient._paginate._action": 10,
   "ingestion/app/services/market_data/yfinance/news/macro_news.py::MacroNewsFetcher.fetch_all": 23,
-  "ingestion/app/services/market_data/yfinance_data_service.py::YFinanceDataService._fetch_and_store": 105,
   "ingestion/app/services/market_data/yfinance_data_service.py::YFinanceDataService._fetch_etf_metadata": 13,
   "ingestion/app/services/universe/canonical.py::derive_metrics": 10,
   "ingestion/app/services/universe/t212_annotate.py::run_t212_annotate": 15,

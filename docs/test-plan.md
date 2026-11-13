@@ -37,7 +37,7 @@ Ordered by what a failure costs. Each maps to the critical functions below.
 | `resolve_mandate_eligibility` | Bars instruments outside the mandate (risk 1) | `fund/tests/unit/test_eligibility.py`, `fund/tests/unit/test_eligible_universe_e2e.py` | |
 | `fund_drift_monitor` | Daily job that watches every portfolio (risk 3) | `fund/tests/unit/test_scheduler_steps.py`, `fund/tests/unit/test_worker.py`, `fund/tests/unit/test_fund_job_repo.py` | `fund/tests/integration/test_fund_job_claim_race.py` |
 | `_upsert` | Every repository write goes through it (risk 2) | `packages/portopt-db/tests/test_upsert_constraint_names.py` | `packages/portopt-db/tests/integration/test_upsert_postgres.py`, `packages/portopt-db/tests/integration/test_upsert_constraints_exist_in_db.py` |
-| `_fetch_and_store` | The 974-line per-instrument sweep (risks 2, 3) | `ingestion/tests/unit/test_yfinance_data_service_savepoints.py`, `ingestion/tests/unit/test_market_data_service_branches.py`, `ingestion/tests/unit/test_empty_fetch_memory.py` | |
+| `_fetch_and_store` | The per-instrument sweep (risks 2, 3) | `ingestion/tests/unit/test_fetch_and_store_error_paths.py`, `ingestion/tests/unit/test_run_category.py`, `ingestion/tests/unit/test_fetch_plan.py`, `ingestion/tests/unit/test_price_policy.py`, `ingestion/tests/unit/test_yfinance_data_service_savepoints.py`, `ingestion/tests/unit/test_market_data_service_branches.py`, `ingestion/tests/unit/test_empty_fetch_memory.py` | |
 | `retry_with_backoff` | Wraps every external call (risks 3, 4) | `ingestion/tests/unit/test_shared_infrastructure.py`, `ingestion/tests/unit/test_retry_exhaustion_logging.py` | |
 | `benjamini_hochberg` | Factor significance (risk 5) | `tests/factors/test_validation.py` | |
 
@@ -47,10 +47,6 @@ Also critical and tested:
 - Secrets kept out of `repr`: `fund/tests/unit/test_config_secrets_not_in_repr.py`,
   `ingestion/tests/unit/test_settings_repr.py`, `packages/portopt-db/tests/test_db_config_repr.py`.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
-
-Known gap: the error handlers of the individual categories inside `_fetch_and_store` are
-not pinned by a test. They are covered by characterization tests planned before that
-function is split.
 
 ## Test levels
 

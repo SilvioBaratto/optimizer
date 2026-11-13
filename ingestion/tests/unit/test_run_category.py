@@ -45,10 +45,7 @@ from app.services.market_data.yfinance.fetch_plan import (
     StalenessThresholds,
 )
 from app.services.market_data.yfinance_data_service import YFinanceDataService
-from tests.unit.test_yfinance_data_service_branches import (
-    _make_repo,
-    _make_yf_client_silent,
-)
+from tests._fixtures.yfinance_fakes import make_repo, make_silent_yf_client
 
 _NOW = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
 _THRESHOLDS = StalenessThresholds()
@@ -349,7 +346,9 @@ def test_categories_report_in_the_order_they_run() -> None:
     ]
 
     for spec in specs:
-        run_category(spec, _ctx(), plan, result, session=_NoDatabase())
+        run_category(
+            spec, _ctx(), plan, result, session=_NoDatabase(), recently_empty=None
+        )
 
     assert list(result.counts) == ["sec_filings", "shares_outstanding"]
     assert result.errors == [
@@ -540,7 +539,7 @@ def test_each_statement_group_is_stored_under_the_group_it_was_fetched_for() -> 
     fetcher paired with the wrong statement type, or an annual request stored as
     quarterly, shows up as a mismatched pair.
     """
-    client = _make_yf_client_silent()
+    client = make_silent_yf_client()
     for request, statement in _STATEMENT_REQUESTS.items():
         getattr(client.financials, request).side_effect = _statement_answer(statement)
     stored: list[tuple[tuple[str, str], tuple[str, str]]] = []
@@ -555,7 +554,7 @@ def test_each_statement_group_is_stored_under_the_group_it_was_fetched_for() -> 
         stored.append((frame.attrs["source"], (statement_type, period_type)))
         return 1
 
-    repo = _make_repo()
+    repo = make_repo()
     repo.upsert_financial_statements.side_effect = _record
 
     result = YFinanceDataService(repo, client).fetch_and_store(

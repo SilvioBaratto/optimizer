@@ -23,7 +23,7 @@ import threading
 from collections.abc import Callable, Iterable
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
@@ -50,6 +50,7 @@ from app.services._shared import (
 from app.services._shared.trading_calendar import last_completed_session
 from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance import (
+    ArticleScraperProtocol,
     CircuitBreakerProtocol,
     RequestOutcomes,
     YFinanceClient,
@@ -75,6 +76,17 @@ from app.services.market_data.yfinance.fetch_plan import (
 # Kept under its private name: this module calls it by that name, and its
 # tests import it from here.
 from app.services.market_data.yfinance.fetch_plan import is_fresh as _is_fresh
+
+# Imported as a module so the scraper class is looked up when a sweep builds
+# one, which is where tests replace it.
+from app.services.market_data.yfinance.news import scraper as news_scraper
+from app.services.market_data.yfinance.price_policy import (
+    PriceBasis,
+    PriceStorageDecision,
+    PriceStorageReason,
+    decide_price_storage,
+    spans_stored_series,
+)
 from app.utils.currency import to_major_currency
 
 logger = logging.getLogger(__name__)
@@ -189,6 +201,14 @@ _EVENT_MARKER_CATEGORIES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Every marker the incremental short circuit checks besides the profile, in the
+# order the sweep fetches their categories: statements, fundamentals, events.
+_MARKERS_BEFORE_REQUESTS: tuple[str, ...] = (
+    *(statement_staleness_key(*group) for group in FINANCIAL_STATEMENT_GROUPS),
+    *(f"{category}_updated_at" for category in FUNDAMENTAL_CATEGORIES),
+    *_EVENT_MARKER_CATEGORIES,
+)
+
 # Period type of the statement groups requested with ``quarterly=True``.
 _QUARTERLY = "quarterly"
 
@@ -227,6 +247,53 @@ def _prices_are_current(
     if isinstance(price_max_date, datetime):
         price_max_date = price_max_date.date()
     return price_max_date >= last_completed_session(exchange_name, today)
+
+
+def _stored_price_max_date(plan: FetchPlan) -> Any:
+    """Return the newest stored bar's date when the plan may rely on it, else None.
+
+    Only an incremental plan with a staleness snapshot knows what is stored; any
+    other plan fetches the whole period.
+    """
+    staleness = plan.staleness
+    if not plan.uses_staleness or staleness is None:
+        return None
+    return staleness.get("price_max_date")
+
+
+def _fetch_mode(mode: str) -> FetchMode:
+    """Return the plan mode for a caller's mode string."""
+    # Any mode other than "incremental" has always fetched everything, where
+    # FetchMode(mode) would reject it.
+    return FetchMode.INCREMENTAL if mode == FetchMode.INCREMENTAL else FetchMode.FULL
+
+
+def _nothing_due(
+    ctx: FetchContext, plan: FetchPlan, recently_empty: Callable[[str], bool]
+) -> bool:
+    """Report whether an incremental sweep can leave the ticker without a request.
+
+    True when the profile is fresh, every other category is settled and the
+    stored prices already reach the last completed session. The sweep then
+    avoids building a ``yf.Ticker`` at all, which takes the rate limiter even on
+    a cache hit and so adds ~100 ms per ticker across the universe.
+
+    Args:
+        ctx: Ticker and settings of the sweep.
+        plan: Freshness decision of the sweep.
+        recently_empty: Memory of empty answers; see ``is_settled``.
+
+    Returns:
+        False for any sweep that does not use staleness.
+    """
+    if not plan.uses_staleness or plan.is_due("profile_updated_at"):
+        return False
+    settled = (
+        is_settled(plan, marker, recently_empty) for marker in _MARKERS_BEFORE_REQUESTS
+    )
+    return all(settled) and _prices_are_current(
+        _stored_price_max_date(plan), ctx.exchange_name, ctx.now.date()
+    )
 
 
 def _financial_currency(info: dict[str, Any] | None) -> str | None:
@@ -325,6 +392,23 @@ def _dated_valuation_panel(panel: pd.DataFrame, ctx: FetchContext) -> pd.DataFra
     return dated
 
 
+def _article_id(article: dict[str, Any]) -> Any:
+    """Return a feed article's id, which older feeds call ``uuid``."""
+    return article.get("id") or article.get("uuid")
+
+
+def _article_link(article: dict[str, Any]) -> Any:
+    """Return the page a feed article points to; falsy when it names none.
+
+    The canonical URL wins, then the preview URL, then the legacy ``link``.
+    """
+    content = article.get("content", article)
+    canonical = content.get("canonicalUrl")
+    if isinstance(canonical, dict):
+        return canonical.get("url", "")
+    return content.get("previewUrl") or article.get("link")
+
+
 def _has_no_share_counts(shares: Any) -> bool:
     """Report whether a share-count answer holds nothing to store.
 
@@ -340,10 +424,6 @@ def _has_no_share_counts(shares: Any) -> bool:
 # return) is above it.
 _BASIS_REL_TOL = 1e-4
 _BASIS_ABS_TOL = 1e-6
-
-# A re-based history may open a few sessions after the first stored bar
-# (holiday, first-day gap) and still cover the whole stored series.
-_REBASE_START_TOLERANCE = timedelta(days=7)
 
 # Yahoo resolves a period such as "5y" on its own clock, a day or two off ours: a
 # stored bar this close to the period's edge could fall just outside the fetch.
@@ -407,6 +487,118 @@ def _adjustment_basis_changed(
     return False
 
 
+@dataclass(frozen=True)
+class _FetchedPrices:
+    """One price fetch of the sweep, with the window a re-base replaced.
+
+    Attributes:
+        history: Bars to store: the incremental window, or a full-period history.
+        window: The incremental window a re-base fetch replaced, kept so it can
+            still be stored when the full history is refused; ``None`` otherwise.
+        incremental: Whether the fetch started from the newest stored bar.
+    """
+
+    history: pd.DataFrame | None
+    window: pd.DataFrame | None = None
+    incremental: bool = False
+
+    @property
+    def is_full_period(self) -> bool:
+        """Whether the history covers the whole period rather than a window."""
+        return not self.incremental or self.window is not None
+
+
+# The rendered reason of a short full-period history that is stored anyway.
+_SHORT_HISTORY_STORED: dict[PriceStorageReason, str] = {
+    PriceStorageReason.YOUNG_LISTING: "young listing with no prior price data",
+    PriceStorageReason.SPANS_STORED_SERIES: (
+        "young listing, history spans every stored price"
+    ),
+}
+
+
+def _log_price_decision(
+    ctx: FetchContext,
+    history_len: int,
+    basis: PriceBasis,
+    decision: PriceStorageDecision,
+) -> None:
+    """Log a short full-period history the policy refused or stored anyway."""
+    if decision.reason is PriceStorageReason.PROTECTS_STORED_SERIES:
+        logger.info(
+            "Skipping price storage for %s: got %d rows, expected ~%d (min %d) "
+            "for %s on %s (protecting existing series)",
+            ctx.yfinance_ticker,
+            history_len,
+            basis.expected_sessions,
+            basis.minimum_sessions,
+            ctx.period,
+            ctx.exchange_name,
+        )
+        return
+    why = _SHORT_HISTORY_STORED.get(decision.reason)
+    if why is not None:
+        logger.info(
+            "Storing short history for %s: %d rows (below expected ~%d for %s) — %s",
+            ctx.yfinance_ticker,
+            history_len,
+            basis.expected_sessions,
+            ctx.period,
+            why,
+        )
+
+
+@dataclass(frozen=True)
+class _EmptyAnswers:
+    """One ticker's access to the memory of categories Yahoo answered empty.
+
+    An empty answer stores no row, so without this memory a category Yahoo has
+    nothing for would be requested again on every run.
+
+    Attributes:
+        memory: Empty answers remembered across the sweeps of the process.
+        ctx: Ticker and reference time of the sweep.
+        yf_client: Client whose breaker tells a lost request from an answer.
+        outcomes: Requests of the ticker that Yahoo never answered.
+    """
+
+    memory: EmptyFetchMemory
+    ctx: FetchContext
+    yf_client: YFinanceClient
+    outcomes: RequestOutcomes
+
+    def recently_empty(self, marker: str) -> bool:
+        """Report whether Yahoo answered the category behind *marker* empty lately.
+
+        Read on every call, because the sweep adds to the memory while it runs.
+        """
+        return self.memory.is_recent(
+            self.ctx.instrument_id,
+            marker,
+            self.ctx.thresholds.no_data_hours,
+            self.ctx.now,
+        )
+
+    def remember(self, marker: str, stored: int) -> None:
+        """Remember the category behind *marker* as empty when it stored nothing.
+
+        Args:
+            marker: Staleness key of the category or statement group.
+            stored: Rows the category stored this sweep.
+        """
+        if stored:
+            return
+        # While the breaker is open an empty result is more likely a lost request
+        # than Yahoo's answer; leaving it unrecorded keeps the next run retrying
+        # instead of hiding the category. Only rate limits open the breaker, so a
+        # 5xx or an unreachable host is told apart through the tally. It carries
+        # no category, so one lost request keeps every empty answer of the ticker
+        # retryable.
+        if self.yf_client.circuit_breaker.is_active or self.outcomes.failures:
+            return
+        self.memory.remember(self.ctx.instrument_id, marker, self.ctx.now)
+
+
 class YFinanceDataService:
     """Fetches all yfinance data categories for a ticker and stores via repository."""
 
@@ -416,7 +608,21 @@ class YFinanceDataService:
         yf_client: YFinanceClient,
         request_timeout: float | None = None,
         empty_fetches: EmptyFetchMemory | None = None,
+        news_scrape_delay: float | None = None,
     ) -> None:
+        """Wire the service to its repository, client and sweep settings.
+
+        Args:
+            repo: Repository every category is stored through.
+            yf_client: Client every Yahoo request goes through.
+            request_timeout: Wall-clock seconds allowed per yfinance call;
+                ``None`` disables the watchdog.
+            empty_fetches: Memory of categories Yahoo answered empty; ``None``
+                gives the service a private one.
+            news_scrape_delay: Seconds to wait before each article page scraped
+                for a ticker's news; ``None`` takes
+                ``YFINANCE_NEWS_SCRAPE_DELAY_SECONDS`` from the daemon settings.
+        """
         self.repo = repo
         self.yf_client = yf_client
         # Private by default so unrelated callers (and tests) never see each
@@ -427,6 +633,11 @@ class YFinanceDataService:
         # Wall-clock timeout for every yfinance network call.  None disables
         # the watchdog (used in tests that mock fetch methods synchronously).
         self._request_timeout = request_timeout
+        if news_scrape_delay is None:
+            from app.config import settings
+
+            news_scrape_delay = settings.yfinance_news_scrape_delay_seconds
+        self._news_scrape_delay = news_scrape_delay
 
     def _timed(self, fn: "Any") -> "Any":
         """Execute *fn*, enforcing ``self._request_timeout`` if set.
@@ -498,8 +709,7 @@ class YFinanceDataService:
         )
         if first is None:
             return False
-        opens = _bar_date(history.index.min())
-        return opens is not None and opens <= first.date + _REBASE_START_TOLERANCE
+        return spans_stored_series(_bar_date(history.index.min()), first.date)
 
     def _full_fetch_start(self, instrument_id: UUID, period: str) -> date | None:
         """Return where a full-history fetch must start to span the stored series.
@@ -668,44 +878,19 @@ class YFinanceDataService:
         instrument_type: str | None,
         outcomes: RequestOutcomes,
     ) -> dict[str, Any]:
-        counts: dict[str, int] = {}
-        errors: list[str] = []
-        skipped: list[str] = []
-        # Holds the same dict and lists, so the steps that run through
-        # run_category and the steps still written out here report into one place.
-        fetch_result = FetchResult(counts=counts, errors=errors, skipped=skipped)
+        """Run one ticker's sweep inside ``fetch_and_store``'s request tally.
 
+        Builds the sweep's context and freshness plan once, then runs the steps;
+        *outcomes* lets an empty answer tell Yahoo's silence from a lost request.
+        """
         if thresholds is None:
             thresholds = DEFAULT_THRESHOLDS
-
-        # In incremental mode, query staleness info once upfront — unless the
-        # caller (a bulk sweep) pre-loaded it in one grouped query and injected
-        # it here, avoiding a per-instrument round-trip.
-        if mode != FetchMode.INCREMENTAL:
-            staleness = None
-        elif staleness is _UNSET:
-            try:
-                staleness = self.repo.get_staleness_info(instrument_id)
-            except Exception as e:
-                logger.warning(
-                    "Staleness query failed for %s, falling back to full fetch: %s",
-                    yfinance_ticker,
-                    e,
-                )
-                staleness = None
-
+        staleness = self._staleness_snapshot(
+            instrument_id, yfinance_ticker, mode, staleness
+        )
         now = datetime.now(timezone.utc)
         plan = FetchPlan(
-            # Any mode other than "incremental" has always fetched everything,
-            # where FetchMode(mode) would reject it.
-            mode=(
-                FetchMode.INCREMENTAL
-                if mode == FetchMode.INCREMENTAL
-                else FetchMode.FULL
-            ),
-            staleness=staleness,
-            thresholds=thresholds,
-            now=now,
+            mode=_fetch_mode(mode), staleness=staleness, thresholds=thresholds, now=now
         )
         ctx = FetchContext(
             instrument_id=instrument_id,
@@ -719,414 +904,538 @@ class YFinanceDataService:
             now=now,
             thresholds=thresholds,
         )
+        result = FetchResult()
+        empty_answers = _EmptyAnswers(
+            self._empty_fetches, ctx, self.yf_client, outcomes
+        )
+        self._sweep(ctx, plan, result, empty_answers)
+        return result.to_response()
 
-        # Read lazily, on each call, because the sweep adds to the memory while it
-        # runs.
-        def _recently_empty(marker_key: str) -> bool:
-            return self._empty_fetches.is_recent(
-                instrument_id, marker_key, thresholds.no_data_hours, now
-            )
+    def _staleness_snapshot(
+        self, instrument_id: UUID, yfinance_ticker: str, mode: str, staleness: Any
+    ) -> Any:
+        """Return the staleness snapshot an incremental sweep decides on.
 
-        def _settled(marker_key: str) -> bool:
-            return is_settled(plan, marker_key, _recently_empty)
+        Args:
+            instrument_id: Instrument whose stored categories are looked up.
+            yfinance_ticker: Ticker named in the warning of a failed lookup.
+            mode: The sweep mode; only an incremental sweep uses a snapshot.
+            staleness: The caller's snapshot, or ``_UNSET`` to query it here. A
+                bulk sweep loads every instrument's in one grouped query and
+                injects it, avoiding a round-trip per instrument.
 
-        # Gated per category on the marker of the category's own table: a
-        # category whose fetch failed while the statements were stored must not
-        # be hidden by them for the whole window.
-        def _fundamentals_fresh(category: str) -> bool:
-            return _settled(f"{category}_updated_at")
-
-        # Gated per statement: one statement stored during a rate-limit burst
-        # must not hide the ones that failed until the window expires.
-        def _statement_fresh(stmt_type: str, period_type: str) -> bool:
-            return _settled(statement_staleness_key(stmt_type, period_type))
-
-        def _record_fetch(marker_key: str, stored: int) -> None:
-            if stored:
-                return
-            # While the breaker is open an empty result is more likely a lost
-            # request than Yahoo's answer; leaving it unrecorded keeps the next
-            # run retrying instead of hiding the category. Only rate limits open
-            # the breaker, so a 5xx or an unreachable host is told apart through
-            # the tally. It carries no category, so one lost request keeps every
-            # empty answer of the ticker retryable.
-            if self.yf_client.circuit_breaker.is_active or outcomes.failures:
-                return
-            self._empty_fetches.remember(instrument_id, marker_key, now)
-
-        # ------------------------------------------------------------------
-        # Incremental short-circuit: skip whole ticker if ALL categories fresh
-        # ------------------------------------------------------------------
-        # In incremental mode we know staleness upfront.  If every category
-        # passes its freshness check and the stored prices already reach the
-        # last completed session there is nothing to fetch — avoid
-        # constructing a yf.Ticker at all (which acquires the rate-limiter
-        # even on a cache hit, adding ~100ms×N delay over 2907 tickers).
-        if plan.uses_staleness:
-            all_fresh = (
-                not plan.is_due("profile_updated_at")
-                and all(
-                    _statement_fresh(st, pt) for st, pt in FINANCIAL_STATEMENT_GROUPS
-                )
-                and all(
-                    _fundamentals_fresh(category) for category in FUNDAMENTAL_CATEGORIES
-                )
-                and _settled("dividends_updated_at")
-                and _settled("splits_updated_at")
-                and _settled("recommendations_updated_at")
-                and _settled("price_targets_updated_at")
-                and _settled("institutional_holders_updated_at")
-                and _settled("mutualfund_holders_updated_at")
-                and _settled("insider_transactions_updated_at")
-                and _prices_are_current(
-                    staleness.get("price_max_date"), exchange_name, now.date()
-                )
-            )
-            if all_fresh:
-                logger.debug(
-                    "All categories fresh for %s — skipping network fetch",
-                    yfinance_ticker,
-                )
-                skipped.append("all:fresh")
-                return fetch_result.to_response()
-
-        profile_info: dict[str, Any] | None = None
-
-        if not plan.is_due("profile_updated_at"):
-            skipped.append("profile")
-        else:
-            try:
-                info = self._timed(lambda: self.yf_client.fetch_info(yfinance_ticker))
-                if info:
-                    profile_info = info
-                    # yfinance's .info does not carry ISIN — fetch it separately
-                    # (Ticker.isin) and inject so ticker_profiles.isin populates.
-                    # The lookup is a separate third-party call: its failure must
-                    # not cost the profile that was just fetched.
-                    isin = None
-                    try:
-                        isin = self._timed(
-                            lambda: self.yf_client.metadata.fetch_isin(yfinance_ticker)
-                        )
-                    except Exception as e:
-                        errors.append(f"isin: {e}")
-                        logger.warning(
-                            "Failed to fetch ISIN for %s: %s", yfinance_ticker, e
-                        )
-                    if isin:
-                        info["isin"] = isin
-                    counts["profile"] = self._write(
-                        self.repo.upsert_profile, instrument_id, info
-                    )
-                    # Extra info fields (short interest, momentum, governance risk)
-                    # reuse the already-fetched dict — no separate network call.
-                    counts["profile_extras"] = self._write(
-                        self.repo.upsert_profile_extras, instrument_id, info
-                    )
-                else:
-                    counts["profile"] = 0
-            except Exception as e:
-                errors.append(f"profile: {e}")
-                logger.warning("Failed to fetch profile for %s: %s", yfinance_ticker, e)
-
+        Returns:
+            The snapshot, or ``None`` for a full sweep and when the lookup failed,
+            which makes every category due.
+        """
+        if mode != FetchMode.INCREMENTAL:
+            return None
+        if staleness is not _UNSET:
+            return staleness
         try:
-            max_date = staleness.get("price_max_date") if plan.uses_staleness else None
-            incremental_window = max_date is not None
-            # Set only when a re-base fetch replaced the incremental window, so
-            # the window can still be stored if the full history is unusable.
-            window_history: pd.DataFrame | None = None
-            if max_date is not None:
-                start_date = max_date - timedelta(days=thresholds.price_overlap_days)
-                history = self.yf_client.fetch_history(
-                    yfinance_ticker,
-                    start=start_date.isoformat(),
-                    end=date.today().isoformat(),
-                    min_rows=0,
-                    # actions=True adds Dividends / Stock Splits columns the
-                    # price-history upsert persists (Capital Gains no longer
-                    # emitted by Yahoo → stays NULL).
-                    actions=True,
-                    timeout=self._request_timeout,
-                )
-                # A split or dividend since the last fetch rescales all earlier
-                # bars, but the window rewrites only its own: re-fetch the whole
-                # period so the stored series stays on a single basis.
-                if self._overlap_was_readjusted(
-                    instrument_id, history, start_date, max_date
-                ):
-                    try:
-                        rebased = self._fetch_full_price_history(
-                            instrument_id, yfinance_ticker, period
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            "Re-base fetch failed for %s, storing the window only: %s",
-                            yfinance_ticker,
-                            e,
-                        )
-                        rebased = None
-                    if rebased is not None and not rebased.empty:
-                        window_history, history = history, rebased
-            else:
-                history = self._fetch_full_price_history(
-                    instrument_id,
-                    yfinance_ticker,
-                    period,
-                    may_have_stored_bars=not (
-                        isinstance(staleness, dict)
-                        and staleness.get("price_max_date") is None
-                    ),
-                )
-
-            if history is not None and not history.empty:
-                is_full_period = not incremental_window or window_history is not None
-                if is_full_period:
-                    sufficient, expected, minimum = has_sufficient_history(
-                        len(history),
-                        exchange_name,
-                        period,
-                        thresholds.min_history_tolerance,
-                    )
-                    if not sufficient:
-                        # The insufficient-history guard exists to stop a
-                        # truncated/glitchy re-fetch from re-basing only part of
-                        # an established price series. For an instrument with
-                        # NO stored prices yet, a short history is simply a
-                        # young listing's complete, legitimate history (recent
-                        # IPOs/SPACs). Discarding it permanently excluded ~102
-                        # instruments from price_history with no error logged.
-                        stored = (
-                            staleness
-                            if staleness is not None
-                            else self.repo.get_staleness_info(instrument_id)
-                        )
-                        has_existing_prices = stored.get("price_max_date") is not None
-                        price_min_date = stored.get("price_min_date")
-                        if has_existing_prices and price_min_date is not None:
-                            # A young listing with stored prices has no
-                            # sessions before its earliest stored bar, so judge
-                            # the refetch over that lifetime. The anchor must
-                            # come from storage, not the fetched frame: a
-                            # head-truncated refetch is complete when measured
-                            # from its own first bar.
-                            sufficient, expected, minimum = has_sufficient_history(
-                                len(history),
-                                exchange_name,
-                                period,
-                                thresholds.min_history_tolerance,
-                                since=price_min_date,
-                            )
-                        # A history that reaches back to the first stored bar
-                        # rewrites every stored price on one adjustment basis;
-                        # refusing it would pin a young listing to a stale basis
-                        # for good. One that opens later would re-base only its
-                        # own span, so it is still refused.
-                        if not sufficient and not (
-                            has_existing_prices
-                            and self._covers_stored_series(instrument_id, history)
-                        ):
-                            if has_existing_prices:
-                                logger.info(
-                                    "Skipping price storage for %s: got %d rows, "
-                                    "expected ~%d (min %d) for %s on %s "
-                                    "(protecting existing series)",
-                                    yfinance_ticker,
-                                    len(history),
-                                    expected,
-                                    minimum,
-                                    period,
-                                    exchange_name,
-                                )
-                                counts["prices"] = 0
-                                skipped.append("prices:insufficient_history")
-                                history = window_history
-                            else:
-                                logger.info(
-                                    "Storing short history for %s: %d rows "
-                                    "(below expected ~%d for %s) — young listing "
-                                    "with no prior price data",
-                                    yfinance_ticker,
-                                    len(history),
-                                    expected,
-                                    period,
-                                )
-                        elif not sufficient:
-                            logger.info(
-                                "Storing short history for %s: %d rows "
-                                "(below expected ~%d for %s) — young listing, "
-                                "history spans every stored price",
-                                yfinance_ticker,
-                                len(history),
-                                expected,
-                                period,
-                            )
-
-            if history is not None and not history.empty:
-                # Store the listing currency as the price unit (raw, unconverted) so
-                # sub-unit series (GBX pence) are unambiguous downstream.
-                counts["prices"] = self._write(
-                    self.repo.upsert_price_history,
-                    instrument_id,
-                    history,
-                    price_unit=currency_code,
-                )
-            else:
-                counts["prices"] = counts.get("prices", 0)
-                if incremental_window:
-                    # yfinance swallows network faults inside history() and
-                    # returns an empty frame. The overlap window always spans
-                    # stored bars, so an empty answer for a ticker that has a
-                    # series is the only trace of a Yahoo that did not answer.
-                    skipped.append("prices:unavailable")
+            return self.repo.get_staleness_info(instrument_id)
         except Exception as e:
-            errors.append(f"prices: {e}")
-            logger.warning("Failed to fetch prices for %s: %s", yfinance_ticker, e)
+            logger.warning(
+                "Staleness query failed for %s, falling back to full fetch: %s",
+                yfinance_ticker,
+                e,
+            )
+            return None
 
-        # Statements are denominated in the company's reporting currency, which
-        # Yahoo exposes as info["financialCurrency"] and which differs from the
-        # listing currency for ADRs and cross-listings (TSM lists in USD but
-        # reports in TWD; SHEL.L lists in GBp but reports in USD).
-        listing_major_currency = to_major_currency(currency_code)
-        statement_currency_cell: list[str | None] = []
-
-        def _statement_currency() -> str | None:
-            # Resolved on first use so a ticker with nothing to store never pays
-            # for an info request; the profile step usually already supplied it.
-            if not statement_currency_cell:
-                info_for_currency = profile_info
-                if not info_for_currency:
-                    try:
-                        info_for_currency = self._timed(
-                            lambda: self.yf_client.fetch_info(yfinance_ticker)
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            "Could not resolve financial currency for %s: %s",
-                            yfinance_ticker,
-                            e,
-                        )
-                statement_currency_cell.append(_financial_currency(info_for_currency))
-            return statement_currency_cell[0]
-
-        if all(_statement_fresh(st, pt) for st, pt in FINANCIAL_STATEMENT_GROUPS):
-            skipped.append("financials")
-        else:
-            try:
-                # The groups report failures under their own labels but count, and
-                # are skipped, as the one "financials" category: they share only the
-                # sweep's errors.
-                groups = FetchResult(errors=fetch_result.errors)
-                for spec in self._statement_specs(_statement_currency):
-                    run_category(
-                        spec,
-                        ctx,
-                        plan,
-                        groups,
-                        session=self.repo.session,
-                        recently_empty=_recently_empty,
-                    )
-                    # Each group has its own marker, so an empty group is
-                    # remembered whatever its siblings answered.
-                    if spec.name in groups.counts:
-                        _record_fetch(spec.marker, groups.counts[spec.name])
-                fetch_result.counts["financials"] = sum(groups.counts.values())
-            except Exception as e:
-                errors.append(f"financials: {e}")
-                logger.warning("Failed financials for %s: %s", yfinance_ticker, e)
-
-        for spec in self._fundamental_specs(ctx, listing_major_currency):
-            run_category(
-                spec,
-                ctx,
-                plan,
-                fetch_result,
-                session=self.repo.session,
-                recently_empty=_recently_empty,
+    def _sweep(
+        self,
+        ctx: FetchContext,
+        plan: FetchPlan,
+        result: FetchResult,
+        empty_answers: _EmptyAnswers,
+    ) -> None:
+        """Run every step of the ticker's sweep, or none when nothing is due."""
+        if _nothing_due(ctx, plan, empty_answers.recently_empty):
+            logger.debug(
+                "All categories fresh for %s — skipping network fetch",
+                ctx.yfinance_ticker,
+            )
+            result.skipped.append("all:fresh")
+            return
+        profile_info = self._fetch_profile(ctx, plan, result)
+        self._fetch_prices(ctx, plan, result)
+        self._fetch_statements(
+            ctx, plan, result, profile_info=profile_info, empty_answers=empty_answers
+        )
+        self._fetch_fundamentals(ctx, plan, result, empty_answers)
+        self._fetch_events(ctx, plan, result, empty_answers)
+        self._fetch_news(ctx, plan, result, self._article_scraper())
+        if _is_etf_fund(ctx.instrument_type, ctx.asset_class):
+            self._fetch_etf_metadata(
+                ctx.instrument_id,
+                ctx.yfinance_ticker,
+                ctx.mode,
+                ctx.thresholds,
+                ctx.now,
+                result.counts,
+                result.errors,
+                result.skipped,
             )
 
-        # A category present in counts was fetched without raising; its count says
-        # whether Yahoo had anything.
+    def _fetch_profile(
+        self, ctx: FetchContext, plan: FetchPlan, result: FetchResult
+    ) -> dict[str, Any] | None:
+        """Refresh the ticker's profile and its extra fields from Yahoo's ``info``.
+
+        Args:
+            ctx: Ticker and settings of the sweep.
+            plan: Decides whether the profile is due.
+            result: Receives the profile counts, the ``profile`` skip or the
+                ``profile:`` and ``isin:`` errors.
+
+        Returns:
+            The ``info`` Yahoo answered, kept even when storing it failed, so the
+            statements can read the currency they are reported in without a
+            second request. ``None`` when the profile was not due, Yahoo sent
+            nothing or the request failed.
+        """
+        if not plan.is_due("profile_updated_at"):
+            result.skipped.append("profile")
+            return None
+        profile_info: dict[str, Any] | None = None
+        try:
+            info = self._timed(lambda: self.yf_client.fetch_info(ctx.yfinance_ticker))
+            if not info:
+                result.counts["profile"] = 0
+                return None
+            profile_info = info
+            self._store_profile(ctx, info, result)
+        except Exception as e:
+            result.errors.append(f"profile: {e}")
+            logger.warning("Failed to fetch profile for %s: %s", ctx.yfinance_ticker, e)
+        return profile_info
+
+    def _store_profile(
+        self, ctx: FetchContext, info: dict[str, Any], result: FetchResult
+    ) -> None:
+        """Store the profile and its extra fields, with the ISIN added to *info*."""
+        # yfinance's .info does not carry the ISIN, so Ticker.isin is asked
+        # separately and injected for ticker_profiles.isin.
+        isin = self._fetch_isin(ctx, result)
+        if isin:
+            info["isin"] = isin
+        result.counts["profile"] = self._write(
+            self.repo.upsert_profile, ctx.instrument_id, info
+        )
+        # Extra info fields (short interest, momentum, governance risk) reuse the
+        # already-fetched dict, with no separate network call.
+        result.counts["profile_extras"] = self._write(
+            self.repo.upsert_profile_extras, ctx.instrument_id, info
+        )
+
+    def _fetch_isin(self, ctx: FetchContext, result: FetchResult) -> Any:
+        """Return the ticker's ISIN, or ``None`` with an ``isin:`` error on failure."""
+        # A separate third-party call: its failure must not cost the profile
+        # that was just fetched.
+        try:
+            return self._timed(
+                lambda: self.yf_client.metadata.fetch_isin(ctx.yfinance_ticker)
+            )
+        except Exception as e:
+            result.errors.append(f"isin: {e}")
+            logger.warning("Failed to fetch ISIN for %s: %s", ctx.yfinance_ticker, e)
+            return None
+
+    def _fetch_prices(
+        self, ctx: FetchContext, plan: FetchPlan, result: FetchResult
+    ) -> None:
+        """Refresh the ticker's price history and report it as ``prices``.
+
+        An incremental plan that knows the newest stored bar fetches the window
+        since it, and the whole period instead when a split or dividend re-based
+        the overlap. Any other plan fetches the whole period. A full-period history
+        is stored only when ``decide_price_storage`` allows it.
+
+        Args:
+            ctx: Ticker and settings of the sweep.
+            plan: Supplies the newest stored bar of an incremental sweep.
+            result: Receives the ``prices`` count, the
+                ``prices:insufficient_history`` or ``prices:unavailable`` skip, or
+                the ``prices:`` error.
+        """
+        try:
+            fetched = self._fetch_price_history(ctx, plan)
+            history = self._history_to_store(ctx, plan, fetched, result)
+            self._store_prices(ctx, history, fetched.incremental, result)
+        except Exception as e:
+            result.errors.append(f"prices: {e}")
+            logger.warning("Failed to fetch prices for %s: %s", ctx.yfinance_ticker, e)
+
+    def _fetch_price_history(
+        self, ctx: FetchContext, plan: FetchPlan
+    ) -> _FetchedPrices:
+        """Fetch the incremental window, or the whole period when there is none."""
+        max_date = _stored_price_max_date(plan)
+        if max_date is not None:
+            return self._fetch_price_window(ctx, max_date)
+        staleness = plan.staleness
+        first_load = (
+            isinstance(staleness, dict) and staleness.get("price_max_date") is None
+        )
+        history = self._fetch_full_price_history(
+            ctx.instrument_id,
+            ctx.yfinance_ticker,
+            ctx.period,
+            may_have_stored_bars=not first_load,
+        )
+        return _FetchedPrices(history=history)
+
+    def _fetch_price_window(self, ctx: FetchContext, max_date: date) -> _FetchedPrices:
+        """Fetch the bars since *max_date*, re-based when the overlap moved."""
+        start_date = max_date - timedelta(days=ctx.thresholds.price_overlap_days)
+        window = self.yf_client.fetch_history(
+            ctx.yfinance_ticker,
+            start=start_date.isoformat(),
+            end=date.today().isoformat(),
+            min_rows=0,
+            # The actions flag adds the Dividends and Stock Splits columns the
+            # price-history upsert persists; Yahoo no longer sends Capital Gains,
+            # which stays NULL.
+            actions=True,
+            timeout=self._request_timeout,
+        )
+        # A split or dividend since the last fetch rescales all earlier bars, but
+        # the window rewrites only its own: re-fetch the whole period so the
+        # stored series stays on a single basis.
+        if self._overlap_was_readjusted(
+            ctx.instrument_id, window, start_date, max_date
+        ):
+            rebased = self._fetch_rebased_history(ctx)
+            if rebased is not None and not rebased.empty:
+                return _FetchedPrices(history=rebased, window=window, incremental=True)
+        return _FetchedPrices(history=window, incremental=True)
+
+    def _fetch_rebased_history(self, ctx: FetchContext) -> pd.DataFrame | None:
+        """Fetch the whole period for a re-base; ``None`` when that fails."""
+        try:
+            return self._fetch_full_price_history(
+                ctx.instrument_id, ctx.yfinance_ticker, ctx.period
+            )
+        except Exception as e:
+            logger.warning(
+                "Re-base fetch failed for %s, storing the window only: %s",
+                ctx.yfinance_ticker,
+                e,
+            )
+            return None
+
+    def _history_to_store(
+        self,
+        ctx: FetchContext,
+        plan: FetchPlan,
+        fetched: _FetchedPrices,
+        result: FetchResult,
+    ) -> pd.DataFrame | None:
+        """Return the bars to store: the fetched history, or the window it replaced.
+
+        A full-period history the policy refuses is reported as skipped and leaves
+        the stored series alone; the incremental window a re-base replaced is
+        stored instead, when there was one.
+        """
+        history = fetched.history
+        if history is None or history.empty or not fetched.is_full_period:
+            return history
+        young_listing, basis = self._judge_full_history(ctx, plan, history)
+        decision = decide_price_storage(len(history), young_listing, basis)
+        _log_price_decision(ctx, len(history), basis, decision)
+        if decision.should_store:
+            return history
+        result.counts["prices"] = 0
+        result.skipped.append("prices:insufficient_history")
+        return fetched.window
+
+    def _judge_full_history(
+        self, ctx: FetchContext, plan: FetchPlan, history: pd.DataFrame
+    ) -> tuple[bool, PriceBasis]:
+        """Return whether nothing is stored yet, and how *history* measures up.
+
+        The stored series is looked up only for a history the period finds short,
+        and its first bar only when the series' lifetime finds it short too, so a
+        sufficient history costs no query.
+        """
+        basis = self._sessions_basis(ctx, len(history))
+        if basis.sufficient:
+            return False, basis
+        stored = (
+            plan.staleness
+            if plan.staleness is not None
+            else self.repo.get_staleness_info(ctx.instrument_id)
+        )
+        if stored.get("price_max_date") is None:
+            return True, basis
+        since = stored.get("price_min_date")
+        if since is not None:
+            # A young listing with stored prices has no sessions before its first
+            # stored bar. The anchor comes from storage, not the fetched frame: a
+            # head-truncated refetch is complete when measured from its own start.
+            basis = self._sessions_basis(ctx, len(history), since=since)
+        if basis.sufficient:
+            return False, basis
+        spans = self._covers_stored_series(ctx.instrument_id, history)
+        return False, replace(basis, spans_stored_series=spans)
+
+    def _sessions_basis(
+        self, ctx: FetchContext, history_len: int, since: date | None = None
+    ) -> PriceBasis:
+        """Judge *history_len* rows against the exchange calendar from *since* on."""
+        sufficient, expected, minimum = has_sufficient_history(
+            history_len,
+            ctx.exchange_name,
+            ctx.period,
+            ctx.thresholds.min_history_tolerance,
+            since=since,
+        )
+        return PriceBasis(
+            sufficient=sufficient,
+            expected_sessions=expected,
+            minimum_sessions=minimum,
+        )
+
+    def _store_prices(
+        self,
+        ctx: FetchContext,
+        history: pd.DataFrame | None,
+        incremental: bool,
+        result: FetchResult,
+    ) -> None:
+        """Store *history* as the ``prices`` count, or report that none came."""
+        if history is None or history.empty:
+            result.counts["prices"] = result.counts.get("prices", 0)
+            if incremental:
+                # yfinance swallows network faults inside history() and returns
+                # an empty frame. The overlap window always spans stored bars, so
+                # an empty answer for a ticker that has a series is the only trace
+                # of a Yahoo that did not answer.
+                result.skipped.append("prices:unavailable")
+            return
+        # The listing currency is stored raw as the price unit, so sub-unit series
+        # (GBX pence) are unambiguous downstream.
+        result.counts["prices"] = self._write(
+            self.repo.upsert_price_history,
+            ctx.instrument_id,
+            history,
+            price_unit=ctx.currency_code,
+        )
+
+    def _fetch_statements(
+        self,
+        ctx: FetchContext,
+        plan: FetchPlan,
+        result: FetchResult,
+        *,
+        profile_info: dict[str, Any] | None,
+        empty_answers: _EmptyAnswers,
+    ) -> None:
+        """Refresh the six financial-statement groups as the one ``financials``.
+
+        Each group is gated on its own marker, so one statement stored during a
+        rate-limit burst does not hide the ones that failed until the window
+        expires. The step is skipped as ``financials`` only when every group is
+        settled.
+
+        Args:
+            ctx: Ticker and settings of the sweep.
+            plan: Decides which groups are due.
+            result: Receives the summed ``financials`` count, the ``financials``
+                skip, and an error per failed group (or one ``financials:`` error
+                when the client cannot serve statements at all).
+            profile_info: The profile step's ``info``; it names the reporting
+                currency, so a group with rows needs no extra request.
+            empty_answers: Settles groups Yahoo recently answered empty and
+                remembers the groups that stored nothing.
+        """
+        markers = (
+            statement_staleness_key(*group) for group in FINANCIAL_STATEMENT_GROUPS
+        )
+        if all(is_settled(plan, m, empty_answers.recently_empty) for m in markers):
+            result.skipped.append("financials")
+            return
+        try:
+            # The groups report failures under their own labels but count, and are
+            # skipped, as the one "financials" category: they share only the
+            # sweep's errors.
+            groups = FetchResult(errors=result.errors)
+            currency = self._statement_currency(ctx, profile_info)
+            for spec in self._statement_specs(currency):
+                self._run_category(spec, ctx, plan, groups, empty_answers)
+                # Each group has its own marker, so an empty group is remembered
+                # whatever its siblings answered.
+                if spec.name in groups.counts:
+                    empty_answers.remember(spec.marker, groups.counts[spec.name])
+            result.counts["financials"] = sum(groups.counts.values())
+        except Exception as e:
+            result.errors.append(f"financials: {e}")
+            logger.warning("Failed financials for %s: %s", ctx.yfinance_ticker, e)
+
+    def _statement_currency(
+        self, ctx: FetchContext, profile_info: dict[str, Any] | None
+    ) -> Callable[[], str | None]:
+        """Return a lookup of the currency the company reports its statements in.
+
+        Statements are denominated in the reporting currency, which Yahoo exposes
+        as ``info["financialCurrency"]`` and which differs from the listing
+        currency for ADRs and cross-listings (TSM lists in USD but reports in
+        TWD; SHEL.L lists in GBp but reports in USD). The lookup resolves on first
+        use, so a ticker with nothing to store never pays for an ``info`` request;
+        the profile step usually already supplied it.
+        """
+        resolved: list[str | None] = []
+
+        def statement_currency() -> str | None:
+            if not resolved:
+                info = profile_info or self._fetch_info_for_currency(ctx)
+                resolved.append(_financial_currency(info))
+            return resolved[0]
+
+        return statement_currency
+
+    def _fetch_info_for_currency(self, ctx: FetchContext) -> dict[str, Any] | None:
+        """Request ``info`` for its reporting currency; ``None`` when that fails."""
+        try:
+            info: dict[str, Any] | None = self._timed(
+                lambda: self.yf_client.fetch_info(ctx.yfinance_ticker)
+            )
+        except Exception as e:
+            logger.warning(
+                "Could not resolve financial currency for %s: %s",
+                ctx.yfinance_ticker,
+                e,
+            )
+            return None
+        return info
+
+    def _run_category(
+        self,
+        spec: CategorySpec[Any],
+        ctx: FetchContext,
+        plan: FetchPlan,
+        result: FetchResult,
+        empty_answers: _EmptyAnswers,
+    ) -> None:
+        """Run one category through ``run_category`` on this service's session."""
+        run_category(
+            spec,
+            ctx,
+            plan,
+            result,
+            session=self.repo.session,
+            recently_empty=empty_answers.recently_empty,
+        )
+
+    def _fetch_fundamentals(
+        self,
+        ctx: FetchContext,
+        plan: FetchPlan,
+        result: FetchResult,
+        empty_answers: _EmptyAnswers,
+    ) -> None:
+        """Refresh the fundamentals categories, then remember the empty ones.
+
+        Each category is gated on the marker of its own table: one whose fetch
+        failed while the statements were stored must not be hidden by them for
+        the whole window.
+        """
+        listing_currency = to_major_currency(ctx.currency_code)
+        for spec in self._fundamental_specs(ctx, listing_currency):
+            self._run_category(spec, ctx, plan, result, empty_answers)
+        # A category present in counts was fetched without raising; its count
+        # says whether Yahoo had anything.
         for category in FUNDAMENTAL_CATEGORIES:
-            if category in counts:
-                _record_fetch(f"{category}_updated_at", counts[category])
-
-        for spec in self._event_specs():
-            run_category(
-                spec,
-                ctx,
-                plan,
-                fetch_result,
-                session=self.repo.session,
-                recently_empty=_recently_empty,
-            )
-
-        # A marker whose categories were all fetched without raising and stored
-        # nothing is one Yahoo holds no rows for; remember it so the next run does
-        # not ask again.
-        for marker_key, categories in _EVENT_MARKER_CATEGORIES.items():
-            if all(category in counts for category in categories):
-                _record_fetch(
-                    marker_key, int(any(counts[category] for category in categories))
+            if category in result.counts:
+                empty_answers.remember(
+                    f"{category}_updated_at", result.counts[category]
                 )
 
-        # 11. News (always fetched; article bodies scraped once)
+    def _fetch_events(
+        self,
+        ctx: FetchContext,
+        plan: FetchPlan,
+        result: FetchResult,
+        empty_answers: _EmptyAnswers,
+    ) -> None:
+        """Refresh the corporate-action, analyst and holder categories.
+
+        A marker whose categories were all fetched without raising and stored
+        nothing is one Yahoo holds no rows for; it is remembered so the next run
+        does not ask again.
+        """
+        for spec in self._event_specs():
+            self._run_category(spec, ctx, plan, result, empty_answers)
+        counts = result.counts
+        for marker, categories in _EVENT_MARKER_CATEGORIES.items():
+            if all(category in counts for category in categories):
+                stored = int(any(counts[category] for category in categories))
+                empty_answers.remember(marker, stored)
+
+    def _article_scraper(self) -> ArticleScraperProtocol:
+        """Return the scraper of the sweep's article pages, at the configured pace."""
+        return news_scraper.ArticleScraper(delay=self._news_scrape_delay)
+
+    def _fetch_news(
+        self,
+        ctx: FetchContext,
+        plan: FetchPlan,
+        result: FetchResult,
+        scraper: ArticleScraperProtocol,
+    ) -> None:
+        """Refresh the ticker's news feed, with the body of every new article.
+
+        News has no staleness marker: the feed is requested on every sweep, and
+        only the bodies of articles not stored yet are scraped.
+
+        Args:
+            ctx: Ticker and settings of the sweep.
+            plan: Not consulted: news has no freshness marker, so the feed is
+                due on every sweep.
+            result: Receives the ``news`` count or the ``news:`` error.
+            scraper: Fetches the body of each new article's page.
+        """
         try:
             news_list = self._timed(
-                lambda: fetch_ticker_news(yfinance_ticker, self.yf_client)
+                lambda: fetch_ticker_news(ctx.yfinance_ticker, self.yf_client)
             )
-            if news_list:
-                from app.services.market_data.yfinance.news.scraper import (
-                    ArticleScraper,
-                )
-
-                # The feed repeats the same articles for days. Re-scraping a body
-                # already stored costs a throttled page request per article per
-                # sweep; the upsert leaves a stored body alone when none is sent.
-                feed_ids = [
-                    str(news_id)
-                    for article in news_list
-                    if (news_id := article.get("id") or article.get("uuid")) is not None
-                ]
-                scraped_ids = self.repo.get_scraped_news_uuids(instrument_id, feed_ids)
-                scraper = ArticleScraper(delay=0.5)
-                for article in news_list:
-                    news_id = article.get("id") or article.get("uuid")
-                    if news_id is not None and str(news_id) in scraped_ids:
-                        continue
-                    content = article.get("content", article)
-                    canonical = content.get("canonicalUrl")
-                    link = (
-                        canonical.get("url", "")
-                        if isinstance(canonical, dict)
-                        else content.get("previewUrl") or article.get("link")
-                    )
-                    if link:
-                        result = scraper.fetch(link)
-                        if result["success"] and result["content"]:
-                            article["full_content"] = result["content"]
-                counts["news"] = self._write(
-                    self.repo.upsert_news, instrument_id, news_list
-                )
-            else:
-                counts["news"] = 0
+            if not news_list:
+                result.counts["news"] = 0
+                return
+            self._scrape_new_articles(ctx, news_list, scraper)
+            result.counts["news"] = self._write(
+                self.repo.upsert_news, ctx.instrument_id, news_list
+            )
         except Exception as e:
-            errors.append(f"news: {e}")
-            logger.warning("Failed news for %s: %s", yfinance_ticker, e)
+            result.errors.append(f"news: {e}")
+            logger.warning("Failed news for %s: %s", ctx.yfinance_ticker, e)
 
-        # --- ETF fund metadata (every ETF) ---
-        if _is_etf_fund(instrument_type, asset_class):
-            self._fetch_etf_metadata(
-                instrument_id,
-                yfinance_ticker,
-                mode,
-                thresholds,
-                now,
-                counts,
-                errors,
-                skipped,
-            )
-
-        return fetch_result.to_response()
+    def _scrape_new_articles(
+        self,
+        ctx: FetchContext,
+        news_list: list[dict[str, Any]],
+        scraper: ArticleScraperProtocol,
+    ) -> None:
+        """Add ``full_content`` to each article whose body is not stored yet."""
+        # The feed repeats the same articles for days. Re-scraping a body already
+        # stored costs a throttled page request per article per sweep; the upsert
+        # leaves a stored body alone when none is sent.
+        feed_ids = [
+            str(news_id)
+            for article in news_list
+            if (news_id := _article_id(article)) is not None
+        ]
+        scraped_ids = self.repo.get_scraped_news_uuids(ctx.instrument_id, feed_ids)
+        for article in news_list:
+            news_id = _article_id(article)
+            if news_id is not None and str(news_id) in scraped_ids:
+                continue
+            link = _article_link(article)
+            if not link:
+                continue
+            page = scraper.fetch(link)
+            if page["success"] and page["content"]:
+                article["full_content"] = page["content"]
 
     def _statement_specs(
         self, statement_currency: Callable[[], str | None]
@@ -1520,7 +1829,7 @@ class YFinanceDataService:
         sector weights) via the funds sub-client. Staleness-gated in incremental
         mode; best-effort (a non-fund simply yields nothing)."""
         etf_repo = ETFMetadataRepository(self.repo.session)
-        if mode == "incremental":
+        if mode == FetchMode.INCREMENTAL:
             existing = etf_repo.get_metadata(instrument_id)
             if existing is not None and _is_fresh(
                 existing.updated_at, thresholds.etf_metadata_hours, now
@@ -1784,7 +2093,7 @@ def run_bulk_yfinance_fetch(
         # Incremental: one grouped staleness query for the whole sweep instead
         # of 11 MAX() round-trips per instrument inside fetch_and_store.
         staleness_by_id: dict[UUID, dict[str, Any]] = {}
-        if request.mode == "incremental":
+        if request.mode == FetchMode.INCREMENTAL:
             staleness_by_id = repo.get_staleness_info_bulk([i.id for i in instruments])
 
         for idx, instrument in enumerate(instruments, 1):
@@ -1806,7 +2115,7 @@ def run_bulk_yfinance_fetch(
                     asset_class=getattr(instrument, "asset_class", None),
                     staleness=(
                         staleness_by_id.get(instrument.id)
-                        if request.mode == "incremental"
+                        if request.mode == FetchMode.INCREMENTAL
                         else _UNSET
                     ),
                     instrument_type=getattr(instrument, "instrument_type", None),
@@ -1982,7 +2291,7 @@ def _run_bulk_yfinance_fetch_parallel(
     # Incremental: pre-load staleness for the whole sweep in one main-thread
     # session (grouped queries) instead of 11 MAX() round-trips per worker.
     staleness_by_id: dict[UUID, dict[str, Any]] = {}
-    if request.mode == "incremental":
+    if request.mode == FetchMode.INCREMENTAL:
         with database_manager.get_session() as _s:
             staleness_by_id = YFinanceRepository(_s).get_staleness_info_bulk(
                 [s.instrument_id for s in specs]
@@ -2008,7 +2317,7 @@ def _run_bulk_yfinance_fetch_parallel(
                 request_timeout,
                 staleness=(
                     staleness_by_id.get(spec.instrument_id)
-                    if request.mode == "incremental"
+                    if request.mode == FetchMode.INCREMENTAL
                     else _UNSET
                 ),
             )

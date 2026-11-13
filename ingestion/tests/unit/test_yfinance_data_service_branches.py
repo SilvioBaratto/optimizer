@@ -70,67 +70,14 @@ from app.services.market_data.yfinance_data_service import (
     _InstrumentSpec,
     _is_fresh,
 )
+from tests._fixtures.yfinance_fakes import make_repo as _make_repo
+from tests._fixtures.yfinance_fakes import (
+    make_silent_yf_client as _make_yf_client_silent,
+)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_repo(*, staleness: dict[str, Any] | None = None) -> MagicMock:
-    repo = MagicMock(name="repo")
-    repo.get_staleness_info.return_value = staleness
-    repo.upsert_profile.return_value = 0
-    repo.upsert_price_history.return_value = 0
-    repo.upsert_financial_statements.return_value = 0
-    repo.upsert_dividends.return_value = 0
-    repo.upsert_splits.return_value = 0
-    repo.upsert_shares_outstanding.return_value = 0
-    repo.upsert_recommendations.return_value = 0
-    repo.upsert_price_targets.return_value = 0
-    repo.upsert_institutional_holders.return_value = 0
-    repo.upsert_mutualfund_holders.return_value = 0
-    repo.upsert_insider_transactions.return_value = 0
-    repo.upsert_major_holders.return_value = 0
-    repo.upsert_insider_purchases.return_value = 0
-    repo.upsert_insider_roster.return_value = 0
-    repo.upsert_profile_extras.return_value = 0
-    repo.upsert_news.return_value = 3
-    return repo
-
-
-def _make_yf_client_silent() -> MagicMock:
-    yf_client = MagicMock(name="yf_client")
-    yf_client.fetch_info.return_value = None
-    yf_client.fetch_history.return_value = None
-    yf_client.financials.fetch_income_stmt.return_value = None
-    yf_client.financials.fetch_balance_sheet.return_value = None
-    yf_client.financials.fetch_cashflow.return_value = None
-    yf_client.corporate_actions.fetch_dividends.return_value = None
-    yf_client.corporate_actions.fetch_splits.return_value = None
-    yf_client.corporate_actions.fetch_shares_full.return_value = None
-    yf_client.analysis.fetch_recommendations_summary.return_value = None
-    yf_client.analysis.fetch_upgrades_downgrades.return_value = None
-    yf_client.financials.fetch_sec_filings.return_value = None
-    yf_client.analysis.fetch_analyst_price_targets.return_value = None
-    yf_client.analysis.fetch_eps_trend.return_value = None
-    yf_client.analysis.fetch_eps_revisions.return_value = None
-    yf_client.holders.fetch_institutional_holders.return_value = None
-    yf_client.holders.fetch_mutualfund_holders.return_value = None
-    yf_client.holders.fetch_insider_transactions.return_value = None
-    yf_client.holders.fetch_major_holders.return_value = None
-    yf_client.holders.fetch_insider_purchases.return_value = None
-    yf_client.holders.fetch_insider_roster_holders.return_value = None
-    yf_client.metadata.fetch_valuation_measures.return_value = None
-    yf_client.metadata.fetch_isin.return_value = None
-    yf_client.analysis.fetch_earnings_estimate.return_value = None
-    yf_client.analysis.fetch_revenue_estimate.return_value = None
-    yf_client.analysis.fetch_growth_estimates.return_value = None
-    yf_client.analysis.fetch_earnings_history.return_value = None
-    yf_client.metadata.fetch_earnings_dates.return_value = None
-    ticker_mock = MagicMock()
-    ticker_mock.news = []
-    yf_client.get_ticker.return_value = ticker_mock
-    return yf_client
 
 
 # Categories refreshed on the fundamentals window; each is gated on the
