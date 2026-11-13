@@ -346,7 +346,9 @@ def test_categories_report_in_the_order_they_run() -> None:
     ]
 
     for spec in specs:
-        run_category(spec, _ctx(), plan, result, session=_NoDatabase())
+        run_category(
+            spec, _ctx(), plan, result, session=_NoDatabase(), recently_empty=None
+        )
 
     assert list(result.counts) == ["sec_filings", "shares_outstanding"]
     assert result.errors == [

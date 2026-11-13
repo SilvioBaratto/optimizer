@@ -211,7 +211,7 @@ def run_category(
     result: FetchResult,
     *,
     session: SavepointSession,
-    recently_empty: Callable[[str], bool] | None = None,
+    recently_empty: Callable[[str], bool] | None,
 ) -> None:
     """Refresh one category of a ticker and report the outcome into *result*.
 
@@ -228,7 +228,9 @@ def run_category(
         result: Receives the count, the error or the skip.
         session: Session the store writes through. Its savepoint is rolled back
             when the store raises, so the ticker's other writes survive.
-        recently_empty: Memory of empty answers; see ``is_settled``.
+        recently_empty: Memory of empty answers; see ``is_settled``. Required,
+            so a caller cannot drop the memory by leaving it out; ``None`` states
+            that no memory is kept.
 
     Raises:
         KeyError: The spec's marker is not one the plan knows. A misspelt marker
