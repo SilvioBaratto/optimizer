@@ -40,7 +40,6 @@ from portopt_db.repositories.market_data.yfinance_repository import (
     YFinanceRepository,
     statement_staleness_key,
 )
-from sqlalchemy.exc import StatementError
 
 from app.services._shared import (
     ProgressCallback,
@@ -58,7 +57,14 @@ from app.services.market_data.yfinance import (
     record_failure,
     track_request_outcomes,
 )
+from app.services.market_data.yfinance.categories import (
+    CategorySpec,
+    FetchResult,
+    run_category,
+    write_in_savepoint,
+)
 from app.services.market_data.yfinance.fetch_plan import (
+    FetchContext,
     FetchMode,
     FetchPlan,
     StalenessThresholds,
@@ -165,9 +171,6 @@ DEFAULT_THRESHOLDS = StalenessThresholds()
 # forgotten before the next daily run could use it.
 SHARED_EMPTY_FETCHES = EmptyFetchMemory()
 
-# Longest per-category error text kept in logs and the job's error rows.
-_MAX_ERROR_CHARS = 300
-
 # Staleness marker -> the categories gated on it. An empty answer settles a
 # marker only when every one of its categories came back empty.
 _EVENT_MARKER_CATEGORIES: dict[str, tuple[str, ...]] = {
@@ -183,6 +186,9 @@ _EVENT_MARKER_CATEGORIES: dict[str, tuple[str, ...]] = {
         "insider_roster",
     ),
 }
+
+# Period type of the statement groups requested with ``quarterly=True``.
+_QUARTERLY = "quarterly"
 
 # Sentinel: distinguishes "caller did not supply staleness" (query it) from
 # "caller supplied None" (no data yet → treat as stale) on fetch_and_store.
@@ -219,31 +225,6 @@ def _prices_are_current(
     if isinstance(price_max_date, datetime):
         price_max_date = price_max_date.date()
     return price_max_date >= last_completed_session(exchange_name, today)
-
-
-def _describe_statement_error(exc: StatementError) -> str:
-    """Return the cause of a failed statement without the statement itself.
-
-    SQLAlchemy's message embeds the whole SQL text, and a multi-row upsert of a
-    5y price history runs to ~300 KB. Kept as is, one such error per category
-    would flood the container log, the sweep's in-memory error list and the
-    job's stored error rows.
-
-    Args:
-        exc: The failed-statement error raised by a repository write.
-
-    Returns:
-        ``"<DriverError>: <message>"`` on one line, cut to ``_MAX_ERROR_CHARS``.
-    """
-    cause: Any = exc.orig
-    if cause is None:
-        text = str(exc.args[0]) if exc.args else type(exc).__name__
-    else:
-        text = f"{type(cause).__name__}: {cause}"
-    text = " ".join(text.split())
-    if len(text) > _MAX_ERROR_CHARS:
-        text = text[: _MAX_ERROR_CHARS - 3] + "..."
-    return text
 
 
 def _financial_currency(info: dict[str, Any] | None) -> str | None:
@@ -428,12 +409,8 @@ class YFinanceDataService:
     def _write(self, write: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
         """Run one category's repository write inside its own SAVEPOINT.
 
-        PostgreSQL aborts the whole transaction after any failed statement, and
-        COMMIT of an aborted transaction silently becomes ROLLBACK. With one
-        shared session, a single bad category would therefore fail every later
-        category and discard the ticker's earlier writes, while ``counts`` still
-        reported them. The savepoint rolls back only the category that raised;
-        the exception still propagates to that category's own handler.
+        The same savepoint ``run_category`` stores through; see
+        ``write_in_savepoint`` for why every category needs one.
 
         Args:
             write: Repository upsert to run.
@@ -448,11 +425,7 @@ class YFinanceDataService:
                 is the driver's cause, without the SQL text; the original error
                 stays on ``__cause__``.
         """
-        try:
-            with self.repo.session.begin_nested():
-                return write(*args, **kwargs)
-        except StatementError as exc:
-            raise RuntimeError(_describe_statement_error(exc)) from exc
+        return write_in_savepoint(self.repo.session, write, *args, **kwargs)
 
     def _overlap_was_readjusted(
         self,
@@ -664,6 +637,9 @@ class YFinanceDataService:
         counts: dict[str, int] = {}
         errors: list[str] = []
         skipped: list[str] = []
+        # Holds the same dict and lists, so the steps that run through
+        # run_category and the steps still written out here report into one place.
+        fetch_result = FetchResult(counts=counts, errors=errors, skipped=skipped)
 
         if thresholds is None:
             thresholds = DEFAULT_THRESHOLDS
@@ -697,19 +673,34 @@ class YFinanceDataService:
             thresholds=thresholds,
             now=now,
         )
+        ctx = FetchContext(
+            instrument_id=instrument_id,
+            yfinance_ticker=yfinance_ticker,
+            period=period,
+            mode=plan.mode,
+            exchange_name=exchange_name,
+            currency_code=currency_code,
+            asset_class=asset_class,
+            instrument_type=instrument_type,
+            now=now,
+            thresholds=thresholds,
+        )
+
+        # Read lazily, on each call, because the sweep adds to the memory while it
+        # runs.
+        def _recently_empty(marker_key: str) -> bool:
+            return self._empty_fetches.is_recent(
+                instrument_id, marker_key, thresholds.no_data_hours, now
+            )
 
         # A gate is settled when its marker is inside its freshness window (the
         # plan's window for the marker unless given), or when the last fetch came
         # back empty recently: an empty answer writes no row, so without the
         # second clause a category Yahoo has nothing for would be requested on
-        # every run. The empty-answer memory is read here, lazily, because the
-        # sweep adds to it while it runs.
+        # every run.
         def _settled(marker_key: str, fresh_hours: int | None = None) -> bool:
             return not plan.is_due(marker_key, fresh_hours) or (
-                plan.uses_staleness
-                and self._empty_fetches.is_recent(
-                    instrument_id, marker_key, thresholds.no_data_hours, now
-                )
+                plan.uses_staleness and _recently_empty(marker_key)
             )
 
         event_windows = {
@@ -785,7 +776,7 @@ class YFinanceDataService:
                     yfinance_ticker,
                 )
                 skipped.append("all:fresh")
-                return {"counts": counts, "errors": errors, "skipped": skipped}
+                return fetch_result.to_response()
 
         profile_info: dict[str, Any] | None = None
 
@@ -1009,64 +1000,24 @@ class YFinanceDataService:
             skipped.append("financials")
         else:
             try:
-                fs_count = 0
-                for stmt_type, fetch_method, quarterly_flag in [
-                    (
-                        "income_statement",
-                        self.yf_client.financials.fetch_income_stmt,
-                        False,
-                    ),
-                    (
-                        "income_statement",
-                        self.yf_client.financials.fetch_income_stmt,
-                        True,
-                    ),
-                    (
-                        "balance_sheet",
-                        self.yf_client.financials.fetch_balance_sheet,
-                        False,
-                    ),
-                    (
-                        "balance_sheet",
-                        self.yf_client.financials.fetch_balance_sheet,
-                        True,
-                    ),
-                    ("cashflow", self.yf_client.financials.fetch_cashflow, False),
-                    ("cashflow", self.yf_client.financials.fetch_cashflow, True),
-                ]:
-                    period_type = "quarterly" if quarterly_flag else "annual"
-                    if _statement_fresh(stmt_type, period_type):
-                        continue
-                    _fm, _qf = fetch_method, quarterly_flag
-                    try:
-                        df = self._timed(
-                            lambda m=_fm, q=_qf: m(yfinance_ticker, quarterly=q)
-                        )
-                        group_rows = 0
-                        if df is not None and not df.empty:
-                            group_rows = self._write(
-                                self.repo.upsert_financial_statements,
-                                instrument_id,
-                                df,
-                                stmt_type,
-                                period_type,
-                                currency_code=_statement_currency(),
-                            )
-                            fs_count += group_rows
-                        _record_fetch(
-                            statement_staleness_key(stmt_type, period_type), group_rows
-                        )
-                    except Exception as e:
-                        errors.append(f"financials.{stmt_type}.{period_type}: {e}")
-                        logger.warning(
-                            "Failed %s %s for %s: %s",
-                            stmt_type,
-                            period_type,
-                            yfinance_ticker,
-                            e,
-                        )
-
-                counts["financials"] = fs_count
+                # The groups report failures under their own labels but count, and
+                # are skipped, as the one "financials" category: they share only the
+                # sweep's errors.
+                groups = FetchResult(errors=fetch_result.errors)
+                for spec in self._statement_specs(_statement_currency):
+                    run_category(
+                        spec,
+                        ctx,
+                        plan,
+                        groups,
+                        session=self.repo.session,
+                        recently_empty=_recently_empty,
+                    )
+                    # Each group has its own marker, so an empty group is
+                    # remembered whatever its siblings answered.
+                    if spec.name in groups.counts:
+                        _record_fetch(spec.marker, groups.counts[spec.name])
+                fetch_result.counts["financials"] = sum(groups.counts.values())
             except Exception as e:
                 errors.append(f"financials: {e}")
                 logger.warning("Failed financials for %s: %s", yfinance_ticker, e)
@@ -1591,7 +1542,98 @@ class YFinanceDataService:
                 skipped,
             )
 
-        return {"counts": counts, "errors": errors, "skipped": skipped}
+        return fetch_result.to_response()
+
+    def _statement_specs(
+        self, statement_currency: Callable[[], str | None]
+    ) -> tuple[CategorySpec[Any], ...]:
+        """Return one spec per financial-statement group, in the sweep's order.
+
+        The client's statement requests are looked up here, before any group
+        runs, so a client that cannot serve statements at all fails them as one
+        ``financials`` error instead of six.
+
+        Args:
+            statement_currency: Resolves the currency the company reports its
+                statements in; called only when a group has rows to store.
+
+        Returns:
+            The specs of ``FINANCIAL_STATEMENT_GROUPS``, each named
+            ``"financials.<statement>.<period>"`` and gated on its own marker.
+        """
+        financials = self.yf_client.financials
+        requests: dict[str, Callable[..., pd.DataFrame | None]] = {
+            "income_statement": financials.fetch_income_stmt,
+            "balance_sheet": financials.fetch_balance_sheet,
+            "cashflow": financials.fetch_cashflow,
+        }
+        return tuple(
+            self._statement_spec(
+                statement_type,
+                period_type,
+                requests[statement_type],
+                statement_currency,
+            )
+            for statement_type, period_type in FINANCIAL_STATEMENT_GROUPS
+        )
+
+    def _statement_spec(
+        self,
+        statement_type: str,
+        period_type: str,
+        request: Callable[..., pd.DataFrame | None],
+        statement_currency: Callable[[], str | None],
+    ) -> CategorySpec[Any]:
+        """Return the spec of one statement group; see ``_statement_specs``."""
+        quarterly = period_type == _QUARTERLY
+
+        def fetch(ctx: FetchContext) -> Any:
+            return self._timed(
+                lambda: request(ctx.yfinance_ticker, quarterly=quarterly)
+            )
+
+        return CategorySpec(
+            name=f"financials.{statement_type}.{period_type}",
+            marker=statement_staleness_key(statement_type, period_type),
+            fetch=fetch,
+            store=self._upsert(
+                lambda repo: repo.upsert_financial_statements,
+                statement_type,
+                period_type,
+                options=lambda _ctx: {"currency_code": statement_currency()},
+            ),
+        )
+
+    def _upsert(
+        self,
+        pick: Callable[[YFinanceRepository], Callable[..., int]],
+        *args: Any,
+        options: Callable[[FetchContext], dict[str, Any]] | None = None,
+    ) -> Callable[[Any, FetchContext], int]:
+        """Return a store that hands a category's answer to a repository write.
+
+        The write is only named here: ``run_category`` calls the store inside the
+        category's savepoint, the one place besides ``_write`` a repository write
+        runs.
+
+        Args:
+            pick: Selects the write, e.g. ``lambda repo: repo.upsert_splits``.
+            *args: Arguments the write takes after the instrument id and the
+                answer.
+            options: Builds the write's keyword arguments from the sweep's
+                context. Called when the store runs, so only for an answer with
+                rows to store.
+
+        Returns:
+            A store that calls ``write(instrument_id, answer, *args, **options)``
+            and returns the rows it stored.
+        """
+
+        def store(payload: Any, ctx: FetchContext) -> int:
+            keywords = options(ctx) if options is not None else {}
+            return pick(self.repo)(ctx.instrument_id, payload, *args, **keywords)
+
+        return store
 
     def _fetch_etf_metadata(
         self,
