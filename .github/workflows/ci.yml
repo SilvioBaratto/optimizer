@@ -46,6 +46,7 @@ jobs:
       # invocation from the root lints every tree with that tree's settings.
       - run: uv run ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ scripts/
       - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ scripts/
+      - run: uv run python scripts/ci/check_complexity_ratchet.py
       # The entrypoints run inside the images and the installers on user machines.
       - run: shellcheck $(git ls-files '*.sh') scripts/optimizer
       # pip-audit the resolved third-party set. The three editable workspace
@@ -140,7 +141,8 @@ jobs:
 
   fund-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 25 to 29 minutes normally; push and pull-request runs compete for runners.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
