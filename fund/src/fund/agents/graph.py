@@ -38,7 +38,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import partial
-from typing import TYPE_CHECKING, Any, NotRequired, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, cast
 
 from fund.agents.backend import build_backend, read_only_permissions
 from fund.agents.prompts import (
@@ -2109,7 +2109,7 @@ class _RoundEnd:
             :func:`_ungated_end_reason`'s); ``None`` for the other two.
     """
 
-    status: str
+    status: Literal["incomplete", "rejected", "paused"]
     reason: str | None = None
 
 
