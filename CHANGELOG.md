@@ -236,9 +236,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cyclomatic complexity below 10) over the four source trees. The 274 functions
   that are already too long and the 50 that are too complex are recorded in
   `scripts/ci/baselines/`; the check fails a new offender and a recorded one that
-  grew. `--update` can only lower a stored value or drop an entry, so the debt
-  shrinks as functions are split and can never be raised by regenerating the
-  baselines.
+  grew. `--update` on an existing baseline can only lower a stored value or drop
+  an entry, never raise a value or add one, so the recorded debt shrinks as
+  functions are split. Deleting a baseline file and running `--update` starts a
+  fresh baseline from the current measurement, so a deleted or emptied baseline
+  file in a diff deserves a reviewer's attention. A source root that is missing
+  fails the check instead of measuring nothing.
 
 ### Changed
 

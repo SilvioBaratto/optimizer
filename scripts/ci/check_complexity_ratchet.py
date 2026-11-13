@@ -4,9 +4,11 @@ Standard 2.8 targets at most 30 lines per function and a cyclomatic complexity b
 10. The shipped code predates the rule, so today's offenders are recorded in
 ``scripts/ci/baselines/long_functions.json`` and ``complex_functions.json``. The check
 fails a function that is over the limit and not in its baseline, and a baselined
-function that has grown. Fixing an offender needs no edit here: ``--update`` lowers
-its stored value or drops the entry, and it can never raise a value or add an entry,
-so the debt can only go down.
+function that has grown. Fixing an offender needs no edit here: ``--update`` on an
+existing baseline lowers a stored value or drops the entry, and it never raises a
+value or adds an entry. The one way to record new debt is to delete a baseline file
+and run ``--update``, which starts a fresh baseline from the current measurement, so
+a deleted or emptied baseline file in a diff deserves a reviewer's attention.
 
 Usage: ``check_complexity_ratchet.py [--update]``. Keys are ``path::qualname``, so an
 entry does not move when other lines of the file change. A long function is measured
@@ -300,6 +302,16 @@ def _write(path: Path, entries: dict[str, int]) -> None:
     )
 
 
+def _require_roots(layout: Layout) -> None:
+    # A renamed tree would otherwise measure as empty: every baseline entry then
+    # looks stale, which the policy deliberately accepts, and the gate passes blind.
+    for root in layout.roots:
+        if not root.is_dir():
+            raise SystemExit(
+                f"source root {root} is not a directory; nothing to measure"
+            )
+
+
 def _measure(layout: Layout) -> dict[Metric, dict[str, int]]:
     return {
         LONG: find_long_functions(layout.roots, LONG.limit, base=layout.base),
@@ -318,7 +330,12 @@ def run(layout: Layout, *, update: bool) -> int:
         0 when no function is new over the limit or larger than recorded, else 1.
         With ``update`` the check runs against the baselines just written, so a new
         offender is still reported.
+
+    Raises:
+        SystemExit: A source root is not a directory. Raised before anything is
+            measured or written, so ``--update`` cannot empty a baseline.
     """
+    _require_roots(layout)
     failures: list[str] = []
     for metric, measured in _measure(layout).items():
         path = layout.baseline_dir / metric.baseline_file

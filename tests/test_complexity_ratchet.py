@@ -82,6 +82,16 @@ class _Tree:
         """Read back what a baseline file holds."""
         return json.loads(baseline.read_text(encoding="utf-8"))
 
+    def add_missing_root(self, name: str) -> Path:
+        """Add a source root that does not exist on disk, as a renamed tree would."""
+        missing = self.base / name
+        self.layout = _load().Layout(
+            base=self.base,
+            roots=(*self.layout.roots, missing),
+            baseline_dir=self.layout.baseline_dir,
+        )
+        return missing
+
     def run(self, *argv: str) -> int:
         """Run the script's ``main`` against this tree and return its exit code."""
         return _load().main(list(argv), layout=self.layout)
@@ -186,6 +196,56 @@ def test_a_stale_baseline_entry_does_not_fail_the_check(tree: _Tree) -> None:
     tree.write_baselines(long={"pkg/mod.py::gone": 50}, complex_={"pkg/mod.py::x": 12})
 
     assert tree.run() == 0
+
+
+def test_a_missing_source_root_stops_the_check_and_names_it(tree: _Tree) -> None:
+    """A renamed tree must fail the gate, not pass having measured nothing."""
+    tree.write_source(_long_function("short", 5))
+    tree.write_baselines(long={"gone/mod.py::big": 50})
+    tree.add_missing_root("renamed_src")
+
+    with pytest.raises(SystemExit, match="renamed_src") as stopped:
+        tree.run()
+
+    assert stopped.value.code
+
+
+def test_a_missing_source_root_stops_the_update_before_it_writes(tree: _Tree) -> None:
+    """``--update`` on a layout with a vanished root must not empty the baselines."""
+    tree.write_source(_long_function("known", 40))
+    tree.write_baselines(long={"pkg/mod.py::known": 40})
+    tree.add_missing_root("renamed_src")
+
+    with pytest.raises(SystemExit, match="renamed_src") as stopped:
+        tree.run("--update")
+
+    assert stopped.value.code
+    assert tree.stored(tree.long_baseline) == {"pkg/mod.py::known": 40}
+
+
+def test_a_source_root_that_is_a_file_stops_the_check(tree: _Tree) -> None:
+    """The root has to be a directory, not merely a path that exists."""
+    tree.write_source(_long_function("short", 5))
+    tree.write_baselines()
+    not_a_directory = tree.add_missing_root("stray.py")
+    not_a_directory.write_text("", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match=r"stray\.py"):
+        tree.run()
+
+
+def test_deleting_a_baseline_and_updating_starts_a_fresh_one(tree: _Tree) -> None:
+    """The documented way to record new debt: only a deleted file is rebuilt."""
+    tree.write_source(_long_function("known", 40) + "\n\n" + _long_function("new", 33))
+    tree.write_baselines(long={"pkg/mod.py::known": 40})
+    tree.long_baseline.unlink()
+
+    assert tree.run("--update") == 0
+
+    assert tree.stored(tree.long_baseline) == {
+        "pkg/mod.py::known": 40,
+        "pkg/mod.py::new": 33,
+    }
 
 
 def test_the_first_update_creates_both_baselines_from_the_measurement(
