@@ -240,7 +240,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   architecture decision log with seven records (the strip to an ingestion pipeline,
   the four-package workspace, the removal of `optimizer.pipeline`, the heartbeat-lease
   reaper, the LangGraph schema, the provider registry and the branching, review and
-  secrets policy), and `tests/test_adr_format.py` keeps their shape.
+  secrets policy), and `tests/test_adr_format.py` keeps their shape. `CONTRIBUTING.md`
+  now describes the uv workspace, the per-member test commands, branching from
+  `development` and releasing through a `release/` branch, and the `portopt-db` README
+  documents the migration process (validation, rollback, one-way revisions) with an ER
+  diagram; new Alembic revisions get a dated file name.
 
 ### Removed
 
