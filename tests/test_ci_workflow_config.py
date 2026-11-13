@@ -23,6 +23,13 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
 
+# Each package's integration suite reads its own scratch-database variable and
+# refuses the live DATABASE_URL, so CI must set the right one per package.
+_SCRATCH_VARIABLE = {
+    "cd fund": "FUND_TEST_DATABASE_URL",
+    "cd packages/portopt-db": "PORTOPT_TEST_DATABASE_URL",
+}
+
 
 def _load(name: str) -> dict[Any, Any]:
     return yaml.safe_load((_WORKFLOWS / name).read_text(encoding="utf-8"))
@@ -103,16 +110,43 @@ def test_ci_points_the_integration_tests_at_a_separate_scratch_database() -> Non
         ]
         if not steps:
             continue
-        env = {**job.get("env", {}), **steps[0].get("env", {})}
-        scratch = env.get("FUND_TEST_DATABASE_URL", "")
-        assert scratch.startswith("postgresql://"), env
-        assert scratch.rsplit("/", 1)[-1] != env["DATABASE_URL"].rsplit("/", 1)[-1]
-        database = scratch.rsplit("/", 1)[-1]
-        assert any(
-            f"CREATE DATABASE {database}" in cmd for cmd in _run_commands(job)
-        ), "the scratch database is never created"
+        covered: set[str] = set()
+        for step in steps:
+            variable = next(
+                (v for prefix, v in _SCRATCH_VARIABLE.items() if prefix in step["run"]),
+                None,
+            )
+            assert variable, f"integration step of an unknown package: {step['run']}"
+            env = {**job.get("env", {}), **step.get("env", {})}
+            scratch = env.get(variable, "")
+            assert scratch.startswith("postgresql://"), (variable, env)
+            assert scratch.rsplit("/", 1)[-1] != env["DATABASE_URL"].rsplit("/", 1)[-1]
+            database = scratch.rsplit("/", 1)[-1]
+            assert any(
+                f"CREATE DATABASE {database}" in cmd for cmd in _run_commands(job)
+            ), f"the scratch database {database} is never created"
+            covered.add(variable)
+        assert covered == set(_SCRATCH_VARIABLE.values())
         return
     pytest.fail("no postgres job runs the integration tests")
+
+
+def test_ci_checks_that_models_match_the_migrations() -> None:
+    """``alembic check`` fails the build when a model changed without a migration."""
+    assert any(
+        "alembic check" in cmd
+        for job in _postgres_jobs().values()
+        for cmd in _run_commands(job)
+    )
+
+
+def test_ci_downgrades_the_recent_migration_window_and_upgrades_back() -> None:
+    """The revisions after the merge point must stay reversible."""
+    assert any(
+        "alembic downgrade 70393a606218" in cmd and "alembic upgrade head" in cmd
+        for job in _postgres_jobs().values()
+        for cmd in _run_commands(job)
+    )
 
 
 def test_ci_validates_compose_and_builds_both_images() -> None:

@@ -12,7 +12,7 @@ the named rows; a6f1c8d3e2b7 removes them.
 
 The historical seed migrations are left intact so the chain still replays; this
 migration simply removes their output. Irreversible (the price history is
-dropped) — downgrade is a no-op.
+dropped) — downgrade raises NotImplementedError.
 
 Revision ID: b9c8d7e6f5a4
 Revises: f2a3b4c5d6e7
@@ -88,6 +88,13 @@ def upgrade() -> None:
         ),
     )
     op.execute(sa.delete(instruments).where(sa.or_(runtime_seeded, migration_seeded)))
+
+
+# Read by tests/test_irreversible_migrations_declare_reason.py.
+IRREVERSIBLE_REASON = (
+    "Deleted the seeded reference-index instruments and, by cascade, their price "
+    "history. Recover from a pre-upgrade dump."
+)
 
 
 def downgrade() -> None:

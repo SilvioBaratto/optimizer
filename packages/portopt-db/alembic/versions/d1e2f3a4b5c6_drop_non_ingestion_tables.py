@@ -69,6 +69,13 @@ def upgrade() -> None:
         op.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
 
 
+# Read by tests/test_irreversible_migrations_declare_reason.py.
+IRREVERSIBLE_REASON = (
+    "Dropped 17 tables whose models, repositories and services were deleted in "
+    "the same change. Recover from a pre-upgrade dump."
+)
+
+
 def downgrade() -> None:
     """Not reversible.
 
