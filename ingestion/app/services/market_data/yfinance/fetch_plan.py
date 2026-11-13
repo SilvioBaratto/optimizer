@@ -9,7 +9,7 @@ same question twice gives the same answer.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -199,20 +199,3 @@ class FetchPlan:
         if self.mode != FetchMode.INCREMENTAL or staleness is None:
             return True
         return not is_fresh(staleness.get(marker), window, self.now)
-
-    def all_fresh(self, markers: Sequence[str]) -> bool:
-        """Report whether none of the categories behind *markers* is due.
-
-        Args:
-            markers: Staleness keys to check, each against its own window.
-
-        Returns:
-            True when no listed marker is due, and for an empty sequence. A
-            non-empty sequence is never fresh in full mode.
-
-        Raises:
-            KeyError: A listed marker is not one the sweep gates on. Every marker
-                is checked, so one listed after a due marker still raises.
-        """
-        due = [self.is_due(marker) for marker in markers]
-        return not any(due)

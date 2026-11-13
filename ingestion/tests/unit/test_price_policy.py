@@ -46,7 +46,7 @@ def test_young_listing_with_no_stored_prices_is_stored() -> None:
     decision = decide_price_storage(100, young_listing=True, basis=_SHORT)
 
     assert decision == PriceStorageDecision(
-        store=True, reason=PriceStorageReason.YOUNG_LISTING
+        should_store=True, reason=PriceStorageReason.YOUNG_LISTING
     )
 
 
@@ -55,7 +55,7 @@ def test_sufficient_history_is_stored() -> None:
     decision = decide_price_storage(1197, young_listing=False, basis=_SUFFICIENT)
 
     assert decision == PriceStorageDecision(
-        store=True, reason=PriceStorageReason.SUFFICIENT_HISTORY
+        should_store=True, reason=PriceStorageReason.SUFFICIENT_HISTORY
     )
 
 
@@ -74,7 +74,7 @@ def test_empty_history_is_never_stored(young_listing: bool, basis: PriceBasis) -
     decision = decide_price_storage(0, young_listing=young_listing, basis=basis)
 
     assert decision == PriceStorageDecision(
-        store=False, reason=PriceStorageReason.NOTHING_FETCHED
+        should_store=False, reason=PriceStorageReason.NOTHING_FETCHED
     )
 
 
@@ -82,7 +82,7 @@ def test_one_row_is_judged_not_dropped_as_empty() -> None:
     """The emptiness boundary sits at zero rows: one row is a history to judge."""
     decision = decide_price_storage(1, young_listing=True, basis=_SHORT)
 
-    assert decision.store is True
+    assert decision.should_store is True
     assert decision.reason is PriceStorageReason.YOUNG_LISTING
 
 
@@ -97,7 +97,7 @@ def test_short_refetch_of_an_established_series_is_refused() -> None:
     decision = decide_price_storage(800, young_listing=False, basis=_SHORT)
 
     assert decision == PriceStorageDecision(
-        store=False, reason=PriceStorageReason.PROTECTS_STORED_SERIES
+        should_store=False, reason=PriceStorageReason.PROTECTS_STORED_SERIES
     )
 
 
@@ -106,7 +106,7 @@ def test_short_history_spanning_every_stored_bar_is_stored() -> None:
     decision = decide_price_storage(800, young_listing=False, basis=_SHORT_SPANNING)
 
     assert decision == PriceStorageDecision(
-        store=True, reason=PriceStorageReason.SPANS_STORED_SERIES
+        should_store=True, reason=PriceStorageReason.SPANS_STORED_SERIES
     )
 
 
@@ -133,7 +133,7 @@ def test_the_first_reason_to_store_names_the_decision(
     """Sufficiency is checked first, then a young listing, then the stored span."""
     decision = decide_price_storage(500, young_listing=young_listing, basis=basis)
 
-    assert decision == PriceStorageDecision(store=True, reason=reason)
+    assert decision == PriceStorageDecision(should_store=True, reason=reason)
 
 
 @pytest.mark.parametrize(
@@ -176,8 +176,10 @@ def test_basis_defaults_to_no_span_and_no_session_counts() -> None:
     [
         (_SHORT, "sufficient"),
         (
-            PriceStorageDecision(store=True, reason=PriceStorageReason.YOUNG_LISTING),
-            "store",
+            PriceStorageDecision(
+                should_store=True, reason=PriceStorageReason.YOUNG_LISTING
+            ),
+            "should_store",
         ),
     ],
     ids=["basis", "decision"],

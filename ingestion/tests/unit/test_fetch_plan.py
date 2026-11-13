@@ -1,8 +1,7 @@
 """Unit tests of the freshness decision of the yfinance sweep.
 
 Validates ``app/services/market_data/yfinance/fetch_plan.py`` (``FetchPlan.is_due``,
-``FetchPlan.all_fresh``, ``FetchPlan.uses_staleness``, ``FetchMode`` and
-``FetchContext``). No requirement id is registered for this module yet.
+``FetchPlan.uses_staleness``, ``FetchMode`` and ``FetchContext``). No requirement id is registered for this module yet.
 
 Every expected window comes from ``_WINDOW_BY_MARKER``, written out from the
 thresholds below, never from the module under test. The windows are a few hours
@@ -198,53 +197,6 @@ def test_unknown_marker_raises_key_error_naming_it(
     """A marker with no window is a programming error in every mode."""
     with pytest.raises(KeyError, match=_UNKNOWN_MARKER):
         _plan(staleness, mode=mode).is_due(_UNKNOWN_MARKER)
-
-
-@pytest.mark.parametrize(
-    ("staleness", "markers", "expected"),
-    [
-        (_all_stamped(1), _MARKERS, True),
-        (
-            {**_all_stamped(1), "splits_updated_at": _aged(18)},
-            _MARKERS,
-            False,
-        ),
-        ({**_all_stamped(1), "splits_updated_at": None}, _MARKERS, False),
-        (
-            {**_all_stamped(1), "splits_updated_at": _aged(18)},
-            ("dividends_updated_at", "recommendations_updated_at"),
-            True,
-        ),
-        ({}, (), True),
-    ],
-    ids=[
-        "every-marker-fresh",
-        "one-marker-stale",
-        "one-marker-never-stored",
-        "stale-marker-not-listed",
-        "nothing-listed",
-    ],
-)
-def test_all_fresh_only_when_every_listed_marker_is_fresh(
-    staleness: dict[str, Any], markers: tuple[str, ...], expected: bool
-) -> None:
-    """``all_fresh`` holds only when no listed marker is due."""
-    assert _plan(staleness).all_fresh(markers) is expected
-
-
-def test_all_fresh_is_false_in_full_mode() -> None:
-    """A full fetch never counts a listed marker as fresh."""
-    plan = _plan(_all_stamped(0), mode=FetchMode.FULL)
-
-    assert plan.all_fresh(_MARKERS) is False
-
-
-def test_all_fresh_rejects_an_unknown_marker_after_a_due_one() -> None:
-    """Every listed marker is checked, so a typo surfaces even after a due one."""
-    plan = _plan({})
-
-    with pytest.raises(KeyError, match=_UNKNOWN_MARKER):
-        plan.all_fresh(("dividends_updated_at", _UNKNOWN_MARKER))
 
 
 @pytest.mark.parametrize(

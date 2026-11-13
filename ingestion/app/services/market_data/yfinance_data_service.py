@@ -1143,7 +1143,7 @@ class YFinanceDataService:
         young_listing, basis = self._judge_full_history(ctx, plan, history)
         decision = decide_price_storage(len(history), young_listing, basis)
         _log_price_decision(ctx, len(history), basis, decision)
-        if decision.store:
+        if decision.should_store:
             return history
         result.counts["prices"] = 0
         result.skipped.append("prices:insufficient_history")

@@ -61,11 +61,11 @@ class PriceStorageDecision:
     """What the sweep does with a fetched full-period history.
 
     Attributes:
-        store: Whether the history replaces the stored series.
+        should_store: Whether the history replaces the stored series.
         reason: The first rule that decided it.
     """
 
-    store: bool
+    should_store: bool
     reason: PriceStorageReason
 
 

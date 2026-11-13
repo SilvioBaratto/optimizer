@@ -16,10 +16,7 @@ from pydantic import ValidationError
 
 from app.config import Settings, settings
 from app.services.market_data.yfinance_data_service import YFinanceDataService
-from tests.unit.test_yfinance_data_service_branches import (
-    _make_repo,
-    _make_yf_client_silent,
-)
+from tests._fixtures.yfinance_fakes import make_repo, make_silent_yf_client
 
 _ENV = "YFINANCE_NEWS_SCRAPE_DELAY_SECONDS"
 # The sweep builds its scraper from the class in its home module.
@@ -86,7 +83,7 @@ class TestSweepPacesItsScraper:
     def test_an_injected_delay_reaches_the_scraper(self) -> None:
         """A caller's delay wins over the settings."""
         service = YFinanceDataService(
-            _make_repo(), _make_yf_client_silent(), news_scrape_delay=2.0
+            make_repo(), make_silent_yf_client(), news_scrape_delay=2.0
         )
 
         scraper_class = _scraper_class_after_a_sweep(service)
@@ -99,7 +96,7 @@ class TestSweepPacesItsScraper:
     def test_without_one_the_configured_delay_is_used(self) -> None:
         """A service built by the bulk sweeps takes the daemon's setting."""
         with patch.object(settings, "yfinance_news_scrape_delay_seconds", 1.5):
-            service = YFinanceDataService(_make_repo(), _make_yf_client_silent())
+            service = YFinanceDataService(make_repo(), make_silent_yf_client())
 
         scraper_class = _scraper_class_after_a_sweep(service)
 
