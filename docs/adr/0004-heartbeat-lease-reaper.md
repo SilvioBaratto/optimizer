@@ -44,6 +44,7 @@ generation.
 - A synchronous step that outlives the TTL without stamping a heartbeat is falsely
   reaped and flips to `failed` mid-run, so new work is added as a step wrapped in
   `_heartbeat()`, never as a CLI-only branch.
-- Two daemons on one database would reap each other's rows, so the deployment keeps one.
+- `CLAUDE.md` requires exactly one daemon per database, and the reaper is deliberately
+  not host-scoped, so the deployment keeps one.
 - Under the default strategy a reaped job is recorded as `failed` and not re-queued.
   Switching to `reclaim` re-runs it, so every step must then tolerate running twice.

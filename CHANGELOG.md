@@ -261,6 +261,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Economics, Il Sole 24 Ore, Business Insider and the LLM providers) with its API,
   authentication, failure impact, risk and mitigation, plus a communication diagram
   and two sequence diagrams, and a test checks that each cited source file exists.
+  `docs/nfr.md` records dated scalability, performance and maintainability baselines
+  against their targets, `docs/test-plan.md` maps the critical functions to their
+  tests, and `docs/requirements.md` holds the (still empty) requirement registry.
 
 ### Removed
 
