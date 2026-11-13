@@ -76,7 +76,7 @@ def _score(
 
 
 @pytest.mark.parametrize(
-    ("pmi", "spread", "hy", "sent"), itertools.product(_SCORES, repeat=4)
+    ("pmi", "spread", "hy", "sent"), tuple(itertools.product(_SCORES, repeat=4))
 )
 def test_every_combination_of_component_scores(
     pmi: int, spread: int, hy: int, sent: int
@@ -264,7 +264,7 @@ def test_a_scored_regime_logs_nothing(caplog: pytest.LogCaptureFixture) -> None:
 
 
 def test_classifiers_score_the_latest_readings_with_the_given_thresholds() -> None:
-    """Both public entry points score the latest readings, by default thresholds."""
+    """Both entry points score the latest readings, by default or given thresholds."""
     macro = pd.DataFrame(
         {
             "pmi": [45.0, 50.0],

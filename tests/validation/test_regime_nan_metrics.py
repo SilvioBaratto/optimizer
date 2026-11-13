@@ -1,4 +1,9 @@
-"""The NaN metrics of an under-sampled slice come from one shared constant."""
+"""Pin ``_NAN_METRICS``, the NaN statistics of an under-sampled slice.
+
+``run_regime_validation`` (short sub-periods and short regimes) and
+``_compute_period_metrics`` (an empty slice) all report it, as copies of one
+read-only constant.
+"""
 
 from __future__ import annotations
 
