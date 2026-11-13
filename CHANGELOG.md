@@ -205,6 +205,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **ci**: the CI workflow also runs on pushes to `feature/**`, `bugfix/**`,
+  `hotfix/**` and `release/**`, so a change merged without a pull request still
+  carries the status checks that branch protection on `main` and `development`
+  requires; `tests/test_ci_triggers.py` guards the trigger list.
 - **api**: the service is now a headless ingestion daemon. APScheduler runs
   in-process; there is no HTTP API. Job state is read from the `background_jobs`
   table, the logs, and Prometheus on `METRICS_PORT` (default 9000, also the
