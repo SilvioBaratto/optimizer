@@ -246,6 +246,15 @@ def test_every_uv_job_names_its_python_version() -> None:
     assert missing == []
 
 
+def test_fund_test_timeout_leaves_headroom_over_its_runtime() -> None:
+    """The job takes 25 to 29 minutes in CI, and push and pull-request runs compete.
+
+    With a 30-minute limit a passing run was cancelled at 30m17s on a busy runner, which
+    blocked a pull request until the job was re-run by hand.
+    """
+    assert _jobs()["fund-test"]["timeout-minutes"] >= 45
+
+
 @pytest.mark.parametrize("name", ["ci.yml", "release.yml"])
 def test_every_job_has_a_timeout(name: str) -> None:
     """A hung job must not burn the six-hour runner default.
