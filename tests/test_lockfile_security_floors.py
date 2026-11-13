@@ -25,6 +25,10 @@ _ADVISORY_FLOORS = {
     "aiohttp": "3.14.4",
     # GHSA-4f8h-vr72-p32c: 21.14.9 is still flagged; 21.14.10 audits clean.
     "virtualenv": "21.14.10",
+    # CVE-2026-126190 / CVE-2026-126192: super-linear selector matching on untrusted
+    # HTML (`:has()` with a sibling combinator, deep descendant combinators). The
+    # scrapers parse third-party pages, so 4.0.0 is the first release that fixes both.
+    "soupsieve": "4.0.0",
 }
 
 

@@ -247,6 +247,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   added and removed while unreleased, so the entries above are corrected rather
   than carried forward as history
 
+### Security
+
+- **deps**: `soupsieve` 2.9.2 -> 4.1 in `uv.lock`. 4.0.0 is the first release that
+  fixes CVE-2026-126190 and CVE-2026-126192 (super-linear CSS selector matching on
+  untrusted HTML, reachable through the news and macro scrapers); the lock takes
+  the current 4.1. `pip-audit --strict` failed on both, which turned the `lint`
+  job red on every branch; `tests/test_lockfile_security_floors.py` now pins the
+  4.0.0 floor.
+
 ### Fixed
 
 - **fund**: the risk gate and the weighting tools no longer judge a book on its
