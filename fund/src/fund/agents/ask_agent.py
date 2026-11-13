@@ -139,6 +139,17 @@ _SCAN_BYTES = 262_144
 # own 9999 recursion limit, so without this a single delegation could run for thousands.
 _HELPER_MODEL_CALLS = 4
 _TOOL_TEXT_LIMIT = 6000
+# Row counts the model may ask the list tools for. The defaults appear in the tool
+# schemas the model reads, and the clamp keeps a made-up limit from flooding the
+# context or asking for nothing.
+_MIN_ROWS = 1
+_RUNS_DEFAULT = 10
+_RUNS_MAX = 50
+_AUDIT_ROWS_DEFAULT = 30
+_AUDIT_ROWS_MAX = 100
+# How much of one run's transcript a read returns: the newest entries, each cut short.
+_TRANSCRIPT_ENTRIES = 40
+_EXCERPT_CHARS = 600
 _STOPPED = (
     "(I ran out of steps before I could answer. Try a narrower question, or ask it "
     "in two parts.)"
@@ -406,6 +417,11 @@ def _render(value: Any) -> str:
         return text
     more = len(text) - _TOOL_TEXT_LIMIT
     return f"{text[:_TOOL_TEXT_LIMIT]}\n… (truncated, {more} more characters)"
+
+
+def _row_limit(asked: int, most: int) -> int:
+    """The row count the model asked for, kept between ``_MIN_ROWS`` and ``most``."""
+    return max(_MIN_ROWS, min(asked, most))
 
 
 def _read_only(session: Any) -> None:
@@ -706,11 +722,11 @@ def make_list_runs_tool(ctx: AskToolContext) -> BaseTool:
     from fund import observe
 
     @tool
-    def list_runs(portfolio_id: str = "", limit: int = 10) -> str:
+    def list_runs(portfolio_id: str = "", limit: int = _RUNS_DEFAULT) -> str:
         """List a portfolio's most recent decision runs with their status and date."""
         return ctx.read(
             lambda s: observe.list_portfolio_runs(
-                s, ctx.portfolio(s, portfolio_id), limit=max(1, min(limit, 50))
+                s, ctx.portfolio(s, portfolio_id), limit=_row_limit(limit, _RUNS_MAX)
             )
         )
 
@@ -747,8 +763,8 @@ def make_run_transcript_tool(ctx: AskToolContext) -> BaseTool:
                 ctx.confine(owner)
             entries = observe.load_run_transcript(session, ctx.saver, run)
             return [
-                {"agent": e.agent, "step": e.step, "text": e.text[:600]}
-                for e in entries[-40:]
+                {"agent": e.agent, "step": e.step, "text": e.text[:_EXCERPT_CHARS]}
+                for e in entries[-_TRANSCRIPT_ENTRIES:]
             ]
 
         return ctx.read(work)
@@ -801,7 +817,7 @@ def make_audit_trail_tool(ctx: AskToolContext) -> BaseTool:
     from fund import observe
 
     @tool
-    def audit_trail(portfolio_id: str = "", limit: int = 30) -> str:
+    def audit_trail(portfolio_id: str = "", limit: int = _AUDIT_ROWS_DEFAULT) -> str:
         """Show the newest audit entries: who decided or did what, and when.
 
         A blank portfolio_id means the focused portfolio, or all when none is focused.
@@ -812,7 +828,7 @@ def make_audit_trail_tool(ctx: AskToolContext) -> BaseTool:
             wanted = portfolio_id.strip()
             target = ctx.portfolio(session, wanted) if wanted or ctx.focus else None
             rows = observe.audit_timeline(session, portfolio_id=target)
-            return rows[: max(1, min(limit, 100))]
+            return rows[: _row_limit(limit, _AUDIT_ROWS_MAX)]
 
         return ctx.read(work)
 
