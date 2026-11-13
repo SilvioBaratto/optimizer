@@ -284,6 +284,150 @@ def _resolve_enforceable_bands(
     return active
 
 
+def _sector_cap_rows(
+    max_sector_weight: float | None,
+    sector_mapping: dict[str, str] | None,
+) -> list[str]:
+    """Return the ``"<sector> <= <cap>"`` rows of ``max_sector_weight``.
+
+    A cap without a ``sector_mapping`` only logs a warning and emits no row,
+    whereas floors and bands without a mapping raise.
+    """
+    if max_sector_weight is None:
+        return []
+    if sector_mapping is None:
+        logger.warning(
+            "MeanRiskConfig.max_sector_weight=%.4f is set but no "
+            "sector_mapping was provided; sector constraints are skipped.",
+            max_sector_weight,
+        )
+        return []
+    _, cap_rows = build_sector_constraints(sector_mapping, max_sector_weight)
+    return cap_rows
+
+
+def _require_band_groups(
+    sector_mapping: dict[str, str] | None, explicit_groups: object
+) -> None:
+    """Raise ``ValueError`` when regime bands have no group mapping to bind to."""
+    # skfolio drops (with only a UserWarning) every constraint row naming a
+    # group it cannot resolve, so bands without groups would be silently
+    # unenforced.
+    if sector_mapping is None and explicit_groups is None:
+        raise ValueError(
+            "sector_bands requires sector_mapping or an explicit groups "
+            "kwarg to enforce sector constraints (no group mapping "
+            "available)."
+        )
+
+
+def _compose_sector_constraints(
+    config: MeanRiskConfig,
+    kwargs: Mapping[str, Any],
+    *,
+    sector_mapping: dict[str, str] | None,
+    min_sector_weights: dict[str, float] | None,
+    sector_bands: dict[str, tuple[float, float]] | None,
+) -> dict[str, Any]:
+    """Return the ``groups`` and ``linear_constraints`` the sector inputs call for.
+
+    Rows come in the order sector caps, ``min_sector_weights`` floors, then
+    ``sector_bands`` rows. Floors and bands are checked against the groups
+    skfolio will receive: an explicit ``groups`` in ``kwargs``, else
+    ``sector_mapping``. ``groups`` is returned as ``sector_mapping`` once a
+    cap is built from it or floors or bands are given, and
+    ``linear_constraints`` only when there is a row; the caller keeps any
+    explicit keyword over either.
+
+    Raises:
+        ValueError: If floors or bands are infeasible or have no group
+            mapping, as `build_mean_risk` documents.
+    """
+    groups = kwargs.get("groups", sector_mapping)
+    rows = _sector_cap_rows(config.max_sector_weight, sector_mapping)
+    if min_sector_weights:
+        _validate_sector_floors(
+            min_sector_weights, sector_mapping, config.max_sector_weight
+        )
+        floors = _resolve_enforceable_floors(min_sector_weights, groups)
+        rows.extend(_build_sector_floor_constraints(floors))
+    if sector_bands:
+        _require_band_groups(sector_mapping, kwargs.get("groups"))
+        bands = _resolve_enforceable_bands(sector_bands, groups, config.budget)
+        rows.extend(_build_sector_cap_constraints(bands))
+    capped = config.max_sector_weight is not None and sector_mapping is not None
+    keywords: dict[str, Any] = {}
+    if capped or min_sector_weights or sector_bands:
+        keywords["groups"] = sector_mapping
+    if rows:
+        keywords["linear_constraints"] = rows
+    return keywords
+
+
+def _require_mip_solver(config: MeanRiskConfig) -> None:
+    """Raise ``ValueError`` when a cardinality is paired with a non-MIP solver."""
+    # The asset count is unknown until fit, so a cardinality that happens to
+    # reach n_assets would still solve; rejecting the pairing here keeps the
+    # outcome independent of universe size instead of failing only once the
+    # universe outgrows the cap.
+    if config.cardinality is not None and config.solver not in MI_SOLVERS:
+        raise ValueError(
+            f"MeanRiskConfig.cardinality={config.cardinality} requires a "
+            f"mixed-integer solver, but solver={config.solver!r} cannot solve "
+            "MIP problems. Set solver to one of "
+            f"{sorted(MI_SOLVERS)} (e.g. 'SCIP' via `pip install cvxpy[SCIP]`; "
+            "the MIP-capable 'SCIPY' only handles linear risk measures)."
+        )
+
+
+def _factor_exposure_keywords(
+    constraints: FactorExposureConstraints | None,
+) -> dict[str, Any]:
+    """Return the inequality keywords that enforce ``constraints``, if any."""
+    if constraints is None:
+        return {}
+    return {
+        "left_inequality": constraints.left_inequality,
+        "right_inequality": constraints.right_inequality,
+    }
+
+
+def _resilience_keywords(config: MeanRiskConfig) -> dict[str, Any]:
+    """Return the skfolio 1.0 resilience keywords ``config`` asks for."""
+    keywords: dict[str, Any] = {"raise_on_failure": config.raise_on_failure}
+    if config.fallback_policy is FallbackPolicy.PREVIOUS_WEIGHTS:
+        keywords["fallback"] = "previous_weights"
+    return keywords
+
+
+def _mean_risk_params(config: MeanRiskConfig) -> dict[str, Any]:
+    """Map ``config`` onto the `MeanRisk` constructor parameters it sets."""
+    return {
+        "objective_function": _OBJECTIVE_MAP[config.objective],
+        "risk_measure": _RISK_MEASURE_MAP[config.risk_measure],
+        "risk_aversion": config.risk_aversion,
+        "efficient_frontier_size": config.efficient_frontier_size,
+        "min_weights": config.min_weights,
+        "max_weights": config.max_weights,
+        "budget": config.budget,
+        "max_short": config.max_short,
+        "max_long": config.max_long,
+        "cardinality": config.cardinality,
+        "transaction_costs": config.transaction_costs,
+        "management_fees": config.management_fees,
+        "max_tracking_error": config.max_tracking_error,
+        "l1_coef": config.l1_coef,
+        "l2_coef": config.l2_coef,
+        "risk_free_rate": config.risk_free_rate,
+        "cvar_beta": config.cvar_beta,
+        "evar_beta": config.evar_beta,
+        "cdar_beta": config.cdar_beta,
+        "edar_beta": config.edar_beta,
+        "solver": config.solver,
+        "solver_params": config.solver_params,
+    }
+
+
 def build_mean_risk(
     config: MeanRiskConfig | None = None,
     *,
@@ -357,103 +501,25 @@ def build_mean_risk(
     """
     if config is None:
         config = MeanRiskConfig()
-
-    # The asset count is unknown until fit, so a cardinality that happens to
-    # reach n_assets would still solve; rejecting the pairing here keeps the
-    # outcome independent of universe size instead of failing only once the
-    # universe outgrows the cap.
-    if config.cardinality is not None and config.solver not in MI_SOLVERS:
-        raise ValueError(
-            f"MeanRiskConfig.cardinality={config.cardinality} requires a "
-            f"mixed-integer solver, but solver={config.solver!r} cannot solve "
-            "MIP problems. Set solver to one of "
-            f"{sorted(MI_SOLVERS)} (e.g. 'SCIP' via `pip install cvxpy[SCIP]`; "
-            "the MIP-capable 'SCIPY' only handles linear risk measures)."
-        )
+    _require_mip_solver(config)
 
     if prior_estimator is None and config.prior_config is not None:
         prior_estimator = build_prior(config.prior_config)
 
-    if factor_exposure_constraints is not None:
-        kwargs.setdefault(
-            "left_inequality", factor_exposure_constraints.left_inequality
+    defaults = _factor_exposure_keywords(factor_exposure_constraints)
+    defaults.update(
+        _compose_sector_constraints(
+            config,
+            kwargs,
+            sector_mapping=sector_mapping,
+            min_sector_weights=min_sector_weights,
+            sector_bands=sector_bands,
         )
-        kwargs.setdefault(
-            "right_inequality", factor_exposure_constraints.right_inequality
-        )
-
-    sector_constraints: list[str] = []
-    if config.max_sector_weight is not None:
-        if sector_mapping is not None:
-            built_groups, built_caps = build_sector_constraints(
-                sector_mapping, config.max_sector_weight
-            )
-            kwargs.setdefault("groups", built_groups)
-            sector_constraints.extend(built_caps)
-        else:
-            logger.warning(
-                "MeanRiskConfig.max_sector_weight=%.4f is set but no "
-                "sector_mapping was provided; sector constraints are skipped.",
-                config.max_sector_weight,
-            )
-
-    if min_sector_weights:
-        _validate_sector_floors(
-            min_sector_weights, sector_mapping, config.max_sector_weight
-        )
-        kwargs.setdefault("groups", sector_mapping)
-        enforceable_floors = _resolve_enforceable_floors(
-            min_sector_weights, kwargs["groups"]
-        )
-        sector_constraints.extend(_build_sector_floor_constraints(enforceable_floors))
-
-    if sector_bands:
-        # skfolio drops (with only a UserWarning) every constraint row naming a
-        # group it cannot resolve, so bands without groups would be silently
-        # unenforced.
-        if sector_mapping is None and kwargs.get("groups") is None:
-            raise ValueError(
-                "sector_bands requires sector_mapping or an explicit groups "
-                "kwarg to enforce sector constraints (no group mapping "
-                "available)."
-            )
-        kwargs.setdefault("groups", sector_mapping)
-        enforceable_bands = _resolve_enforceable_bands(
-            sector_bands, kwargs["groups"], config.budget
-        )
-        sector_constraints.extend(_build_sector_cap_constraints(enforceable_bands))
-
-    if sector_constraints:
-        kwargs.setdefault("linear_constraints", sector_constraints)
-
-    # Resilience layer (skfolio 1.0). Explicit kwargs win over config fields.
-    kwargs.setdefault("raise_on_failure", config.raise_on_failure)
-    if config.fallback_policy is FallbackPolicy.PREVIOUS_WEIGHTS:
-        kwargs.setdefault("fallback", "previous_weights")
+    )
+    defaults.update(_resilience_keywords(config))
+    for name, value in defaults.items():
+        kwargs.setdefault(name, value)
 
     return CapacityCheckedMeanRisk(
-        objective_function=_OBJECTIVE_MAP[config.objective],
-        risk_measure=_RISK_MEASURE_MAP[config.risk_measure],
-        risk_aversion=config.risk_aversion,
-        efficient_frontier_size=config.efficient_frontier_size,
-        prior_estimator=prior_estimator,
-        min_weights=config.min_weights,
-        max_weights=config.max_weights,
-        budget=config.budget,
-        max_short=config.max_short,
-        max_long=config.max_long,
-        cardinality=config.cardinality,
-        transaction_costs=config.transaction_costs,
-        management_fees=config.management_fees,
-        max_tracking_error=config.max_tracking_error,
-        l1_coef=config.l1_coef,
-        l2_coef=config.l2_coef,
-        risk_free_rate=config.risk_free_rate,
-        cvar_beta=config.cvar_beta,
-        evar_beta=config.evar_beta,
-        cdar_beta=config.cdar_beta,
-        edar_beta=config.edar_beta,
-        solver=config.solver,
-        solver_params=config.solver_params,
-        **kwargs,
+        prior_estimator=prior_estimator, **_mean_risk_params(config), **kwargs
     )
