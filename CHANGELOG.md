@@ -232,7 +232,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   versioned and reviewable. Pointers to `SPEC.md`, `deep_agent.md` and
   `tasks/plan.md`, which were never committed, were dropped from `CLAUDE.md`,
   `fund/README.md`, `ci.yml` and code comments, and
-  `tests/test_doc_references_resolve.py` fails on any new one.
+  `tests/test_doc_references_resolve.py` fails on any new one. `docs/adr/` starts an
+  architecture decision log with seven records (the strip to an ingestion pipeline,
+  the four-package workspace, the removal of `optimizer.pipeline`, the heartbeat-lease
+  reaper, the LangGraph schema, the provider registry and the branching, review and
+  secrets policy), and `tests/test_adr_format.py` keeps their shape.
 
 ### Removed
 
