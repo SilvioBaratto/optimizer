@@ -169,9 +169,14 @@ class Trading212Client:
         retry_after = lowered.get("retry-after")
         if retry_after:
             try:
-                return int(retry_after)
+                seconds = int(retry_after)
             except ValueError:
                 return backoff
+            # The server's value is untrusted: an hour-scale one would stall the
+            # universe build and a negative one makes ``time.sleep`` raise.
+            if seconds < 0:
+                return backoff
+            return min(seconds, _MAX_RATE_LIMIT_WAIT_SECONDS)
 
         try:
             until_reset = float(lowered["x-ratelimit-reset"]) - time.time()

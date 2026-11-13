@@ -42,9 +42,11 @@ class FundConfig:
     """
 
     # --- secrets / env (D4 env vars); None when unset so import never fails ---
-    database_url: str | None = None
-    ollama_api_key: str | None = None
-    fred_api_key: str | None = None
+    # Every secret is repr=False: a traceback or crash screen that renders locals
+    # would otherwise print the keys.
+    database_url: str | None = field(default=None, repr=False)
+    ollama_api_key: str | None = field(default=None, repr=False)
+    fred_api_key: str | None = field(default=None, repr=False)
     ssl_cert_file: str | None = None
 
     # --- D1 concurrency: sync sessions + sync agent.invoke ---
@@ -98,27 +100,27 @@ class FundConfig:
     # validated at build time in each builder, never here. `ollama_api_key` +
     # `ollama_base_url` live above (the current default provider). ---
     # openai / openrouter (langchain-openai; ChatOpenAI)
-    openai_api_key: str | None = None
+    openai_api_key: str | None = field(default=None, repr=False)
     openai_base_url: str | None = None
-    openrouter_api_key: str | None = None
+    openrouter_api_key: str | None = field(default=None, repr=False)
     # anthropic / google / groq (a single cloud key each)
-    anthropic_api_key: str | None = None
-    google_api_key: str | None = None
-    groq_api_key: str | None = None
+    anthropic_api_key: str | None = field(default=None, repr=False)
+    google_api_key: str | None = field(default=None, repr=False)
+    groq_api_key: str | None = field(default=None, repr=False)
     # nvidia — NVIDIA_API_KEY authenticates to NVIDIA's hosted API. A custom
     # NVIDIA_BASE_URL (self-hosted NIM or gateway) receives it only when
     # `nvidia_base_url_send_key` is set: that variable usually holds a hosted key,
     # and the config cannot tell it apart from a key meant for the gateway.
-    nvidia_api_key: str | None = None
+    nvidia_api_key: str | None = field(default=None, repr=False)
     nvidia_base_url: str | None = None
     nvidia_base_url_send_key: bool = False
     # huggingface — cloud only in this delivery; `hf_mode == "local"` is deferred
-    hf_api_token: str | None = None
+    hf_api_token: str | None = field(default=None, repr=False)
     hf_mode: str = "cloud"
     # aws (Bedrock Converse) — boto3 also reads AWS_*/IAM role; region_name here
     aws_region: str | None = None
     # microsoft (Azure OpenAI) — the four Azure env vars, wired at build time
-    azure_openai_api_key: str | None = None
+    azure_openai_api_key: str | None = field(default=None, repr=False)
     azure_openai_endpoint: str | None = None
     azure_openai_api_version: str | None = None
     azure_openai_deployment_name: str | None = None

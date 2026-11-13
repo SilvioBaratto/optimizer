@@ -937,6 +937,53 @@ class TestBenjaminiHochberg:
         result = benjamini_hochberg(p_values, alpha=0.05)
         assert result["a"]
 
+    def test_nan_pvalue_is_excluded_from_family_size(self) -> None:
+        """A missing test must not shrink the thresholds of the real ones."""
+        p_values = pd.Series([0.02, 0.04, np.nan], index=["a", "b", "c"])
+        result = benjamini_hochberg(p_values, alpha=0.05)
+        assert result["a"]
+        assert result["b"]
+        assert not result["c"]
+
+    def test_all_nan_returns_all_false(self) -> None:
+        """No finite p-value means nothing can be significant."""
+        p_values = pd.Series([np.nan, np.nan], index=["a", "b"])
+        result = benjamini_hochberg(p_values, alpha=0.05)
+        assert result.dtype == bool
+        assert not result.any()
+
+    def test_empty_series_returns_empty_bool_series(self) -> None:
+        """An empty family returns an empty boolean series, not an error."""
+        result = benjamini_hochberg(pd.Series([], dtype=float), alpha=0.05)
+        assert len(result) == 0
+        assert result.dtype == bool
+
+    def test_tied_pvalues_are_all_or_none(self) -> None:
+        """Equal p-values cannot be split by their sort order."""
+        p_values = pd.Series([0.01, 0.01, 0.9], index=["a", "b", "c"])
+        result = benjamini_hochberg(p_values, alpha=0.05)
+        assert result["a"] == result["b"]
+
+    @pytest.mark.parametrize(
+        ("p_values", "expected"),
+        [
+            # Every sorted p-value is under the threshold of its own rank.
+            ([0.01, 0.04, 0.03, 0.005], [True, True, True, True]),
+            # Only the smallest p-value clears its rank threshold.
+            ([0.001, 0.2, 0.04, 0.3], [True, False, False, False]),
+            # Step-up: only the largest p-value clears its own threshold, and that
+            # pulls the two smaller ones in with it.
+            ([0.02, 0.04, 0.045], [True, True, True]),
+        ],
+    )
+    def test_matches_hand_computed_step_up_decisions(
+        self, p_values: list[float], expected: list[bool]
+    ) -> None:
+        """Textbook Benjamini-Hochberg decisions at alpha=0.05, worked by hand."""
+        series = pd.Series(p_values, index=list("abcd"[: len(p_values)]))
+        result = benjamini_hochberg(series, alpha=0.05)
+        assert result.tolist() == expected
+
 
 class TestComputeICStats:
     def test_returns_icstats(self) -> None:

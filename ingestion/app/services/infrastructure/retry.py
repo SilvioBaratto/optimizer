@@ -6,11 +6,16 @@ full-jitter exponential backoff and transient-error detection.
 
 from __future__ import annotations
 
+import logging
 import random
 import re
 import time
 from collections.abc import Callable
 from typing import TypeVar
+
+from app.utils.log_redaction import redact_secrets
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -82,6 +87,24 @@ def _full_jitter(attempt: int, base: float, cap: float) -> float:
     return random.uniform(0, min(cap, base * (2**attempt)))
 
 
+def _log_exhausted(max_retries: int, last_exc: Exception | None) -> None:
+    """Record why a retry loop gave up.
+
+    The helper returns None on exhaustion and its callers only report "failed after
+    retries", so this line is the only place the last error survives.
+
+    The exception text is redacted by hand and no traceback is attached: requests
+    echoes the full URL in its errors, FRED takes its key as ``?api_key=``, and the
+    ``SecretRedactingFilter`` only rewrites the rendered message, never ``exc_info``.
+    """
+    reason = (
+        redact_secrets(f"{type(last_exc).__name__}: {last_exc}")
+        if last_exc is not None
+        else "result rejected by is_valid"
+    )
+    logger.warning("retry exhausted after %d attempts: %s", max_retries, reason)
+
+
 def retry_with_backoff(
     action: Callable[[], T],
     max_retries: int,
@@ -123,14 +146,18 @@ def retry_with_backoff(
     Raises:
         Exception: Whatever *action* raised, when *is_permanent_error* accepts it.
     """
+    last_exc: Exception | None = None
     for attempt in range(max_retries):
         try:
             result = action()
+            # A call that returned is not blamed on an exception from an earlier try.
+            last_exc = None
 
             if is_valid is not None and not is_valid(result):
                 if attempt < max_retries - 1:
                     time.sleep(_full_jitter(attempt, base_delay, max_delay))
                     continue
+                _log_exhausted(max_retries, last_exc)
                 return None
 
             if on_success is not None:
@@ -138,6 +165,7 @@ def retry_with_backoff(
             return result
 
         except Exception as exc:
+            last_exc = exc
             if is_permanent_error is not None and is_permanent_error(exc):
                 raise
 
@@ -153,6 +181,11 @@ def retry_with_backoff(
             if attempt < max_retries - 1:
                 time.sleep(_full_jitter(attempt, base_delay, max_delay))
                 continue
+            _log_exhausted(max_retries, last_exc)
             return None
 
+    # Reached when the last attempt was rate limited and fell through ``continue``,
+    # or when no attempt was allowed (``max_retries <= 0``), which has nothing to log.
+    if max_retries > 0:
+        _log_exhausted(max_retries, last_exc)
     return None

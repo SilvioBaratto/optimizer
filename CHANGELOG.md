@@ -205,6 +205,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **ci**: the CI workflow also runs on pushes to `feature/**`, `bugfix/**`,
+  `hotfix/**` and `release/**`, so a change merged without a pull request still
+  carries the status checks that branch protection on `main` and `development`
+  requires; `tests/test_ci_triggers.py` guards the trigger list.
 - **api**: the service is now a headless ingestion daemon. APScheduler runs
   in-process; there is no HTTP API. Job state is read from the `background_jobs`
   table, the logs, and Prometheus on `METRICS_PORT` (default 9000, also the
@@ -269,6 +273,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **fund, ingestion, portopt-db**: API keys, the broker secret, database
+  passwords and the notification webhook URL no longer appear in `repr()` or
+  `str()` of `FundConfig`, `DbConfig` or the ingestion `Settings`. A traceback that renders locals or a stray
+  `logger.info(config)` used to print every provider key and the DB URL.
 - **fund**: the risk gate and the weighting tools no longer judge a book on its
   youngest holding. The drawdown ceiling, `optimize_portfolio` and
   `estimate_moments` share one sample-depth rule (a fit needs at least half the
@@ -384,6 +392,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **build**: `mypy` was configured for Python 3.10, so it aborted on numpy's PEP 695
   stubs before reaching any project file — the typecheck job had been passing while
   checking nothing. It now checks all 98 source files
+- **core**: `benjamini_hochberg` delegates to `correct_pvalues`, so a NaN p-value is
+  left out of the family size instead of shrinking every threshold. With
+  `[0.02, 0.04, NaN]` it used to mark nothing significant; it now marks the first
+  two, as `correct_pvalues` always did
+- **ingestion**: a Trading 212 `Retry-After` is capped at the same ceiling as
+  `x-ratelimit-reset` (120 s) and a negative value falls back to the backoff, so a
+  server-sent hour-scale value can no longer stall the universe build or make
+  `time.sleep` raise
+- **ingestion**: `retry_with_backoff` logs a WARNING with the last exception (or
+  "result rejected by is_valid") when it gives up. Its callers only report "failed
+  after retries", so the cause used to be lost. The text is passed through
+  `redact_secrets` and no traceback is attached, because FRED sends its key as
+  `?api_key=` and `requests` echoes the URL in its errors
 
 ## [0.1.0] - 2026-02-21
 
