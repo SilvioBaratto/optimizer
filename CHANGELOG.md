@@ -231,6 +231,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     note in the PM seed and the mandate-save warning. It also works without an
     allowlist, as a refusal list over the whole universe (`list_universe` drops the
     False rows). `UniverseRepository.get_t212_untradeable_tickers` is the new read
+- **Function length and complexity ratchet.** `scripts/ci/check_complexity_ratchet.py`
+  (a step of the `lint` job) holds standard 2.8 (at most 30 lines per function,
+  cyclomatic complexity below 10) over the four source trees. The 274 functions
+  that are already too long and the 50 that are too complex are recorded in
+  `scripts/ci/baselines/`; the check fails a new offender and a recorded one that
+  grew. `--update` on an existing baseline can only lower a stored value or drop
+  an entry, never raise a value or add one, so the recorded debt shrinks as
+  functions are split. Deleting a baseline file and running `--update` starts a
+  fresh baseline from the current measurement, so a deleted or emptied baseline
+  file in a diff deserves a reviewer's attention. A source root that is missing
+  fails the check instead of measuring nothing.
 
 ### Changed
 
@@ -270,6 +281,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `development` and releasing through a `release/` branch, and the `portopt-db` README
   documents the migration process (validation, rollback, one-way revisions) with an ER
   diagram; new Alembic revisions get a dated file name.
+- **ci**: the `fund-test` job timeout goes from 30 to 45 minutes. The job takes 25 to
+  29 minutes, and a pull-request run competing with the push run was cancelled at
+  30m17s although the same job passed on the same commit.
 - **ingestion**: the yfinance sweep decides which categories are due for a fetch
   through a pure, unit-tested `FetchPlan`
   (`app/services/market_data/yfinance/fetch_plan.py`), built once per ticker,
