@@ -7,11 +7,16 @@ wraps). No requirement id is registered for this function yet.
 The sweep runs one block per data category: check freshness, fetch from Yahoo,
 store a non-empty answer inside a savepoint, and turn an exception into an error
 string. These tests pin what the returned dict reports for every category when
-its fetch fails, when Yahoo answers empty and when incremental freshness skips
-it, plus how empty answers are remembered between runs. They are written
-against the function as it stands and must pass unchanged once it is split, so
-they assert on the returned dict and on the empty-answer memory only, never on
-how the service reaches its collaborators.
+its fetch or its write fails, when Yahoo answers empty and when incremental
+freshness skips it, plus how empty answers are remembered between runs. They are
+written against the function as it stands and must pass unchanged once it is
+split. They drive the service through the client's sub-client method names and
+the repository's ``upsert_*`` names, so a split has to keep those; they assert on
+the returned dict and on the empty-answer memory, never on call counts.
+
+Some tests pin behaviour that looks unintentional, and their docstrings or the
+comments in ``CATEGORIES`` say so. A split that changes one of those has to
+update that test deliberately.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from uuid import UUID, uuid4
 
 import pandas as pd
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.services.market_data.empty_fetch_memory import EmptyFetchMemory
 from app.services.market_data.yfinance.infrastructure import CircuitBreaker
@@ -38,11 +44,12 @@ from tests.unit.test_yfinance_data_service_branches import (
     _make_yf_client_silent,
 )
 
-# Every repository write reports this many rows, so a count in the result proves
-# the category's write ran and its answer was propagated.
-_ROWS = 3
-
 _REFUSAL = "Yahoo refused the request"
+
+_DUPLICATE_KEY = "duplicate key value violates unique constraint"
+
+# ``_write`` reports a rejected statement by its driver cause, without the SQL.
+_REJECTION = f"ValueError: {_DUPLICATE_KEY}"
 
 # Windows a few hours apart: a category wired to a sibling's window lands on the
 # wrong side of its own boundary when stamped one hour inside or outside it.
@@ -58,13 +65,19 @@ _THRESHOLDS = StalenessThresholds(
     insider_transactions_hours=37,
 )
 
-_STATEMENT_MARKERS = (
-    "income_statement_annual_updated_at",
-    "income_statement_quarterly_updated_at",
-    "balance_sheet_annual_updated_at",
-    "balance_sheet_quarterly_updated_at",
-    "cashflow_annual_updated_at",
-    "cashflow_quarterly_updated_at",
+_STATEMENT_GROUPS = (
+    ("income_statement", "annual"),
+    ("income_statement", "quarterly"),
+    ("balance_sheet", "annual"),
+    ("balance_sheet", "quarterly"),
+    ("cashflow", "annual"),
+    ("cashflow", "quarterly"),
+)
+
+_VALUATION_GROUP = ("valuation_measures", "point_in_time")
+
+_STATEMENT_MARKERS = tuple(
+    f"{statement}_{period}_updated_at" for statement, period in _STATEMENT_GROUPS
 )
 
 _EVENT_MARKERS = (
@@ -94,7 +107,6 @@ _WRITES = (
     "upsert_profile",
     "upsert_profile_extras",
     "upsert_price_history",
-    "upsert_financial_statements",
     "upsert_eps_trend",
     "upsert_eps_revisions",
     "upsert_earnings_estimate",
@@ -118,8 +130,21 @@ _WRITES = (
     "upsert_news",
 )
 
+# Each write reports its own row count, so a count in the result names the write
+# that produced it: a category routed to a sibling's write reports the wrong one.
+_ROWS_BY_WRITE = {write: rows for rows, write in enumerate(_WRITES, start=11)}
+
+# Financials and valuation measures share ``upsert_financial_statements``; only
+# its statement and period type arguments tell them apart, so its rows are keyed
+# on that pair.
+_STATEMENT_ROWS = {
+    group: rows
+    for rows, group in enumerate((*_STATEMENT_GROUPS, _VALUATION_GROUP), start=41)
+}
+
 Answer = Callable[[MagicMock, Any], None]
 Failure = Callable[[MagicMock, MagicMock, Exception], None]
+WriteFailure = Callable[[MagicMock, Exception], None]
 
 
 def _client_method(client: MagicMock, path: str) -> MagicMock:
@@ -149,11 +174,54 @@ def _news_feed(client: MagicMock, payload: Any) -> None:
     client.get_ticker.return_value.news = payload
 
 
-def _news_write_rejected(_client: MagicMock, repo: MagicMock, exc: Exception) -> None:
+def _news_lookup_fails(_client: MagicMock, repo: MagicMock, exc: Exception) -> None:
     # The news request runs under the shared retry, which turns any exception
-    # into "no articles"; a failure reaches the news handler only after the
-    # request, from the stored-article lookup or the write.
-    repo.upsert_news.side_effect = exc
+    # into "no articles"; the first failure the news handler sees comes from the
+    # stored-article lookup that follows the request.
+    repo.get_scraped_news_uuids.side_effect = exc
+
+
+def _store_statement(
+    instrument_id: UUID,
+    df: pd.DataFrame,
+    statement_type: str,
+    period_type: str,
+    **_options: Any,
+) -> int:
+    return _STATEMENT_ROWS[(statement_type, period_type)]
+
+
+def _write_raises(write: str) -> WriteFailure:
+    def _fail(repo: MagicMock, exc: Exception) -> None:
+        getattr(repo, write).side_effect = exc
+
+    return _fail
+
+
+def _statement_write_raises(*groups: tuple[str, str]) -> WriteFailure:
+    def _fail(repo: MagicMock, exc: Exception) -> None:
+        def _store_or_raise(
+            instrument_id: UUID,
+            df: pd.DataFrame,
+            statement_type: str,
+            period_type: str,
+            **options: Any,
+        ) -> int:
+            if (statement_type, period_type) in groups:
+                raise exc
+            return _store_statement(
+                instrument_id, df, statement_type, period_type, **options
+            )
+
+        repo.upsert_financial_statements.side_effect = _store_or_raise
+
+    return _fail
+
+
+def _rejected_write() -> IntegrityError:
+    return IntegrityError(
+        "INSERT INTO example VALUES (1)", {}, ValueError(_DUPLICATE_KEY)
+    )
 
 
 def _frame() -> pd.DataFrame:
@@ -202,11 +270,14 @@ class Category:
         sample: Builds an answer the category stores.
         empties: Answers the category treats as Yahoo having nothing.
         answer: Makes the client answer the category with a payload.
-        fail: Makes the category raise: its fetch, or its write for news.
+        fail: Makes the category raise before its write: its fetch, or for news
+            the stored-article lookup.
+        fail_write: Makes the category's repository write raise, and only its
+            own when the write is shared.
         stored: Counts reported when the category stores ``sample``.
-        failure_errors: Errors reported, in order, when ``fail`` raises
-            ``_REFUSAL``.
-        counts_when_failed: Counts still reported when ``fail`` raises.
+        error_labels: Prefixes, in order, of the errors reported when the
+            category raises; each error reads ``"<label>: <message>"``.
+        counts_when_failed: Counts still reported when the category raises.
         counts_when_empty: Counts reported for an empty answer.
         settled_by_empty_answer: Whether a recent empty answer remembered for
             the markers skips the category the way a fresh marker does.
@@ -219,8 +290,9 @@ class Category:
     empties: tuple[Any, ...]
     answer: Answer
     fail: Failure
+    fail_write: WriteFailure
     stored: dict[str, int]
-    failure_errors: tuple[str, ...]
+    error_labels: tuple[str, ...]
     counts_when_failed: dict[str, int]
     counts_when_empty: dict[str, int]
     settled_by_empty_answer: bool = True
@@ -229,6 +301,7 @@ class Category:
 def _block(
     name: str,
     fetcher: str,
+    write: str,
     marker: str,
     window_hours: int,
     sample: Callable[[], Any] = _frame,
@@ -242,8 +315,9 @@ def _block(
         empties=empties,
         answer=_returned_by(fetcher),
         fail=_raised_by(fetcher),
-        stored={name: _ROWS},
-        failure_errors=(f"{name}: {_REFUSAL}",),
+        fail_write=_write_raises(write),
+        stored={name: _ROWS_BY_WRITE[write]},
+        error_labels=(name,),
         counts_when_failed={},
         counts_when_empty={name: 0},
     )
@@ -251,7 +325,12 @@ def _block(
 
 def _fundamental(name: str, fetcher: str, **kwargs: Any) -> Category:
     return _block(
-        name, fetcher, f"{name}_updated_at", _THRESHOLDS.financials_hours, **kwargs
+        name,
+        fetcher,
+        f"upsert_{name}",
+        f"{name}_updated_at",
+        _THRESHOLDS.financials_hours,
+        **kwargs,
     )
 
 
@@ -270,8 +349,15 @@ CATEGORIES: list[Category] = [
         empties=(None, {}),
         answer=_returned_by("fetch_info"),
         fail=_raised_by("fetch_info"),
-        stored={"profile": _ROWS, "profile_extras": _ROWS},
-        failure_errors=(f"profile: {_REFUSAL}",),
+        fail_write=_write_raises("upsert_profile"),
+        stored={
+            "profile": _ROWS_BY_WRITE["upsert_profile"],
+            "profile_extras": _ROWS_BY_WRITE["upsert_profile_extras"],
+        },
+        error_labels=("profile",),
+        # Pins current behaviour, likely unintentional: an empty profile reports
+        # only ``profile: 0`` and a failed one neither key, so ``profile_extras``
+        # vanishes where every other category reports its own key as 0.
         counts_when_failed={},
         counts_when_empty={"profile": 0},
         settled_by_empty_answer=False,
@@ -284,8 +370,9 @@ CATEGORIES: list[Category] = [
         empties=_EMPTY_FRAMES,
         answer=_returned_by("fetch_history"),
         fail=_raised_by("fetch_history"),
-        stored={"prices": _ROWS},
-        failure_errors=(f"prices: {_REFUSAL}",),
+        fail_write=_write_raises("upsert_price_history"),
+        stored={"prices": _ROWS_BY_WRITE["upsert_price_history"]},
+        error_labels=("prices",),
         counts_when_failed={},
         counts_when_empty={"prices": 0},
     ),
@@ -297,20 +384,31 @@ CATEGORIES: list[Category] = [
         empties=_EMPTY_FRAMES,
         answer=_returned_by(*_STATEMENT_FETCHERS),
         fail=_raised_by(*_STATEMENT_FETCHERS),
-        stored={"financials": len(_STATEMENT_MARKERS) * _ROWS},
-        failure_errors=(
-            f"financials.income_statement.annual: {_REFUSAL}",
-            f"financials.income_statement.quarterly: {_REFUSAL}",
-            f"financials.balance_sheet.annual: {_REFUSAL}",
-            f"financials.balance_sheet.quarterly: {_REFUSAL}",
-            f"financials.cashflow.annual: {_REFUSAL}",
-            f"financials.cashflow.quarterly: {_REFUSAL}",
+        fail_write=_statement_write_raises(*_STATEMENT_GROUPS),
+        stored={"financials": sum(_STATEMENT_ROWS[g] for g in _STATEMENT_GROUPS)},
+        error_labels=tuple(
+            f"financials.{statement}.{period}"
+            for statement, period in _STATEMENT_GROUPS
         ),
+        # Pins current behaviour, likely unintentional: a fully failed statements
+        # block still reports a zero count, while every other failed category
+        # leaves its key out.
         counts_when_failed={"financials": 0},
         counts_when_empty={"financials": 0},
     ),
-    _fundamental(
-        "valuation_measures", "metadata.fetch_valuation_measures", sample=_valuation
+    Category(
+        name="valuation_measures",
+        markers=("valuation_measures_updated_at",),
+        window_hours=_THRESHOLDS.financials_hours,
+        sample=_valuation,
+        empties=_EMPTY_FRAMES,
+        answer=_returned_by("metadata.fetch_valuation_measures"),
+        fail=_raised_by("metadata.fetch_valuation_measures"),
+        fail_write=_statement_write_raises(_VALUATION_GROUP),
+        stored={"valuation_measures": _STATEMENT_ROWS[_VALUATION_GROUP]},
+        error_labels=("valuation_measures",),
+        counts_when_failed={},
+        counts_when_empty={"valuation_measures": 0},
     ),
     _fundamental("eps_trend", "analysis.fetch_eps_trend"),
     _fundamental("eps_revisions", "analysis.fetch_eps_revisions"),
@@ -322,6 +420,7 @@ CATEGORIES: list[Category] = [
     _block(
         "analyst_actions",
         "analysis.fetch_upgrades_downgrades",
+        "upsert_analyst_actions",
         "recommendations_updated_at",
         _THRESHOLDS.recommendations_hours,
     ),
@@ -340,6 +439,7 @@ CATEGORIES: list[Category] = [
     _block(
         "dividends",
         "corporate_actions.fetch_dividends",
+        "upsert_dividends",
         "dividends_updated_at",
         _THRESHOLDS.dividends_hours,
         sample=_events,
@@ -348,6 +448,7 @@ CATEGORIES: list[Category] = [
     _block(
         "splits",
         "corporate_actions.fetch_splits",
+        "upsert_splits",
         "splits_updated_at",
         _THRESHOLDS.splits_hours,
         sample=_events,
@@ -356,12 +457,14 @@ CATEGORIES: list[Category] = [
     _block(
         "recommendations",
         "analysis.fetch_recommendations_summary",
+        "upsert_recommendations",
         "recommendations_updated_at",
         _THRESHOLDS.recommendations_hours,
     ),
     _block(
         "price_targets",
         "analysis.fetch_analyst_price_targets",
+        "upsert_price_targets",
         "price_targets_updated_at",
         _THRESHOLDS.price_targets_hours,
         sample=lambda: {"current": 100.0, "mean": 120.0},
@@ -370,36 +473,42 @@ CATEGORIES: list[Category] = [
     _block(
         "institutional_holders",
         "holders.fetch_institutional_holders",
+        "upsert_institutional_holders",
         "institutional_holders_updated_at",
         _THRESHOLDS.institutional_holders_hours,
     ),
     _block(
         "mutualfund_holders",
         "holders.fetch_mutualfund_holders",
+        "upsert_mutualfund_holders",
         "mutualfund_holders_updated_at",
         _THRESHOLDS.mutualfund_holders_hours,
     ),
     _block(
         "insider_transactions",
         "holders.fetch_insider_transactions",
+        "upsert_insider_transactions",
         "insider_transactions_updated_at",
         _THRESHOLDS.insider_transactions_hours,
     ),
     _block(
         "major_holders",
         "holders.fetch_major_holders",
+        "upsert_major_holders",
         "institutional_holders_updated_at",
         _THRESHOLDS.institutional_holders_hours,
     ),
     _block(
         "insider_purchases",
         "holders.fetch_insider_purchases",
+        "upsert_insider_purchases",
         "insider_transactions_updated_at",
         _THRESHOLDS.insider_transactions_hours,
     ),
     _block(
         "insider_roster",
         "holders.fetch_insider_roster_holders",
+        "upsert_insider_roster",
         "insider_transactions_updated_at",
         _THRESHOLDS.insider_transactions_hours,
     ),
@@ -411,9 +520,10 @@ CATEGORIES: list[Category] = [
         sample=lambda: [{"id": "news-1", "title": "Example Corp beats estimates"}],
         empties=(None, []),
         answer=_news_feed,
-        fail=_news_write_rejected,
-        stored={"news": _ROWS},
-        failure_errors=(f"news: {_REFUSAL}",),
+        fail=_news_lookup_fails,
+        fail_write=_write_raises("upsert_news"),
+        stored={"news": _ROWS_BY_WRITE["upsert_news"]},
+        error_labels=("news",),
         counts_when_failed={},
         counts_when_empty={"news": 0},
     ),
@@ -429,8 +539,9 @@ def _name(category: Category) -> str:
 
 def _storing_repo() -> MagicMock:
     repo = _make_repo()
-    for write in _WRITES:
-        getattr(repo, write).return_value = _ROWS
+    for write, rows in _ROWS_BY_WRITE.items():
+        getattr(repo, write).return_value = rows
+    repo.upsert_financial_statements.side_effect = _store_statement
     repo.get_price_history.return_value = []
     repo.get_scraped_news_uuids.return_value = set()
     return repo
@@ -438,6 +549,9 @@ def _storing_repo() -> MagicMock:
 
 def _answering_client() -> MagicMock:
     client = _make_yf_client_silent()
+    # The silent client's breaker is a MagicMock whose ``is_active`` is truthy,
+    # which turns every empty-answer record into a no-op; a real breaker lets
+    # the memory tests see what the sweep remembers.
     client.circuit_breaker = CircuitBreaker()
     for category in CATEGORIES:
         category.answer(client, category.sample())
@@ -474,6 +588,10 @@ def _stored_counts(*excluding: str) -> dict[str, int]:
     }
 
 
+def _errors(category: Category, message: str) -> list[str]:
+    return [f"{label}: {message}" for label in category.error_labels]
+
+
 def _sharing_markers(category: Category) -> set[str]:
     return {other.name for other in CATEGORIES if other.markers == category.markers}
 
@@ -506,13 +624,37 @@ def test_category_failure_is_recorded_and_other_categories_still_store(
 
     result = _sweep(client, "full", repo=repo)
 
-    assert result["errors"] == list(category.failure_errors)
+    assert result["errors"] == _errors(category, _REFUSAL)
     assert result["counts"] == {
         **_stored_counts(category.name),
         **category.counts_when_failed,
     }
     assert result["skipped"] == []
     assert result["transport_failures"] == 0
+
+
+@pytest.mark.parametrize("category", CATEGORIES, ids=_name)
+def test_category_write_failure_is_recorded_and_other_categories_still_store(
+    category: Category,
+) -> None:
+    """Report a rejected write by the category's own error and keep storing the rest.
+
+    The write runs inside the category's handler, so the database's rejection is
+    reported by its driver cause, without the SQL text. Financials and valuation
+    measures share one write; the fault is keyed on its statement type, so only
+    the category under test fails.
+    """
+    repo = _storing_repo()
+    category.fail_write(repo, _rejected_write())
+
+    result = _sweep(_answering_client(), "full", repo=repo)
+
+    assert result["errors"] == _errors(category, _REJECTION)
+    assert result["counts"] == {
+        **_stored_counts(category.name),
+        **category.counts_when_failed,
+    }
+    assert result["skipped"] == []
 
 
 _EMPTY_ANSWERS = [
@@ -544,9 +686,15 @@ def test_empty_answer_is_counted_as_zero_not_errored(
 def test_incremental_fresh_category_is_skipped(category: Category) -> None:
     """Skip a category whose markers sit inside its window.
 
-    Its fetch is set to raise, so a fetch made for the category despite the fresh
-    markers would surface as its error. Categories gated on the same markers are
-    skipped with it.
+    Its fetch is set to raise, so a fetch made to store the category despite the
+    fresh markers would surface as its error. Categories gated on the same
+    markers are skipped with it.
+
+    For the profile this pins current behaviour that is likely unintentional: a
+    fresh profile is not stored, but the statements step still requests ``info``
+    for the statements' currency and only logs that request's failure, so the
+    profile case passes although its poisoned fetch runs. Update it deliberately
+    if the split changes that.
     """
     client = _answering_client()
     repo = _storing_repo()
@@ -629,6 +777,10 @@ def test_unreachable_statements_client_fails_the_block_as_one_error() -> None:
     The statement fetchers are looked up before the per-group handlers run, so
     the block's outer handler catches the failure. SEC filings use the same
     sub-client and fail on their own.
+
+    Pins current behaviour that is likely incidental: six failed groups report six
+    errors and ``financials: 0``, this path one error and no count. Update it
+    deliberately if the split resolves the fetchers inside the per-group handler.
     """
     client = _answering_client()
     type(client).financials = PropertyMock(side_effect=RuntimeError(_REFUSAL))
@@ -648,6 +800,25 @@ def test_isin_failure_is_reported_without_costing_the_profile() -> None:
 
     assert result["errors"] == [f"isin: {_REFUSAL}"]
     assert result["counts"] == _stored_counts()
+
+
+def test_profile_extras_write_failure_keeps_the_profile_count() -> None:
+    """Keep the stored profile's count when only the extras write is rejected.
+
+    Pins current behaviour that is likely unintentional: the error carries the
+    ``profile`` label although the profile row was stored, and only
+    ``profile_extras`` is left out of the counts. Update it deliberately if the
+    split reports the extras write on its own.
+    """
+    repo = _storing_repo()
+    repo.upsert_profile_extras.side_effect = _rejected_write()
+
+    result = _sweep(_answering_client(), "full", repo=repo)
+
+    expected = _stored_counts()
+    del expected["profile_extras"]
+    assert result["errors"] == [f"profile: {_REJECTION}"]
+    assert result["counts"] == expected
 
 
 def test_statement_groups_remember_empty_answers_group_by_group() -> None:
@@ -670,8 +841,12 @@ def test_statement_groups_remember_empty_answers_group_by_group() -> None:
 
     result = _sweep(client, "full", memory=memory, instrument_id=instrument_id)
 
+    balance_sheet_rows = (
+        _STATEMENT_ROWS[("balance_sheet", "annual")]
+        + _STATEMENT_ROWS[("balance_sheet", "quarterly")]
+    )
     assert result["errors"] == [f"financials.income_statement.annual: {_REFUSAL}"]
-    assert result["counts"]["financials"] == 2 * _ROWS
+    assert result["counts"]["financials"] == balance_sheet_rows
     assert _remembered(memory, instrument_id, _STATEMENT_MARKERS) == {
         "income_statement_quarterly_updated_at",
         "cashflow_annual_updated_at",
@@ -682,8 +857,10 @@ def test_statement_groups_remember_empty_answers_group_by_group() -> None:
 def test_fundamental_categories_remember_only_answered_empty_ones() -> None:
     """Remember a fundamentals category that answered without rows, not a failed one.
 
-    A valuation panel whose columns resolve to no date stores nothing and is
-    remembered like an empty answer.
+    Pins current behaviour that is likely unintentional: a valuation panel whose
+    columns resolve to no date stores nothing and is remembered like an empty
+    answer, which hides the category for ``no_data_hours`` although Yahoo did
+    answer. Update it deliberately if the split changes that.
     """
     instrument_id = uuid4()
     memory = EmptyFetchMemory()
