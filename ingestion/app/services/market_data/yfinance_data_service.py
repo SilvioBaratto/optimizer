@@ -75,6 +75,7 @@ from app.services.market_data.yfinance.fetch_plan import (
 # Kept under its private name: this module calls it by that name, and its
 # tests import it from here.
 from app.services.market_data.yfinance.fetch_plan import is_fresh as _is_fresh
+from app.services.market_data.yfinance.price_policy import spans_stored_series
 from app.utils.currency import to_major_currency
 
 logger = logging.getLogger(__name__)
@@ -341,10 +342,6 @@ def _has_no_share_counts(shares: Any) -> bool:
 _BASIS_REL_TOL = 1e-4
 _BASIS_ABS_TOL = 1e-6
 
-# A re-based history may open a few sessions after the first stored bar
-# (holiday, first-day gap) and still cover the whole stored series.
-_REBASE_START_TOLERANCE = timedelta(days=7)
-
 # Yahoo resolves a period such as "5y" on its own clock, a day or two off ours: a
 # stored bar this close to the period's edge could fall just outside the fetch.
 _PERIOD_EDGE_MARGIN = timedelta(days=7)
@@ -498,8 +495,7 @@ class YFinanceDataService:
         )
         if first is None:
             return False
-        opens = _bar_date(history.index.min())
-        return opens is not None and opens <= first.date + _REBASE_START_TOLERANCE
+        return spans_stored_series(_bar_date(history.index.min()), first.date)
 
     def _full_fetch_start(self, instrument_id: UUID, period: str) -> date | None:
         """Return where a full-history fetch must start to span the stored series.
