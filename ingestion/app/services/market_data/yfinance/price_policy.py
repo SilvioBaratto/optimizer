@@ -117,6 +117,8 @@ def decide_price_storage(
         return PriceStorageDecision(False, PriceStorageReason.NOTHING_FETCHED)
     if basis.sufficient:
         return PriceStorageDecision(True, PriceStorageReason.SUFFICIENT_HISTORY)
+    # Judged on sufficiency alone, a recent listing's first load was discarded on
+    # every run, which kept ~102 instruments out of price_history without an error.
     if young_listing:
         return PriceStorageDecision(True, PriceStorageReason.YOUNG_LISTING)
     if basis.spans_stored_series:

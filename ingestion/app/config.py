@@ -222,6 +222,17 @@ class Settings(BaseSettings):
             "Set DEBUG to troubleshoot yfinance itself."
         ),
     )
+    yfinance_news_scrape_delay_seconds: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=10.0,
+        alias="YFINANCE_NEWS_SCRAPE_DELAY_SECONDS",
+        description=(
+            "Seconds the yfinance sweep waits before each article page it scrapes "
+            "for a ticker's news, so the news sites are not hit back to back. "
+            "Must be in [0, 10]; 0 scrapes without a pause."
+        ),
+    )
 
     news_retention_days: int = Field(
         default=365,
