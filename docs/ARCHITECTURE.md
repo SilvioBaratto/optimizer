@@ -870,6 +870,8 @@ _Da qui in giù la sezione è generata da `scriptorium arch` il 2026-08-19: non 
     │   │   │   │   ├── __init__.py  ┃ DRIVEN
     │   │   │   │   ├── _base.py  ┃ DRIVEN
     │   │   │   │   ├── _facade.py  ┃ DRIVEN
+    │   │   │   │   ├── categories.py  ┃ CORE
+    │   │   │   │   ├── fetch_plan.py  ┃ CORE
     │   │   │   │   ├── infrastructure/
     │   │   │   │   │   ├── __init__.py  ┃ DRIVEN
     │   │   │   │   │   ├── cache.py  ┃ DRIVEN
@@ -885,6 +887,7 @@ _Da qui in giù la sezione è generata da `scriptorium arch` il 2026-08-19: non 
     │   │   │   │   │   ├── client.py  ┃ DRIVEN
     │   │   │   │   │   ├── macro_news.py  ┃ DRIVEN
     │   │   │   │   │   └── scraper.py  ┃ DRIVEN
+    │   │   │   │   ├── price_policy.py  ┃ CORE
     │   │   │   │   ├── protocols/
     │   │   │   │   │   ├── __init__.py  ┃ PORTS
     │   │   │   │   │   └── interfaces.py  ┃ PORTS

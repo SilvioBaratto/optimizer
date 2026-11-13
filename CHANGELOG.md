@@ -300,6 +300,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   memory of empty answers are unchanged; the failure warning of a migrated
   category now comes from the `categories` logger and names it by its key (for
   example `price_targets`, `financials.balance_sheet.annual`).
+- **ingestion**: the yfinance sweep's `_fetch_and_store` is split into profile,
+  price, statement, fundamentals, event and news steps and now only builds the
+  sweep's context and plan, in 27 lines instead of about 470. Whether a fetched
+  full-period price history may replace the stored series is decided by a pure,
+  unit-tested `decide_price_storage`
+  (`app/services/market_data/yfinance/price_policy.py`). The pause before each
+  scraped news article is the new `YFINANCE_NEWS_SCRAPE_DELAY_SECONDS` setting
+  (default 0.5, the value it always had; 0 to 10). The unused
+  `FetchPlan.all_fresh` is removed, and the complexity ratchet's baselines no
+  longer list `_fetch_and_store`. Behaviour is unchanged.
 
 ### Removed
 

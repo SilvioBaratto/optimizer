@@ -156,7 +156,6 @@
   "ingestion/app/services/market_data/yfinance/news/macro_news.py::MacroNewsFetcher.fetch_all": 151,
   "ingestion/app/services/market_data/yfinance/news/scraper.py::ArticleScraper.fetch": 76,
   "ingestion/app/services/market_data/yfinance/screener/screener_client.py::ScreenerClient.screen": 44,
-  "ingestion/app/services/market_data/yfinance_data_service.py::YFinanceDataService._fetch_and_store": 974,
   "ingestion/app/services/market_data/yfinance_data_service.py::YFinanceDataService._fetch_etf_metadata": 108,
   "ingestion/app/services/market_data/yfinance_data_service.py::_run_bulk_yfinance_fetch_parallel": 91,
   "ingestion/app/services/market_data/yfinance_data_service.py::call_with_timeout": 33,
