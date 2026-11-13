@@ -29,8 +29,10 @@ import json
 import logging
 import math
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from enum import Enum
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from fund.config import FundConfig, settings
@@ -48,8 +50,8 @@ if TYPE_CHECKING:
 # reject but is logged distinctly (its own audit action, no paired undo). ``respond``
 # is a ``place_orders``-only barge-in that threads the adviser's ``pm_directive`` back
 # to the PM — not a terminal decision: the run re-gates as ``responded`` (still
-# awaiting approval) or finalises incomplete. The keys are the resume-dispatch set in
-# apply_action.
+# awaiting approval) or finalises incomplete. The keys are the kinds ACTION_HANDLERS
+# routes to the resume handler.
 _RESUME_DECISION = {
     "approve": "approve",
     "reject": "reject",
@@ -110,6 +112,114 @@ class ActionResult:
     detail: dict[str, Any] | None = None
 
 
+class ActionKind(str, Enum):
+    """Every action :func:`apply_action` applies, valued by the string callers pass."""
+
+    APPROVE = "approve"
+    REJECT = "reject"
+    RESPOND = "respond"
+    KILLSWITCH = "killswitch"
+    EDIT = "edit"
+    FREEZE = "freeze"
+    REARM = "rearm"
+    MANDATE_EDIT = "mandate_edit"
+    GUARDRAIL_OVERRIDE = "guardrail_override"
+    NEW_PORTFOLIO = "new_portfolio"
+    PROFILE = "profile"
+    RUN = "run"
+
+
+@dataclass(frozen=True)
+class ActionTarget:
+    """What an action is applied to; see :func:`apply_action` for each argument.
+
+    Attributes:
+        run_id: The run to act on.
+        portfolio_id: The affected portfolio, or ``None`` to derive it from the run.
+        scope: Autonomy scope for ``freeze`` / ``rearm``.
+    """
+
+    run_id: uuid.UUID | str | None
+    portfolio_id: uuid.UUID | None
+    scope: str | None
+
+
+@dataclass(frozen=True)
+class ActionPayload:
+    """What the adviser supplied, and the provenance its audit row records.
+
+    Attributes:
+        mandate: The mandate to save (``mandate_edit`` / ``new_portfolio``) or run.
+        questionnaire: MiFID answers for ``profile``.
+        asof: Decision bar for a ``profile`` / ``run`` drive.
+        base_currency: Reporting currency override for ``profile``.
+        target: The field or guardrail the action touched.
+        prev_value: Prior value recorded on the audit row.
+        new_value: New value recorded on the audit row (the weights of an ``edit``).
+        actor: Who acted.
+        source: Provenance recorded on the audit row.
+        override_flag: A guardrail edited past its MiFID band.
+        suitability_flag: Outside the suitability band.
+        idempotency_key: Dedup key; a repeated key replays the first result.
+        rationale: Free-text reason recorded with the action.
+        pm_directive: Adviser text threaded to the PM by ``respond``.
+    """
+
+    mandate: Any | None
+    questionnaire: Any | None
+    asof: dt.date | None
+    base_currency: str | None
+    target: str | None
+    prev_value: Any | None
+    new_value: Any | None
+    actor: str
+    source: str | None
+    override_flag: bool
+    suitability_flag: bool
+    idempotency_key: str | None
+    rationale: str | None
+    pm_directive: str | None
+
+
+@dataclass(frozen=True)
+class ActionDeps:
+    """The collaborators an action runs with, all owned by the caller.
+
+    Attributes:
+        session: Injected sync session; never committed by the action.
+        checkpointer: LangGraph checkpointer for the resume / drive flows.
+        store: LangGraph store for the resume / drive flows.
+        model: Chat model the resumed or driven run uses.
+        fallback: Chat model its subagents retry on, or ``None``.
+        config: Fund settings threaded to the resumer and the drives.
+    """
+
+    session: Session
+    checkpointer: Any | None
+    store: Any | None
+    model: Any | None
+    fallback: Any | None
+    config: FundConfig
+
+
+@dataclass(frozen=True)
+class ActionRequest:
+    """The arguments of one :func:`apply_action` call, as its kind's handler gets them.
+
+    Attributes:
+        target: What the action is applied to.
+        payload: What the adviser supplied, with its audit provenance.
+        deps: The collaborators the action runs with.
+    """
+
+    target: ActionTarget
+    payload: ActionPayload
+    deps: ActionDeps
+
+
+ActionHandler = Callable[[ActionRequest], ActionResult]
+
+
 def apply_action(
     action: str,
     *,
@@ -165,7 +275,9 @@ def apply_action(
     ``guardrail_override`` is **audit-only** — it records a guardrail touch and, when
     the caller marks it past the MiFID suitability band, stamps the ⚑/⚠ flags. Each logs
     the human decision with run/portfolio provenance; a resume action recovers
-    ``portfolio_id`` from its run when omitted.
+    ``portfolio_id`` from its run when omitted. The keywords are grouped into an
+    :class:`ActionRequest` for the handler :data:`ACTION_HANDLERS` holds for the
+    action's :class:`ActionKind`.
 
     Args:
         action: The action kind; the resume actions, ``"edit"``, ``"mandate_edit"``,
@@ -221,82 +333,13 @@ def apply_action(
         sqlalchemy.exc.DBAPIError: A resume-style action whose ``idempotency_key`` is
             held by a concurrent in-flight submit; that submit owns the action.
     """
-    if idempotency_key is not None:
-        replay = _replayed_action(session, idempotency_key)
-        if replay is not None:
-            return replay
-    if action in _RESUME_DECISION:
-        return _apply_resume(
-            action,
-            decision=_RESUME_DECISION[action],
-            session=session,
-            run_id=run_id,
-            portfolio_id=portfolio_id,
-            checkpointer=checkpointer,
-            store=store,
-            model=model,
-            fallback=fallback,
-            pm_directive=pm_directive,
-            actor=actor,
-            source=source,
-            override_flag=override_flag,
-            suitability_flag=suitability_flag,
-            idempotency_key=idempotency_key,
-            rationale=rationale,
-            config=config,
-        )
-    if action == "edit":
-        return _apply_edit(
-            session=session,
-            run_id=run_id,
-            portfolio_id=portfolio_id,
-            checkpointer=checkpointer,
-            store=store,
-            model=model,
-            fallback=fallback,
-            new_value=new_value,
-            actor=actor,
-            source=source,
-            idempotency_key=idempotency_key,
-            rationale=rationale,
-            config=config,
-        )
-    if action == "freeze":
-        return _apply_freeze(
-            session=session,
-            scope=scope,
-            run_id=run_id,
-            portfolio_id=portfolio_id,
-            actor=actor,
-            source=source,
-            idempotency_key=idempotency_key,
-            rationale=rationale,
-        )
-    if action == "rearm":
-        return _apply_rearm(
-            session=session,
-            scope=scope,
-            portfolio_id=portfolio_id,
-            actor=actor,
-            source=source,
-            idempotency_key=idempotency_key,
-            rationale=rationale,
-        )
-    if action == "mandate_edit":
-        return _apply_mandate_edit(
-            session=session,
-            portfolio_id=portfolio_id,
+    request = ActionRequest(
+        target=ActionTarget(run_id=run_id, portfolio_id=portfolio_id, scope=scope),
+        payload=ActionPayload(
             mandate=mandate,
-            actor=actor,
-            source=source,
-            prev_value=prev_value,
-            idempotency_key=idempotency_key,
-            rationale=rationale,
-        )
-    if action == "guardrail_override":
-        return _apply_guardrail_override(
-            session=session,
-            portfolio_id=portfolio_id,
+            questionnaire=questionnaire,
+            asof=asof,
+            base_currency=base_currency,
             target=target,
             prev_value=prev_value,
             new_value=new_value,
@@ -306,51 +349,217 @@ def apply_action(
             suitability_flag=suitability_flag,
             idempotency_key=idempotency_key,
             rationale=rationale,
-        )
-    if action == "new_portfolio":
-        return _apply_new_portfolio(
+            pm_directive=pm_directive,
+        ),
+        deps=ActionDeps(
             session=session,
-            portfolio_id=portfolio_id,
-            mandate=mandate,
-            actor=actor,
-            source=source,
-            idempotency_key=idempotency_key,
-            rationale=rationale,
-        )
-    if action == "profile":
-        return _apply_profile(
-            session=session,
-            portfolio_id=portfolio_id,
-            questionnaire=questionnaire,
-            model=model,
-            fallback=fallback,
             checkpointer=checkpointer,
             store=store,
-            base_currency=base_currency,
-            asof=asof,
-            actor=actor,
-            source=source,
-            idempotency_key=idempotency_key,
-            rationale=rationale,
-            config=config,
-        )
-    if action == "run":
-        return _apply_run(
-            session=session,
-            portfolio_id=portfolio_id,
-            mandate=mandate,
             model=model,
             fallback=fallback,
-            checkpointer=checkpointer,
-            store=store,
-            asof=asof,
-            actor=actor,
-            source=source,
-            idempotency_key=idempotency_key,
-            rationale=rationale,
             config=config,
-        )
-    raise ValueError(f"unknown action {action!r}")
+        ),
+    )
+    return _dispatch(action, request)
+
+
+def _dispatch(action: str, request: ActionRequest) -> ActionResult:
+    """Replay an action already applied under its key, else run its kind's handler.
+
+    The replay is looked up before the action is, so a repeated key returns the first
+    result whatever the action string says now.
+
+    Raises:
+        ValueError: ``action`` names no :class:`ActionKind`.
+    """
+    key = request.payload.idempotency_key
+    if key is not None:
+        replay = _replayed_action(request.deps.session, key)
+        if replay is not None:
+            return replay
+    kind = _KINDS_BY_NAME.get(action)
+    if kind is None:
+        raise ValueError(f"unknown action {action!r}")
+    return ACTION_HANDLERS[kind](request)
+
+
+def _handle_resume(kind: ActionKind, request: ActionRequest) -> ActionResult:
+    """Log a gate decision of ``kind``, then resume the paused run with its verb."""
+    target, payload, deps = request.target, request.payload, request.deps
+    return _apply_resume(
+        kind.value,
+        decision=_RESUME_DECISION[kind.value],
+        session=deps.session,
+        run_id=target.run_id,
+        portfolio_id=target.portfolio_id,
+        checkpointer=deps.checkpointer,
+        store=deps.store,
+        model=deps.model,
+        fallback=deps.fallback,
+        pm_directive=payload.pm_directive,
+        actor=payload.actor,
+        source=payload.source,
+        override_flag=payload.override_flag,
+        suitability_flag=payload.suitability_flag,
+        idempotency_key=payload.idempotency_key,
+        rationale=payload.rationale,
+        config=deps.config,
+    )
+
+
+def _handle_edit(request: ActionRequest) -> ActionResult:
+    """Approve a paused run with the adviser's edited weights."""
+    target, payload, deps = request.target, request.payload, request.deps
+    return _apply_edit(
+        session=deps.session,
+        run_id=target.run_id,
+        portfolio_id=target.portfolio_id,
+        checkpointer=deps.checkpointer,
+        store=deps.store,
+        model=deps.model,
+        fallback=deps.fallback,
+        new_value=payload.new_value,
+        actor=payload.actor,
+        source=payload.source,
+        idempotency_key=payload.idempotency_key,
+        rationale=payload.rationale,
+        config=deps.config,
+    )
+
+
+def _handle_freeze(request: ActionRequest) -> ActionResult:
+    """Freeze autonomy at the requested scope."""
+    target, payload = request.target, request.payload
+    return _apply_freeze(
+        session=request.deps.session,
+        scope=target.scope,
+        run_id=target.run_id,
+        portfolio_id=target.portfolio_id,
+        actor=payload.actor,
+        source=payload.source,
+        idempotency_key=payload.idempotency_key,
+        rationale=payload.rationale,
+    )
+
+
+def _handle_rearm(request: ActionRequest) -> ActionResult:
+    """Re-arm autonomy at the requested scope."""
+    target, payload = request.target, request.payload
+    return _apply_rearm(
+        session=request.deps.session,
+        scope=target.scope,
+        portfolio_id=target.portfolio_id,
+        actor=payload.actor,
+        source=payload.source,
+        idempotency_key=payload.idempotency_key,
+        rationale=payload.rationale,
+    )
+
+
+def _handle_mandate_edit(request: ActionRequest) -> ActionResult:
+    """Save an edited mandate."""
+    payload = request.payload
+    return _apply_mandate_edit(
+        session=request.deps.session,
+        portfolio_id=request.target.portfolio_id,
+        mandate=payload.mandate,
+        actor=payload.actor,
+        source=payload.source,
+        prev_value=payload.prev_value,
+        idempotency_key=payload.idempotency_key,
+        rationale=payload.rationale,
+    )
+
+
+def _handle_guardrail_override(request: ActionRequest) -> ActionResult:
+    """Record a guardrail touch, with its flags, in the audit trail only."""
+    payload = request.payload
+    return _apply_guardrail_override(
+        session=request.deps.session,
+        portfolio_id=request.target.portfolio_id,
+        target=payload.target,
+        prev_value=payload.prev_value,
+        new_value=payload.new_value,
+        actor=payload.actor,
+        source=payload.source,
+        override_flag=payload.override_flag,
+        suitability_flag=payload.suitability_flag,
+        idempotency_key=payload.idempotency_key,
+        rationale=payload.rationale,
+    )
+
+
+def _handle_new_portfolio(request: ActionRequest) -> ActionResult:
+    """Create a portfolio with its initial mandate."""
+    payload = request.payload
+    return _apply_new_portfolio(
+        session=request.deps.session,
+        portfolio_id=request.target.portfolio_id,
+        mandate=payload.mandate,
+        actor=payload.actor,
+        source=payload.source,
+        idempotency_key=payload.idempotency_key,
+        rationale=payload.rationale,
+    )
+
+
+def _handle_profile(request: ActionRequest) -> ActionResult:
+    """Drive the MiFID profiler for a portfolio."""
+    payload, deps = request.payload, request.deps
+    return _apply_profile(
+        session=deps.session,
+        portfolio_id=request.target.portfolio_id,
+        questionnaire=payload.questionnaire,
+        model=deps.model,
+        fallback=deps.fallback,
+        checkpointer=deps.checkpointer,
+        store=deps.store,
+        base_currency=payload.base_currency,
+        asof=payload.asof,
+        actor=payload.actor,
+        source=payload.source,
+        idempotency_key=payload.idempotency_key,
+        rationale=payload.rationale,
+        config=deps.config,
+    )
+
+
+def _handle_run(request: ActionRequest) -> ActionResult:
+    """Drive one rebalance round of a portfolio to its gate."""
+    payload, deps = request.payload, request.deps
+    return _apply_run(
+        session=deps.session,
+        portfolio_id=request.target.portfolio_id,
+        mandate=payload.mandate,
+        model=deps.model,
+        fallback=deps.fallback,
+        checkpointer=deps.checkpointer,
+        store=deps.store,
+        asof=payload.asof,
+        actor=payload.actor,
+        source=payload.source,
+        idempotency_key=payload.idempotency_key,
+        rationale=payload.rationale,
+        config=deps.config,
+    )
+
+
+# Exactly one handler per kind: a kind left out would only fail once an adviser used it.
+ACTION_HANDLERS: dict[ActionKind, ActionHandler] = {
+    ActionKind.APPROVE: partial(_handle_resume, ActionKind.APPROVE),
+    ActionKind.REJECT: partial(_handle_resume, ActionKind.REJECT),
+    ActionKind.RESPOND: partial(_handle_resume, ActionKind.RESPOND),
+    ActionKind.KILLSWITCH: partial(_handle_resume, ActionKind.KILLSWITCH),
+    ActionKind.EDIT: _handle_edit,
+    ActionKind.FREEZE: _handle_freeze,
+    ActionKind.REARM: _handle_rearm,
+    ActionKind.MANDATE_EDIT: _handle_mandate_edit,
+    ActionKind.GUARDRAIL_OVERRIDE: _handle_guardrail_override,
+    ActionKind.NEW_PORTFOLIO: _handle_new_portfolio,
+    ActionKind.PROFILE: _handle_profile,
+    ActionKind.RUN: _handle_run,
+}
+_KINDS_BY_NAME: dict[str, ActionKind] = {kind.value: kind for kind in ActionKind}
 
 
 def _apply_resume(
@@ -1732,8 +1941,15 @@ def is_within_suitability_band(proposed_band: str, suitability_band: str) -> boo
 
 
 __all__ = [
+    "ACTION_HANDLERS",
     "MODEL_FREE_ACTIONS",
+    "ActionDeps",
+    "ActionHandler",
+    "ActionKind",
+    "ActionPayload",
+    "ActionRequest",
     "ActionResult",
+    "ActionTarget",
     "GateMovedError",
     "append_run_audit",
     "apply_action",

@@ -80,10 +80,10 @@ GROUP BY job_type;
 | Aspect | Measured on 2026-11-13 | Target | Status |
 |---|---|---|---|
 | Coverage | Four suites with branch coverage, floors in CI | Library 90, `portopt-db` 90, ingestion 80, fund 80 (standard goal 75) | enforced |
-| Tests | Library 3,765, ingestion 3,736, `portopt-db` 1,381 (+8 Postgres integration), fund 3,635 passing | All pass on every CI run | enforced |
+| Tests | Library 3,765, ingestion 4,254, `portopt-db` 1,381 (+8 Postgres integration), fund 3,803 passing | All pass on every CI run | enforced |
 | Static analysis | ruff (check and format), mypy strict, pyright with 0 errors, shellcheck, `pip-audit --strict` | Clean | enforced |
-| Function size | 266 of 2,932 functions are over 30 lines, each listed in `scripts/ci/baselines/long_functions.json` | At most 30 lines (standard 2.8) | enforced by `scripts/ci/check_complexity_ratchet.py`: no new offender, no listed one grows |
-| Cyclomatic complexity | 46 functions at CC 10 or more, each listed in `scripts/ci/baselines/complex_functions.json` | Below 10 (standard 2.8) | enforced by `scripts/ci/check_complexity_ratchet.py`: no new offender, no listed one grows |
+| Function size | 264 of 2,958 functions are over 30 lines, each listed in `scripts/ci/baselines/long_functions.json` | At most 30 lines (standard 2.8) | enforced by `scripts/ci/check_complexity_ratchet.py`: no new offender, no listed one grows |
+| Cyclomatic complexity | 44 functions at CC 10 or more, each listed in `scripts/ci/baselines/complex_functions.json` | Below 10 (standard 2.8) | enforced by `scripts/ci/check_complexity_ratchet.py`: no new offender, no listed one grows |
 | Duplication | About 2.8% in the library by an approximate scan; the other packages are not measured | At most 3 to 5% (standard 2.8) | proposed |
 | Dependency vulnerabilities | `pip-audit --strict` over the exported lock on every push and pull request | None known | enforced |
 

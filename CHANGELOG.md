@@ -323,6 +323,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fallback where the old copies disagreed. The complexity ratchet's baselines
   drop those functions: 266 long and 46 complex functions remain. Behaviour is
   unchanged.
+- **fund**: three long functions of the agents and actions are split, each after
+  characterization tests pinned its current results. The Ask agent's
+  `build_ask_tools` (210 lines) builds its eleven data tools from one
+  `make_<tool>_tool` factory each, and the read-only session, the portfolio
+  resolution and the one-portfolio confinement they share live on a frozen
+  `AskToolContext`. `run_fund` and `stream_fund` close a round through one
+  `_settle_round` instead of two copies. `apply_action` (130 lines) groups its
+  keywords into a frozen `ActionRequest` and dispatches it through
+  `ACTION_HANDLERS`, one handler per `ActionKind`; its signature, its replay of a
+  repeated idempotency key and its error for an unknown action are unchanged. The
+  complexity ratchet's baselines drop `build_ask_tools` and `apply_action` and
+  lower `run_fund` and `stream_fund`: 264 long and 44 complex functions remain.
+  Behaviour is unchanged.
 
 ### Removed
 
