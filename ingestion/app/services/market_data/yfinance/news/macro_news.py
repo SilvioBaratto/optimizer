@@ -281,6 +281,16 @@ _ALL_THEMES = frozenset(theme.value for theme in MacroTheme)
 # Search queries return at most this many articles each.
 _SEARCH_RESULTS_PER_QUERY = 8
 
+# Search articles target specific macro narratives, so they take this share of
+# the budget first, and never fewer than the floor while the budget allows.
+_SEARCH_SHARE_PERCENT = 40
+_MIN_SEARCH_ARTICLES = 10
+
+
+def _source_total() -> int:
+    """Return how many sources one sweep walks: every ticker feed and query."""
+    return len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES)
+
 
 def _publish_time(article: dict[str, Any]) -> str:
     """Sort key for newest-first order; an article without a time sorts last."""
@@ -294,11 +304,11 @@ def _themes_of(article: dict[str, Any]) -> set[str]:
 
 def _search_cap(max_articles: int) -> int:
     """Return how many search articles a budget of ``max_articles`` takes first."""
-    # Search articles get priority: 40 % of the budget, or 10 if that is
-    # more. Clamping to max_articles matters for a small budget, where an
-    # unclamped take would leave a negative ticker budget and a negative
-    # slice bound keeps nearly every ticker article instead of none.
-    return min(max(max_articles * 4 // 10, 10), max_articles)
+    # Clamping to max_articles matters for a small budget, where an unclamped
+    # take would leave a negative ticker budget and a negative slice bound keeps
+    # nearly every ticker article instead of none.
+    share = max_articles * _SEARCH_SHARE_PERCENT // 100
+    return min(max(share, _MIN_SEARCH_ARTICLES), max_articles)
 
 
 def _fill_missing_themes(
@@ -385,7 +395,7 @@ class _SourceTally:
             raise MacroNewsUnavailableError(
                 "No article from any macro news source: "
                 f"{self.failed} failed, {self.empty} empty "
-                f"of {len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES)} sources"
+                f"of {_source_total()} sources"
             )
 
 
@@ -452,7 +462,7 @@ class MacroNewsFetcher:
         """
         self._seen_titles.clear()
         tally = _SourceTally()
-        on_progress(total=len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES))
+        on_progress(total=_source_total())
         ticker_articles = self._collect_ticker_news(
             tally,
             on_progress,
