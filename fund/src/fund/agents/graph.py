@@ -2097,6 +2097,75 @@ def _finalize_failed(
     _drop_checkpoint_thread(checkpointer, run_id, thread_id)
 
 
+@dataclass(frozen=True)
+class _RoundEnd:
+    """How :func:`_settle_round` closed a round the PM agent ran to its end.
+
+    Attributes:
+        status: The run's new status: ``"incomplete"`` (no gate was reached),
+            ``"rejected"`` (a freeze landed while the round ran) or ``"paused"``
+            (the ``place_orders`` gate is live).
+        reason: Why an ``incomplete`` round never reached the gate (one of
+            :func:`_ungated_end_reason`'s); ``None`` for the other two.
+    """
+
+    status: str
+    reason: str | None = None
+
+
+def _settle_round(
+    session: Any,
+    setup: _FundRunSetup,
+    portfolio_id: uuid.UUID | str,
+    *,
+    interrupt: dict[str, Any] | None,
+    last_message: Any,
+    pm_round_cap_reached: bool,
+) -> _RoundEnd:
+    """Close a round that ran to its end: the one ending shared by run and stream.
+
+    With no gate, the PM tripped the delegation round cap, its order call was cut off
+    or malformed, or a blocking risk verdict left nothing to commit; each is recorded
+    as its own reason, distinct from the recursion-limit ``"round_cap"``. A freeze is
+    looked at only once a gate was reached. No commit.
+    """
+    run_id = setup.run.id
+    if interrupt is None:
+        reason = _ungated_end_reason(
+            last_message, pm_round_cap_reached=pm_round_cap_reached
+        )
+        _finalize_incomplete(setup.audit, run_id, reason)
+        return _RoundEnd("incomplete", reason)
+    if _halt_if_frozen(session, setup.audit, run_id, _coerce_uuid(portfolio_id)):
+        return _RoundEnd("rejected")
+    # Flip the row to "paused" so observers (CLI/TUI, the Decisions queue) find
+    # awaiting-approval runs and the rebuild-to-resume path knows a gate is live.
+    setup.audit.mark_paused(run_id)
+    return _RoundEnd("paused")
+
+
+def _fund_run(
+    setup: _FundRunSetup,
+    session: Any,
+    *,
+    status: str,
+    weights: dict[str, float],
+    interrupt: dict[str, Any] | None = None,
+) -> FundRun:
+    """The handle :func:`run_fund` returns for a round that ended in ``status``."""
+    return FundRun(
+        constraint_set=setup.constraint_set,
+        run_id=setup.run.id,
+        interrupt=interrupt,
+        weights=weights,
+        status=status,
+        agent=setup.agent,
+        thread_config=setup.thread_config,
+        session=session,
+        ctx=setup.ctx,
+    )
+
+
 def run_fund(
     model: Any,
     mandate: PortfolioMandate,
@@ -2149,91 +2218,43 @@ def run_fund(
         thread_id=thread_id,
         seed=seed,
     )
-    agent = setup.agent
-    thread_config = setup.thread_config
-    run = setup.run
-    constraint_set = setup.constraint_set
-    audit = setup.audit
 
     # The place_orders gate pauses the run for the adviser.
     try:
-        result = agent.invoke(setup.seed_input, config=thread_config)
+        result = setup.agent.invoke(setup.seed_input, config=setup.thread_config)
     except GraphRecursionError:
         # Round cap: the PM kept delegating past the bound without committing.
-        _finalize_incomplete(audit, run.id, "round_cap")
-        return FundRun(
-            constraint_set=constraint_set,
-            run_id=run.id,
-            interrupt=None,
-            weights={},
-            status="incomplete",
-            agent=agent,
-            thread_config=thread_config,
-            session=session,
-            ctx=setup.ctx,
-        )
+        _finalize_incomplete(setup.audit, setup.run.id, "round_cap")
+        return _fund_run(setup, session, status="incomplete", weights={})
     except Exception as exc:
         _finalize_failed(
-            audit,
-            run.id,
+            setup.audit,
+            setup.run.id,
             exc,
             session=session,
             portfolio_id=setup.ctx.portfolio_id,
             first_round=setup.first_round,
             checkpointer=checkpointer,
-            thread_id=thread_config["configurable"]["thread_id"],
+            thread_id=setup.thread_config["configurable"]["thread_id"],
         )
         raise
 
     interrupt = _extract_interrupt(result)
-    weights = _optimizer_weights(session, run.id)
-    if interrupt is None:
-        # The pipeline ended before the HITL gate: the PM tripped the delegation round
-        # cap, its order call was cut off or malformed, or a blocking risk verdict left
-        # nothing to commit. Keep each distinct from the recursion-limit "round_cap".
-        reason = _ungated_end_reason(
-            _last_message(result),
-            pm_round_cap_reached=bool(result.get("pm_round_cap_reached")),
-        )
-        _finalize_incomplete(audit, run.id, reason)
-        return FundRun(
-            constraint_set=constraint_set,
-            run_id=run.id,
-            interrupt=None,
-            weights=weights,
-            status="incomplete",
-            agent=agent,
-            thread_config=thread_config,
-            session=session,
-            ctx=setup.ctx,
-        )
-
-    if _halt_if_frozen(session, audit, run.id, _coerce_uuid(portfolio_id)):
-        return FundRun(
-            constraint_set=constraint_set,
-            run_id=run.id,
-            interrupt=None,
-            weights={},
-            status="rejected",
-            agent=agent,
-            thread_config=thread_config,
-            session=session,
-            ctx=setup.ctx,
-        )
-
-    # Flip the row to "paused" so observers (CLI/TUI) can find awaiting-approval
-    # runs and the rebuild-to-resume path knows a gate is live.
-    audit.mark_paused(run.id)
-    return FundRun(
-        constraint_set=constraint_set,
-        run_id=run.id,
+    weights = _optimizer_weights(session, setup.run.id)
+    end = _settle_round(
+        session,
+        setup,
+        portfolio_id,
         interrupt=interrupt,
-        weights=weights,
-        status="paused",
-        agent=agent,
-        thread_config=thread_config,
-        session=session,
-        ctx=setup.ctx,
+        last_message=_last_message(result),
+        pm_round_cap_reached=bool(result.get("pm_round_cap_reached")),
+    )
+    return _fund_run(
+        setup,
+        session,
+        status=end.status,
+        weights={} if end.status == "rejected" else weights,
+        interrupt=interrupt if end.status == "paused" else None,
     )
 
 
@@ -2261,6 +2282,51 @@ def _gate_why(interrupt_value: dict[str, Any] | None) -> str:
     requests = (interrupt_value or {}).get("action_requests") or []
     request = requests[0] if requests else {}
     return request.get("description") or "review before it executes"
+
+
+def _terminal_event(
+    run_id: uuid.UUID,
+    index: int,
+    *,
+    kind: str,
+    text: str,
+    payload: dict[str, Any] | None = None,
+) -> StreamEvent:
+    """The single event a streamed round ends on, pending at ``place_orders``."""
+    from fund.tui.stream import StepStatus, StreamEvent
+
+    return StreamEvent(
+        kind=kind,
+        run_id=run_id,
+        index=index,
+        agent="orchestrator",
+        step="place_orders",
+        status=StepStatus.PENDING,
+        text=text,
+        payload=payload,
+    )
+
+
+def _round_end_event(
+    end: _RoundEnd,
+    run_id: uuid.UUID,
+    index: int,
+    interrupt_value: dict[str, Any] | None,
+) -> StreamEvent:
+    """How :func:`stream_fund` tells the adviser the way :func:`_settle_round` ended."""
+    if end.status == "paused":
+        return _terminal_event(
+            run_id,
+            index,
+            kind="paused",
+            text=_gate_why(interrupt_value),
+            payload=interrupt_value,
+        )
+    if end.status == "rejected":
+        text = "halted: autonomy was frozen while the round was running"
+    else:
+        text = _UNGATED_END_TEXT.get(end.reason or "", "pipeline ended before the gate")
+    return _terminal_event(run_id, index, kind="incomplete", text=text)
 
 
 def stream_fund(
@@ -2381,14 +2447,8 @@ def stream_fund(
                     index += 1
     except GraphRecursionError:
         _finalize_incomplete(audit, run_id, "round_cap")
-        yield StreamEvent(
-            kind="incomplete",
-            run_id=run_id,
-            index=index,
-            agent="orchestrator",
-            step="place_orders",
-            status=StepStatus.PENDING,
-            text="round cap reached before a ticket",
+        yield _terminal_event(
+            run_id, index, kind="incomplete", text="round cap reached before a ticket"
         )
         return
     except Exception as exc:
@@ -2404,46 +2464,15 @@ def stream_fund(
         )
         raise
 
-    if interrupt_value is None:
-        reason = _ungated_end_reason(
-            last_pm_message, pm_round_cap_reached=pm_round_cap_reached
-        )
-        _finalize_incomplete(audit, run_id, reason)
-        yield StreamEvent(
-            kind="incomplete",
-            run_id=run_id,
-            index=index,
-            agent="orchestrator",
-            step="place_orders",
-            status=StepStatus.PENDING,
-            text=_UNGATED_END_TEXT.get(reason, "pipeline ended before the gate"),
-        )
-        return
-
-    if _halt_if_frozen(session, audit, run_id, _coerce_uuid(portfolio_id)):
-        yield StreamEvent(
-            kind="incomplete",
-            run_id=run_id,
-            index=index,
-            agent="orchestrator",
-            step="place_orders",
-            status=StepStatus.PENDING,
-            text="halted: autonomy was frozen while the round was running",
-        )
-        return
-
-    # Flip to "paused" so the Decisions queue / observers find the live gate.
-    audit.mark_paused(run_id)
-    yield StreamEvent(
-        kind="paused",
-        run_id=run_id,
-        index=index,
-        agent="orchestrator",
-        step="place_orders",
-        status=StepStatus.PENDING,
-        text=_gate_why(interrupt_value),
-        payload=interrupt_value,
+    end = _settle_round(
+        session,
+        setup,
+        portfolio_id,
+        interrupt=interrupt_value,
+        last_message=last_pm_message,
+        pm_round_cap_reached=pm_round_cap_reached,
     )
+    yield _round_end_event(end, run_id, index, interrupt_value)
 
 
 def _ticket_capital(run: Any, mandate: PortfolioMandate | None) -> float | None:
