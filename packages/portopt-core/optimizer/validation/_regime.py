@@ -9,8 +9,10 @@ alpha is concentrated in a single regime rather than being persistent.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import cast
+from types import MappingProxyType
+from typing import Final, cast
 
 import numpy as np
 import pandas as pd
@@ -22,6 +24,18 @@ from optimizer.factors._regime import classify_regime
 logger = logging.getLogger(__name__)
 
 _COMPOSITE_INDICATORS = ("pmi", "spread_2s10s", "hy_oas", "sentiment")
+
+# What a slice too short to measure reports, in the column order of the metric
+# frames. Read-only and handed out as copies, so a caller that edits its dict
+# cannot change what the next short slice reports.
+_NAN_METRICS: Final[Mapping[str, float]] = MappingProxyType(
+    {
+        "ann_return": np.nan,
+        "ann_vol": np.nan,
+        "sharpe": np.nan,
+        "max_drawdown": np.nan,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -272,12 +286,7 @@ def _compute_period_metrics(
 ) -> dict[str, float]:
     n = len(returns_slice)
     if n == 0:
-        return {
-            "ann_return": np.nan,
-            "ann_vol": np.nan,
-            "sharpe": np.nan,
-            "max_drawdown": np.nan,
-        }
+        return dict(_NAN_METRICS)
     mean_daily = returns_slice.mean()
     valid = returns_slice.dropna()
     # Volatility is undefined for a single observation, and annualising one
@@ -386,6 +395,176 @@ def _identify_subperiods(
     return blocks
 
 
+def _chronological(macro_data: pd.DataFrame) -> pd.DataFrame:
+    """Sort macro rows by date; of rows sharing a date, keep the last one."""
+    # The point-in-time window of `_build_regime_series` is positional, so row
+    # order has to be chronological; a stable sort keeps "last row wins"
+    # meaningful for repeated dates.
+    ordered = macro_data.sort_index(kind="stable")
+    return ordered.loc[~ordered.index.duplicated(keep="last")]
+
+
+def _require_matching_timezones(
+    macro_data: pd.DataFrame, oos_returns: pd.Series
+) -> None:
+    """Raise `DataError` unless both indexes are timezone-aware or both naive."""
+    # Naive and aware timestamps cannot be compared; left alone they either
+    # raise deep inside reindex or silently never match.
+    if (getattr(macro_data.index, "tz", None) is None) != (
+        getattr(oos_returns.index, "tz", None) is None
+    ):
+        raise DataError(
+            "macro_data and oos_returns must both have timezone-aware or both "
+            "timezone-naive indexes (timezone mismatch)"
+        )
+
+
+def _align_regimes(
+    oos_returns: pd.Series,
+    macro_data: pd.DataFrame,
+    config: RegimeValidationConfig,
+    thresholds: RegimeThresholdConfig | None,
+) -> tuple[pd.Series, pd.Series]:
+    """Label each OOS day with the regime of the latest macro row on or before it.
+
+    A day before the first macro row, or further past the latest one than
+    ``config.max_macro_staleness_days``, is ``MacroRegime.UNKNOWN``; stale days
+    are logged, and UNKNOWN days are dropped unless
+    ``config.include_unknown_regime`` is set.
+
+    Returns:
+        The regime timeline of the kept days, and the OOS returns realigned
+        onto it.
+    """
+    regime_series = _build_regime_series(macro_data, thresholds)
+    tolerance = (
+        None
+        if config.max_macro_staleness_days is None
+        else pd.Timedelta(days=config.max_macro_staleness_days)
+    )
+    regime_timeline = regime_series.reindex(
+        oos_returns.index, method="ffill", tolerance=tolerance
+    )
+    stale = (oos_returns.index >= regime_series.index[0]) & regime_timeline.isna()
+    if stale.any():
+        logger.warning(
+            "run_regime_validation: %d OOS observations are more than %s days "
+            "past the latest macro observation (stale macro data); classified "
+            "as UNKNOWN.",
+            int(stale.sum()),
+            config.max_macro_staleness_days,
+        )
+    regime_timeline = regime_timeline.fillna(MacroRegime.UNKNOWN.value)
+    if not config.include_unknown_regime:
+        mask = regime_timeline != MacroRegime.UNKNOWN.value
+        regime_timeline = regime_timeline[mask]
+    # Realigned before the caller checks for an empty timeline, so duplicate
+    # return dates raise whether or not any day is left.
+    return regime_timeline, oos_returns.reindex(regime_timeline.index)
+
+
+def _metrics_or_nan(
+    returns: pd.Series, config: RegimeValidationConfig
+) -> dict[str, float]:
+    """Return the statistics of ``returns``, or NaN ones below the minimum length."""
+    if len(returns) < config.min_regime_obs:
+        return dict(_NAN_METRICS)
+    rf_daily = config.risk_free_rate / config.trading_days_per_year
+    return _compute_period_metrics(returns, config.trading_days_per_year, rf_daily)
+
+
+def _subperiod_metrics(
+    regime_timeline: pd.Series,
+    oos_returns: pd.Series,
+    config: RegimeValidationConfig,
+) -> pd.DataFrame:
+    """Return one row of statistics per contiguous block of a single regime."""
+    rows: list[dict[str, object]] = []
+    for start, end, regime_name in _identify_subperiods(regime_timeline):
+        sub_returns = oos_returns.loc[start:end]
+        rows.append(
+            {
+                "start": start,
+                "end": end,
+                "regime": regime_name,
+                "obs": len(sub_returns),
+                **_metrics_or_nan(sub_returns, config),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _per_regime_metrics(
+    regime_timeline: pd.Series,
+    oos_returns: pd.Series,
+    config: RegimeValidationConfig,
+    total_obs: int,
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Return one row of statistics per regime, and each regime's daily alpha.
+
+    Returns:
+        The per-regime frame indexed by regime name, and each regime's mean
+        daily return in excess of the risk-free rate, floored at 0.0 (0.0 for
+        a regime under ``config.min_regime_obs``).
+    """
+    rf_daily = config.risk_free_rate / config.trading_days_per_year
+    rows: list[dict[str, object]] = []
+    alpha_per_day: dict[str, float] = {}
+    for regime_name in sorted(regime_timeline.unique()):
+        regime_returns = cast(pd.Series, oos_returns[regime_timeline == regime_name])
+        n_obs = len(regime_returns)
+        sufficient = n_obs >= config.min_regime_obs
+        # Alpha is the mean daily excess return, so a regime's weight does not
+        # grow with the number of days it lasts; under-sampled regimes carry
+        # NaN metrics and so take no share.
+        mean_excess = float((regime_returns - rf_daily).mean()) if sufficient else 0.0
+        alpha_per_day[regime_name] = mean_excess if mean_excess > 0 else 0.0
+        rows.append(
+            {
+                "regime": regime_name,
+                "obs": n_obs,
+                "coverage_pct": n_obs / total_obs if total_obs > 0 else 0.0,
+                "obs_sufficient": sufficient,
+                **_metrics_or_nan(regime_returns, config),
+            }
+        )
+    return pd.DataFrame(rows).set_index("regime"), alpha_per_day
+
+
+def _concentration(alpha_per_day: Mapping[str, float]) -> dict[str, float]:
+    """Return each regime's share of the total positive daily alpha."""
+    total_positive = sum(alpha_per_day.values())
+    if total_positive > 0:
+        return {r: v / total_positive for r, v in alpha_per_day.items()}
+    # No positive alpha in any regime — concentration is zero everywhere
+    # (no regime-dependent alpha to flag).
+    return dict.fromkeys(alpha_per_day, 0.0)
+
+
+def _regime_result(
+    regime_timeline: pd.Series,
+    oos_returns: pd.Series,
+    total_obs: int,
+    config: RegimeValidationConfig,
+) -> RegimeValidationResult:
+    """Assemble the result for a timeline holding at least one regime."""
+    per_subperiod_metrics = _subperiod_metrics(regime_timeline, oos_returns, config)
+    per_regime_metrics, alpha_per_day = _per_regime_metrics(
+        regime_timeline, oos_returns, config, total_obs
+    )
+    concentration = _concentration(alpha_per_day)
+    threshold = config.single_regime_alpha_threshold
+    return RegimeValidationResult(
+        per_regime_metrics=per_regime_metrics,
+        per_subperiod_metrics=per_subperiod_metrics,
+        regime_alpha_concentration=pd.Series(concentration, name="alpha_concentration"),
+        concentrated_regimes=[r for r, c in concentration.items() if c > threshold],
+        regime_timeline=regime_timeline,
+        total_obs=total_obs,
+        n_regimes_observed=len(per_regime_metrics),
+    )
+
+
 def run_regime_validation(
     oos_returns: pd.Series,
     macro_data: pd.DataFrame,
@@ -418,61 +597,17 @@ def run_regime_validation(
     if len(oos_returns) == 0:
         raise DataError("oos_returns is empty")
 
-    rf_daily = config.risk_free_rate / config.trading_days_per_year
-    tdays = config.trading_days_per_year
-
-    # The point-in-time window below is positional, so row order has to be
-    # chronological; a stable sort keeps "last row wins" meaningful for
-    # repeated dates.
-    macro_data = macro_data.sort_index(kind="stable")
-    macro_data = macro_data.loc[~macro_data.index.duplicated(keep="last")]
-
+    macro_data = _chronological(macro_data)
     if len(macro_data) == 0:
         logger.warning(
             "run_regime_validation: macro_data is empty; returning NaN metrics."
         )
         return _empty_result(len(oos_returns))
 
-    # Naive and aware timestamps cannot be compared; left alone they either
-    # raise deep inside reindex or silently never match.
-    if (getattr(macro_data.index, "tz", None) is None) != (
-        getattr(oos_returns.index, "tz", None) is None
-    ):
-        raise DataError(
-            "macro_data and oos_returns must both have timezone-aware or both "
-            "timezone-naive indexes (timezone mismatch)"
-        )
-
-    regime_series = _build_regime_series(macro_data, thresholds)
-
-    tolerance = (
-        None
-        if config.max_macro_staleness_days is None
-        else pd.Timedelta(days=config.max_macro_staleness_days)
+    _require_matching_timezones(macro_data, oos_returns)
+    regime_timeline, oos_filtered = _align_regimes(
+        oos_returns, macro_data, config, thresholds
     )
-    regime_timeline = regime_series.reindex(
-        oos_returns.index, method="ffill", tolerance=tolerance
-    )
-    stale = (oos_returns.index >= regime_series.index[0]) & regime_timeline.isna()
-    if stale.any():
-        logger.warning(
-            "run_regime_validation: %d OOS observations are more than %s days "
-            "past the latest macro observation (stale macro data); classified "
-            "as UNKNOWN.",
-            int(stale.sum()),
-            config.max_macro_staleness_days,
-        )
-    # Days before macro data starts, or too far past its latest row → UNKNOWN
-    regime_timeline = regime_timeline.fillna(MacroRegime.UNKNOWN.value)
-
-    if not config.include_unknown_regime:
-        mask = regime_timeline != MacroRegime.UNKNOWN.value
-        regime_timeline = regime_timeline[mask]
-        oos_filtered = oos_returns.reindex(regime_timeline.index)
-    else:
-        oos_filtered = oos_returns.reindex(regime_timeline.index)
-
-    total_obs = len(oos_returns)
 
     # Every observation classified as UNKNOWN and dropped — no regimes remain
     # to aggregate. Return a well-formed empty result rather than crashing on
@@ -482,92 +617,6 @@ def run_regime_validation(
             "run_regime_validation: all observations classified as UNKNOWN and "
             "excluded; returning empty metrics."
         )
-        return _empty_result(total_obs)
+        return _empty_result(len(oos_returns))
 
-    subperiods = _identify_subperiods(regime_timeline)
-
-    subperiod_rows: list[dict[str, object]] = []
-    for start, end, regime_name in subperiods:
-        sub_returns = oos_filtered.loc[start:end]
-        n_obs = len(sub_returns)
-        if n_obs >= config.min_regime_obs:
-            metrics = _compute_period_metrics(sub_returns, tdays, rf_daily)
-        else:
-            metrics = {
-                "ann_return": np.nan,
-                "ann_vol": np.nan,
-                "sharpe": np.nan,
-                "max_drawdown": np.nan,
-            }
-        subperiod_rows.append(
-            {
-                "start": start,
-                "end": end,
-                "regime": regime_name,
-                "obs": n_obs,
-                **metrics,
-            }
-        )
-
-    per_subperiod_metrics = pd.DataFrame(subperiod_rows)
-
-    observed_regimes = sorted(regime_timeline.unique())
-    n_regimes_observed = len(observed_regimes)
-
-    regime_rows: list[dict[str, object]] = []
-    alpha_per_day: dict[str, float] = {}
-    for regime_name in observed_regimes:
-        regime_mask = regime_timeline == regime_name
-        regime_returns = cast(pd.Series, oos_filtered[regime_mask])
-        n_obs = len(regime_returns)
-        sufficient = n_obs >= config.min_regime_obs
-        # Alpha is the mean daily excess return, so a regime's weight does not
-        # grow with the number of days it lasts; under-sampled regimes carry
-        # NaN metrics and so take no share.
-        mean_excess = float((regime_returns - rf_daily).mean()) if sufficient else 0.0
-        alpha_per_day[regime_name] = mean_excess if mean_excess > 0 else 0.0
-        if sufficient:
-            metrics = _compute_period_metrics(regime_returns, tdays, rf_daily)
-        else:
-            metrics = {
-                "ann_return": np.nan,
-                "ann_vol": np.nan,
-                "sharpe": np.nan,
-                "max_drawdown": np.nan,
-            }
-        regime_rows.append(
-            {
-                "regime": regime_name,
-                "obs": n_obs,
-                "coverage_pct": n_obs / total_obs if total_obs > 0 else 0.0,
-                "obs_sufficient": sufficient,
-                **metrics,
-            }
-        )
-
-    per_regime_metrics = pd.DataFrame(regime_rows).set_index("regime")
-
-    total_positive = sum(alpha_per_day.values())
-
-    if total_positive > 0:
-        concentration = {r: v / total_positive for r, v in alpha_per_day.items()}
-    else:
-        # No positive alpha in any regime — concentration is zero everywhere
-        # (no regime-dependent alpha to flag).
-        concentration = dict.fromkeys(alpha_per_day, 0.0)
-
-    regime_alpha_concentration = pd.Series(concentration, name="alpha_concentration")
-
-    concentrated_regimes = [
-        r for r, c in concentration.items() if c > config.single_regime_alpha_threshold
-    ]
-
-    return RegimeValidationResult(
-        per_regime_metrics=per_regime_metrics,
-        per_subperiod_metrics=per_subperiod_metrics,
-        regime_alpha_concentration=regime_alpha_concentration,
-        concentrated_regimes=concentrated_regimes,
-        regime_timeline=regime_timeline,
-        total_obs=total_obs,
-        n_regimes_observed=n_regimes_observed,
-    )
+    return _regime_result(regime_timeline, oos_filtered, len(oos_returns), config)
