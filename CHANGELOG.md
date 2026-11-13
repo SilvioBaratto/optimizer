@@ -226,6 +226,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removed transport layer. Docker (`ingestion/Dockerfile`), CI (job renamed
   `api-test` → `ingestion-test`), the `scheduler/*.sh` wrappers, and the docs
   were all updated to match; no code paths changed
+- **docs**: the architecture and decision records (`ARCHITECTURE.md`,
+  `DECISIONS.md`, `SPEC-RECONCILIATION.md`, `VALIDATION.md`, `WRITE-PATH-AUDIT.md`)
+  moved from the git-ignored `todo/` folder to a tracked `docs/`, so they are
+  versioned and reviewable. Pointers to `SPEC.md`, `deep_agent.md` and
+  `tasks/plan.md`, which were never committed, were dropped from `CLAUDE.md`,
+  `fund/README.md`, `ci.yml` and code comments, and
+  `tests/test_doc_references_resolve.py` fails on any new one.
 
 ### Removed
 

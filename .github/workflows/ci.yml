@@ -21,7 +21,7 @@ concurrency:
 # so `optimizer` is absent" isolation is gone — enforcement of the
 # ingestion-must-not-import-optimizer boundary now rests entirely on the static
 # source-scan guard (tests/unit/hygiene/test_no_optimizer_import.py) + the
-# portopt-core⊬portopt_db guard. See tasks/plan.md risk #1.
+# portopt-core⊬portopt_db guard.
 #
 # Tool versions are pinned so a new uv release or runner-image Python cannot
 # change CI without a commit: setup-uv's `version` mirrors the uv pinned in both

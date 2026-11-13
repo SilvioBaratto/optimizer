@@ -102,7 +102,7 @@ def test_reference_md_carries_the_pillar_knob_table():
     assert "risk_measure" in lower
     assert "universe_filters" in lower
     assert "esg" in lower
-    # Theory citations preserved (deep_agent.md line refs).
+    # Theory citations preserved (deep_agent roadmap line refs).
     assert "01:142" in text or "deep_agent" in lower
 
 

@@ -122,5 +122,6 @@ Every data surface reads through the agent-stack-free `fund.observe` seam; the m
 the `optimizer`/`skfolio` performance tracker are lazy-imported inside workers / method
 bodies, so `import fund.tui.*` stays agent-stack-light (guarded in `test_tui.py`).
 
-See [`../SPEC.md`](../SPEC.md) for the Phase 0 architecture contract (D1–D4) and
-[`../todo/deep_agent.md`](../todo/deep_agent.md) for the full roadmap.
+See [`../docs/DECISIONS.md`](../docs/DECISIONS.md) for the Phase 0 architecture
+decisions (D1–D4) and [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) for the
+architecture.
