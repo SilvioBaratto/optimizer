@@ -336,6 +336,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   complexity ratchet's baselines drop `build_ask_tools` and `apply_action` and
   lower `run_fund` and `stream_fund`: 264 long and 44 complex functions remain.
   Behaviour is unchanged.
+- **library**: three long functions are split, each after characterization tests
+  pinned its current results. `run_regime_validation` (159 lines) aligns the
+  regimes, measures the sub-periods and the regimes, and computes the alpha
+  shares in one private helper each, and the NaN metrics of a slice under
+  `min_regime_obs` come from one shared constant instead of three copies.
+  `build_mean_risk` (102 lines) builds its sector caps, floors and regime bands in
+  `_compose_sector_constraints`, which returns the `groups` and
+  `linear_constraints` keywords; explicit keywords still win. The composite macro
+  regime score (`_score_composite`, 63 lines) scores each indicator through one
+  `_band_score` instead of four copies. A sector cap without a sector mapping
+  still only logs a warning while floors and bands without one raise. The
+  complexity ratchet's baselines drop the three functions: 261 long and 41
+  complex functions remain. Behaviour is unchanged.
 
 ### Removed
 
