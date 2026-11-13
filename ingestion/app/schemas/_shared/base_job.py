@@ -1,20 +1,12 @@
-"""Base schemas for async background job endpoints.
+"""Base schema for the progress of a background job.
 
-Domain-specific job schemas should inherit from these and add only
-their own extra fields (e.g. ``current_ticker``, ``current_country``).
+Domain-specific progress schemas inherit from it and add only their own
+extra fields (e.g. ``current_ticker``, ``current_country``).
 """
 
 from typing import Any
 
 from pydantic import BaseModel, Field
-
-
-class AsyncJobCreateResponse(BaseModel):
-    """Returned when a background job is created."""
-
-    job_id: str = Field(..., description="Unique job ID")
-    status: str = Field(..., description="pending | running | completed | failed")
-    message: str = Field("", description="Human-readable status message")
 
 
 class AsyncJobProgress(BaseModel):

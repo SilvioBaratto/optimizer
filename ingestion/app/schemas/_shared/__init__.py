@@ -4,10 +4,9 @@ Cross-cutting Pydantic models used by all domain schemas.
 """
 
 from app.schemas._shared.base import CamelCaseModel, StrFromUUID
-from app.schemas._shared.base_job import AsyncJobCreateResponse, AsyncJobProgress
+from app.schemas._shared.base_job import AsyncJobProgress
 
 __all__ = [
-    "AsyncJobCreateResponse",
     "AsyncJobProgress",
     "CamelCaseModel",
     "StrFromUUID",
