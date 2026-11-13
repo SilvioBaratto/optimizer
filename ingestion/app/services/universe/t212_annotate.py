@@ -112,6 +112,69 @@ class _Written(NamedTuple):
     isin_stored: int
 
 
+@dataclass
+class _Tally:
+    """Running counts of one annotation run.
+
+    Attributes:
+        annotated: T212 tickers written onto instruments.
+        cleared: Stale T212 tickers removed.
+        isin_stored: Looked-up ISINs written onto rows that had none.
+        tradeable: Instruments whose ISIN the catalogue lists.
+        untradeable: Instruments whose ISIN the catalogue does not list.
+        lookup_errors: ISIN lookups that failed.
+        consecutive_errors: ISIN lookups that failed since the last success.
+    """
+
+    annotated: int = 0
+    cleared: int = 0
+    isin_stored: int = 0
+    tradeable: int = 0
+    untradeable: int = 0
+    lookup_errors: int = 0
+    consecutive_errors: int = 0
+
+    @property
+    def outage(self) -> bool:
+        """Whether enough lookups failed in a row to call the ISIN source down."""
+        return self.consecutive_errors >= _MAX_CONSECUTIVE_LOOKUP_ERRORS
+
+    def add_written(self, written: _Written) -> None:
+        """Add one committed batch's row counts."""
+        self.annotated += written.annotated
+        self.cleared += written.cleared
+        self.isin_stored += written.isin_stored
+
+    def count_verdict(self, verdict: bool | None) -> None:
+        """Count one instrument's tradability; ``None`` was not evaluated."""
+        if verdict is True:
+            self.tradeable += 1
+        elif verdict is False:
+            self.untradeable += 1
+
+    def summary(self, *, total: int, pinned_skipped: int) -> dict[str, Any]:
+        """Return the step's result for a run that completed.
+
+        Args:
+            total: Active instruments the run covered.
+            pinned_skipped: Rows whose broker line was left to the operator.
+
+        Returns:
+            The summary ``run_t212_annotate`` documents, in its key order.
+        """
+        return {
+            "annotated": self.annotated,
+            "total": total,
+            "skipped": False,
+            "lookup_errors": self.lookup_errors,
+            "cleared": self.cleared,
+            "pinned_skipped": pinned_skipped,
+            "tradeable": self.tradeable,
+            "untradeable": self.untradeable,
+            "isin_stored": self.isin_stored,
+        }
+
+
 def _default_isin_lookup(ticker: str) -> str | None:
     """Fetch an instrument's ISIN through the shared, throttled yfinance client.
 
@@ -291,14 +354,32 @@ def run_t212_annotate(
         return {"annotated": 0, "total": 0, "skipped": True}
 
     lookup = isin_lookup or _default_isin_lookup
+    isin_to_t212 = _isin_catalogue(client.get_instruments())
+    targets = _snapshot_targets()
+    pinned_skipped = sum(t.operator_pinned for t in targets)
+    _log_scope(pinned_skipped, catalogue_lists_isins=bool(isin_to_t212))
+    tally = _annotate(targets, lookup, isin_to_t212, on_progress)
+    return _finish(tally, len(targets), pinned_skipped, on_progress)
 
+
+def _isin_catalogue(
+    instruments: list[dict[str, Any]],
+) -> defaultdict[str, dict[str, str | None]]:
+    """Map each ISIN the broker lists to its T212 lines and their currencies.
+
+    A line without an ISIN or a ticker cannot be matched and is left out.
+    """
     isin_to_t212: defaultdict[str, dict[str, str | None]] = defaultdict(dict)
-    for inst in client.get_instruments():
+    for inst in instruments:
         t212_isin = inst.get("isin")
         t212_symbol = inst.get("ticker")
         if t212_isin and t212_symbol:
             isin_to_t212[t212_isin][t212_symbol] = inst.get("currencyCode")
+    return isin_to_t212
 
+
+def _snapshot_targets() -> list[_Target]:
+    """Read every active instrument, marking the operator's own pins."""
     # Snapshot first and look up with no session open: holding a connection (and
     # the row locks of every UPDATE so far) across thousands of network calls would
     # block concurrent writers on ``instruments``.
@@ -307,7 +388,7 @@ def run_t212_annotate(
             source=_OPERATOR_PIN_SOURCE
         )
         active = UniverseRepository(session).get_active_instruments()
-        targets = [
+        return [
             _Target(
                 i.ticker,
                 i.exchange_id,
@@ -319,89 +400,96 @@ def run_t212_annotate(
             )
             for i in active
         ]
-    pinned_skipped = sum(t.operator_pinned for t in targets)
+
+
+def _log_scope(pinned_skipped: int, *, catalogue_lists_isins: bool) -> None:
+    """Log what the run will leave alone before it starts."""
     if pinned_skipped:
         logger.info(
             "t212_annotate: left the broker ticker of %d pinned instruments untouched",
             pinned_skipped,
         )
-    if not isin_to_t212:
+    if not catalogue_lists_isins:
         logger.warning(
             "t212_annotate: the Trading 212 catalogue lists no ISIN, so stored "
             "broker tickers and tradability flags are left as they are"
         )
-    total = len(targets)
 
-    annotated = 0
-    cleared = 0
-    isin_stored = 0
-    tradeable = 0
-    untradeable = 0
-    lookup_errors = 0
-    consecutive_errors = 0
+
+def _resolve_isin(target: _Target, lookup: IsinLookup, tally: _Tally) -> str | None:
+    """Return the instrument's ISIN, looking it up when none is stored.
+
+    A failed lookup is counted in ``tally`` and leaves the stored (empty) value.
+    """
+    if target.isin:
+        return target.isin
+    try:
+        isin = lookup(target.ticker)
+    except Exception as exc:
+        tally.lookup_errors += 1
+        tally.consecutive_errors += 1
+        logger.warning(
+            "t212_annotate: ISIN lookup failed for %s: %s", target.ticker, exc
+        )
+        return target.isin
+    tally.consecutive_errors = 0
+    return isin
+
+
+def _annotate(
+    targets: list[_Target],
+    lookup: IsinLookup,
+    isin_to_t212: dict[str, dict[str, str | None]],
+    on_progress: ProgressCallback,
+) -> _Tally:
+    """Judge each instrument and write the changes in batches.
+
+    Stops at the lookup that makes the ISIN source an outage, without
+    reporting that instrument; the changes planned before it are still written.
+    """
+    tally = _Tally()
     pending: list[_Update] = []
     for i, target in enumerate(targets, start=1):
-        isin = target.isin
-        if not isin:
-            try:
-                isin = lookup(target.ticker)
-                consecutive_errors = 0
-            except Exception as exc:
-                lookup_errors += 1
-                consecutive_errors += 1
-                logger.warning(
-                    "t212_annotate: ISIN lookup failed for %s: %s", target.ticker, exc
-                )
-                if consecutive_errors >= _MAX_CONSECUTIVE_LOOKUP_ERRORS:
-                    break
+        isin = _resolve_isin(target, lookup, tally)
+        if tally.outage:
+            break
         update = _plan_update(target, isin, isin_to_t212)
         if update is not None:
             pending.append(update)
-        verdict = _is_tradeable(isin, isin_to_t212) if isin else None
-        if verdict is True:
-            tradeable += 1
-        elif verdict is False:
-            untradeable += 1
+        tally.count_verdict(_is_tradeable(isin, isin_to_t212) if isin else None)
         if i % _COMMIT_EVERY == 0:
-            written = _apply_updates(pending)
-            annotated += written.annotated
-            cleared += written.cleared
-            isin_stored += written.isin_stored
+            tally.add_written(_apply_updates(pending))
             pending = []
-        on_progress(current=i, total=total, current_stock=target.ticker)
-    written = _apply_updates(pending)
-    annotated += written.annotated
-    cleared += written.cleared
-    isin_stored += written.isin_stored
+        on_progress(current=i, total=len(targets), current_stock=target.ticker)
+    tally.add_written(_apply_updates(pending))
+    return tally
 
-    if consecutive_errors >= _MAX_CONSECUTIVE_LOOKUP_ERRORS:
+
+def _finish(
+    tally: _Tally, total: int, pinned_skipped: int, on_progress: ProgressCallback
+) -> dict[str, Any]:
+    """Fail an outage run, otherwise log, report and return the summary.
+
+    Raises:
+        IsinLookupError: The run stopped because the ISIN source was down.
+    """
+    if tally.outage:
         msg = (
-            f"{consecutive_errors} consecutive ISIN lookups failed; stopped after "
-            f"annotating {annotated}/{total} instruments"
+            f"{tally.consecutive_errors} consecutive ISIN lookups failed; stopped "
+            f"after annotating {tally.annotated}/{total} instruments"
         )
         raise IsinLookupError(msg)
-
     logger.info(
         "t212_annotate: annotated %d/%d instruments, cleared %d, stored %d ISINs, "
         "%d tradeable, %d not on the broker (%d lookup errors)",
-        annotated,
+        tally.annotated,
         total,
-        cleared,
-        isin_stored,
-        tradeable,
-        untradeable,
-        lookup_errors,
+        tally.cleared,
+        tally.isin_stored,
+        tally.tradeable,
+        tally.untradeable,
+        tally.lookup_errors,
     )
-    summary = {
-        "annotated": annotated,
-        "total": total,
-        "skipped": False,
-        "lookup_errors": lookup_errors,
-        "cleared": cleared,
-        "pinned_skipped": pinned_skipped,
-        "tradeable": tradeable,
-        "untradeable": untradeable,
-        "isin_stored": isin_stored,
-    }
+    summary = tally.summary(total=total, pinned_skipped=pinned_skipped)
     on_progress(status="completed", result=summary)
     return summary
