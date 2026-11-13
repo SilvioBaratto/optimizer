@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -275,6 +276,61 @@ def _make_news_id(title: str, link: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
+_ALL_THEMES = frozenset(theme.value for theme in MacroTheme)
+
+# Search queries return at most this many articles each.
+_SEARCH_RESULTS_PER_QUERY = 8
+
+
+def _publish_time(article: dict[str, Any]) -> str:
+    """Sort key for newest-first order; an article without a time sorts last."""
+    return article.get("publish_time") or ""
+
+
+def _themes_of(article: dict[str, Any]) -> set[str]:
+    """Return the theme values an article's ``themes`` field lists."""
+    return set((article.get("themes") or "").split(","))
+
+
+def _search_cap(max_articles: int) -> int:
+    """Return how many search articles a budget of ``max_articles`` takes first."""
+    # Search articles get priority: 40 % of the budget, or 10 if that is
+    # more. Clamping to max_articles matters for a small budget, where an
+    # unclamped take would leave a negative ticker budget and a negative
+    # slice bound keeps nearly every ticker article instead of none.
+    return min(max(max_articles * 4 // 10, 10), max_articles)
+
+
+def _fill_missing_themes(
+    selected: list[dict[str, Any]], pool: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Add one article for each theme the selection lacks, in pool order.
+
+    Args:
+        selected: The articles already chosen.
+        pool: Every candidate, in the order the pass tries them; the chosen
+            ones are skipped.
+
+    Returns:
+        ``selected`` followed by each pool article that covers a theme still
+        missing when it is reached. The result can exceed the budget, so the
+        caller cuts it again.
+    """
+    chosen = {article["news_id"] for article in selected}
+    missing = set(_ALL_THEMES)
+    for article in selected:
+        missing -= _themes_of(article)
+    filled = list(selected)
+    for article in (a for a in pool if a["news_id"] not in chosen):
+        if not missing:
+            break
+        themes = _themes_of(article)
+        if themes & missing:
+            filled.append(article)
+            missing -= themes
+    return filled
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -287,6 +343,50 @@ class MacroNewsUnavailableError(RuntimeError):
     raw articles across all tickers and searches means the upstream feed is
     down, which callers must not record as a successful empty run.
     """
+
+
+@dataclass
+class _SourceTally:
+    """How the sources of one ``fetch_all`` sweep answered.
+
+    A source that delivered and then failed while its articles were processed
+    counts as both delivering and failed.
+    """
+
+    delivering: int = 0
+    failed: int = 0
+    empty: int = 0
+
+    def admit(self, articles: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        """Count one source's answer and return the articles left to process.
+
+        Args:
+            articles: The source's answer; ``None`` means the source failed.
+
+        Returns:
+            ``articles`` when it holds any, else ``[]``.
+        """
+        if articles is None:
+            self.failed += 1
+            return []
+        if not articles:
+            self.empty += 1
+            return []
+        self.delivering += 1
+        return articles
+
+    def raise_if_nothing_delivered(self) -> None:
+        """Raise when no source answered with a single article.
+
+        Raises:
+            MacroNewsUnavailableError: Every source failed or was empty.
+        """
+        if self.delivering == 0:
+            raise MacroNewsUnavailableError(
+                "No article from any macro news source: "
+                f"{self.failed} failed, {self.empty} empty "
+                f"of {len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES)} sources"
+            )
 
 
 @dataclass
@@ -351,158 +451,167 @@ class MacroNewsFetcher:
                 empty), as opposed to articles that were merely filtered out.
         """
         self._seen_titles.clear()
-        # Search articles get priority: 40 % of the budget, or 10 if that is
-        # more. Clamping to max_articles matters for a small budget, where an
-        # unclamped take would leave a negative ticker budget and a negative
-        # slice bound keeps nearly every ticker article instead of none.
-        search_cap = min(max(max_articles * 4 // 10, 10), max_articles)
-        ticker_buckets: dict[str, list[dict[str, Any]]] = {}
-        search_articles: list[dict[str, Any]] = []
-        sources_delivering = 0
-        sources_failed = 0
-        sources_empty = 0
-        source_total = len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES)
-        sources_started = 0
-        on_progress(total=source_total)
-
-        # 1. Ticker-based news (collected per-ticker for capping)
-        for ticker, seed_themes in MACRO_TICKERS.items():
-            sources_started += 1
-            on_progress(current=sources_started, current_ticker=ticker)
-            try:
-                news = self._news_client.fetch(ticker)
-                if news is None:
-                    sources_failed += 1
-                    continue
-                if not news:
-                    sources_empty += 1
-                    continue
-                sources_delivering += 1
-                bucket: list[dict[str, Any]] = []
-                for raw_article in news:
-                    article = self._process_article(
-                        raw_article,
-                        seed_themes=seed_themes,
-                        source_ticker=ticker,
-                        source_query=None,
-                    )
-                    if article is not None:
-                        bucket.append(article)
-                if bucket:
-                    bucket.sort(
-                        key=lambda a: a.get("publish_time") or "",
-                        reverse=True,
-                    )
-                    ticker_buckets[ticker] = self._keep_unique(
-                        bucket,
-                        max_per_ticker,
-                        fetch_full_content=fetch_full_content,
-                    )
-            except Exception:
-                sources_failed += 1
-                logger.warning(
-                    "Failed to fetch ticker news for %s",
-                    ticker,
-                    exc_info=True,
-                )
-
-        # 2. Search-query-based news
-        for query, seed_themes in MACRO_SEARCH_QUERIES.items():
-            sources_started += 1
-            on_progress(current=sources_started, current_ticker=query)
-            try:
-                result = self.search_client.search(query, max_results=8)
-                if result is None:
-                    sources_failed += 1
-                    continue
-                raw_news = result.get("news", [])
-                if not raw_news:
-                    sources_empty += 1
-                    continue
-                sources_delivering += 1
-                for raw_article in raw_news:
-                    article = self._process_article(
-                        raw_article,
-                        seed_themes=seed_themes,
-                        source_ticker=None,
-                        source_query=query,
-                    )
-                    if article is not None:
-                        search_articles.append(article)
-            except Exception:
-                sources_failed += 1
-                logger.warning("Failed search news for '%s'", query, exc_info=True)
-
-        if sources_delivering == 0:
-            raise MacroNewsUnavailableError(
-                "No article from any macro news source: "
-                f"{sources_failed} failed, {sources_empty} empty "
-                f"of {len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES)} sources"
-            )
-
-        # 3. Merge: search-first, then capped ticker articles
-        search_articles.sort(
-            key=lambda a: a.get("publish_time") or "",
-            reverse=True,
+        tally = _SourceTally()
+        on_progress(total=len(MACRO_TICKERS) + len(MACRO_SEARCH_QUERIES))
+        ticker_articles = self._collect_ticker_news(
+            tally,
+            on_progress,
+            max_per_ticker=max_per_ticker,
+            fetch_full_content=fetch_full_content,
         )
+        search_articles = self._collect_search_news(tally, on_progress)
+        tally.raise_if_nothing_delivered()
+        selected, pool = self._merge_within_budget(
+            search_articles,
+            ticker_articles,
+            max_articles,
+            fetch_full_content=fetch_full_content,
+        )
+        selected = _fill_missing_themes(selected, pool)
+        selected.sort(key=_publish_time, reverse=True)
+        return selected[:max_articles]
+
+    # -- private helpers ----------------------------------------------------
+
+    def _collect_ticker_news(
+        self,
+        tally: _SourceTally,
+        on_progress: ProgressCallback,
+        *,
+        max_per_ticker: int,
+        fetch_full_content: bool,
+    ) -> list[dict[str, Any]]:
+        """Collect each ticker feed's newest unique articles.
+
+        Runs before the searches: the titles kept here are registered, so the
+        search pass drops later copies of them.
+
+        Args:
+            tally: Records how each feed answered.
+            on_progress: Told about each ticker before its feed is fetched.
+            max_per_ticker: Most articles kept from one feed.
+            fetch_full_content: Scrape each kept article's body and skip the
+                articles that have none.
+
+        Returns:
+            The kept articles, feed by feed in ``MACRO_TICKERS`` order. A feed
+            that fails while its articles are processed contributes none.
+        """
+        kept: list[dict[str, Any]] = []
+        for position, (ticker, seed_themes) in enumerate(
+            MACRO_TICKERS.items(), start=1
+        ):
+            on_progress(current=position, current_ticker=ticker)
+            try:
+                news = tally.admit(self._news_client.fetch(ticker))
+                bucket = list(
+                    self._processed(news, seed_themes, ticker=ticker, query=None)
+                )
+                bucket.sort(key=_publish_time, reverse=True)
+                kept.extend(
+                    self._keep_unique(
+                        bucket, max_per_ticker, fetch_full_content=fetch_full_content
+                    )
+                )
+            except Exception:
+                tally.failed += 1
+                logger.warning(
+                    "Failed to fetch ticker news for %s", ticker, exc_info=True
+                )
+        return kept
+
+    def _collect_search_news(
+        self, tally: _SourceTally, on_progress: ProgressCallback
+    ) -> list[dict[str, Any]]:
+        """Collect the articles of every search query.
+
+        Args:
+            tally: Records how each query answered.
+            on_progress: Told about each query before it is searched, numbered
+                after the tickers.
+
+        Returns:
+            The processed articles, query by query in ``MACRO_SEARCH_QUERIES``
+            order. A query that fails while its articles are processed keeps
+            the ones processed before the failure.
+        """
+        found: list[dict[str, Any]] = []
+        queries = MACRO_SEARCH_QUERIES.items()
+        for position, (query, seed_themes) in enumerate(
+            queries, start=len(MACRO_TICKERS) + 1
+        ):
+            on_progress(current=position, current_ticker=query)
+            try:
+                result = self.search_client.search(
+                    query, max_results=_SEARCH_RESULTS_PER_QUERY
+                )
+                news = tally.admit(
+                    None if result is None else (result.get("news") or [])
+                )
+                # Appended one by one so a later failing item leaves the earlier
+                # ones in place.
+                for article in self._processed(
+                    news, seed_themes, ticker=None, query=query
+                ):
+                    found.append(article)
+            except Exception:
+                tally.failed += 1
+                logger.warning("Failed search news for '%s'", query, exc_info=True)
+        return found
+
+    def _processed(
+        self,
+        raw_articles: list[dict[str, Any]],
+        seed_themes: list[MacroTheme],
+        *,
+        ticker: str | None,
+        query: str | None,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield each raw article that passes ``_process_article``, in feed order."""
+        for raw in raw_articles:
+            article = self._process_article(
+                raw, seed_themes=seed_themes, source_ticker=ticker, source_query=query
+            )
+            if article is not None:
+                yield article
+
+    def _merge_within_budget(
+        self,
+        search_articles: list[dict[str, Any]],
+        ticker_articles: list[dict[str, Any]],
+        max_articles: int,
+        *,
+        fetch_full_content: bool,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Take search articles first, then the newest ticker articles.
+
+        Args:
+            search_articles: Processed search articles.
+            ticker_articles: The capped articles of every ticker feed.
+            max_articles: The overall budget.
+            fetch_full_content: Scrape the search articles' bodies, at most
+                as many as the search share of the budget, and skip the
+                articles that have none.
+
+        Returns:
+            The selection, at most ``max_articles`` long, and the pool the
+            theme pass draws from: every ticker article, then every search
+            article not shadowed by a title kept before, each newest first.
+        """
+        search_cap = _search_cap(max_articles)
+        search_articles = sorted(search_articles, key=_publish_time, reverse=True)
         # Scraping is the cost, so stop at the cap; unscraped candidates are
-        # free to keep, which leaves them to the theme-diversity pass below.
+        # free to keep, which leaves them to the theme-diversity pass.
         search_articles = self._keep_unique(
             search_articles,
             search_cap if fetch_full_content else None,
             fetch_full_content=fetch_full_content,
         )
-
-        capped_ticker: list[dict[str, Any]] = []
-        for bucket in ticker_buckets.values():
-            capped_ticker.extend(bucket)
-        capped_ticker.sort(
-            key=lambda a: a.get("publish_time") or "",
-            reverse=True,
-        )
-
+        ticker_articles = sorted(ticker_articles, key=_publish_time, reverse=True)
         search_take = min(len(search_articles), search_cap)
         ticker_budget = max(0, max_articles - search_take)
-
-        selected = search_articles[:search_take] + capped_ticker[:ticker_budget]
-
-        # 4. Theme-diversity pass: if any theme is missing, pull its
-        #    best article from the remaining pool.
-        selected_ids = {a["news_id"] for a in selected}
-        covered_themes: set[str] = set()
-        for a in selected:
-            for t in (a.get("themes") or "").split(","):
-                if t:
-                    covered_themes.add(t)
-
-        all_themes = {t.value for t in MacroTheme}
-        missing_themes = all_themes - covered_themes
-
-        if missing_themes:
-            remaining = [
-                a
-                for a in (capped_ticker + search_articles)
-                if a["news_id"] not in selected_ids
-            ]
-            for article in remaining:
-                article_themes = set(
-                    (article.get("themes") or "").split(","),
-                )
-                if article_themes & missing_themes:
-                    selected.append(article)
-                    selected_ids.add(article["news_id"])
-                    covered_themes |= article_themes
-                    missing_themes -= article_themes
-                if not missing_themes:
-                    break
-
-        selected.sort(
-            key=lambda a: a.get("publish_time") or "",
-            reverse=True,
-        )
-        return selected[:max_articles]
-
-    # -- private helpers ----------------------------------------------------
+        selected = search_articles[:search_take] + ticker_articles[:ticker_budget]
+        return selected, ticker_articles + search_articles
 
     def _keep_unique(
         self,
