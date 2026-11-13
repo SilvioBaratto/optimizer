@@ -231,6 +231,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     note in the PM seed and the mandate-save warning. It also works without an
     allowlist, as a refusal list over the whole universe (`list_universe` drops the
     False rows). `UniverseRepository.get_t212_untradeable_tickers` is the new read
+- **Function length and complexity ratchet.** `scripts/ci/check_complexity_ratchet.py`
+  (a step of the `lint` job) holds standard 2.8 (at most 30 lines per function,
+  cyclomatic complexity below 10) over the four source trees. The 274 functions
+  that are already too long and the 50 that are too complex are recorded in
+  `scripts/ci/baselines/`; the check fails a new offender and a recorded one that
+  grew. `--update` can only lower a stored value or drop an entry, so the debt
+  shrinks as functions are split and can never be raised by regenerating the
+  baselines.
 
 ### Changed
 
