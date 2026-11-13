@@ -1,9 +1,11 @@
 """Fail a pull request that changes shipped code without touching CHANGELOG.md.
 
 Standard 5.1.2 makes a changelog entry mandatory for every code change. "Shipped"
-means what a user receives: the package sources, the migrations, the images and the
-installers. Tests and prose are not shipped. A pull request that really needs no entry
-carries the ``skip-changelog`` label.
+means what a user receives or runs: the package sources, the migrations, the image
+definitions and entrypoints, the installers, the scheduler scripts, the dependency
+pins, and the markdown the agents load as prompt content. Tests and prose are not
+shipped. A pull request that really needs no entry carries the ``skip-changelog``
+label.
 
 Usage: ``check_changelog.py --base origin/development [--skip-label true|false]``.
 Standard library only, so the CI job needs no environment.
@@ -17,13 +19,41 @@ import subprocess
 import sys
 from collections.abc import Sequence
 
-_SHIPPED_PREFIXES = ("packages/", "ingestion/app/", "fund/src/", "docker/")
-_SHIPPED_FILES = frozenset({"docker-compose.yml", "install.sh", "install.ps1"})
+_SHIPPED_PREFIXES = (
+    "packages/",
+    "ingestion/app/",
+    "fund/src/",
+    "docker/",
+    "scheduler/",
+)
+_SHIPPED_FILES = frozenset(
+    {
+        "docker-compose.yml",
+        "install.sh",
+        "install.ps1",
+        "setup.sh",
+        "setup.ps1",
+        "setup.cmd",
+        "pyproject.toml",
+        "uv.lock",
+        "ingestion/Dockerfile",
+        "ingestion/entrypoint.sh",
+        "ingestion/pyproject.toml",
+        "fund/Dockerfile",
+        "fund/entrypoint.sh",
+        "fund/pyproject.toml",
+    }
+)
+# The skills under fund/src/ are markdown, but the profiler agent loads them as prompt
+# content, so editing one changes behaviour.
+_PROMPT_MARKDOWN_PREFIX = "fund/src/"
 _CHANGELOG = "CHANGELOG.md"
 
 
 def _is_shipped(path: str) -> bool:
-    if path.endswith(".md") or "/tests/" in f"/{path}":
+    if "/tests/" in f"/{path}":
+        return False
+    if path.endswith(".md") and not path.startswith(_PROMPT_MARKDOWN_PREFIX):
         return False
     return path in _SHIPPED_FILES or path.startswith(_SHIPPED_PREFIXES)
 
@@ -35,8 +65,9 @@ def needs_changelog(changed: Sequence[str]) -> bool:
         changed: Repository-relative paths changed by the pull request.
 
     Returns:
-        True when at least one path is a package source, migration, image or installer
-        file. Markdown files and anything under a ``tests`` directory never count.
+        True when at least one path is shipped (see the module docstring). Prose
+        markdown and anything under a ``tests`` directory never count; markdown under
+        ``fund/src/`` does, because the agents load it.
     """
     return any(_is_shipped(path) for path in changed)
 

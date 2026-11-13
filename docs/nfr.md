@@ -23,8 +23,8 @@ today, and `CLAUDE.md` requires exactly one daemon per database.
 
 ## Performance
 
-Completed job runs recorded in `background_jobs` (125 jobs since 2026-10-23, completed runs
-of the last 60 days), duration from `started_at` to `finished_at`, rounded to a tenth of a minute:
+Completed job runs recorded in `background_jobs`: 115 completed runs of the last 60 days,
+out of 125 jobs of all statuses since 2026-10-23. Duration from `started_at` to `finished_at`, rounded to a tenth of a minute:
 
 | Job type | Runs | p50 | p95 | Longest |
 |---|---|---|---|---|

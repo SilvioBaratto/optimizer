@@ -80,7 +80,7 @@ run is the pass criterion. The test suite is the test-case repository.
 
 - **Automated.** The `docker-images` and `windows-install` CI jobs accept that both stacks
   deploy and that the Windows installer runs under PowerShell 5.1 and 7.
-- **Not yet run in CI.** The seven tests in `ingestion/tests/integration/deployment/` need
+- **Not yet run in CI.** The seven test files in `ingestion/tests/integration/deployment/` need
   `--run-deployment`, which no CI job passes.
 - **Manual, before a release.** With a throwaway portfolio, an operator runs
   `fund run <portfolio_id> --asof DATE`, reviews the proposal in the TUI, approves it with

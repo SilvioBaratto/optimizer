@@ -12,6 +12,6 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
-        files: ^(packages/|ingestion/|fund/|tests/)
+        files: ^(packages/|ingestion/|fund/|tests/|scripts/)
       - id: ruff-format
-        files: ^(packages/|ingestion/|fund/|tests/)
+        files: ^(packages/|ingestion/|fund/|tests/|scripts/)

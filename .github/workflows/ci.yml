@@ -44,8 +44,8 @@ jobs:
       - run: uv sync --locked --all-packages --all-extras
       # Each member keeps its own ruff.toml, which ruff resolves per file, so one
       # invocation from the root lints every tree with that tree's settings.
-      - run: uv run ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
-      - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
+      - run: uv run ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ scripts/
+      - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ scripts/
       # The entrypoints run inside the images and the installers on user machines.
       - run: shellcheck $(git ls-files '*.sh') scripts/optimizer
       # pip-audit the resolved third-party set. The three editable workspace
@@ -203,8 +203,10 @@ jobs:
 
   # Advisory, not a required status: it exists only on pull requests (a push has no base
   # to diff against), so branch protection must not wait for it. See ADR-0007.
+  # Adding the `skip-changelog` label takes effect on the next push or a re-run of this
+  # job, not on the label event. Dependabot is exempt: the bot cannot write an entry.
   changelog:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

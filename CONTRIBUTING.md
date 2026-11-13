@@ -183,8 +183,8 @@ Use conventional commit style:
 ## Test traceability (documented deviation from standard 6.6)
 
 Standard 6.6 asks every test to cite the requirement ID it verifies. This
-repository has no requirement registry yet, so most tests name only the code they
-cover in their docstring. That is a known non-compliance (standard 1.3).
+repository's requirement registry (`docs/requirements.md`) is still empty, so most tests
+name only the code they cover in their docstring. That is a known non-compliance (standard 1.3).
 
 Corrective action: a registry of requirement IDs (`docs/requirements.md`, ids of the
 form `REQ-<AREA>-NNN`), the `criterion(id)` pytest marker on the tests of each

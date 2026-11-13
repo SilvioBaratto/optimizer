@@ -10,8 +10,8 @@ both ingested market data and served the library over `/api/v1/`, an Angular fro
 a docs site, examples, a research package and a CLI.
 
 Commit `869b4532` (2026-07-11) removed the frontend, docs site, examples, research
-package and CLI, "leaving two shipped artifacts: the `optimizer/` library and the
-`api/` FastAPI backend". Commit `1928d9e7` (2026-07-13) then went further. Its message
+package and CLI, "leaving two shipped artifacts: the `optimizer/` library (published as
+`portopt`) and the `api/` FastAPI backend". Commit `1928d9e7` (2026-07-13) then went further. Its message
 gives the reason: "The api/ side served two masters: it ingested market data on a
 schedule AND exposed the optimizer library over /api/v1/. Only the ingestion half is
 wanted. Serving the library also forced the whole sklearn/skfolio/scipy stack into the

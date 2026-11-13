@@ -37,6 +37,22 @@ def _load() -> ModuleType:
         ["docker-compose.yml"],
         ["install.sh"],
         ["docs/adr/0001-x.md", "fund/src/fund/config.py"],
+        # Images, entrypoints and installers: what a user runs after a clone.
+        ["ingestion/Dockerfile"],
+        ["fund/Dockerfile"],
+        ["ingestion/entrypoint.sh"],
+        ["fund/entrypoint.sh"],
+        ["setup.sh"],
+        ["setup.ps1"],
+        ["setup.cmd"],
+        ["scheduler/fetch.sh"],
+        # Dependency pins decide what ships.
+        ["pyproject.toml"],
+        ["uv.lock"],
+        ["fund/pyproject.toml"],
+        ["ingestion/pyproject.toml"],
+        # Markdown that the profiler agent loads is prompt content, not prose.
+        ["fund/src/fund/skills/mifid-profiling/SKILL.md"],
     ],
 )
 def test_shipped_changes_need_a_changelog_entry(changed: list[str]) -> None:
@@ -54,6 +70,8 @@ def test_shipped_changes_need_a_changelog_entry(changed: list[str]) -> None:
         ["tests/test_docs_match_repo.py"],
         ["packages/portopt-db/README.md"],
         [".github/PULL_REQUEST_TEMPLATE.md"],
+        ["fund/README.md", "ingestion/README.md"],
+        ["scripts/ci/check_changelog.py"],
         [],
     ],
 )
@@ -88,8 +106,15 @@ def _job() -> dict[str, object]:
 
 
 def test_ci_has_a_changelog_job_that_runs_only_on_pull_requests() -> None:
-    """A push has no base to diff against, so the job is limited to pull requests."""
-    assert _job()["if"] == "github.event_name == 'pull_request'"
+    """A push has no base to diff against, so the job is limited to pull requests.
+
+    Dependabot bumps are exempt: the bot cannot write a changelog entry or apply a
+    label, and its pull request title already carries the change.
+    """
+    assert (
+        _job()["if"]
+        == "github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'"
+    )
 
 
 def test_ci_changelog_job_fetches_history_and_passes_input_through_env() -> None:
