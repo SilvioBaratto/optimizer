@@ -51,6 +51,7 @@ testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
 markers = [
     "criterion: tag a test with the spec criterion it covers",
+    "integration: needs a real PostgreSQL server (PORTOPT_TEST_DATABASE_URL)",
 ]
 
 [tool.coverage.run]
