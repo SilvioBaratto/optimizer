@@ -27,11 +27,33 @@ export DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db
 cd packages/portopt-db && uv run --package portopt-db alembic upgrade head
 ```
 
+### Commands
+
+Every command needs the database URL and the package directory. Point `DATABASE_URL` at
+a scratch database when you are rehearsing.
+
+```bash
+export DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db
+cd packages/portopt-db
+
+# Generate a revision: the id is hex, never typed by hand, and the file name is dated
+uv run alembic revision -m "short description" --head <current head>
+
+# Validate: models match the migrations, then a window of revisions round-trips
+uv run alembic upgrade head
+uv run alembic check
+uv run alembic downgrade 70393a606218
+uv run alembic upgrade head
+
+# Roll back one revision, or to a named one
+uv run alembic downgrade -1
+```
+
 ### Writing a revision
 
-- Generate it with `alembic revision` (the ids are hex; do not type one by hand).
-  New revision files get a dated prefix from `file_template` in `alembic.ini`, so the file
-  names sort in execution order. Existing files keep their names.
+- Generate it with the revision command above. New revision files get a dated prefix from
+  `file_template` in `alembic.ini`, so the file names sort in execution order. Existing
+  files keep their names.
 - A revision is atomic and takes the migration advisory lock (`alembic/env.py`). Keep it
   to one concern.
 - It needs a working `downgrade()`. A revision that cannot be undone, because it deletes
@@ -46,22 +68,17 @@ cd packages/portopt-db && uv run --package portopt-db alembic upgrade head
 
 ### Validation before a deploy
 
-The `postgres-integration` CI job builds an empty database and runs, in order:
-`alembic upgrade head`, `alembic check` (fails when a model changed without a migration),
-`alembic downgrade 70393a606218` followed by `alembic upgrade head` (the five most recent
-revisions must stay reversible) and the integration suite below. Run the same three
-commands against a scratch database before you merge a revision.
+The `postgres-integration` CI job builds an empty database and runs the validation
+sequence from the commands block (upgrade, check, the downgrade window and back) and then
+the integration suite below. A model that changed without a migration fails the check, and
+one of the five most recent revisions that cannot be reversed fails the round trip. Run the
+same sequence against a scratch database before you merge a revision.
 
 ### Rolling back
 
-```bash
-cd packages/portopt-db
-uv run alembic downgrade <revision>     # or: -1
-```
-
-Stop the daemons first (one daemon per database). A revision whose `downgrade()` raises is
-a one-way door: restore the dump instead. Rehearse a rollback on a scratch database before
-doing it on a live one.
+Stop the daemons first (one daemon per database), then use the downgrade command from the
+block above. A revision whose `downgrade()` raises is a one-way door: restore the dump
+instead. Rehearse a rollback on a scratch database before doing it on a live one.
 
 ## Tests
 

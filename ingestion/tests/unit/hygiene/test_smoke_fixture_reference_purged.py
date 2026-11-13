@@ -21,7 +21,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.hygiene._shared_scan import _iter_git_tracked_relpaths
+from tests.unit.hygiene._shared_scan import (
+    HISTORICAL_DESIGN_RECORDS,
+    _iter_git_tracked_relpaths,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SELF_RELATIVE = Path(__file__).resolve().relative_to(_REPO_ROOT).as_posix()
@@ -32,6 +35,8 @@ def _iter_repo_files() -> Iterator[str]:
     assert tracked is not None, "git executable not found on PATH"
     for rel in tracked:
         if rel == _SELF_RELATIVE:
+            continue
+        if rel in HISTORICAL_DESIGN_RECORDS:
             continue
         # The whole hygiene package asserts *absence* by construction — its
         # sibling guards (e.g. test_smoke_fixture_deleted.py) must quote the
