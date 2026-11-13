@@ -1207,22 +1207,37 @@ class YFinanceDataService:
             The specs of the sweep's fundamentals step.
         """
         return (
-            CategorySpec(
-                name="valuation_measures",
-                marker="valuation_measures_updated_at",
-                fetch=self._request(
-                    lambda client: client.metadata.fetch_valuation_measures
-                ),
-                transform=lambda panel: _dated_valuation_panel(panel, ctx),
-                # Reuses the open EAV statements table under its own statement
-                # type, so the panel needs no table or migration of its own.
-                store=self._upsert(
-                    lambda repo: repo.upsert_financial_statements,
-                    VALUATION_MEASURES_STATEMENT_TYPE,
-                    VALUATION_MEASURES_PERIOD_TYPE,
-                    options=lambda _ctx: {"currency_code": listing_currency},
-                ),
+            self._valuation_spec(ctx, listing_currency),
+            *self._eps_specs(),
+            *self._estimate_specs(),
+            *self._earnings_specs(),
+            *self._filing_and_share_specs(),
+        )
+
+    def _valuation_spec(
+        self, ctx: FetchContext, listing_currency: str | None
+    ) -> CategorySpec[Any]:
+        """Return the valuation-measures spec; see ``_fundamental_specs``."""
+        return CategorySpec(
+            name="valuation_measures",
+            marker="valuation_measures_updated_at",
+            fetch=self._request(
+                lambda client: client.metadata.fetch_valuation_measures
             ),
+            transform=lambda panel: _dated_valuation_panel(panel, ctx),
+            # Reuses the open EAV statements table under its own statement
+            # type, so the panel needs no table or migration of its own.
+            store=self._upsert(
+                lambda repo: repo.upsert_financial_statements,
+                VALUATION_MEASURES_STATEMENT_TYPE,
+                VALUATION_MEASURES_PERIOD_TYPE,
+                options=lambda _ctx: {"currency_code": listing_currency},
+            ),
+        )
+
+    def _eps_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the EPS trend and EPS revisions specs, in sweep order."""
+        return (
             CategorySpec(
                 name="eps_trend",
                 marker="eps_trend_updated_at",
@@ -1235,6 +1250,11 @@ class YFinanceDataService:
                 fetch=self._request(lambda client: client.analysis.fetch_eps_revisions),
                 store=self._upsert(lambda repo: repo.upsert_eps_revisions),
             ),
+        )
+
+    def _estimate_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the earnings, revenue and growth estimate specs, in sweep order."""
+        return (
             CategorySpec(
                 name="earnings_estimate",
                 marker="earnings_estimate_updated_at",
@@ -1259,6 +1279,11 @@ class YFinanceDataService:
                 ),
                 store=self._upsert(lambda repo: repo.upsert_growth_estimates),
             ),
+        )
+
+    def _earnings_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the earnings history and dates specs, then analyst actions."""
+        return (
             CategorySpec(
                 name="earnings_history",
                 marker="earnings_history_updated_at",
@@ -1283,6 +1308,11 @@ class YFinanceDataService:
                 ),
                 store=self._upsert(lambda repo: repo.upsert_analyst_actions),
             ),
+        )
+
+    def _filing_and_share_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the SEC filings and shares outstanding specs, in sweep order."""
+        return (
             CategorySpec(
                 name="sec_filings",
                 marker="sec_filings_updated_at",
@@ -1314,6 +1344,15 @@ class YFinanceDataService:
             The specs of the sweep's event step, in the order it fetches them.
         """
         return (
+            *self._corporate_action_specs(),
+            *self._analyst_rating_specs(),
+            *self._holder_specs(),
+            *self._shared_marker_holder_specs(),
+        )
+
+    def _corporate_action_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the dividends and splits specs, in sweep order."""
+        return (
             CategorySpec(
                 name="dividends",
                 marker="dividends_updated_at",
@@ -1333,6 +1372,11 @@ class YFinanceDataService:
                 ),
                 store=self._upsert(lambda repo: repo.upsert_splits),
             ),
+        )
+
+    def _analyst_rating_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the analyst recommendation and price target specs, in sweep order."""
+        return (
             CategorySpec(
                 name="recommendations",
                 marker="recommendations_updated_at",
@@ -1350,6 +1394,11 @@ class YFinanceDataService:
                 store=self._upsert(lambda repo: repo.upsert_price_targets),
                 is_empty=is_empty_collection,
             ),
+        )
+
+    def _holder_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the holder specs gated on a marker of their own, in sweep order."""
+        return (
             CategorySpec(
                 name="institutional_holders",
                 marker="institutional_holders_updated_at",
@@ -1374,6 +1423,11 @@ class YFinanceDataService:
                 ),
                 store=self._upsert(lambda repo: repo.upsert_insider_transactions),
             ),
+        )
+
+    def _shared_marker_holder_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the holder specs gated on another category's marker, in order."""
+        return (
             CategorySpec(
                 name="major_holders",
                 marker="institutional_holders_updated_at",
