@@ -346,9 +346,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `linear_constraints` keywords; explicit keywords still win. The composite macro
   regime score (`_score_composite`, 63 lines) scores each indicator through one
   `_band_score` instead of four copies. A sector cap without a sector mapping
-  still only logs a warning while floors and bands without one raise. The
-  complexity ratchet's baselines drop the three functions: 261 long and 41
-  complex functions remain. Behaviour is unchanged.
+  still only logs a warning, while floors without one raise and bands raise
+  when there is neither a mapping nor an explicit `groups`. The complexity
+  ratchet's baselines drop the three functions: 261 long and 41 complex
+  functions remain. Behaviour is unchanged.
 
 ### Removed
 

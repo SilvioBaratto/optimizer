@@ -291,7 +291,8 @@ def _sector_cap_rows(
     """Return the ``"<sector> <= <cap>"`` rows of ``max_sector_weight``.
 
     A cap without a ``sector_mapping`` only logs a warning and emits no row,
-    whereas floors and bands without a mapping raise.
+    whereas floors without a mapping raise, and bands raise when there is
+    neither a mapping nor an explicit ``groups`` keyword.
     """
     if max_sector_weight is None:
         return []
