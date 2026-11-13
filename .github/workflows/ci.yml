@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, development]
+    # The prefixed branches run CI on push so a change merged without a pull
+    # request still carries the statuses branch protection requires.
+    branches: [main, development, "feature/**", "bugfix/**", "hotfix/**", "release/**"]
   pull_request:
     branches: [main, development]
   # release.yml runs this whole workflow as the gate in front of the PyPI upload.

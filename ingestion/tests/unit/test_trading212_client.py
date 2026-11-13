@@ -13,7 +13,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from app.services.universe.trading212.client import Trading212Client
+from app.services.universe.trading212.client import (
+    _MAX_RATE_LIMIT_WAIT_SECONDS,
+    Trading212Client,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -477,3 +480,26 @@ class TestMissingCredentials:
             "TRADING_212_API_KEY",
             "TRADING_212_SECRET_KEY",
         ]
+
+
+class TestRetryAfterWait:
+    """A server-sent ``Retry-After`` must never stall the build or crash the sleep."""
+
+    @pytest.mark.parametrize(
+        ("header", "expected"),
+        [
+            ("86400", _MAX_RATE_LIMIT_WAIT_SECONDS),
+            ("-5", 2),
+            ("0", 0),
+            ("abc", 2),
+            ("Wed, 21 Oct 2015 07:28:00 GMT", 2),
+            ("7", 7),
+        ],
+    )
+    def test_retry_after_is_clamped_or_falls_back_to_backoff(
+        self, header: str, expected: float
+    ) -> None:
+        """Huge values are capped, unusable ones fall back to the first backoff (2 s)."""
+        waited = Trading212Client._rate_limit_wait({"Retry-After": header}, attempt=0)
+
+        assert waited == expected
