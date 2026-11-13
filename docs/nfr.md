@@ -80,7 +80,7 @@ GROUP BY job_type;
 | Aspect | Measured on 2026-11-13 | Target | Status |
 |---|---|---|---|
 | Coverage | Four suites with branch coverage, floors in CI | Library 90, `portopt-db` 90, ingestion 80, fund 80 (standard goal 75) | enforced |
-| Tests | Library 4,050, ingestion 4,254, `portopt-db` 1,381 (+8 Postgres integration), fund 3,803 passing | All pass on every CI run | enforced |
+| Tests | Library 4,053, ingestion 4,254, `portopt-db` 1,381 (+8 Postgres integration), fund 3,803 passing | All pass on every CI run | enforced |
 | Static analysis | ruff (check and format), mypy strict, pyright with 0 errors, shellcheck, `pip-audit --strict` | Clean | enforced |
 | Function size | 261 of 2,979 functions are over 30 lines, each listed in `scripts/ci/baselines/long_functions.json` | At most 30 lines (standard 2.8) | enforced by `scripts/ci/check_complexity_ratchet.py`: no new offender, no listed one grows |
 | Cyclomatic complexity | 41 functions at CC 10 or more, each listed in `scripts/ci/baselines/complex_functions.json` | Below 10 (standard 2.8) | enforced by `scripts/ci/check_complexity_ratchet.py`: no new offender, no listed one grows |
