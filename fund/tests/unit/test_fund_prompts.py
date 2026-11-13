@@ -292,7 +292,7 @@ def test_executor_prompt_forbids_fabricating_weights():
 
 
 def test_every_role_prompt_directs_to_the_staged_theory():
-    # The second load-bearing principle (todo/deep_agent.md line 7): an agent must
+    # The second load-bearing principle (deep_agent roadmap, line 7): an agent must
     # consult the staged theory, not decide from parametric memory. Every role —
     # including the profiler — carries the consultation protocol.
     for name, prompt in _ALL_SIX_PROMPTS.items():

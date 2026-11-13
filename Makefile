@@ -11,11 +11,11 @@ sync:
 lint:
 	uv run ruff check packages/portopt-core/optimizer/ tests/
 	uv run ruff format --check packages/portopt-core/optimizer/ tests/
-	uv run ruff check packages/portopt-db/ ingestion/ fund/
-	uv run ruff format --check packages/portopt-db/ ingestion/ fund/
+	uv run ruff check packages/portopt-db/ ingestion/ fund/ scripts/
+	uv run ruff format --check packages/portopt-db/ ingestion/ fund/ scripts/
 
 format:
-	uv run ruff format packages/portopt-core/optimizer/ tests/ packages/portopt-db/ ingestion/ fund/
+	uv run ruff format packages/portopt-core/optimizer/ tests/ packages/portopt-db/ ingestion/ fund/ scripts/
 
 typecheck:
 	uv run mypy packages/portopt-core/optimizer/

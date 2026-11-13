@@ -126,6 +126,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Decision log, integration docs and a changelog check.** `docs/adr/` starts an
+  architecture decision log with seven records (the strip to an ingestion pipeline,
+  the four-package workspace, the removal of `optimizer.pipeline`, the heartbeat-lease
+  reaper, the LangGraph schema, the provider registry and the branching, review and
+  secrets policy), and `tests/test_adr_format.py` keeps their shape. `docs/integrations.md`
+  documents every external system (Yahoo Finance, FRED, Trading 212, Trading
+  Economics, Il Sole 24 Ore, Business Insider and the LLM providers) with its API,
+  authentication, failure impact, risk and mitigation, plus a communication diagram
+  and two sequence diagrams, and a test checks that each cited source file exists.
+  `docs/nfr.md` records dated scalability, performance and maintainability baselines
+  against their targets, `docs/test-plan.md` maps the critical functions to their
+  tests, and `docs/requirements.md` holds the (still empty) requirement registry.
+  An advisory `changelog` CI job (`scripts/ci/check_changelog.py`, pull requests only)
+  fails a pull request that changes shipped code (sources, migrations, Dockerfiles,
+  entrypoints, installers, dependency pins, agent prompts) without a `CHANGELOG.md`
+  entry; the `skip-changelog` label overrides it and Dependabot is exempt. The `lint`
+  job, `make lint` and pre-commit now also cover `scripts/`.
 - **portopt-db PostgreSQL integration suite and migration checks in CI.** SQLite
   drops the `ON CONFLICT ON CONSTRAINT` target and never installs the
   `human_audit_log` triggers, so neither had a test. `packages/portopt-db/tests/
@@ -242,6 +259,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removed transport layer. Docker (`ingestion/Dockerfile`), CI (job renamed
   `api-test` → `ingestion-test`), the `scheduler/*.sh` wrappers, and the docs
   were all updated to match; no code paths changed
+- **docs**: the architecture and decision records (`ARCHITECTURE.md`,
+  `DECISIONS.md`, `SPEC-RECONCILIATION.md`, `VALIDATION.md`, `WRITE-PATH-AUDIT.md`)
+  moved from the git-ignored `todo/` folder to a tracked `docs/`, so they are
+  versioned and reviewable. Pointers to `SPEC.md`, `deep_agent.md` and
+  `tasks/plan.md`, which were never committed, were dropped from `CLAUDE.md`,
+  `fund/README.md`, `ci.yml` and code comments, and
+  `tests/test_doc_references_resolve.py` fails on any new one. `CONTRIBUTING.md`
+  now describes the uv workspace, the per-member test commands, branching from
+  `development` and releasing through a `release/` branch, and the `portopt-db` README
+  documents the migration process (validation, rollback, one-way revisions) with an ER
+  diagram; new Alembic revisions get a dated file name.
 
 ### Removed
 

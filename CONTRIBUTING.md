@@ -4,17 +4,17 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ## Development Setup
 
+The repository is a uv workspace of four packages that share one virtualenv (see
+[ADR-0002](docs/adr/0002-four-package-uv-workspace.md)). Install through `uv`: the
+daemon and the fund bridge depend on sibling packages that only uv can resolve.
+
 ```bash
 # Clone the repository
 git clone https://github.com/SilvioBaratto/optimizer.git
 cd optimizer
 
-# Create a virtual environment
-python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-
-# Install with all development dependencies
-pip install -e ".[dev]"
+# One environment for all four packages, with every extra
+uv sync --all-packages --all-extras
 
 # Install pre-commit hooks
 pre-commit install
@@ -22,18 +22,38 @@ pre-commit install
 
 ## Running Tests
 
+Run each suite from the directory CI runs it from. From the repository root, `pytest`
+always collects the library suite, whichever `--package` you pass.
+
 ```bash
-# Run all tests
-pytest tests/ -v
+# Library suite (portopt-core), from the repository root
+uv run --package portopt-core pytest tests/ -v
+uv run --package portopt-core pytest -k "test_name"
 
-# Run tests for a specific module
-pytest tests/rebalancing/ -v
+# Member suites, each from its own directory
+cd ingestion && uv run pytest tests/
+cd packages/portopt-db && uv run pytest
+cd fund && uv run pytest tests/
+```
 
-# Run a single test by name
-pytest -k "test_name"
+### PostgreSQL integration suites
 
-# Run with coverage
-pytest tests/ --cov=optimizer --cov-report=term-missing
+`portopt-db` and `fund` have tests that need a real server (`ON CONFLICT ON CONSTRAINT`,
+the append-only audit triggers, the LangGraph schema). They skip unless a scratch
+database is configured, and they refuse any database that is the live one. Never point
+them at `optimizer_db`.
+
+```bash
+docker run -d --rm --name portopt_test_pg -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=portopt_test -p 127.0.0.1:54399:5432 postgres:16
+
+# portopt-db: the database name must end in _test
+cd packages/portopt-db && \
+  PORTOPT_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:54399/portopt_test \
+  uv run pytest tests/integration -m integration
+
+# fund: FUND_TEST_DATABASE_URL, see fund/tests/integration
+docker stop portopt_test_pg
 ```
 
 ## Code Quality
@@ -113,11 +133,18 @@ def build_my_estimator(config: MyConfig, **kwargs):
 
 ## Pull Request Process
 
-1. Create a feature branch from `main`
+The branching, review and secrets policy, including the one place it departs from the
+code standard, is in
+[ADR-0007](docs/adr/0007-branching-review-and-secrets-policy.md).
+
+1. Create a branch from `development` named `feature/<slug>`, `bugfix/<slug>` or
+   `hotfix/<slug>`
 2. Make your changes with tests
 3. Ensure all checks pass: `make all` (or the targets for the packages you touched)
 4. Update `CHANGELOG.md` under `[Unreleased]`
-5. Submit a pull request
+5. Push the branch. CI runs on every push to a prefixed branch, and `development` and
+   `main` accept only commits whose twelve required checks are green
+6. Open a pull request into `development` and merge it once the checks pass
 
 ### PR Checklist
 
@@ -141,11 +168,14 @@ Use conventional commit style:
 
 ## Releasing
 
-1. Update the version in `pyproject.toml`
-2. Move `[Unreleased]` entries in `CHANGELOG.md` to the new version section
-3. Commit: `git commit -m "release: v0.x.0"`
-4. Tag: `git tag v0.x.0`
-5. Push: `git push origin main --tags`
+`main` receives releases only; direct commits to it are blocked.
+
+1. Branch `release/0.x.0` from `development`
+2. Set the version to `0.x.0` in the root `pyproject.toml` and keep the three member
+   `pyproject.toml` files equal to it, then refresh `uv.lock`
+3. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[0.x.0]` section
+4. Open a pull request from the release branch into `main` and merge it once green
+5. Tag the merge commit on `main`: `git tag -a v0.x.0` and `git push origin v0.x.0`
 6. The release workflow rejects the tag unless its commit is on `main` and the tag
    equals `v` plus the `pyproject.toml` version, re-runs the full CI workflow, and
    only then publishes `portopt-core` to PyPI
@@ -153,8 +183,8 @@ Use conventional commit style:
 ## Test traceability (documented deviation from standard 6.6)
 
 Standard 6.6 asks every test to cite the requirement ID it verifies. This
-repository has no requirement registry yet, so most tests name only the code they
-cover in their docstring. That is a known non-compliance (standard 1.3).
+repository's requirement registry (`docs/requirements.md`) is still empty, so most tests
+name only the code they cover in their docstring. That is a known non-compliance (standard 1.3).
 
 Corrective action: a registry of requirement IDs (`docs/requirements.md`, ids of the
 form `REQ-<AREA>-NNN`), the `criterion(id)` pytest marker on the tests of each

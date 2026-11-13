@@ -11,7 +11,7 @@ Building a ``ConstraintSet`` pulls in **no** ``optimizer`` symbols — the mappi
 plain dict/arithmetic; the optimizer only enters when the caller feeds the result
 through ``ConstraintSet.to_mean_risk_config()``.
 
-Correctness-critical (SPEC §8, deep_agent.md ``01:142`` / ``30:41``):
+Correctness-critical (SPEC §8, deep_agent ``01:142`` / ``30:41``):
 
 * **appetite vs aversion direction** — ``A = min(tolerance, capacity)`` is on
   risk-**appetite** ``A ∈ [0, 1]`` (higher = *can take more risk*); the 5-band

@@ -1,6 +1,6 @@
 """Runtime configuration for the ``fund`` deep-agent bridge.
 
-Pins the Phase-0 verified contract (SPEC.md §8, decisions D1–D4/D10/D22). The
+Pins the Phase-0 verified contract (SPEC §8, decisions D1–D4/D10/D22). The
 shape mirrors ``portopt_db.config.DbConfig``: a frozen dataclass of primitives
 (serialisable, hashable) plus a ``load_config`` factory that sources secrets from
 the environment.

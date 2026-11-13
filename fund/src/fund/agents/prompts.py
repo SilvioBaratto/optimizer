@@ -29,7 +29,7 @@ __all__ = [
 ]
 
 
-# The second load-bearing principle of the bridge (todo/deep_agent.md line 7): an
+# The second load-bearing principle of the bridge (deep_agent roadmap, line 7): an
 # agent must NOT decide from its own parametric knowledge — it reads the theory. The
 # whole ``optimizerwiki/`` monograph is staged read-only into every agent's virtual
 # filesystem under ``optimizer-theory/`` (see ``fund.agents.backend.stage_theory``),

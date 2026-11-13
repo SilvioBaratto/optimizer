@@ -29,6 +29,20 @@ import tomllib
 # that duplicates the source tree and would otherwise false-positive every scan.
 _EXCLUDE_DIR_PARTS = {"__pycache__", "build"}
 
+# Design records that describe the repository as it was. They quote dead paths and
+# retired fixture names on purpose, as history. They sat in the git-ignored ``todo/``
+# folder, which the absence guards skip, until they moved to the tracked ``docs/``;
+# listing them here keeps that exemption explicit and limited to these five files.
+HISTORICAL_DESIGN_RECORDS = frozenset(
+    {
+        "docs/ARCHITECTURE.md",
+        "docs/DECISIONS.md",
+        "docs/SPEC-RECONCILIATION.md",
+        "docs/VALIDATION.md",
+        "docs/WRITE-PATH-AUDIT.md",
+    }
+)
+
 _DYNAMIC_IMPORT_CALLEES = frozenset({"import_module", "__import__"})
 
 # PEP 508: the distribution name is the leading token of a requirement string,

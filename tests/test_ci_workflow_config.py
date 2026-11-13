@@ -340,6 +340,64 @@ def test_makefile_runs_the_same_lint_and_typecheck_gates_as_ci() -> None:
         )
 
 
+def _tracked_python_files() -> list[str]:
+    git = shutil.which("git")
+    assert git, "git is required to list the tracked files"
+    listing = subprocess.run(  # noqa: S603 - fixed argv, no user input
+        [git, "ls-files", "*.py"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return listing.stdout.splitlines()
+
+
+def _ruff_paths(commands: list[str], tool: str) -> list[str]:
+    """Directory arguments of every ``ruff <tool>`` command, trailing slash kept."""
+    return [
+        arg
+        for command in commands
+        if tool in command
+        for arg in command.split()
+        if arg.endswith("/")
+    ]
+
+
+def test_every_tracked_python_file_is_linted_by_ci_make_and_pre_commit() -> None:
+    """A Python file outside the linted trees is never checked, and no one notices.
+
+    ``scripts/ci/check_changelog.py`` once sat outside all three gates, so a later edit
+    to it could have reached ``development`` unlinted and unformatted.
+    """
+    lint = _jobs()["lint"]
+    ci_commands = _run_commands(lint)
+    makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+    hooks = {
+        hook["id"]: hook.get("files", "")
+        for repo in yaml.safe_load(
+            (_REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        )["repos"]
+        for hook in repo["hooks"]
+    }
+
+    uncovered: list[str] = []
+    for path in _tracked_python_files():
+        for label, paths in (
+            ("ci ruff check", _ruff_paths(ci_commands, "ruff check")),
+            ("ci ruff format", _ruff_paths(ci_commands, "ruff format --check")),
+            ("make ruff check", _ruff_paths(makefile, "ruff check")),
+            ("make ruff format", _ruff_paths(makefile, "ruff format")),
+        ):
+            if not any(path.startswith(prefix) for prefix in paths):
+                uncovered.append(f"{path}: not under a {label} path")
+        for hook_id in ("ruff", "ruff-format"):
+            if not re.match(hooks[hook_id], path):
+                uncovered.append(f"{path}: not matched by the {hook_id} hook")
+
+    assert uncovered == []
+
+
 def test_pyright_gate_fails_on_warnings_in_ci_and_in_make() -> None:
     """The documented "0 errors / 0 warnings" bar must be enforced, not just stated.
 

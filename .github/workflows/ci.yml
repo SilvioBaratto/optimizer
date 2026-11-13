@@ -23,7 +23,7 @@ concurrency:
 # so `optimizer` is absent" isolation is gone — enforcement of the
 # ingestion-must-not-import-optimizer boundary now rests entirely on the static
 # source-scan guard (tests/unit/hygiene/test_no_optimizer_import.py) + the
-# portopt-core⊬portopt_db guard. See tasks/plan.md risk #1.
+# portopt-core⊬portopt_db guard.
 #
 # Tool versions are pinned so a new uv release or runner-image Python cannot
 # change CI without a commit: setup-uv's `version` mirrors the uv pinned in both
@@ -44,8 +44,8 @@ jobs:
       - run: uv sync --locked --all-packages --all-extras
       # Each member keeps its own ruff.toml, which ruff resolves per file, so one
       # invocation from the root lints every tree with that tree's settings.
-      - run: uv run ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
-      - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/
+      - run: uv run ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ scripts/
+      - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ scripts/
       # The entrypoints run inside the images and the installers on user machines.
       - run: shellcheck $(git ls-files '*.sh') scripts/optimizer
       # pip-audit the resolved third-party set. The three editable workspace
@@ -200,6 +200,23 @@ jobs:
       - run: cd fund && uv run pytest tests/integration -m integration -v --tb=short
         env:
           FUND_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fund_test
+
+  # Advisory, not a required status: it exists only on pull requests (a push has no base
+  # to diff against), so branch protection must not wait for it. See ADR-0007.
+  # Adding the `skip-changelog` label takes effect on the next push or a re-run of this
+  # job, not on the label event. Dependabot is exempt: the bot cannot write an entry.
+  changelog:
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/ci/check_changelog.py --base "origin/$BASE_REF" --skip-label "$SKIP_LABEL"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          SKIP_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
 
   # Parses the compose file and builds both shipped images, so a broken
   # Dockerfile or compose edit fails here instead of on a user's `portopt start`.

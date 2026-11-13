@@ -440,12 +440,14 @@ ruff and mypy gates as the CI `lint`/`typecheck` jobs: ruff over the library,
 suite.
 
 **CI** (`.github/workflows/ci.yml`, push/PR to `main` and `development`, Ubuntu, Python 3.12 &
-3.13, uv-driven) runs ten jobs: `lint` (ruff check → ruff format --check on
+3.13, uv-driven) runs eleven jobs: `lint` (ruff check → ruff format --check on
 all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.414`), `test`
 (`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
 `portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
-80%), `postgres-integration` (the Alembic upgrade to head on a real PostgreSQL plus
-the `integration`-marked tests), `docker-images` (compose config + build of
+80%), `postgres-integration` (the Alembic upgrade to head on a real PostgreSQL,
+`alembic check`, a downgrade/upgrade of the five most recent revisions, then the
+`integration`-marked tests of `portopt-db` and `fund`), `changelog` (advisory, pull
+requests only: shipped code needs a `CHANGELOG.md` entry), `docker-images` (compose config + build of
 both images, then a boot of both stacks), and `windows-install` (`install.ps1` on a
 Windows runner under Windows PowerShell 5.1 and PowerShell 7). `release.yml` publishes `portopt-core` to PyPI on `v*` tags, but only
 after checking that the tagged commit is on `main`, that the tag equals
