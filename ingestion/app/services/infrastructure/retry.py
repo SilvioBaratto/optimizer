@@ -13,6 +13,8 @@ import time
 from collections.abc import Callable
 from typing import TypeVar
 
+from app.utils.log_redaction import redact_secrets
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -90,13 +92,17 @@ def _log_exhausted(max_retries: int, last_exc: Exception | None) -> None:
 
     The helper returns None on exhaustion and its callers only report "failed after
     retries", so this line is the only place the last error survives.
+
+    The exception text is redacted by hand and no traceback is attached: requests
+    echoes the full URL in its errors, FRED takes its key as ``?api_key=``, and the
+    ``SecretRedactingFilter`` only rewrites the rendered message, never ``exc_info``.
     """
-    logger.warning(
-        "retry exhausted after %d attempts: %s",
-        max_retries,
-        last_exc if last_exc is not None else "result rejected by is_valid",
-        exc_info=last_exc,
+    reason = (
+        redact_secrets(f"{type(last_exc).__name__}: {last_exc}")
+        if last_exc is not None
+        else "result rejected by is_valid"
     )
+    logger.warning("retry exhausted after %d attempts: %s", max_retries, reason)
 
 
 def retry_with_backoff(
@@ -178,6 +184,8 @@ def retry_with_backoff(
             _log_exhausted(max_retries, last_exc)
             return None
 
-    # Reached when the last attempt was rate limited and fell through ``continue``.
-    _log_exhausted(max_retries, last_exc)
+    # Reached when the last attempt was rate limited and fell through ``continue``,
+    # or when no attempt was allowed (``max_retries <= 0``), which has nothing to log.
+    if max_retries > 0:
+        _log_exhausted(max_retries, last_exc)
     return None

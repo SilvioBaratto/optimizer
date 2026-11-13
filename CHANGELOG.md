@@ -374,7 +374,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `time.sleep` raise
 - **ingestion**: `retry_with_backoff` logs a WARNING with the last exception (or
   "result rejected by is_valid") when it gives up. Its callers only report "failed
-  after retries", so the cause used to be lost
+  after retries", so the cause used to be lost. The text is passed through
+  `redact_secrets` and no traceback is attached, because FRED sends its key as
+  `?api_key=` and `requests` echoes the URL in its errors
 
 ## [0.1.0] - 2026-02-21
 
