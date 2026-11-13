@@ -11,6 +11,7 @@ or a missing log line.
 from __future__ import annotations
 
 import logging
+import math
 
 import numpy as np
 import pandas as pd
@@ -514,3 +515,49 @@ class TestRejectedInputs:
 
         with pytest.raises(ValueError, match="duplicate labels"):
             run_regime_validation(doubled, later)
+
+
+class TestNonFiniteMinimum:
+    """``min_regime_obs`` values that ``__post_init__`` lets through, or not."""
+
+    @staticmethod
+    def _run(min_regime_obs: float) -> RegimeValidationResult:
+        returns, macro, _ = _scenario(_MIXED_LAYOUT, _EDGE_DRIFT)
+        config = RegimeValidationConfig(min_regime_obs=min_regime_obs)  # type: ignore[arg-type]
+        return run_regime_validation(returns, macro, config)
+
+    @pytest.mark.parametrize("minimum", [math.nan, math.inf], ids=["nan", "inf"])
+    def test_a_minimum_no_count_reaches_leaves_every_row_unmeasured(
+        self, minimum: float
+    ) -> None:
+        """NaN and +inf act as a minimum above the sample: no row is measured."""
+        result = self._run(minimum)
+        above_the_sample = self._run(sum(length for _, length in _MIXED_LAYOUT) + 1)
+
+        regimes = result.per_regime_metrics
+        assert regimes[_METRIC_COLUMNS].isna().all(axis=None)
+        assert result.per_subperiod_metrics[_METRIC_COLUMNS].isna().all(axis=None)
+        assert list(regimes["obs_sufficient"]) == [False, False, False, False]
+        assert list(regimes["obs"]) == [101, 30, 10, 9]
+        assert result.regime_alpha_concentration.to_dict() == {
+            "expansion": 0.0,
+            "recession": 0.0,
+            "recovery": 0.0,
+            "slowdown": 0.0,
+        }
+        assert result.concentrated_regimes == []
+        pd.testing.assert_frame_equal(
+            regimes, above_the_sample.per_regime_metrics, check_exact=True
+        )
+        pd.testing.assert_frame_equal(
+            result.per_subperiod_metrics,
+            above_the_sample.per_subperiod_metrics,
+            check_exact=True,
+        )
+
+    def test_a_negative_infinite_minimum_is_rejected(self) -> None:
+        """-inf fails the ``>= 1`` check, so it never reaches the metrics."""
+        with pytest.raises(
+            ValueError, match=r"^min_regime_obs must be >= 1, got -inf$"
+        ):
+            RegimeValidationConfig(min_regime_obs=-math.inf)  # type: ignore[arg-type]

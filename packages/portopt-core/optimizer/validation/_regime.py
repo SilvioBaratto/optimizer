@@ -463,11 +463,18 @@ def _align_regimes(
     return regime_timeline, oos_returns.reindex(regime_timeline.index)
 
 
+def _is_sufficient(n_obs: int, config: RegimeValidationConfig) -> bool:
+    """Return whether ``n_obs`` observations are enough to measure a slice."""
+    # Written as `>=` and decided once per slice: a NaN minimum must leave every
+    # slice unmeasured, which the negated comparison `n_obs < minimum` would not.
+    return n_obs >= config.min_regime_obs
+
+
 def _metrics_or_nan(
-    returns: pd.Series, config: RegimeValidationConfig
+    returns: pd.Series, sufficient: bool, config: RegimeValidationConfig
 ) -> dict[str, float]:
-    """Return the statistics of ``returns``, or NaN ones below the minimum length."""
-    if len(returns) < config.min_regime_obs:
+    """Return the statistics of ``returns``, or NaN ones when it is not sufficient."""
+    if not sufficient:
         return dict(_NAN_METRICS)
     rf_daily = config.risk_free_rate / config.trading_days_per_year
     return _compute_period_metrics(returns, config.trading_days_per_year, rf_daily)
@@ -482,13 +489,15 @@ def _subperiod_metrics(
     rows: list[dict[str, object]] = []
     for start, end, regime_name in _identify_subperiods(regime_timeline):
         sub_returns = oos_returns.loc[start:end]
+        n_obs = len(sub_returns)
+        sufficient = _is_sufficient(n_obs, config)
         rows.append(
             {
                 "start": start,
                 "end": end,
                 "regime": regime_name,
-                "obs": len(sub_returns),
-                **_metrics_or_nan(sub_returns, config),
+                "obs": n_obs,
+                **_metrics_or_nan(sub_returns, sufficient, config),
             }
         )
     return pd.DataFrame(rows)
@@ -513,7 +522,7 @@ def _per_regime_metrics(
     for regime_name in sorted(regime_timeline.unique()):
         regime_returns = cast(pd.Series, oos_returns[regime_timeline == regime_name])
         n_obs = len(regime_returns)
-        sufficient = n_obs >= config.min_regime_obs
+        sufficient = _is_sufficient(n_obs, config)
         # Alpha is the mean daily excess return, so a regime's weight does not
         # grow with the number of days it lasts; under-sampled regimes carry
         # NaN metrics and so take no share.
@@ -525,7 +534,7 @@ def _per_regime_metrics(
                 "obs": n_obs,
                 "coverage_pct": n_obs / total_obs if total_obs > 0 else 0.0,
                 "obs_sufficient": sufficient,
-                **_metrics_or_nan(regime_returns, config),
+                **_metrics_or_nan(regime_returns, sufficient, config),
             }
         )
     return pd.DataFrame(rows).set_index("regime"), alpha_per_day
