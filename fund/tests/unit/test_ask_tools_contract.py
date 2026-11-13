@@ -14,6 +14,7 @@ registered for the Ask view yet.
 from __future__ import annotations
 
 import datetime as dt
+import inspect
 import json
 import uuid
 from collections.abc import Iterator
@@ -42,7 +43,9 @@ NOTHING_FOCUSED = (
 READ_ONLY = "execute:SET TRANSACTION READ ONLY"
 _BLANK_ID = {"portfolio_id": {"default": "", "title": "Portfolio Id", "type": "string"}}
 # The order the model is offered the tools in, with the description and the
-# argument schema it reads for each.
+# argument schema it reads for each. The descriptions are pinned without the
+# docstring's continuation indent: Python 3.12 keeps it and 3.13 strips it at compile
+# time, so the test compares them through ``inspect.cleandoc``.
 TOOL_CONTRACT: list[tuple[str, str, dict[str, Any]]] = [
     (
         "fund_snapshot",
@@ -53,19 +56,19 @@ TOOL_CONTRACT: list[tuple[str, str, dict[str, Any]]] = [
     (
         "portfolio_state",
         "Show a portfolio's drift, holdings count and run status.\n\n"
-        "        A blank portfolio_id means the focused portfolio.",
+        "A blank portfolio_id means the focused portfolio.",
         _BLANK_ID,
     ),
     (
         "performance",
         "Show a portfolio's returns, risk and excess return.\n\n"
-        "        A blank portfolio_id means the focused portfolio.",
+        "A blank portfolio_id means the focused portfolio.",
         _BLANK_ID,
     ),
     (
         "holdings",
         "Show a portfolio's holdings with value, one-day change and P&L.\n\n"
-        "        A blank portfolio_id means the focused portfolio.",
+        "A blank portfolio_id means the focused portfolio.",
         _BLANK_ID,
     ),
     (
@@ -94,13 +97,13 @@ TOOL_CONTRACT: list[tuple[str, str, dict[str, Any]]] = [
     (
         "daily_brief",
         "Show the daily brief for a day: P&L, attribution, market digest, actions.\n\n"
-        "        The day is YYYY-MM-DD; blank is the latest.",
+        "The day is YYYY-MM-DD; blank is the latest.",
         {**_BLANK_ID, "day": {"default": "", "title": "Day", "type": "string"}},
     ),
     (
         "audit_trail",
         "Show the newest audit entries: who decided or did what, and when.\n\n"
-        "        A blank portfolio_id means the focused portfolio, or all when none is "
+        "A blank portfolio_id means the focused portfolio, or all when none is "
         "focused.",
         {
             **_BLANK_ID,
@@ -261,7 +264,9 @@ def test_the_tools_come_in_a_fixed_order_with_their_exact_descriptions() -> None
         session_factory=_factory([]), saver=SAVER, focus=PID
     )
 
-    assert [(t.name, t.description, t.args) for t in tools] == TOOL_CONTRACT
+    seen = [(t.name, inspect.cleandoc(t.description), t.args) for t in tools]
+
+    assert seen == TOOL_CONTRACT
     assert {type(t).__name__ for t in tools} == {"StructuredTool"}
 
 
