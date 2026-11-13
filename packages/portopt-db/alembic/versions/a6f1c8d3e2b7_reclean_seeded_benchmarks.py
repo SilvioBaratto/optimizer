@@ -73,6 +73,13 @@ def upgrade() -> None:
     )
 
 
+# Read by tests/test_irreversible_migrations_declare_reason.py.
+IRREVERSIBLE_REASON = (
+    "Deleted the seeded benchmark ETFs and, by cascade, their price history. "
+    "Recover from a pre-upgrade dump."
+)
+
+
 def downgrade() -> None:
     # Irreversible: the deleted benchmark rows and their price history cannot be
     # reconstructed. Restore from a pre-upgrade dump if they are needed.

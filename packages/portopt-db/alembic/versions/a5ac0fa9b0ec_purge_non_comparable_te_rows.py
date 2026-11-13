@@ -112,6 +112,14 @@ def upgrade() -> None:
     )
 
 
+# Read by tests/test_irreversible_migrations_declare_reason.py.
+IRREVERSIBLE_REASON = (
+    "Deleted Trading Economics rows that mixed non-comparable measures under one "
+    "key; restoring them would put the corruption back. Recover from a "
+    "pre-upgrade dump."
+)
+
+
 def downgrade() -> None:
     """Not reversible.
 

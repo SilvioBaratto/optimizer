@@ -63,6 +63,13 @@ def upgrade() -> None:
         _drop_if_exists(tbl, existing)
 
 
+# Read by tests/test_irreversible_migrations_declare_reason.py.
+IRREVERSIBLE_REASON = (
+    "Dropped nine orphaned tables that still held rows; the data cannot be "
+    "restored. Recover from a pre-upgrade dump."
+)
+
+
 def downgrade() -> None:
     raise NotImplementedError(
         "Downgrade not supported — dropped tables contained data that cannot be restored."
