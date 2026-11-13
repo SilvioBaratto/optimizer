@@ -60,6 +60,7 @@ from app.services.market_data.yfinance import (
 from app.services.market_data.yfinance.categories import (
     CategorySpec,
     FetchResult,
+    is_empty_collection,
     run_category,
     write_in_savepoint,
 )
@@ -1266,215 +1267,15 @@ class YFinanceDataService:
             if category in counts:
                 _record_fetch(f"{category}_updated_at", counts[category])
 
-        # 4. Dividends
-        if _event_fresh("dividends_updated_at"):
-            skipped.append("dividends")
-        else:
-            try:
-                dividends = self._timed(
-                    lambda: self.yf_client.corporate_actions.fetch_dividends(
-                        yfinance_ticker
-                    )
-                )
-                if dividends is not None and not dividends.empty:
-                    counts["dividends"] = self._write(
-                        self.repo.upsert_dividends,
-                        instrument_id,
-                        dividends,
-                        price_currency=currency_code,
-                    )
-                else:
-                    counts["dividends"] = 0
-            except Exception as e:
-                errors.append(f"dividends: {e}")
-                logger.warning("Failed dividends for %s: %s", yfinance_ticker, e)
-
-        # 5. Stock splits
-        if _event_fresh("splits_updated_at"):
-            skipped.append("splits")
-        else:
-            try:
-                splits = self._timed(
-                    lambda: self.yf_client.corporate_actions.fetch_splits(
-                        yfinance_ticker
-                    )
-                )
-                if splits is not None and not splits.empty:
-                    counts["splits"] = self._write(
-                        self.repo.upsert_splits, instrument_id, splits
-                    )
-                else:
-                    counts["splits"] = 0
-            except Exception as e:
-                errors.append(f"splits: {e}")
-                logger.warning("Failed splits for %s: %s", yfinance_ticker, e)
-
-        # 6. Analyst recommendations
-        if _event_fresh("recommendations_updated_at"):
-            skipped.append("recommendations")
-        else:
-            try:
-                rec_df = self._timed(
-                    lambda: self.yf_client.analysis.fetch_recommendations_summary(
-                        yfinance_ticker
-                    )
-                )
-                if rec_df is not None and not rec_df.empty:
-                    counts["recommendations"] = self._write(
-                        self.repo.upsert_recommendations, instrument_id, rec_df
-                    )
-                else:
-                    counts["recommendations"] = 0
-            except Exception as e:
-                errors.append(f"recommendations: {e}")
-                logger.warning("Failed recommendations for %s: %s", yfinance_ticker, e)
-
-        # 7. Analyst price targets
-        if _event_fresh("price_targets_updated_at"):
-            skipped.append("price_targets")
-        else:
-            try:
-                targets = self._timed(
-                    lambda: self.yf_client.analysis.fetch_analyst_price_targets(
-                        yfinance_ticker
-                    )
-                )
-                if targets:
-                    counts["price_targets"] = self._write(
-                        self.repo.upsert_price_targets, instrument_id, targets
-                    )
-                else:
-                    counts["price_targets"] = 0
-            except Exception as e:
-                errors.append(f"price_targets: {e}")
-                logger.warning("Failed price targets for %s: %s", yfinance_ticker, e)
-
-        # 8. Institutional holders
-        if _event_fresh("institutional_holders_updated_at"):
-            skipped.append("institutional_holders")
-        else:
-            try:
-                inst_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_institutional_holders(
-                        yfinance_ticker
-                    )
-                )
-                if inst_df is not None and not inst_df.empty:
-                    counts["institutional_holders"] = self._write(
-                        self.repo.upsert_institutional_holders, instrument_id, inst_df
-                    )
-                else:
-                    counts["institutional_holders"] = 0
-            except Exception as e:
-                errors.append(f"institutional_holders: {e}")
-                logger.warning(
-                    "Failed institutional holders for %s: %s", yfinance_ticker, e
-                )
-
-        # 9. Mutual fund holders
-        if _event_fresh("mutualfund_holders_updated_at"):
-            skipped.append("mutualfund_holders")
-        else:
-            try:
-                mf_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_mutualfund_holders(
-                        yfinance_ticker
-                    )
-                )
-                if mf_df is not None and not mf_df.empty:
-                    counts["mutualfund_holders"] = self._write(
-                        self.repo.upsert_mutualfund_holders, instrument_id, mf_df
-                    )
-                else:
-                    counts["mutualfund_holders"] = 0
-            except Exception as e:
-                errors.append(f"mutualfund_holders: {e}")
-                logger.warning(
-                    "Failed mutual fund holders for %s: %s", yfinance_ticker, e
-                )
-
-        # 10. Insider transactions
-        if _event_fresh("insider_transactions_updated_at"):
-            skipped.append("insider_transactions")
-        else:
-            try:
-                insiders_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_insider_transactions(
-                        yfinance_ticker
-                    )
-                )
-                if insiders_df is not None and not insiders_df.empty:
-                    counts["insider_transactions"] = self._write(
-                        self.repo.upsert_insider_transactions,
-                        instrument_id,
-                        insiders_df,
-                    )
-                else:
-                    counts["insider_transactions"] = 0
-            except Exception as e:
-                errors.append(f"insider_transactions: {e}")
-                logger.warning(
-                    "Failed insider transactions for %s: %s", yfinance_ticker, e
-                )
-
-        # 10b. Major holders (ownership breakdown; institutional window).
-        if _event_fresh("institutional_holders_updated_at"):
-            skipped.append("major_holders")
-        else:
-            try:
-                mh_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_major_holders(yfinance_ticker)
-                )
-                counts["major_holders"] = (
-                    self._write(self.repo.upsert_major_holders, instrument_id, mh_df)
-                    if mh_df is not None and not mh_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"major_holders: {e}")
-                logger.warning("Failed major_holders for %s: %s", yfinance_ticker, e)
-
-        # 10c/10d. Insider purchases + roster (insider window).
-        insider_fresh = _event_fresh("insider_transactions_updated_at")
-        if insider_fresh:
-            skipped.append("insider_purchases")
-        else:
-            try:
-                ip_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_insider_purchases(
-                        yfinance_ticker
-                    )
-                )
-                counts["insider_purchases"] = (
-                    self._write(
-                        self.repo.upsert_insider_purchases, instrument_id, ip_df
-                    )
-                    if ip_df is not None and not ip_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"insider_purchases: {e}")
-                logger.warning(
-                    "Failed insider_purchases for %s: %s", yfinance_ticker, e
-                )
-
-        if insider_fresh:
-            skipped.append("insider_roster")
-        else:
-            try:
-                ir_df = self._timed(
-                    lambda: self.yf_client.holders.fetch_insider_roster_holders(
-                        yfinance_ticker
-                    )
-                )
-                counts["insider_roster"] = (
-                    self._write(self.repo.upsert_insider_roster, instrument_id, ir_df)
-                    if ir_df is not None and not ir_df.empty
-                    else 0
-                )
-            except Exception as e:
-                errors.append(f"insider_roster: {e}")
-                logger.warning("Failed insider_roster for %s: %s", yfinance_ticker, e)
+        for spec in self._event_specs():
+            run_category(
+                spec,
+                ctx,
+                plan,
+                fetch_result,
+                session=self.repo.session,
+                recently_empty=_recently_empty,
+            )
 
         # A marker whose categories were all fetched without raising and stored
         # nothing is one Yahoo holds no rows for; remember it so the next run does
@@ -1603,6 +1404,125 @@ class YFinanceDataService:
                 options=lambda _ctx: {"currency_code": statement_currency()},
             ),
         )
+
+    def _event_specs(self) -> tuple[CategorySpec[Any], ...]:
+        """Return the corporate-action, analyst-rating and holder specs, in order.
+
+        Each category is gated on the marker of its own event window. Major
+        holders share the institutional holders' marker, and insider purchases
+        and the insider roster share the insider transactions' marker, which is
+        why ``_EVENT_MARKER_CATEGORIES`` remembers a marker as empty only when
+        every category behind it answered empty.
+
+        Returns:
+            The specs of the sweep's event step, in the order it fetches them.
+        """
+        return (
+            CategorySpec(
+                name="dividends",
+                marker="dividends_updated_at",
+                fetch=self._request(
+                    lambda client: client.corporate_actions.fetch_dividends
+                ),
+                store=self._upsert(
+                    lambda repo: repo.upsert_dividends,
+                    options=lambda ctx: {"price_currency": ctx.currency_code},
+                ),
+            ),
+            CategorySpec(
+                name="splits",
+                marker="splits_updated_at",
+                fetch=self._request(
+                    lambda client: client.corporate_actions.fetch_splits
+                ),
+                store=self._upsert(lambda repo: repo.upsert_splits),
+            ),
+            CategorySpec(
+                name="recommendations",
+                marker="recommendations_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_recommendations_summary
+                ),
+                store=self._upsert(lambda repo: repo.upsert_recommendations),
+            ),
+            CategorySpec(
+                name="price_targets",
+                marker="price_targets_updated_at",
+                fetch=self._request(
+                    lambda client: client.analysis.fetch_analyst_price_targets
+                ),
+                store=self._upsert(lambda repo: repo.upsert_price_targets),
+                is_empty=is_empty_collection,
+            ),
+            CategorySpec(
+                name="institutional_holders",
+                marker="institutional_holders_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_institutional_holders
+                ),
+                store=self._upsert(lambda repo: repo.upsert_institutional_holders),
+            ),
+            CategorySpec(
+                name="mutualfund_holders",
+                marker="mutualfund_holders_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_mutualfund_holders
+                ),
+                store=self._upsert(lambda repo: repo.upsert_mutualfund_holders),
+            ),
+            CategorySpec(
+                name="insider_transactions",
+                marker="insider_transactions_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_insider_transactions
+                ),
+                store=self._upsert(lambda repo: repo.upsert_insider_transactions),
+            ),
+            CategorySpec(
+                name="major_holders",
+                marker="institutional_holders_updated_at",
+                fetch=self._request(lambda client: client.holders.fetch_major_holders),
+                store=self._upsert(lambda repo: repo.upsert_major_holders),
+            ),
+            CategorySpec(
+                name="insider_purchases",
+                marker="insider_transactions_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_insider_purchases
+                ),
+                store=self._upsert(lambda repo: repo.upsert_insider_purchases),
+            ),
+            CategorySpec(
+                name="insider_roster",
+                marker="insider_transactions_updated_at",
+                fetch=self._request(
+                    lambda client: client.holders.fetch_insider_roster_holders
+                ),
+                store=self._upsert(lambda repo: repo.upsert_insider_roster),
+            ),
+        )
+
+    def _request(
+        self, pick: Callable[[YFinanceClient], Callable[[str], Any]]
+    ) -> Callable[[FetchContext], Any]:
+        """Return a fetch that makes one client request for the sweep's ticker.
+
+        The request is looked up when the fetch runs, not here, so a sub-client
+        that cannot serve it fails that category alone.
+
+        Args:
+            pick: Selects the request, e.g.
+                ``lambda client: client.corporate_actions.fetch_splits``.
+
+        Returns:
+            A fetch that calls the request with the context's ticker, under the
+            service's request timeout.
+        """
+
+        def fetch(ctx: FetchContext) -> Any:
+            return self._timed(lambda: pick(self.yf_client)(ctx.yfinance_ticker))
+
+        return fetch
 
     def _upsert(
         self,
