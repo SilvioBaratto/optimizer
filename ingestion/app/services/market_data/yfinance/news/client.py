@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,6 +17,7 @@ from ..infrastructure import (
     watch_for_faults,
 )
 from ..protocols import ArticleScraperProtocol, YFinanceClientProtocol
+from ._links import extract_article_link
 from .feed_health import TickerFeedHealth
 
 logger = logging.getLogger(__name__)
@@ -247,15 +249,18 @@ class NewsClient:
                 article["content_error"] = "No link available"
 
     def _extract_link(self, article: dict[str, Any]) -> str | None:
-        content = article.get("content", article)
+        return extract_article_link(article, _stated_link)
 
-        if isinstance(content.get("canonicalUrl"), dict):
-            return content["canonicalUrl"].get("url")
-        if "canonicalUrl" in content:
-            return content["canonicalUrl"]
-        if "link" in article:
-            return article["link"]
-        if "link" in content:
-            return content["link"]
 
-        return None
+def _stated_link(article: Mapping[str, Any], content: Mapping[str, Any]) -> str | None:
+    """Fall back to whatever link the article states, in the client's order.
+
+    A ``canonicalUrl`` that is not an object is taken as it is, even ``None``;
+    then the article's own ``link``, then the one inside its content. The client
+    only tests the answer for truth, so a falsy one means no link.
+    """
+    if "canonicalUrl" in content:
+        return content["canonicalUrl"]
+    if "link" in article:
+        return article["link"]
+    return content.get("link")

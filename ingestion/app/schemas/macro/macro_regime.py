@@ -1,12 +1,11 @@
 """Pydantic v2 schemas for macro regime data endpoints."""
 
-import datetime as dt
 import uuid
 from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas._shared import AsyncJobCreateResponse, AsyncJobProgress
+from app.schemas._shared import AsyncJobProgress
 
 
 class MacroFetchRequest(BaseModel):
@@ -36,10 +35,6 @@ class FredFetchRequest(BaseModel):
             "(to pick up restated values) instead of the full history."
         ),
     )
-
-
-class MacroFetchJobResponse(AsyncJobCreateResponse):
-    """Returned when a background macro fetch job is created."""
 
 
 class MacroFetchProgress(AsyncJobProgress):
@@ -98,88 +93,6 @@ class BondYieldResponse(BaseModel):
     month_change: float | None = None
     year_change: float | None = None
     reference_date: date | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class FredObservationResponse(BaseModel):
-    """ORM-backed response schema for a single FRED series observation."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    series_id: str
-    date: date
-    value: float | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class EconomicIndicatorObservationResponse(BaseModel):
-    """ORM-backed response schema for a time-stamped economic indicator observation."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    country: str
-    date: dt.date
-    last_inflation: float | None = None
-    inflation_6m: float | None = None
-    inflation_10y_avg: float | None = None
-    gdp_growth_6m: float | None = None
-    earnings_12m: float | None = None
-    eps_expected_12m: float | None = None
-    peg_ratio: float | None = None
-    lt_rate_forecast: float | None = None
-    reference_date: dt.date | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class TradingEconomicsObservationResponse(BaseModel):
-    """ORM-backed response schema for a time-stamped Trading Economics observation."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    country: str
-    indicator_key: str
-    date: date
-    value: float | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class BondYieldObservationResponse(BaseModel):
-    """ORM-backed response schema for a time-stamped bond yield observation."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    country: str
-    maturity: str
-    date: date
-    yield_value: float | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class MacroNewsResponse(BaseModel):
-    """ORM-backed response schema for a macro news article."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    news_id: str
-    title: str | None = None
-    publisher: str | None = None
-    link: str | None = None
-    publish_time: datetime | None = None
-    source_ticker: str | None = None
-    source_query: str | None = None
-    themes: str | None = None
-    snippet: str | None = None
-    full_content: str | None = None
     created_at: datetime
     updated_at: datetime
 

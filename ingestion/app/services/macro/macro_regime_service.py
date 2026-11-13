@@ -63,6 +63,57 @@ _ILSOLE_VALUE_FIELDS = (
     "lt_rate_forecast",
 )
 
+_ILSOLE_COUNT_KEYS = ("ilsole_forecast", "ilsole_observations")
+_TE_INDICATOR_COUNT_KEYS = ("te_indicators", "te_observations")
+_BOND_COUNT_KEYS = ("bond_yields", "bond_yield_observations")
+_TE_COUNT_KEYS = _TE_INDICATOR_COUNT_KEYS + _BOND_COUNT_KEYS
+
+
+def _zero(counts: dict[str, int], keys: tuple[str, ...]) -> None:
+    """Record that nothing was stored under each of ``keys``."""
+    for key in keys:
+        counts[key] = 0
+
+
+def _note_missing_forecast(
+    country: str, counts: dict[str, int], errors: list[str]
+) -> None:
+    """Report an IlSole forecast that did not come back at all."""
+    _zero(counts, _ILSOLE_COUNT_KEYS)
+    if country in _ILSOLE_FORECAST_COUNTRIES:
+        errors.append(
+            "ilsole_forecast: no data returned (page unreachable "
+            "or table structure changed)"
+        )
+        logger.warning("IlSole returned no forecasts for %s", country)
+    else:
+        logger.info("No IlSole forecasts for %s", country)
+
+
+def _note_unparsed_forecast(
+    country: str, counts: dict[str, int], errors: list[str]
+) -> None:
+    """Report an IlSole forecast row in which no value parsed."""
+    # The country row was found but no cell parsed (renamed cell ids, masked
+    # paywall overlay). Upserting it would replace the last good snapshot with
+    # NULLs, so the write is skipped and reported.
+    _zero(counts, _ILSOLE_COUNT_KEYS)
+    errors.append(
+        "ilsole_forecast: row found but no forecast value parsed "
+        "(page structure may have drifted)"
+    )
+    logger.warning("IlSole forecasts for %s parsed to all-None", country)
+
+
+def _note_te_failure(
+    country: str, te_data: dict[str, Any], counts: dict[str, int], errors: list[str]
+) -> None:
+    """Report a Trading Economics answer whose status is not ``success``."""
+    _zero(counts, _TE_COUNT_KEYS)
+    te_error = te_data.get("error", "Unknown error")
+    errors.append(f"trading_economics: {te_error}")
+    logger.warning("Trading Economics failed for %s: %s", country, te_error)
+
 
 class MacroRegimeService:
     """Fetches macroeconomic data from scrapers and stores via repository.
@@ -168,135 +219,138 @@ class MacroRegimeService:
         """
         counts: dict[str, int] = {}
         errors: list[str] = []
-
         today = datetime.date.today()
+        self._fetch_ilsole_forecast(country, today, counts, errors)
+        self._fetch_trading_economics(country, include_bonds, today, counts, errors)
+        return {"counts": counts, "errors": errors}
+
+    def _fetch_ilsole_forecast(
+        self,
+        country: str,
+        today: datetime.date,
+        counts: dict[str, int],
+        errors: list[str],
+    ) -> None:
+        """Store IlSole's consensus forecast for ``country``.
+
+        Sets both ``ilsole_*`` counts in ``counts`` and appends any failure to
+        ``errors`` as ``"ilsole_forecast: ..."``; nothing raises.
+        """
         try:
-            forecast_data = self.ilsole_scraper.get_forecasts(country)
-            if forecast_data and all(
-                forecast_data.get(field) is None for field in _ILSOLE_VALUE_FIELDS
-            ):
-                # The country row was found but no cell parsed (renamed cell
-                # ids, masked paywall overlay). Upserting it would replace the
-                # last good snapshot with NULLs, so skip the write and report.
-                counts["ilsole_forecast"] = 0
-                counts["ilsole_observations"] = 0
-                errors.append(
-                    "ilsole_forecast: row found but no forecast value parsed "
-                    "(page structure may have drifted)"
-                )
-                logger.warning("IlSole forecasts for %s parsed to all-None", country)
-            elif forecast_data:
+            forecast = self.ilsole_scraper.get_forecasts(country)
+            if not forecast:
+                _note_missing_forecast(country, counts, errors)
+            elif all(forecast.get(field) is None for field in _ILSOLE_VALUE_FIELDS):
+                _note_unparsed_forecast(country, counts, errors)
+            else:
                 with self.repo.session.begin_nested():
                     n_forecast = self.repo.upsert_economic_indicator(
-                        country=country,
-                        data=forecast_data,
+                        country=country, data=forecast
                     )
                     n_forecast_obs = self.repo.upsert_economic_indicator_observation(
-                        country=country,
-                        snapshot_date=today,
-                        data=forecast_data,
+                        country=country, snapshot_date=today, data=forecast
                     )
                 counts["ilsole_forecast"] = n_forecast
                 counts["ilsole_observations"] = n_forecast_obs
-            else:
-                counts["ilsole_forecast"] = 0
-                counts["ilsole_observations"] = 0
-                if country in _ILSOLE_FORECAST_COUNTRIES:
-                    errors.append(
-                        "ilsole_forecast: no data returned (page unreachable "
-                        "or table structure changed)"
-                    )
-                    logger.warning("IlSole returned no forecasts for %s", country)
-                else:
-                    logger.info("No IlSole forecasts for %s", country)
         except Exception as e:
             errors.append(f"ilsole_forecast: {e}")
-            counts.setdefault("ilsole_forecast", 0)
-            counts.setdefault("ilsole_observations", 0)
+            for key in _ILSOLE_COUNT_KEYS:
+                counts.setdefault(key, 0)
             logger.warning("Failed IlSole forecasts for %s: %s", country, e)
 
+    def _fetch_trading_economics(
+        self,
+        country: str,
+        include_bonds: bool,
+        today: datetime.date,
+        counts: dict[str, int],
+        errors: list[str],
+    ) -> None:
+        """Store Trading Economics' indicators and, if asked, bond yields.
+
+        Sets the four ``te_*`` and ``bond_*`` counts in ``counts`` and appends
+        any failure to ``errors``; nothing raises. A failed write zeroes only
+        the counts of the savepoint it rolled back.
+        """
         try:
             te_data = self.te_scraper.get_country_indicators(
                 country, include_bonds=include_bonds
             )
-
-            if te_data.get("status") == "success":
-                indicators = te_data.get("indicators", {})
-                if indicators:
-                    with self.repo.session.begin_nested():
-                        n_indicators = self.repo.upsert_te_indicators(
-                            country=country,
-                            indicators_dict=indicators,
-                        )
-                        n_obs = self.repo.upsert_te_observations(
-                            country=country,
-                            snapshot_date=today,
-                            indicators_dict=indicators,
-                        )
-                    counts["te_indicators"] = n_indicators
-                    counts["te_observations"] = n_obs
-                else:
-                    counts["te_indicators"] = 0
-                    counts["te_observations"] = 0
-                    logger.warning(
-                        "Trading Economics returned 0 matched indicators for %s "
-                        "(HTML structure may have drifted — no names matched "
-                        "INDICATOR_PATTERNS)",
-                        country,
-                    )
-
-                if include_bonds:
-                    # The indicators fetch can succeed while the separate bond page
-                    # fails (the scraper reports it as an otherwise successful result
-                    # carrying only ``bond_yields_error``); without surfacing it the
-                    # job would finish "completed" with the yield tables silently
-                    # stale.
-                    if "bond_yields_error" in te_data:
-                        bond_error = te_data["bond_yields_error"] or "Unknown error"
-                        errors.append(f"trading_economics_bonds: {bond_error}")
-                        logger.warning(
-                            "Trading Economics bond yields failed for %s: %s",
-                            country,
-                            bond_error,
-                        )
-                    bond_yields = te_data.get("bond_yields", {})
-                    if bond_yields:
-                        with self.repo.session.begin_nested():
-                            n_bonds = self.repo.upsert_bond_yields(
-                                country=country,
-                                yields_dict=bond_yields,
-                            )
-                            n_bond_obs = self.repo.upsert_bond_yield_observations(
-                                country=country,
-                                snapshot_date=today,
-                                yields_dict=bond_yields,
-                            )
-                        counts["bond_yields"] = n_bonds
-                        counts["bond_yield_observations"] = n_bond_obs
-                    else:
-                        counts["bond_yields"] = 0
-                        counts["bond_yield_observations"] = 0
-                else:
-                    counts["bond_yields"] = 0
-                    counts["bond_yield_observations"] = 0
+            if te_data.get("status") != "success":
+                _note_te_failure(country, te_data, counts, errors)
+                return
+            self._store_te_indicators(
+                country, today, te_data.get("indicators", {}), counts
+            )
+            if include_bonds:
+                self._store_bond_yields(country, today, te_data, counts, errors)
             else:
-                counts["te_indicators"] = 0
-                counts["te_observations"] = 0
-                counts["bond_yields"] = 0
-                counts["bond_yield_observations"] = 0
-                te_error = te_data.get("error", "Unknown error")
-                errors.append(f"trading_economics: {te_error}")
-                logger.warning("Trading Economics failed for %s: %s", country, te_error)
-
+                _zero(counts, _BOND_COUNT_KEYS)
         except Exception as e:
             errors.append(f"trading_economics: {e}")
-            counts.setdefault("te_indicators", 0)
-            counts.setdefault("te_observations", 0)
-            counts.setdefault("bond_yields", 0)
-            counts.setdefault("bond_yield_observations", 0)
+            for key in _TE_COUNT_KEYS:
+                counts.setdefault(key, 0)
             logger.warning("Failed Trading Economics for %s: %s", country, e)
 
-        return {"counts": counts, "errors": errors}
+    def _store_te_indicators(
+        self,
+        country: str,
+        today: datetime.date,
+        indicators: dict[str, Any],
+        counts: dict[str, int],
+    ) -> None:
+        """Write the indicators and their observations in one savepoint."""
+        if not indicators:
+            _zero(counts, _TE_INDICATOR_COUNT_KEYS)
+            logger.warning(
+                "Trading Economics returned 0 matched indicators for %s "
+                "(HTML structure may have drifted — no names matched "
+                "INDICATOR_PATTERNS)",
+                country,
+            )
+            return
+        with self.repo.session.begin_nested():
+            n_indicators = self.repo.upsert_te_indicators(
+                country=country, indicators_dict=indicators
+            )
+            n_obs = self.repo.upsert_te_observations(
+                country=country, snapshot_date=today, indicators_dict=indicators
+            )
+        counts["te_indicators"] = n_indicators
+        counts["te_observations"] = n_obs
+
+    def _store_bond_yields(
+        self,
+        country: str,
+        today: datetime.date,
+        te_data: dict[str, Any],
+        counts: dict[str, int],
+        errors: list[str],
+    ) -> None:
+        """Report a failed bond page, then write the yields in one savepoint."""
+        # The indicators fetch can succeed while the separate bond page fails
+        # (the scraper reports it as an otherwise successful result carrying
+        # only ``bond_yields_error``); without surfacing it the job would finish
+        # "completed" with the yield tables silently stale.
+        if "bond_yields_error" in te_data:
+            bond_error = te_data["bond_yields_error"] or "Unknown error"
+            errors.append(f"trading_economics_bonds: {bond_error}")
+            logger.warning(
+                "Trading Economics bond yields failed for %s: %s", country, bond_error
+            )
+        bond_yields = te_data.get("bond_yields", {})
+        if not bond_yields:
+            _zero(counts, _BOND_COUNT_KEYS)
+            return
+        with self.repo.session.begin_nested():
+            n_bonds = self.repo.upsert_bond_yields(
+                country=country, yields_dict=bond_yields
+            )
+            n_bond_obs = self.repo.upsert_bond_yield_observations(
+                country=country, snapshot_date=today, yields_dict=bond_yields
+            )
+        counts["bond_yields"] = n_bonds
+        counts["bond_yield_observations"] = n_bond_obs
 
     def fetch_fred_series(
         self,

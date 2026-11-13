@@ -310,6 +310,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (default 0.5, the value it always had; 0 to 10). The unused
   `FetchPlan.all_fresh` is removed, and the complexity ratchet's baselines no
   longer list `_fetch_and_store`. Behaviour is unchanged.
+- **ingestion**: four more long functions are split, each after characterization
+  tests pinned its current results. `MacroNewsFetcher.fetch_all` (151 lines) is now
+  ticker and search collection, a budget merge and a pure theme pass.
+  `MacroRegimeService.fetch_country` (131 lines) runs one step per source.
+  `run_t212_annotate` (122 lines) reads the catalogue, snapshots the universe, runs
+  the batched annotation loop and reports. The two Trading Economics
+  `country-list` getters and their parsers, which were copies, share one
+  implementation driven by an entry per page. The four news paths read a Yahoo
+  item's link through one `extract_article_link`
+  (`app/services/market_data/yfinance/news/_links.py`), each passing its own
+  fallback where the old copies disagreed. The complexity ratchet's baselines
+  drop those functions: 266 long and 46 complex functions remain. Behaviour is
+  unchanged.
 
 ### Removed
 
@@ -330,6 +343,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `examples/` directory and the MkDocs documentation site (#50, #51). Both were
   added and removed while unreleased, so the entries above are corrected rather
   than carried forward as history
+- **ingestion**: code nothing called. `ArticleScraper.fetch_multiple` and its
+  `ArticleScraperProtocol` declaration.
+  `TradingEconomicsIndicatorsScraper.get_all_portfolio_countries`. The `__main__`
+  blocks of the Trading Economics and Il Sole scrapers, which scraped live pages
+  when the module was run as a script. Also 28 response schemas left from the
+  HTTP API:
+  - `_shared`: `AsyncJobCreateResponse`.
+  - `macro`: `MacroFetchJobResponse`, `FredObservationResponse`,
+    `EconomicIndicatorObservationResponse`, `TradingEconomicsObservationResponse`,
+    `BondYieldObservationResponse` and `MacroNewsResponse`.
+  - `market_data`: `YFinanceFetchJobResponse`, `YFinanceSingleFetchResponse`,
+    `TickerProfileResponse`, `PriceHistoryResponse`, `FinancialStatementResponse`,
+    `DividendResponse`, `StockSplitResponse`, `AnalystRecommendationResponse`,
+    `AnalystPriceTargetResponse`, `InstitutionalHolderResponse`,
+    `MutualFundHolderResponse`, `InsiderTransactionResponse` and
+    `TickerNewsResponse`.
+  - `universe`: `ExchangeResponse`, `InstrumentResponse`, `InstrumentListResponse`,
+    `BuildResultResponse`, `BuildJobResponse`, `BuildProgressResponse`,
+    `CacheStatsResponse` and `UniverseStatsResponse`.
 
 ### Security
 

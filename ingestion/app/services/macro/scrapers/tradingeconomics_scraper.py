@@ -1,10 +1,12 @@
-#!/usr/bin/env python3
 """Trading Economics web scraper for macroeconomic indicators and bond yields."""
 
 import logging
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -311,6 +313,34 @@ def _country_list_tables(soup: BeautifulSoup) -> list[Tag]:
     the callers skip anything that is not a country link followed by values.
     """
     return list(soup.find_all("table"))
+
+
+@dataclass(frozen=True)
+class _CountryListPage:
+    """One Trading Economics ``country-list`` page, which lists every country.
+
+    Attributes:
+        path: The page's path and query under ``BASE_URL``.
+        label: The page's name in log lines and errors.
+        min_rows: Fewest rows a parse may read before the table counts as
+            changed rather than empty.
+    """
+
+    path: str
+    label: str
+    min_rows: int
+
+
+_INDUSTRIAL_PRODUCTION_PAGE = _CountryListPage(
+    path="country-list/industrial-production",
+    label="industrial production",
+    min_rows=_MIN_INDUSTRIAL_PRODUCTION_ROWS,
+)
+_CAPACITY_UTILIZATION_PAGE = _CountryListPage(
+    path="country-list/capacity-utilization?continent=g20",
+    label="capacity utilization",
+    min_rows=_MIN_CAPACITY_UTILIZATION_ROWS,
+)
 
 
 def _is_comparable_measure(key: str, unit: str, country: str | None) -> bool:
@@ -773,50 +803,9 @@ class TradingEconomicsIndicatorsScraper:
             Dict with ``status`` and, on success, ``data`` mapping country name
             to value, previous, reference, and unit.
         """
-        url = f"{self.BASE_URL}/country-list/industrial-production"
-
-        def _fetch() -> requests.Response:
-            _te_circuit_breaker.check()
-            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
-            resp = self.session.get(url, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp
-
-        response = retry_with_backoff(
-            _fetch,
-            max_retries=3,
-            is_rate_limit_error=is_transient_network_error,
-            on_rate_limit=_te_circuit_breaker.trigger,
-            on_success=lambda _: _te_circuit_breaker.reset(),
+        return self._get_country_list(
+            _INDUSTRIAL_PRODUCTION_PAGE, self._parse_industrial_production_table
         )
-        if response is None:
-            return {"status": "error", "error": "Fetch failed after retries"}
-
-        try:
-            soup = BeautifulSoup(response.content, "html.parser")
-            production_data = self._parse_industrial_production_table(soup)
-
-            return {
-                "status": "success",
-                "source_url": url,
-                "data": production_data,
-                "timestamp": datetime.now().isoformat(),
-            }
-
-        except ParseStructureError as e:
-            _te_circuit_breaker.trigger()
-            logger.warning(
-                "Trading Economics industrial production structure change (url=%s): %s",
-                url,
-                e,
-            )
-            return {
-                "status": "error",
-                "error": f"Parse structure failure: {e!s}",
-                "parse_failure": True,
-            }
-        except Exception as e:
-            return {"status": "error", "error": f"Parsing failed: {e!s}"}
 
     def get_capacity_utilization_all(self) -> dict:
         """Fetch capacity utilization values for G20 countries from a single page.
@@ -825,42 +814,43 @@ class TradingEconomicsIndicatorsScraper:
             Dict with ``status`` and, on success, ``data`` mapping country name
             to value, previous, reference, and unit.
         """
-        url = f"{self.BASE_URL}/country-list/capacity-utilization?continent=g20"
-
-        def _fetch() -> requests.Response:
-            _te_circuit_breaker.check()
-            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
-            resp = self.session.get(url, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp
-
-        response = retry_with_backoff(
-            _fetch,
-            max_retries=3,
-            is_rate_limit_error=is_transient_network_error,
-            on_rate_limit=_te_circuit_breaker.trigger,
-            on_success=lambda _: _te_circuit_breaker.reset(),
+        return self._get_country_list(
+            _CAPACITY_UTILIZATION_PAGE, self._parse_capacity_utilization_table
         )
+
+    def _get_country_list(
+        self,
+        page: _CountryListPage,
+        parse: Callable[[BeautifulSoup], dict[str, dict[str, Any]]],
+    ) -> dict:
+        """Fetch one ``country-list`` page and read it with ``parse``.
+
+        Args:
+            page: The page to fetch.
+            parse: Reads the page's rows; raises ``ParseStructureError`` when
+                the table looks changed.
+
+        Returns:
+            ``status``, ``source_url``, ``data`` and ``timestamp`` on success.
+            Otherwise ``status`` and ``error``, plus ``parse_failure`` (with the
+            circuit breaker tripped) when the table looked changed.
+        """
+        url = f"{self.BASE_URL}/{page.path}"
+        response = self._fetch_page(url)
         if response is None:
             return {"status": "error", "error": "Fetch failed after retries"}
-
         try:
-            soup = BeautifulSoup(response.content, "html.parser")
-            capacity_data = self._parse_capacity_utilization_table(soup)
-
+            data = parse(BeautifulSoup(response.content, "html.parser"))
             return {
                 "status": "success",
                 "source_url": url,
-                "data": capacity_data,
+                "data": data,
                 "timestamp": datetime.now().isoformat(),
             }
-
         except ParseStructureError as e:
             _te_circuit_breaker.trigger()
             logger.warning(
-                "Trading Economics capacity utilization structure change (url=%s): %s",
-                url,
-                e,
+                "Trading Economics %s structure change (url=%s): %s", page.label, url, e
             )
             return {
                 "status": "error",
@@ -870,133 +860,93 @@ class TradingEconomicsIndicatorsScraper:
         except Exception as e:
             return {"status": "error", "error": f"Parsing failed: {e!s}"}
 
-    def _parse_industrial_production_table(self, soup: BeautifulSoup) -> dict:
-        production = {}
+    def _fetch_page(self, url: str) -> requests.Response | None:
+        """GET a page under the shared breaker, request pacing and retries.
 
-        tables = _country_list_tables(soup)
+        Returns:
+            The response, or ``None`` when every attempt failed.
+        """
 
-        for table in tables:
-            rows = table.find_all("tr")
+        def _fetch() -> requests.Response:
+            _te_circuit_breaker.check()
+            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
+            resp = self.session.get(url, timeout=self.timeout)
+            resp.raise_for_status()
+            return resp
 
-            for row in rows:
-                cells = row.find_all("td")
+        return retry_with_backoff(
+            _fetch,
+            max_retries=3,
+            is_rate_limit_error=is_transient_network_error,
+            on_rate_limit=_te_circuit_breaker.trigger,
+            on_success=lambda _: _te_circuit_breaker.reset(),
+        )
 
-                if len(cells) >= 3:
-                    try:
-                        # Column 0: Country name (inside <a> tag)
-                        country_cell = cells[0]
-                        country_link = country_cell.find("a")
-                        if not country_link:
-                            continue
+    def _parse_industrial_production_table(
+        self, soup: BeautifulSoup
+    ) -> dict[str, dict[str, Any]]:
+        return self._parse_country_list_table(soup, _INDUSTRIAL_PRODUCTION_PAGE)
 
-                        country_name = country_link.get_text(strip=True)
+    def _parse_capacity_utilization_table(
+        self, soup: BeautifulSoup
+    ) -> dict[str, dict[str, Any]]:
+        return self._parse_country_list_table(soup, _CAPACITY_UTILIZATION_PAGE)
 
-                        # Column 1: Last value
-                        last_text = cells[1].get_text(strip=True)
-                        last_value = self._extract_number(last_text)
+    def _parse_country_list_table(
+        self, soup: BeautifulSoup, page: _CountryListPage
+    ) -> dict[str, dict[str, Any]]:
+        """Read every country row of a ``country-list`` page.
 
-                        if last_value is None:
-                            continue
+        A country listed twice keeps its last row.
 
-                        # Column 2: Previous value
-                        previous_text = cells[2].get_text(strip=True)
-                        previous_value = self._extract_number(previous_text)
-
-                        # Column 3: Reference date
-                        reference = (
-                            cells[3].get_text(strip=True) if len(cells) > 3 else ""
-                        )
-
-                        # Column 4: Unit
-                        unit = cells[4].get_text(strip=True) if len(cells) > 4 else ""
-
-                        production[country_name] = {
-                            "value": last_value,
-                            "previous": previous_value,
-                            "reference": reference,
-                            "unit": unit,
-                        }
-
-                    except (ValueError, IndexError, AttributeError):
-                        # Skip rows that don't match the expected cell format;
-                        # a structural shortfall is caught later by the
-                        # _MIN_INDICATORS ParseStructureError check.
-                        continue
-
-        if len(production) < _MIN_INDUSTRIAL_PRODUCTION_ROWS:
+        Raises:
+            ParseStructureError: Fewer than ``page.min_rows`` rows were read.
+        """
+        rows: dict[str, dict[str, Any]] = {}
+        for table in _country_list_tables(soup):
+            for row in table.find_all("tr"):
+                entry = self._country_list_row(row)
+                if entry is not None:
+                    country_name, values = entry
+                    rows[country_name] = values
+        if len(rows) < page.min_rows:
             raise ParseStructureError(
-                f"Expected at least {_MIN_INDUSTRIAL_PRODUCTION_ROWS} industrial "
-                f"production rows, got {len(production)}. The Trading Economics "
-                "country-list table structure may have changed.",
-                url="(industrial production page)",
-                rows_found=len(production),
+                f"Expected at least {page.min_rows} {page.label} rows, got "
+                f"{len(rows)}. The Trading Economics country-list table structure "
+                "may have changed.",
+                url=f"({page.label} page)",
+                rows_found=len(rows),
             )
+        return rows
 
-        return production
+    def _country_list_row(self, row: Tag) -> tuple[str, dict[str, Any]] | None:
+        """Read a linked country name, then its last, previous, reference and unit.
 
-    def _parse_capacity_utilization_table(self, soup: BeautifulSoup) -> dict:
-        capacity = {}
-
-        tables = _country_list_tables(soup)
-
-        for table in tables:
-            rows = table.find_all("tr")
-
-            for row in rows:
-                cells = row.find_all("td")
-
-                if len(cells) >= 3:
-                    try:
-                        # Column 0: Country name (inside <a> tag)
-                        country_cell = cells[0]
-                        country_link = country_cell.find("a")
-                        if not country_link:
-                            continue
-
-                        country_name = country_link.get_text(strip=True)
-
-                        # Column 1: Last value
-                        last_text = cells[1].get_text(strip=True)
-                        last_value = self._extract_number(last_text)
-
-                        if last_value is None:
-                            continue
-
-                        # Column 2: Previous value
-                        previous_text = cells[2].get_text(strip=True)
-                        previous_value = self._extract_number(previous_text)
-
-                        # Column 3: Reference date
-                        reference = (
-                            cells[3].get_text(strip=True) if len(cells) > 3 else ""
-                        )
-
-                        # Column 4: Unit
-                        unit = cells[4].get_text(strip=True) if len(cells) > 4 else ""
-
-                        capacity[country_name] = {
-                            "value": last_value,
-                            "previous": previous_value,
-                            "reference": reference,
-                            "unit": unit,
-                        }
-
-                    except (ValueError, IndexError, AttributeError):
-                        # Skip rows that don't match the expected cell format;
-                        # a structural shortfall is caught later by the
-                        # _MIN_INDICATORS ParseStructureError check.
-                        continue
-
-        if len(capacity) < _MIN_CAPACITY_UTILIZATION_ROWS:
-            raise ParseStructureError(
-                f"Expected at least {_MIN_CAPACITY_UTILIZATION_ROWS} capacity "
-                f"utilization rows, got {len(capacity)}. The Trading Economics "
-                "country-list table structure may have changed.",
-                url="(capacity utilization page)",
-                rows_found=len(capacity),
-            )
-
-        return capacity
+        Returns:
+            The country and its values, or ``None`` for a row that is not a
+            linked country with a readable last value.
+        """
+        cells = row.find_all("td")
+        if len(cells) < 3:
+            return None
+        try:
+            country_link = cells[0].find("a")
+            if not country_link:
+                return None
+            country_name = country_link.get_text(strip=True)
+            last_value = self._extract_number(cells[1].get_text(strip=True))
+            if last_value is None:
+                return None
+            return country_name, {
+                "value": last_value,
+                "previous": self._extract_number(cells[2].get_text(strip=True)),
+                "reference": cells[3].get_text(strip=True) if len(cells) > 3 else "",
+                "unit": cells[4].get_text(strip=True) if len(cells) > 4 else "",
+            }
+        except (ValueError, IndexError, AttributeError):
+            # A row in another cell format is skipped; a page whose rows all
+            # fail that way is caught by the minimum-row check of the table.
+            return None
 
     def get_multiple_countries(
         self,
@@ -1069,14 +1019,6 @@ class TradingEconomicsIndicatorsScraper:
                     )
 
         return results
-
-    def get_all_portfolio_countries(self) -> dict[str, dict]:
-        """Fetch indicators for every country in ``COUNTRY_MAPPING``.
-
-        Returns:
-            Dict mapping country name → ``get_country_indicators`` result.
-        """
-        return self.get_multiple_countries(list(COUNTRY_MAPPING.keys()))
 
     def get_indicator_summary(self, country_data: dict) -> str:
         """Format a human-readable summary of country indicators and yields.
@@ -1206,9 +1148,3 @@ class TradingEconomicsIndicatorsScraper:
         lines.append("=" * 80)
 
         return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    scraper = TradingEconomicsIndicatorsScraper()
-    scraper.get_country_indicators("UK")
-    scraper.get_all_portfolio_countries()

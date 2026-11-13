@@ -287,29 +287,3 @@ class ArticleScraper:
 
         # Fallback: get all paragraphs from body
         return soup.find("body")
-
-    def fetch_multiple(
-        self,
-        urls: list[str],
-        max_articles: int | None = None,
-    ) -> list[ArticleResult]:
-        """Fetch and extract article text from multiple URLs sequentially.
-
-        Args:
-            urls: List of article URLs to fetch.
-            max_articles: Cap on the number of URLs to process. ``None``
-                means all.
-
-        Returns:
-            List of ``ArticleResult`` instances in the same order as ``urls``.
-        """
-        results = []
-        fetch_count = (
-            len(urls) if max_articles is None else min(len(urls), max_articles)
-        )
-
-        for url in urls[:fetch_count]:
-            result = self.fetch(url)
-            results.append(result)
-
-        return results

@@ -50,12 +50,6 @@ class ArticleScraperProtocol(Protocol):
 
     def fetch(self, url: str) -> ArticleResult: ...
 
-    def fetch_multiple(
-        self,
-        urls: list[str],
-        max_articles: int | None = None,
-    ) -> list[ArticleResult]: ...
-
 
 @runtime_checkable
 class YFinanceClientProtocol(Protocol):

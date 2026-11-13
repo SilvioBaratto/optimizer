@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """IlSole24Ore macroeconomic data scraper.
 
 Scrapes the ``mercati.ilsole24ore.com`` country-comparison tables for
@@ -435,8 +434,3 @@ MAJOR_ECONOMIES = [
     "South Korea",
     "Australia",
 ]
-
-
-if __name__ == "__main__":
-    scraper = IlSoleScraper()
-    portfolio_data = scraper.get_multiple_countries(PORTFOLIO_COUNTRIES)
