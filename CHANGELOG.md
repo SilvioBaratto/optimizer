@@ -364,6 +364,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **build**: `mypy` was configured for Python 3.10, so it aborted on numpy's PEP 695
   stubs before reaching any project file — the typecheck job had been passing while
   checking nothing. It now checks all 98 source files
+- **core**: `benjamini_hochberg` delegates to `correct_pvalues`, so a NaN p-value is
+  left out of the family size instead of shrinking every threshold. With
+  `[0.02, 0.04, NaN]` it used to mark nothing significant; it now marks the first
+  two, as `correct_pvalues` always did
+- **ingestion**: a Trading 212 `Retry-After` is capped at the same ceiling as
+  `x-ratelimit-reset` (120 s) and a negative value falls back to the backoff, so a
+  server-sent hour-scale value can no longer stall the universe build or make
+  `time.sleep` raise
+- **ingestion**: `retry_with_backoff` logs a WARNING with the last exception (or
+  "result rejected by is_valid") when it gives up. Its callers only report "failed
+  after retries", so the cause used to be lost
 
 ## [0.1.0] - 2026-02-21
 
