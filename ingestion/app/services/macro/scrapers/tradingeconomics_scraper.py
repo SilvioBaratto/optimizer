@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Trading Economics web scraper for macroeconomic indicators and bond yields."""
 
 import logging
@@ -1021,14 +1020,6 @@ class TradingEconomicsIndicatorsScraper:
 
         return results
 
-    def get_all_portfolio_countries(self) -> dict[str, dict]:
-        """Fetch indicators for every country in ``COUNTRY_MAPPING``.
-
-        Returns:
-            Dict mapping country name → ``get_country_indicators`` result.
-        """
-        return self.get_multiple_countries(list(COUNTRY_MAPPING.keys()))
-
     def get_indicator_summary(self, country_data: dict) -> str:
         """Format a human-readable summary of country indicators and yields.
 
@@ -1157,9 +1148,3 @@ class TradingEconomicsIndicatorsScraper:
         lines.append("=" * 80)
 
         return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    scraper = TradingEconomicsIndicatorsScraper()
-    scraper.get_country_indicators("UK")
-    scraper.get_all_portfolio_countries()
