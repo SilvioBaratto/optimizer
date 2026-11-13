@@ -126,6 +126,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **portopt-db PostgreSQL integration suite and migration checks in CI.** SQLite
+  drops the `ON CONFLICT ON CONSTRAINT` target and never installs the
+  `human_audit_log` triggers, so neither had a test. `packages/portopt-db/tests/
+  integration` now runs `_upsert` (constraint and index targets, SAVEPOINT
+  isolation), the append-only UPDATE/DELETE/TRUNCATE guards and a
+  constraint-exists-in-the-migrated-schema check against a real server, keyed on
+  `PORTOPT_TEST_DATABASE_URL` (skips without it, refuses a database not named
+  `*_test`). A static test checks the 37 `_upsert` conflict names against the
+  models, and the `postgres-integration` CI job now also runs `alembic check` and a
+  downgrade/upgrade round trip over the five most recent revisions.
 - **Ask is a read-only deep agent with a saved conversation.** A question is now
   answered by an agent that reads the fund's data (read-only tools over
   `fund.observe`) and a read-only staged copy of the docs and source, deciding its

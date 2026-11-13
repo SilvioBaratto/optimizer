@@ -186,6 +186,14 @@ jobs:
           enable-cache: true
       - run: uv sync --locked --all-packages --all-extras
       - run: cd packages/portopt-db && uv run alembic upgrade head
+      # A model that changed without a migration, and a recent migration that can
+      # no longer be reversed, both pass `upgrade head` and surface only in production.
+      - run: cd packages/portopt-db && uv run alembic check
+      - run: cd packages/portopt-db && uv run alembic downgrade 70393a606218 && uv run alembic upgrade head
+      - run: PGPASSWORD=postgres psql -h localhost -U postgres -d optimizer_db -c "CREATE DATABASE portopt_test"
+      - run: cd packages/portopt-db && uv run pytest tests/integration -m integration -v --tb=short
+        env:
+          PORTOPT_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/portopt_test
       - run: PGPASSWORD=postgres psql -h localhost -U postgres -d optimizer_db -c "CREATE DATABASE fund_test"
       - run: cd fund && uv run pytest tests/integration -m integration -v --tb=short
         env:
