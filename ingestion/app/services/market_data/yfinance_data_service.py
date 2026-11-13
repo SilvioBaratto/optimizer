@@ -58,6 +58,15 @@ from app.services.market_data.yfinance import (
     record_failure,
     track_request_outcomes,
 )
+from app.services.market_data.yfinance.fetch_plan import (
+    FetchMode,
+    FetchPlan,
+    StalenessThresholds,
+)
+
+# Kept under its private name: this module calls it by that name, and its
+# tests import it from here.
+from app.services.market_data.yfinance.fetch_plan import is_fresh as _is_fresh
 from app.utils.currency import to_major_currency
 
 logger = logging.getLogger(__name__)
@@ -149,31 +158,6 @@ def call_with_timeout(
     raise value
 
 
-@dataclass
-class StalenessThresholds:
-    """Configurable freshness thresholds per data category."""
-
-    profile_hours: int = 24
-    financials_hours: int = 168  # 7 days
-    dividends_hours: int = 24
-    splits_hours: int = 24
-    recommendations_hours: int = 24
-    price_targets_hours: int = 24
-    institutional_holders_hours: int = 24
-    mutualfund_holders_hours: int = 24
-    insider_transactions_hours: int = 24
-    etf_metadata_hours: int = 168  # 7 days
-    # How long a clean empty answer for a fundamentals category or statement
-    # settles it. Shorter than financials_hours because the client cannot tell
-    # "no data" from "retries exhausted": a fetch that merely failed is retried
-    # within days, not after a week.
-    no_data_hours: int = 72
-    # news: always fetched (no threshold)
-    # prices: always fetched (date-ranged)
-    price_overlap_days: int = 5
-    min_history_tolerance: float = 0.95
-
-
 DEFAULT_THRESHOLDS = StalenessThresholds()
 
 # One memory for every bulk sweep in the process: services are built per run (or
@@ -260,22 +244,6 @@ def _describe_statement_error(exc: StatementError) -> str:
     if len(text) > _MAX_ERROR_CHARS:
         text = text[: _MAX_ERROR_CHARS - 3] + "..."
     return text
-
-
-def _is_fresh(
-    updated_at: datetime | None,
-    threshold_hours: int,
-    now: datetime,
-) -> bool:
-    """Return True if the data is still within the freshness window."""
-    if updated_at is None:
-        return False
-    # Ensure both are timezone-aware for comparison
-    if updated_at.tzinfo is None:
-        updated_at = updated_at.replace(tzinfo=timezone.utc)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    return (now - updated_at) < timedelta(hours=threshold_hours)
 
 
 def _financial_currency(info: dict[str, Any] | None) -> str | None:
@@ -703,7 +671,7 @@ class YFinanceDataService:
         # In incremental mode, query staleness info once upfront — unless the
         # caller (a bulk sweep) pre-loaded it in one grouped query and injected
         # it here, avoiding a per-instrument round-trip.
-        if mode != "incremental":
+        if mode != FetchMode.INCREMENTAL:
             staleness = None
         elif staleness is _UNSET:
             try:
@@ -717,21 +685,30 @@ class YFinanceDataService:
                 staleness = None
 
         now = datetime.now(timezone.utc)
+        plan = FetchPlan(
+            # Any mode other than "incremental" has always fetched everything,
+            # where FetchMode(mode) would reject it.
+            mode=(
+                FetchMode.INCREMENTAL
+                if mode == FetchMode.INCREMENTAL
+                else FetchMode.FULL
+            ),
+            staleness=staleness,
+            thresholds=thresholds,
+            now=now,
+        )
 
         # A gate is settled when its marker is inside its freshness window (the
-        # fundamentals window unless given), or when the last fetch came back
-        # empty recently: an empty answer writes no row, so without the second
-        # clause a category Yahoo has nothing for would be requested on every run.
+        # plan's window for the marker unless given), or when the last fetch came
+        # back empty recently: an empty answer writes no row, so without the
+        # second clause a category Yahoo has nothing for would be requested on
+        # every run. The empty-answer memory is read here, lazily, because the
+        # sweep adds to it while it runs.
         def _settled(marker_key: str, fresh_hours: int | None = None) -> bool:
-            window = thresholds.financials_hours if fresh_hours is None else fresh_hours
-            return (
-                mode == "incremental"
-                and staleness is not None
-                and (
-                    _is_fresh(staleness.get(marker_key), window, now)
-                    or self._empty_fetches.is_recent(
-                        instrument_id, marker_key, thresholds.no_data_hours, now
-                    )
+            return not plan.is_due(marker_key, fresh_hours) or (
+                plan.uses_staleness
+                and self._empty_fetches.is_recent(
+                    instrument_id, marker_key, thresholds.no_data_hours, now
                 )
             )
 
@@ -782,11 +759,9 @@ class YFinanceDataService:
         # last completed session there is nothing to fetch — avoid
         # constructing a yf.Ticker at all (which acquires the rate-limiter
         # even on a cache hit, adding ~100ms×N delay over 2907 tickers).
-        if mode == "incremental" and staleness is not None:
+        if plan.uses_staleness:
             all_fresh = (
-                _is_fresh(
-                    staleness.get("profile_updated_at"), thresholds.profile_hours, now
-                )
+                not plan.is_due("profile_updated_at")
                 and all(
                     _statement_fresh(st, pt) for st, pt in FINANCIAL_STATEMENT_GROUPS
                 )
@@ -814,13 +789,7 @@ class YFinanceDataService:
 
         profile_info: dict[str, Any] | None = None
 
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _is_fresh(
-                staleness.get("profile_updated_at"), thresholds.profile_hours, now
-            )
-        ):
+        if not plan.is_due("profile_updated_at"):
             skipped.append("profile")
         else:
             try:
@@ -858,11 +827,7 @@ class YFinanceDataService:
                 logger.warning("Failed to fetch profile for %s: %s", yfinance_ticker, e)
 
         try:
-            max_date = (
-                staleness.get("price_max_date")
-                if mode == "incremental" and staleness is not None
-                else None
-            )
+            max_date = staleness.get("price_max_date") if plan.uses_staleness else None
             incremental_window = max_date is not None
             # Set only when a re-base fetch replaced the incremental window, so
             # the window can still be stored if the full history is unusable.
@@ -1286,11 +1251,7 @@ class YFinanceDataService:
                 logger.warning("Failed earnings_dates for %s: %s", yfinance_ticker, e)
 
         # 3i. Analyst upgrade/downgrade actions (analyst-rating cadence).
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("recommendations_updated_at")
-        ):
+        if _event_fresh("recommendations_updated_at"):
             skipped.append("analyst_actions")
         else:
             try:
@@ -1355,11 +1316,7 @@ class YFinanceDataService:
                 _record_fetch(f"{category}_updated_at", counts[category])
 
         # 4. Dividends
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("dividends_updated_at")
-        ):
+        if _event_fresh("dividends_updated_at"):
             skipped.append("dividends")
         else:
             try:
@@ -1382,11 +1339,7 @@ class YFinanceDataService:
                 logger.warning("Failed dividends for %s: %s", yfinance_ticker, e)
 
         # 5. Stock splits
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("splits_updated_at")
-        ):
+        if _event_fresh("splits_updated_at"):
             skipped.append("splits")
         else:
             try:
@@ -1406,11 +1359,7 @@ class YFinanceDataService:
                 logger.warning("Failed splits for %s: %s", yfinance_ticker, e)
 
         # 6. Analyst recommendations
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("recommendations_updated_at")
-        ):
+        if _event_fresh("recommendations_updated_at"):
             skipped.append("recommendations")
         else:
             try:
@@ -1430,11 +1379,7 @@ class YFinanceDataService:
                 logger.warning("Failed recommendations for %s: %s", yfinance_ticker, e)
 
         # 7. Analyst price targets
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("price_targets_updated_at")
-        ):
+        if _event_fresh("price_targets_updated_at"):
             skipped.append("price_targets")
         else:
             try:
@@ -1454,11 +1399,7 @@ class YFinanceDataService:
                 logger.warning("Failed price targets for %s: %s", yfinance_ticker, e)
 
         # 8. Institutional holders
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("institutional_holders_updated_at")
-        ):
+        if _event_fresh("institutional_holders_updated_at"):
             skipped.append("institutional_holders")
         else:
             try:
@@ -1480,11 +1421,7 @@ class YFinanceDataService:
                 )
 
         # 9. Mutual fund holders
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("mutualfund_holders_updated_at")
-        ):
+        if _event_fresh("mutualfund_holders_updated_at"):
             skipped.append("mutualfund_holders")
         else:
             try:
@@ -1506,11 +1443,7 @@ class YFinanceDataService:
                 )
 
         # 10. Insider transactions
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("insider_transactions_updated_at")
-        ):
+        if _event_fresh("insider_transactions_updated_at"):
             skipped.append("insider_transactions")
         else:
             try:
@@ -1534,11 +1467,7 @@ class YFinanceDataService:
                 )
 
         # 10b. Major holders (ownership breakdown; institutional window).
-        if (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("institutional_holders_updated_at")
-        ):
+        if _event_fresh("institutional_holders_updated_at"):
             skipped.append("major_holders")
         else:
             try:
@@ -1555,11 +1484,7 @@ class YFinanceDataService:
                 logger.warning("Failed major_holders for %s: %s", yfinance_ticker, e)
 
         # 10c/10d. Insider purchases + roster (insider window).
-        insider_fresh = (
-            mode == "incremental"
-            and staleness is not None
-            and _event_fresh("insider_transactions_updated_at")
-        )
+        insider_fresh = _event_fresh("insider_transactions_updated_at")
         if insider_fresh:
             skipped.append("insider_purchases")
         else:

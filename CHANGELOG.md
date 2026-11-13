@@ -284,6 +284,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ci**: the `fund-test` job timeout goes from 30 to 45 minutes. The job takes 25 to
   29 minutes, and a pull-request run competing with the push run was cancelled at
   30m17s although the same job passed on the same commit.
+- **ingestion**: the yfinance sweep decides which categories are due for a fetch
+  through a pure, unit-tested `FetchPlan`
+  (`app/services/market_data/yfinance/fetch_plan.py`), built once per ticker,
+  instead of repeating the incremental-mode check before every category.
+  `StalenessThresholds` moved into that module and is still importable from
+  `yfinance_data_service`. Behaviour is unchanged.
 
 ### Removed
 
