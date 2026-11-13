@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -43,6 +44,11 @@ _GDP_TIE_TOLERANCE = 1e-9
 # growth that dips below its trend must fall under this fraction of the trend
 # before it counts; a smaller dip is only a slowdown.
 _GDP_SEVERE_DECELERATION = 0.5
+
+# A composite score at or beyond these levels is a strong signal: two of the
+# three indicators agreeing, or three of four once sentiment widens the range.
+_DECISIVE_SCORE = 2
+_DECISIVE_SCORE_WITH_SENTIMENT = 3
 
 
 def _last_valid(macro_data: pd.DataFrame, column: str) -> float | None:
@@ -147,6 +153,66 @@ def classify_regime_composite(
     )
 
 
+def _band_score(value: float, bands: Sequence[tuple[float, float]]) -> float:
+    """Score ``value`` against ``(lower, upper)`` bands: +1 above, -1 below, 0 in.
+
+    For each band, a value strictly above ``upper`` scores +1, otherwise one
+    strictly below ``lower`` scores -1, and one inside the closed band scores
+    0; the result is the sum over ``bands``. Above is tested first, so with
+    ``lower > upper`` a value both above and below the band scores +1. NaN
+    fails every comparison and scores 0.
+    """
+    score = 0.0
+    for lower, upper in bands:
+        if value > upper:
+            score += 1.0
+        elif value < lower:
+            score -= 1.0
+    return score
+
+
+def _indicator_score(value: float | None, lower: float, upper: float) -> float:
+    """Score one indicator against its thresholds; a missing one scores 0."""
+    # Default to 0 so missing indicators are neutral, not penalizing.
+    if value is None:
+        return 0.0
+    return _band_score(value, [(lower, upper)])
+
+
+def _composite_score(
+    pmi: float | None,
+    spread: float | None,
+    hy: float | None,
+    thresholds: RegimeThresholdConfig,
+) -> float:
+    """Return the three-indicator score S_t of PMI, the 2s10s spread and HY OAS."""
+    # A tight credit spread is risk-on (+1), so HY OAS is scored negated: the
+    # risk-on test becomes the "above" test, which `_band_score` runs first.
+    credit = None if hy is None else -hy
+    return (
+        _indicator_score(pmi, thresholds.pmi_contraction, thresholds.pmi_expansion)
+        + _indicator_score(
+            spread, thresholds.spread_2s10s_inversion, thresholds.spread_2s10s_steep
+        )
+        + _indicator_score(
+            credit, -thresholds.hy_oas_risk_off, -thresholds.hy_oas_risk_on
+        )
+    )
+
+
+def _regime_from_score(score: float, decisive: int) -> MacroRegime:
+    """Map a composite score to a regime; ``decisive`` is the strong-signal level."""
+    if score >= decisive:
+        return MacroRegime.EXPANSION
+    if score <= -decisive:
+        return MacroRegime.RECESSION
+    if score > 0:
+        return MacroRegime.EXPANSION
+    if score == 0:
+        return MacroRegime.SLOWDOWN
+    return MacroRegime.RECOVERY
+
+
 def _score_composite(
     *,
     pmi: float | None,
@@ -168,62 +234,13 @@ def _score_composite(
         )
         return MacroRegime.UNKNOWN
 
-    # Default to 0 so missing indicators are neutral, not penalizing.
-    s_pmi = 0
-    if pmi is not None:
-        s_pmi = (
-            1
-            if pmi > thresholds.pmi_expansion
-            else (-1 if pmi < thresholds.pmi_contraction else 0)
-        )
-
-    s_2s10s = 0
-    if spread is not None:
-        s_2s10s = (
-            1
-            if spread > thresholds.spread_2s10s_steep
-            else (-1 if spread < thresholds.spread_2s10s_inversion else 0)
-        )
-
-    s_hy = 0
-    if hy is not None:
-        s_hy = (
-            1
-            if hy < thresholds.hy_oas_risk_on
-            else (-1 if hy > thresholds.hy_oas_risk_off else 0)
-        )
-
-    s_sent = 0
-    if sent is not None:
-        s_sent = (
-            1
-            if sent > thresholds.sentiment_positive
-            else (-1 if sent < thresholds.sentiment_negative else 0)
-        )
-
-    s_t = s_pmi + s_2s10s + s_hy
-
-    if s_sent != 0:
-        s_aug = s_t + s_sent
-        if s_aug >= 3:
-            return MacroRegime.EXPANSION
-        if s_aug <= -3:
-            return MacroRegime.RECESSION
-        if s_aug > 0:
-            return MacroRegime.EXPANSION
-        if s_aug == 0:
-            return MacroRegime.SLOWDOWN
-        return MacroRegime.RECOVERY
-
-    if s_t >= 2:
-        return MacroRegime.EXPANSION
-    if s_t <= -2:
-        return MacroRegime.RECESSION
-    if s_t > 0:
-        return MacroRegime.EXPANSION
-    if s_t == 0:
-        return MacroRegime.SLOWDOWN
-    return MacroRegime.RECOVERY
+    score = _composite_score(pmi, spread, hy, thresholds)
+    sentiment = _indicator_score(
+        sent, thresholds.sentiment_negative, thresholds.sentiment_positive
+    )
+    if sentiment != 0:
+        return _regime_from_score(score + sentiment, _DECISIVE_SCORE_WITH_SENTIMENT)
+    return _regime_from_score(score, _DECISIVE_SCORE)
 
 
 def classify_regime(
