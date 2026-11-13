@@ -58,6 +58,10 @@ from app.services.market_data.yfinance import (
     record_failure,
     track_request_outcomes,
 )
+from app.services.market_data.yfinance.fetch_plan import StalenessThresholds
+
+# Bound under the private name the service's existing tests import it by.
+from app.services.market_data.yfinance.fetch_plan import is_fresh as _is_fresh
 from app.utils.currency import to_major_currency
 
 logger = logging.getLogger(__name__)
@@ -149,31 +153,6 @@ def call_with_timeout(
     raise value
 
 
-@dataclass
-class StalenessThresholds:
-    """Configurable freshness thresholds per data category."""
-
-    profile_hours: int = 24
-    financials_hours: int = 168  # 7 days
-    dividends_hours: int = 24
-    splits_hours: int = 24
-    recommendations_hours: int = 24
-    price_targets_hours: int = 24
-    institutional_holders_hours: int = 24
-    mutualfund_holders_hours: int = 24
-    insider_transactions_hours: int = 24
-    etf_metadata_hours: int = 168  # 7 days
-    # How long a clean empty answer for a fundamentals category or statement
-    # settles it. Shorter than financials_hours because the client cannot tell
-    # "no data" from "retries exhausted": a fetch that merely failed is retried
-    # within days, not after a week.
-    no_data_hours: int = 72
-    # news: always fetched (no threshold)
-    # prices: always fetched (date-ranged)
-    price_overlap_days: int = 5
-    min_history_tolerance: float = 0.95
-
-
 DEFAULT_THRESHOLDS = StalenessThresholds()
 
 # One memory for every bulk sweep in the process: services are built per run (or
@@ -260,22 +239,6 @@ def _describe_statement_error(exc: StatementError) -> str:
     if len(text) > _MAX_ERROR_CHARS:
         text = text[: _MAX_ERROR_CHARS - 3] + "..."
     return text
-
-
-def _is_fresh(
-    updated_at: datetime | None,
-    threshold_hours: int,
-    now: datetime,
-) -> bool:
-    """Return True if the data is still within the freshness window."""
-    if updated_at is None:
-        return False
-    # Ensure both are timezone-aware for comparison
-    if updated_at.tzinfo is None:
-        updated_at = updated_at.replace(tzinfo=timezone.utc)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    return (now - updated_at) < timedelta(hours=threshold_hours)
 
 
 def _financial_currency(info: dict[str, Any] | None) -> str | None:
