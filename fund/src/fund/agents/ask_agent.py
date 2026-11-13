@@ -43,7 +43,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from fund.agents.backend import (
     _FUND_DIR,
@@ -55,8 +55,12 @@ from fund.agents.summarization import summarization_override
 from fund.config import FundConfig, settings
 from fund.tui.safe_text import describe_error, strip_control
 
+if TYPE_CHECKING:
+    from langchain_core.tools import BaseTool
+
 __all__ = [
     "AskTimeoutError",
+    "AskToolContext",
     "ask_system_prompt",
     "ask_thread_id",
     "build_ask_agent",
@@ -65,6 +69,17 @@ __all__ = [
     "clear_ask_state",
     "describe_error",
     "describe_step",
+    "make_audit_trail_tool",
+    "make_daily_brief_tool",
+    "make_fund_snapshot_tool",
+    "make_holdings_tool",
+    "make_list_portfolios_tool",
+    "make_list_runs_tool",
+    "make_mandate_tool",
+    "make_pending_gates_tool",
+    "make_performance_tool",
+    "make_portfolio_state_tool",
+    "make_run_transcript_tool",
     "run_ask_turn",
     "scope_scratch_dir",
     "stage_ask_workspace",
@@ -393,6 +408,433 @@ def _render(value: Any) -> str:
     return f"{text[:_TOOL_TEXT_LIMIT]}\n… (truncated, {more} more characters)"
 
 
+def _read_only(session: Any) -> None:
+    """Ask Postgres to refuse any write on this session's transaction.
+
+    The cockpit connects as a role that can write; a read-only transaction makes
+    the database itself enforce what the tools only promise.
+    """
+    get_bind = getattr(session, "get_bind", None)
+    if callable(get_bind) and get_bind().dialect.name == "postgresql":
+        from sqlalchemy import text
+
+        session.execute(text("SET TRANSACTION READ ONLY"))
+
+
+@dataclasses.dataclass(frozen=True)
+class AskToolContext:
+    """What every fund-data tool shares: how it reads, and whose data it may show.
+
+    Attributes:
+        session_factory: Context-manager factory for a database session.
+        saver: The checkpointer, for the reads that open a run's transcript.
+        focus: The portfolio on screen, used when a tool is given no portfolio id and
+            the only one a conversation about it may read; ``None`` for the
+            fund-wide conversation, which may read any portfolio.
+    """
+
+    session_factory: Callable[[], AbstractContextManager[Any]]
+    saver: Any
+    focus: uuid.UUID | None
+
+    def read(self, work: Callable[[Any], Any]) -> str:
+        """Run one read in its own rolled-back session and return it as text.
+
+        Args:
+            work: Reads what the tool answers with from the session it is given.
+
+        Returns:
+            The result as compact JSON text, or an ``error:`` line the agent can read
+            and recover from, never an exception that ends the turn.
+        """
+        try:
+            with self.session_factory() as session:
+                try:
+                    _read_only(session)
+                    return _render(work(session))
+                finally:
+                    session.rollback()
+        except Exception as exc:
+            return f"error: {describe_error(exc)}"
+
+    def portfolio(self, session: Any, text: str) -> uuid.UUID:
+        """Resolve a full id, a unique prefix, or blank (the focused portfolio).
+
+        Raises:
+            ValueError: Nothing is focused and no id was given, the prefix matches no
+                portfolio or several, or the portfolio is one this conversation may
+                not read.
+        """
+        from fund import observe
+
+        text = (text or "").strip().lower()
+        if not text:
+            if self.focus is None:
+                msg = "no portfolio is focused; pass portfolio_id (see list_portfolios)"
+                raise ValueError(msg)
+            return self.focus
+        try:
+            found = uuid.UUID(text)
+        except ValueError:
+            matches = [
+                p for p in observe.list_portfolios(session) if str(p).startswith(text)
+            ]
+            if len(matches) > 1:
+                msg = f"{text!r} matches several portfolios; give more characters"
+                raise ValueError(msg) from None
+            if not matches:
+                msg = f"no portfolio matches {text!r} (see list_portfolios)"
+                raise ValueError(msg) from None
+            found = matches[0]
+        self.confine(found)
+        return found
+
+    def confine(self, found: uuid.UUID) -> None:
+        """Refuse another portfolio's data in a conversation about one portfolio.
+
+        What is read lands in this conversation's saved memory and files, which only
+        ``/clear`` of *this* conversation removes, so another portfolio's details must
+        not get in. The fund-wide conversation may read any portfolio.
+
+        Raises:
+            ValueError: ``found`` is not the portfolio this conversation is about.
+        """
+        if self.focus is not None and found != self.focus:
+            msg = (
+                f"this conversation is about portfolio {self.focus}; switch the header "
+                "to that portfolio to ask about another"
+            )
+            raise ValueError(msg)
+
+
+def make_fund_snapshot_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``fund_snapshot`` tool: the fund as the cockpit header summarizes it.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund.tui import ask
+
+    @tool
+    def fund_snapshot() -> str:
+        """Summarize the fund now: portfolios, pending gates, the focused portfolio."""
+        return ctx.read(
+            lambda s: ask.build_context(s, ctx.saver, ctx.focus, "").splitlines()
+        )
+
+    return fund_snapshot
+
+
+def make_list_portfolios_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``list_portfolios`` tool: the ids the conversation may ask about.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def list_portfolios() -> str:
+        """List every portfolio id the fund manages."""
+        return ctx.read(
+            lambda s: [
+                str(p)
+                for p in observe.list_portfolios(s)
+                if ctx.focus is None or p == ctx.focus
+            ]
+        )
+
+    return list_portfolios
+
+
+def make_portfolio_state_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``portfolio_state`` tool: one portfolio's drift and run status.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def portfolio_state(portfolio_id: str = "") -> str:
+        """Show a portfolio's drift, holdings count and run status.
+
+        A blank portfolio_id means the focused portfolio.
+        """
+        return ctx.read(
+            lambda s: observe.portfolio_state(s, ctx.portfolio(s, portfolio_id))
+        )
+
+    return portfolio_state
+
+
+def make_performance_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``performance`` tool: one portfolio's returns and risk.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def performance(portfolio_id: str = "") -> str:
+        """Show a portfolio's returns, risk and excess return.
+
+        A blank portfolio_id means the focused portfolio.
+        """
+        return ctx.read(
+            lambda s: observe.performance_summary(s, ctx.portfolio(s, portfolio_id))
+        )
+
+    return performance
+
+
+def make_holdings_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``holdings`` tool: one portfolio's positions and their P&L.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def holdings(portfolio_id: str = "") -> str:
+        """Show a portfolio's holdings with value, one-day change and P&L.
+
+        A blank portfolio_id means the focused portfolio.
+        """
+        return ctx.read(
+            lambda s: observe.holdings_summary(s, ctx.portfolio(s, portfolio_id))
+        )
+
+    return holdings
+
+
+def make_mandate_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``mandate`` tool: one portfolio's mandate and its warnings.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def mandate(portfolio_id: str = "") -> str:
+        """Show a portfolio's mandate (limits, eligible tickers) and its warnings."""
+
+        def work(session: Any) -> Any:
+            """Read the mandate and its warnings for one resolved portfolio."""
+            target = ctx.portfolio(session, portfolio_id)
+            return {
+                "mandate": observe.get_mandate(session, target),
+                "warnings": observe.mandate_warnings(session, target),
+            }
+
+        return ctx.read(work)
+
+    return mandate
+
+
+def make_pending_gates_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``pending_gates`` tool: the gates waiting on the adviser.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def pending_gates() -> str:
+        """List the decision gates waiting for a human to approve or reject."""
+        return ctx.read(
+            lambda s: [
+                gate
+                for gate in observe.pending_hitl(s, ctx.saver, None)
+                if ctx.focus is None or gate.portfolio_id == ctx.focus
+            ]
+        )
+
+    return pending_gates
+
+
+def make_list_runs_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``list_runs`` tool: one portfolio's recent decision runs.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def list_runs(portfolio_id: str = "", limit: int = 10) -> str:
+        """List a portfolio's most recent decision runs with their status and date."""
+        return ctx.read(
+            lambda s: observe.list_portfolio_runs(
+                s, ctx.portfolio(s, portfolio_id), limit=max(1, min(limit, 50))
+            )
+        )
+
+    return list_runs
+
+
+def make_run_transcript_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``run_transcript`` tool: what the agents said in one run.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def run_transcript(run_id: str) -> str:
+        """Read what the agents said and decided in one run (id from list_runs)."""
+
+        def work(session: Any) -> Any:
+            """Load the run and the last entries of what its agents said."""
+            from fund.audit.repository import AgentRunRepository
+
+            run = AgentRunRepository(session).get_run(uuid.UUID(run_id.strip()))
+            if run is None:
+                msg = f"no run {run_id!r}"
+                raise ValueError(msg)
+            owner = getattr(run, "portfolio_id", None)
+            if owner is not None:
+                ctx.confine(owner)
+            entries = observe.load_run_transcript(session, ctx.saver, run)
+            return [
+                {"agent": e.agent, "step": e.step, "text": e.text[:600]}
+                for e in entries[-40:]
+            ]
+
+        return ctx.read(work)
+
+    return run_transcript
+
+
+def make_daily_brief_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``daily_brief`` tool: one portfolio's brief for a day.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def daily_brief(portfolio_id: str = "", day: str = "") -> str:
+        """Show the daily brief for a day: P&L, attribution, market digest, actions.
+
+        The day is YYYY-MM-DD; blank is the latest.
+        """
+        return ctx.read(
+            lambda s: observe.daily_brief(
+                s,
+                ctx.saver,
+                ctx.portfolio(s, portfolio_id),
+                asof=dt.date.fromisoformat(day) if day.strip() else None,
+            )
+        )
+
+    return daily_brief
+
+
+def make_audit_trail_tool(ctx: AskToolContext) -> BaseTool:
+    """The ``audit_trail`` tool: the newest human and agent audit entries.
+
+    Args:
+        ctx: What the fund-data tools share.
+
+    Returns:
+        The tool, bound to ``ctx``.
+    """
+    from langchain_core.tools import tool
+
+    from fund import observe
+
+    @tool
+    def audit_trail(portfolio_id: str = "", limit: int = 30) -> str:
+        """Show the newest audit entries: who decided or did what, and when.
+
+        A blank portfolio_id means the focused portfolio, or all when none is focused.
+        """
+
+        def work(session: Any) -> Any:
+            """Read the newest audit rows, scoped to a portfolio when one is known."""
+            wanted = portfolio_id.strip()
+            target = ctx.portfolio(session, wanted) if wanted or ctx.focus else None
+            rows = observe.audit_timeline(session, portfolio_id=target)
+            return rows[: max(1, min(limit, 100))]
+
+        return ctx.read(work)
+
+    return audit_trail
+
+
+# The model is offered the tools in this order, so the order is part of its prompt.
+_ASK_TOOL_FACTORIES: tuple[Callable[[AskToolContext], BaseTool], ...] = (
+    make_fund_snapshot_tool,
+    make_list_portfolios_tool,
+    make_portfolio_state_tool,
+    make_performance_tool,
+    make_holdings_tool,
+    make_mandate_tool,
+    make_pending_gates_tool,
+    make_list_runs_tool,
+    make_run_transcript_tool,
+    make_daily_brief_tool,
+    make_audit_trail_tool,
+)
+
+
 def build_ask_tools(
     *,
     session_factory: Callable[[], AbstractContextManager[Any]],
@@ -413,216 +855,8 @@ def build_ask_tools(
     Returns:
         The list of LangChain tools.
     """
-    from langchain_core.tools import tool
-
-    from fund import observe
-    from fund.tui import ask
-
-    def _read_only(session: Any) -> None:
-        """Ask Postgres to refuse any write on this session's transaction.
-
-        The cockpit connects as a role that can write; a read-only transaction makes
-        the database itself enforce what the tools only promise.
-        """
-        get_bind = getattr(session, "get_bind", None)
-        if callable(get_bind) and get_bind().dialect.name == "postgresql":
-            from sqlalchemy import text
-
-            session.execute(text("SET TRANSACTION READ ONLY"))
-
-    def read(work: Callable[[Any], Any]) -> str:
-        """Run one read in its own rolled-back session and return it as text."""
-        try:
-            with session_factory() as session:
-                try:
-                    _read_only(session)
-                    return _render(work(session))
-                finally:
-                    session.rollback()
-        except Exception as exc:
-            return f"error: {describe_error(exc)}"
-
-    def portfolio(session: Any, text: str) -> uuid.UUID:
-        """Resolve a full id, a unique prefix, or blank (the focused portfolio)."""
-        text = (text or "").strip().lower()
-        if not text:
-            if focus is None:
-                msg = "no portfolio is focused; pass portfolio_id (see list_portfolios)"
-                raise ValueError(msg)
-            return focus
-        try:
-            found = uuid.UUID(text)
-        except ValueError:
-            matches = [
-                p for p in observe.list_portfolios(session) if str(p).startswith(text)
-            ]
-            if len(matches) > 1:
-                msg = f"{text!r} matches several portfolios; give more characters"
-                raise ValueError(msg) from None
-            if not matches:
-                msg = f"no portfolio matches {text!r} (see list_portfolios)"
-                raise ValueError(msg) from None
-            found = matches[0]
-        confine(found)
-        return found
-
-    def confine(found: uuid.UUID) -> None:
-        """Refuse another portfolio's data in a conversation about one portfolio.
-
-        What is read lands in this conversation's saved memory and files, which only
-        ``/clear`` of *this* conversation removes, so another portfolio's details must
-        not get in. The fund-wide conversation may read any portfolio.
-        """
-        if focus is not None and found != focus:
-            msg = (
-                f"this conversation is about portfolio {focus}; switch the header "
-                "to that portfolio to ask about another"
-            )
-            raise ValueError(msg)
-
-    @tool
-    def fund_snapshot() -> str:
-        """Summarize the fund now: portfolios, pending gates, the focused portfolio."""
-        return read(lambda s: ask.build_context(s, saver, focus, "").splitlines())
-
-    @tool
-    def list_portfolios() -> str:
-        """List every portfolio id the fund manages."""
-        return read(
-            lambda s: [
-                str(p)
-                for p in observe.list_portfolios(s)
-                if focus is None or p == focus
-            ]
-        )
-
-    @tool
-    def portfolio_state(portfolio_id: str = "") -> str:
-        """Show a portfolio's drift, holdings count and run status.
-
-        A blank portfolio_id means the focused portfolio.
-        """
-        return read(lambda s: observe.portfolio_state(s, portfolio(s, portfolio_id)))
-
-    @tool
-    def performance(portfolio_id: str = "") -> str:
-        """Show a portfolio's returns, risk and excess return.
-
-        A blank portfolio_id means the focused portfolio.
-        """
-        return read(
-            lambda s: observe.performance_summary(s, portfolio(s, portfolio_id))
-        )
-
-    @tool
-    def holdings(portfolio_id: str = "") -> str:
-        """Show a portfolio's holdings with value, one-day change and P&L.
-
-        A blank portfolio_id means the focused portfolio.
-        """
-        return read(lambda s: observe.holdings_summary(s, portfolio(s, portfolio_id)))
-
-    @tool
-    def mandate(portfolio_id: str = "") -> str:
-        """Show a portfolio's mandate (limits, eligible tickers) and its warnings."""
-
-        def work(session: Any) -> Any:
-            """Read the mandate and its warnings for one resolved portfolio."""
-            target = portfolio(session, portfolio_id)
-            return {
-                "mandate": observe.get_mandate(session, target),
-                "warnings": observe.mandate_warnings(session, target),
-            }
-
-        return read(work)
-
-    @tool
-    def pending_gates() -> str:
-        """List the decision gates waiting for a human to approve or reject."""
-        return read(
-            lambda s: [
-                gate
-                for gate in observe.pending_hitl(s, saver, None)
-                if focus is None or gate.portfolio_id == focus
-            ]
-        )
-
-    @tool
-    def list_runs(portfolio_id: str = "", limit: int = 10) -> str:
-        """List a portfolio's most recent decision runs with their status and date."""
-        return read(
-            lambda s: observe.list_portfolio_runs(
-                s, portfolio(s, portfolio_id), limit=max(1, min(limit, 50))
-            )
-        )
-
-    @tool
-    def run_transcript(run_id: str) -> str:
-        """Read what the agents said and decided in one run (id from list_runs)."""
-
-        def work(session: Any) -> Any:
-            """Load the run and the last entries of what its agents said."""
-            from fund.audit.repository import AgentRunRepository
-
-            run = AgentRunRepository(session).get_run(uuid.UUID(run_id.strip()))
-            if run is None:
-                msg = f"no run {run_id!r}"
-                raise ValueError(msg)
-            owner = getattr(run, "portfolio_id", None)
-            if owner is not None:
-                confine(owner)
-            entries = observe.load_run_transcript(session, saver, run)
-            return [
-                {"agent": e.agent, "step": e.step, "text": e.text[:600]}
-                for e in entries[-40:]
-            ]
-
-        return read(work)
-
-    @tool
-    def daily_brief(portfolio_id: str = "", day: str = "") -> str:
-        """Show the daily brief for a day: P&L, attribution, market digest, actions.
-
-        The day is YYYY-MM-DD; blank is the latest.
-        """
-        return read(
-            lambda s: observe.daily_brief(
-                s,
-                saver,
-                portfolio(s, portfolio_id),
-                asof=dt.date.fromisoformat(day) if day.strip() else None,
-            )
-        )
-
-    @tool
-    def audit_trail(portfolio_id: str = "", limit: int = 30) -> str:
-        """Show the newest audit entries: who decided or did what, and when.
-
-        A blank portfolio_id means the focused portfolio, or all when none is focused.
-        """
-
-        def work(session: Any) -> Any:
-            """Read the newest audit rows, scoped to a portfolio when one is known."""
-            wanted = portfolio_id.strip()
-            target = portfolio(session, wanted) if wanted or focus else None
-            rows = observe.audit_timeline(session, portfolio_id=target)
-            return rows[: max(1, min(limit, 100))]
-
-        return read(work)
-
-    return [
-        fund_snapshot,
-        list_portfolios,
-        portfolio_state,
-        performance,
-        holdings,
-        mandate,
-        pending_gates,
-        list_runs,
-        run_transcript,
-        daily_brief,
-        audit_trail,
-    ]
+    ctx = AskToolContext(session_factory=session_factory, saver=saver, focus=focus)
+    return [make(ctx) for make in _ASK_TOOL_FACTORIES]
 
 
 # ------------------------------------------------------------------------- agent
