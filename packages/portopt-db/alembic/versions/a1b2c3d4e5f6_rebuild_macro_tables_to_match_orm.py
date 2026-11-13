@@ -145,6 +145,13 @@ def upgrade() -> None:
         )
 
 
+# Read by tests/test_irreversible_migrations_declare_reason.py.
+IRREVERSIBLE_REASON = (
+    "Dropped and recreated the macro tables empty to match the ORM; the old stale "
+    "schemas were not preserved, so there is nothing to downgrade to."
+)
+
+
 def downgrade() -> None:
     # This is a destructive migration; downgrade is not supported.
     raise NotImplementedError(

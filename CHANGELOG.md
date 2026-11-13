@@ -135,7 +135,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PORTOPT_TEST_DATABASE_URL` (skips without it, refuses a database not named
   `*_test`). A static test checks the 37 `_upsert` conflict names against the
   models, and the `postgres-integration` CI job now also runs `alembic check` and a
-  downgrade/upgrade round trip over the five most recent revisions.
+  downgrade/upgrade round trip over the five most recent revisions. The six
+  revisions whose `downgrade` raises now declare an `IRREVERSIBLE_REASON`, which a
+  test requires of any future one-way revision.
 - **Ask is a read-only deep agent with a saved conversation.** A question is now
   answered by an agent that reads the fund's data (read-only tools over
   `fund.observe`) and a read-only staged copy of the docs and source, deciding its
