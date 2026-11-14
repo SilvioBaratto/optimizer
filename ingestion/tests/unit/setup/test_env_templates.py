@@ -169,10 +169,16 @@ _NOT_KNOBS = {"project_name", "version", "debug"}
 _EXTRA_KNOBS = {"PORTOPT_SECRETS_DIR": "/run/secrets"}
 # Knobs whose names and defaults are documented in docs/adr/0008 and CLAUDE.md
 # until the owner, who alone edits the env templates, lists them in the template.
+# The checks below fail once the template names one, so the set cannot outlive
+# its reason.
 _DOCUMENTED_OUTSIDE_THE_TEMPLATE = {
     "DATABASE_BREAKER_FAILURE_THRESHOLD",
     "DATABASE_BREAKER_RESET_TIMEOUT_S",
 }
+_EXEMPTION_DOCS = (
+    _REPO_ROOT / "docs" / "adr" / "0008-database-circuit-breaker.md",
+    _REPO_ROOT / "CLAUDE.md",
+)
 
 # A `NAME=value` line, active or commented out.
 _ASSIGNMENT = re.compile(r"^#?[ \t]*([A-Z][A-Z0-9_]*)=(.*)$", re.MULTILINE)
@@ -216,3 +222,32 @@ def test_ingestion_template_defaults_match_the_code() -> None:
         and documented[name].lower() != str(default).lower()
     }
     assert not drifted, f"template value vs code default: {drifted}"
+
+
+def _exempt_names_in(text: str) -> list[str]:
+    return sorted(name for name in _DOCUMENTED_OUTSIDE_THE_TEMPLATE if name in text)
+
+
+def test_the_template_exemption_retires_once_the_template_names_a_variable() -> None:
+    """A name the template now carries must leave ``_DOCUMENTED_OUTSIDE_THE_TEMPLATE``."""
+    listed = _exempt_names_in(_INGESTION_TEMPLATE.read_text(encoding="utf-8"))
+    assert not listed, (
+        f"ingestion/.env.example now names {listed}: remove them from "
+        "_DOCUMENTED_OUTSIDE_THE_TEMPLATE"
+    )
+
+
+def test_the_retirement_check_notices_a_named_variable() -> None:
+    """Guard on the guard: a template line, commented out or not, is noticed."""
+    for name in _DOCUMENTED_OUTSIDE_THE_TEMPLATE:
+        assert _exempt_names_in(f"# {name}=5\n") == [name]
+
+
+@pytest.mark.parametrize("doc", _EXEMPTION_DOCS, ids=lambda p: p.name)
+def test_an_exempt_variable_stays_documented_while_exempt(doc: Path) -> None:
+    """While the template lacks them, the ADR and CLAUDE.md must name them."""
+    text = doc.read_text(encoding="utf-8")
+    missing = sorted(
+        set(_DOCUMENTED_OUTSIDE_THE_TEMPLATE) - set(_exempt_names_in(text))
+    )
+    assert not missing, f"{doc.name} no longer names {missing}"
