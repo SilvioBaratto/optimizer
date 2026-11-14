@@ -29,7 +29,8 @@ from typing import Any
 from portopt_db.resilience import (
     DEFAULT_FAILURE_THRESHOLD,
     DEFAULT_RESET_TIMEOUT_S,
-    validate_breaker_settings,
+    parse_failure_threshold,
+    parse_reset_timeout,
 )
 
 # Rolling 3y (~756 trading days) moments/backtest lookback. A run records it and the
@@ -349,28 +350,29 @@ def _db_session_settings(
 ) -> dict[str, Any]:
     """Read the ORM-session knobs fund shares with the ingestion daemon.
 
+    The breaker variables go through the parsers the ingestion daemon uses, so a
+    value starts both processes or neither.
+
     Raises:
-        ValueError: A breaker variable does not hold a value that can drive a
-            breaker; the message names both variables and the rule broken.
+        ValueError: A breaker variable is not a plain number that can drive a
+            breaker; the message starts with the variable's name.
     """
-    threshold = env.get(
-        _BREAKER_THRESHOLD_VAR, str(defaults.db_breaker_failure_threshold)
-    )
-    timeout = env.get(_BREAKER_TIMEOUT_VAR, str(defaults.db_breaker_reset_timeout_s))
-    try:
-        threshold_value, timeout_value = int(threshold), float(timeout)
-        validate_breaker_settings(threshold_value, timeout_value)
-    except ValueError as exc:
-        raise ValueError(
-            f"{_BREAKER_THRESHOLD_VAR}={threshold!r}, "
-            f"{_BREAKER_TIMEOUT_VAR}={timeout!r}: {exc}"
-        ) from exc
+    threshold = env.get(_BREAKER_THRESHOLD_VAR)
+    timeout = env.get(_BREAKER_TIMEOUT_VAR)
     return {
         "db_lock_timeout_ms": int(
             env.get("DATABASE_LOCK_TIMEOUT_MS", defaults.db_lock_timeout_ms)
         ),
-        "db_breaker_failure_threshold": threshold_value,
-        "db_breaker_reset_timeout_s": timeout_value,
+        "db_breaker_failure_threshold": (
+            defaults.db_breaker_failure_threshold
+            if threshold is None
+            else parse_failure_threshold(threshold, name=_BREAKER_THRESHOLD_VAR)
+        ),
+        "db_breaker_reset_timeout_s": (
+            defaults.db_breaker_reset_timeout_s
+            if timeout is None
+            else parse_reset_timeout(timeout, name=_BREAKER_TIMEOUT_VAR)
+        ),
     }
 
 

@@ -66,3 +66,38 @@ def test_a_value_that_cannot_drive_the_breaker_is_refused(
     """A zero, negative, non-numeric or non-finite value fails at load, named."""
     with pytest.raises(ValueError, match=variable):
         load_config(env={variable: value})
+
+
+# The spellings the ingestion daemon is tested against too:
+# (text, threshold, timeout); None = refused.
+_SHARED_EDGE_CASES = [
+    ("5.0", None, 5.0),
+    ("", None, None),
+    (" 7 ", 7, 7.0),
+    ("1_0", None, None),
+    ("+3", None, None),
+    ("true", None, None),
+    ("inf", None, None),
+    ("nan", None, None),
+]
+
+
+@pytest.mark.parametrize(
+    ("variable", "text", "expected"),
+    [(_THRESHOLD_VAR, text, threshold) for text, threshold, _ in _SHARED_EDGE_CASES]
+    + [(_TIMEOUT_VAR, text, timeout) for text, _, timeout in _SHARED_EDGE_CASES],
+)
+def test_fund_reads_the_same_spellings_as_the_ingestion_daemon(
+    variable: str, text: str, expected: float | None
+) -> None:
+    """Plain digits (a fraction only for the timeout), else a refusal naming it."""
+    field = {
+        _THRESHOLD_VAR: "db_breaker_failure_threshold",
+        _TIMEOUT_VAR: "db_breaker_reset_timeout_s",
+    }[variable]
+
+    if expected is None:
+        with pytest.raises(ValueError, match=f"^{variable} must be"):
+            load_config(env={variable: text})
+    else:
+        assert getattr(load_config(env={variable: text}), field) == expected
