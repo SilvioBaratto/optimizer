@@ -237,6 +237,8 @@ class AskMixin(ShellHost):
             if rationale is None:
                 self._ask_cancelled(view, "rearm")
                 return
+            if self._ask_refused_by_db_gate(view):
+                return
             view.append_log("ask", "rearm confirmed")
             self.last_worker = self._rearm_worker("fund", None, rationale)
 
@@ -251,6 +253,8 @@ class AskMixin(ShellHost):
         def _resolved(result: BargeInResult | None) -> None:
             if result is None:
                 self._ask_cancelled(view, "steer")
+                return
+            if self._ask_refused_by_db_gate(view):
                 return
             view.append_log("ask", "steer sent")
             self.last_worker = self._barge_in_worker(

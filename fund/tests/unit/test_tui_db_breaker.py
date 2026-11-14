@@ -31,8 +31,9 @@ from sqlalchemy.exc import DisconnectionError
 from fund.audit import MandateRepository
 from fund.tui import app as tui_app
 from fund.tui._mixins.dbgate import DB_WRITE_ACTIONS
-from fund.tui.app import ConfirmScreen, ShellApp
+from fund.tui.app import ConfirmScreen, RationaleConfirmScreen, ShellApp
 from fund.tui.ask import ResolvedAction
+from fund.tui.barge_in import BargeInResult, BargeInScreen
 
 _THRESHOLD = 2
 _TIMEOUT_S = 30.0
@@ -366,3 +367,56 @@ def test_a_refused_attention_read_logs_one_line_per_outage(
     assert "database unavailable" in records[0].getMessage()
     assert records[0].exc_info is None
     assert all(read.degraded for read in reads)
+
+
+@pytest.mark.asyncio
+async def test_a_fund_rearm_rationale_answered_after_the_breaker_opened_sends_nothing(
+    env, breaker: DbCircuitBreaker, monkeypatch
+) -> None:
+    """The re-arm ceremony dispatches from its own overlay, so it checks the gate."""
+    started: list[tuple] = []
+    log: list[str] = []
+    view = SimpleNamespace(append_log=lambda _who, text: log.append(text))
+    app = _shell(env, breaker)
+    monkeypatch.setattr(app, "_rearm_worker", lambda *args: started.append(args))
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app._confirm_ask_action(view, ResolvedAction("rearm", None, None, "fund"))
+        await pilot.pause()
+        assert isinstance(app.screen, RationaleConfirmScreen)
+        _open(breaker)
+        app._sync_db_gate()
+
+        app.screen.dismiss("the outage is over")
+        await pilot.pause()
+
+        assert started == []
+        assert log[-1].startswith("database unavailable: ")
+        assert app.last_status == log[-1]
+
+
+@pytest.mark.asyncio
+async def test_a_steer_submitted_after_the_breaker_opened_sends_nothing(
+    env, breaker: DbCircuitBreaker, monkeypatch
+) -> None:
+    """The steer overlay dispatches from its own callback, so it checks the gate too."""
+    started: list[tuple] = []
+    log: list[str] = []
+    view = SimpleNamespace(append_log=lambda _who, text: log.append(text))
+    app = _shell(env, breaker)
+    monkeypatch.setattr(app, "_barge_in_worker", lambda *args: started.append(args))
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        app._confirm_ask_action(
+            view, ResolvedAction("respond", uuid.uuid4(), PORTFOLIO_ID, None)
+        )
+        await pilot.pause()
+        assert isinstance(app.screen, BargeInScreen)
+        _open(breaker)
+        app._sync_db_gate()
+
+        app.screen.dismiss(BargeInResult(text="hold cash", remember=False))
+        await pilot.pause()
+
+        assert started == []
+        assert log[-1].startswith("database unavailable: ")
