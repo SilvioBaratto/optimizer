@@ -73,6 +73,7 @@ from fund.tui._mixins.attention import (
 from fund.tui._mixins.attention import AttentionMixin, _AttentionKey
 from fund.tui._mixins.attention import _AttentionRead as _AttentionRead
 from fund.tui._mixins.audit import AuditMixin
+from fund.tui._mixins.dbgate import DbGateMixin
 from fund.tui._mixins.decisions import DecisionsMixin
 from fund.tui._mixins.decisions import _gate_target as _gate_target
 from fund.tui._mixins.drive import _HOLD_POLL_SECONDS as _HOLD_POLL_SECONDS
@@ -130,6 +131,7 @@ class ShellApp(
     AuditMixin,
     AskMixin,
     PickerMixin,
+    DbGateMixin,
     App[None],
 ):
     """Mission-control shell: a sidebar of six views over one ContentSwitcher.
@@ -142,7 +144,8 @@ class ShellApp(
     filled by later phases.
 
     Every collaborator is injected through ``__init__`` (so ``run_test`` drives it
-    headlessly over SQLite + ``MemorySaver`` with zero network); the per-view
+    headlessly over SQLite + ``MemorySaver`` with zero network), except the
+    database circuit breaker, handed over with ``watch_db_breaker``; the per-view
     ``_refresh`` is synchronous; and the import stays agent-stack-light (Textual +
     the model-free read model only — no ``deepagents`` / ``langgraph``).
     """
@@ -470,6 +473,7 @@ class ShellApp(
             # ``is_running`` before it empties the DOM, so a tick landing in that window
             # has nothing to paint. Any other NoMatches is a real bug and must surface.
             return
+        self._sync_db_gate()
         self._refresh_runstate()
         self._sync_picker()
         self._poll_attention_off_loop()
@@ -650,7 +654,7 @@ def main() -> None:
     def _launch(portfolio_id: str | None = typer.Argument(default=None)) -> None:
         from fund.agents.model import build_fallback, build_primary
         from fund.audit import setup_langgraph
-        from fund.database import get_session
+        from fund.database import database_manager, get_session
 
         focus = uuid.UUID(portfolio_id) if portfolio_id else None
         persistence = setup_langgraph(settings)
@@ -662,6 +666,7 @@ def main() -> None:
                 model_factory=lambda: build_primary(settings),
                 fallback_factory=lambda: build_fallback(settings),
             )
+            app.watch_db_breaker(database_manager.breaker)
             app.run()
         finally:
             persistence.pool.close()
