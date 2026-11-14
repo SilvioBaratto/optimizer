@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +41,14 @@ class DbConfig:
             disables it. Leave off for workloads that keep one transaction open
             across network calls: the server kills the session mid-transaction
             and the whole unit of work is lost.
+        breaker_failure_threshold: Consecutive connection failures after which
+            the manager's circuit breaker opens and refuses sessions at once.
+        breaker_reset_timeout_s: Seconds an open breaker refuses sessions before
+            it lets one probe session through.
+
+    Raises:
+        ValueError: A server-side timeout is negative, or a breaker setting is
+            not a finite number above zero.
     """
 
     # The URL carries the password; keep it out of repr so a log line or traceback
@@ -57,6 +66,8 @@ class DbConfig:
     lock_timeout_ms: int = 0
     statement_timeout_ms: int = 0
     idle_in_transaction_timeout_ms: int = 0
+    breaker_failure_threshold: int = 5
+    breaker_reset_timeout_s: float = 30.0
 
     def __post_init__(self) -> None:
         for name in (
@@ -66,6 +77,10 @@ class DbConfig:
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0 (0 disables it)")
+        for name in ("breaker_failure_threshold", "breaker_reset_timeout_s"):
+            value = getattr(self, name)
+            if not (math.isfinite(value) and value > 0):
+                raise ValueError(f"{name} must be a finite number > 0, got {value!r}")
 
     def connect_args(self) -> dict[str, Any]:
         """Build psycopg2 ``connect()`` kwargs for this config.

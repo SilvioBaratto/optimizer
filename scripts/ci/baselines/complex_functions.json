@@ -37,7 +37,6 @@
   "packages/portopt-core/optimizer/pre_selection/_config.py::PreSelectionConfig.__post_init__": 11,
   "packages/portopt-core/optimizer/uncertainty_set/_config.py::_validate_shared_fields": 12,
   "packages/portopt-db/src/portopt_db/coerce.py::parse_reference_date": 17,
-  "packages/portopt-db/src/portopt_db/engine.py::DatabaseManager.get_session": 11,
   "packages/portopt-db/src/portopt_db/repositories/market_data/yfinance_repository.py::YFinanceRepository.upsert_news": 13,
   "packages/portopt-db/src/portopt_db/repositories/market_data/yfinance_repository.py::_safe_date": 11
 }
