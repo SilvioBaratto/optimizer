@@ -343,15 +343,35 @@ def _mark_job_failed(
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
     except DatabaseUnavailableError as refused:
-        logger.error(
-            "%s: could not record failed status (job %s), %s; the orphan reaper "
-            "fails the row once the database answers again",
-            label,
-            job_id,
-            refused,
-        )
+        _report_refused_status_write(label, job_svc, job_id, refused)
     except Exception:
         logger.exception("%s: could not record failed status (job %s)", label, job_id)
+
+
+def _report_refused_status_write(
+    label: str,
+    job_svc: BackgroundJobService,
+    job_id: str,
+    refused: DatabaseUnavailableError,
+) -> None:
+    """Log and count a failed-status write the open circuit breaker refused.
+
+    The row stays ``running`` until the orphan reaper fails it, and its error then
+    reads ``orphaned``, so this line and ``jobs_failed_status_refused_total`` are
+    where the refusal is visible when it happens.
+    """
+    logger.error(
+        "%s: could not record failed status (job %s), %s; the orphan reaper "
+        "fails the row once the database answers again",
+        label,
+        job_id,
+        refused,
+    )
+    if not settings.enable_metrics:
+        return
+    from app import metrics
+
+    metrics.jobs_failed_status_refused_total.labels(domain=job_svc._job_type).inc()
 
 
 def _run_step(

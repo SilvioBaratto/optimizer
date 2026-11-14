@@ -49,6 +49,13 @@ jobs_db_unavailable_total = Counter(
     ["domain"],
 )
 
+jobs_failed_status_refused_total = Counter(
+    "jobs_failed_status_refused_total",
+    "Failed-status writes the open database circuit breaker refused; the orphan "
+    "reaper fails those rows once the database answers",
+    ["domain"],
+)
+
 db_breaker_state = Gauge(
     "portopt_db_breaker_state",
     "Database circuit breaker state: 0 closed, 1 open, 2 half-open",
@@ -60,17 +67,35 @@ _BREAKER_STATE_VALUES = {
     BreakerState.HALF_OPEN: 2,
 }
 
+_tracked_breaker: CircuitBreaker | None = None
 
-def track_db_breaker(breaker: CircuitBreaker) -> None:
+
+def _tracked_breaker_state() -> float:
+    breaker = _tracked_breaker
+    if breaker is None:
+        return _BREAKER_STATE_VALUES[BreakerState.CLOSED]
+    return _BREAKER_STATE_VALUES[breaker.state]
+
+
+db_breaker_state.set_function(_tracked_breaker_state)
+
+
+def track_db_breaker(breaker: CircuitBreaker | None) -> CircuitBreaker | None:
     """Report ``breaker``'s state on ``portopt_db_breaker_state`` at every scrape.
 
     The value is read when Prometheus scrapes, so it never lags a transition and
-    needs no hook in the breaker. Binding again replaces the previous breaker.
+    needs no hook in the breaker. With no breaker tracked the gauge reads 0.
 
     Args:
-        breaker: The breaker of the manager the daemon's sessions go through.
+        breaker: The breaker of the manager the daemon's sessions go through, or
+            ``None`` to stop tracking.
+
+    Returns:
+        The breaker tracked until now, or ``None``, so a caller can restore it.
     """
-    db_breaker_state.set_function(lambda: _BREAKER_STATE_VALUES[breaker.state])
+    global _tracked_breaker
+    previous, _tracked_breaker = _tracked_breaker, breaker
+    return previous
 
 
 def register_domain(domain: str) -> None:
@@ -89,3 +114,4 @@ def register_domain(domain: str) -> None:
     job_duration_seconds.labels(domain=domain)
     jobs_in_progress.labels(domain=domain)
     jobs_db_unavailable_total.labels(domain=domain)
+    jobs_failed_status_refused_total.labels(domain=domain)
