@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -50,6 +51,8 @@ __all__ = [
     "DbCircuitBreaker",
     "ProbeTicket",
     "is_connectivity_failure",
+    "parse_failure_threshold",
+    "parse_reset_timeout",
     "validate_breaker_settings",
 ]
 
@@ -107,6 +110,54 @@ def validate_breaker_settings(
             f"{prefix}reset_timeout_s must be a finite number > 0, "
             f"got {reset_timeout_s!r}"
         )
+
+
+# Python's int() and float() also take signs, digit underscores, exponents and
+# "inf", and pydantic's lax int takes "5.0", so each daemon would accept a different
+# set of spellings for the same variable. Both parse with these instead.
+_WHOLE_NUMBER_TEXT = re.compile(r"[0-9]+")
+_DECIMAL_TEXT = re.compile(r"[0-9]+(?:\.[0-9]+)?")
+
+
+def parse_failure_threshold(text: str, *, name: str) -> int:
+    """Read a failure threshold from environment text, strictly.
+
+    Args:
+        text: The variable's value; blanks around the number are ignored.
+        name: The variable's name, put at the start of the error message.
+
+    Returns:
+        The threshold, an integer above zero.
+
+    Raises:
+        ValueError: ``text`` is not a whole number above zero written in plain
+            digits (``5.0``, ``+3``, ``1_0`` and an empty value are refused).
+    """
+    stripped = text.strip()
+    if _WHOLE_NUMBER_TEXT.fullmatch(stripped) and _is_positive_int(int(stripped)):
+        return int(stripped)
+    raise ValueError(f"{name} must be an integer > 0, got {text!r}")
+
+
+def parse_reset_timeout(text: str, *, name: str) -> float:
+    """Read a reset timeout in seconds from environment text, strictly.
+
+    Args:
+        text: The variable's value; blanks around the number are ignored.
+        name: The variable's name, put at the start of the error message.
+
+    Returns:
+        The timeout, a finite number above zero.
+
+    Raises:
+        ValueError: ``text`` is not plain digits with an optional fraction above
+            zero (a sign, an exponent, ``inf``, ``nan`` and an empty value are
+            refused).
+    """
+    stripped = text.strip()
+    if _DECIMAL_TEXT.fullmatch(stripped) and _is_finite_positive(float(stripped)):
+        return float(stripped)
+    raise ValueError(f"{name} must be a finite number > 0, got {text!r}")
 
 
 @dataclass(frozen=True)

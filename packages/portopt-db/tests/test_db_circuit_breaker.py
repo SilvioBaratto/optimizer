@@ -39,6 +39,8 @@ from portopt_db.resilience import (
     DatabaseUnavailableError,
     DbCircuitBreaker,
     ProbeTicket,
+    parse_failure_threshold,
+    parse_reset_timeout,
 )
 
 _URL = "postgresql://u:p@h:5432/db"
@@ -577,6 +579,51 @@ def test_breaker_config_rejects_settings_that_cannot_drive_a_breaker(
     """A threshold must be a positive int and a timeout a finite positive number."""
     with pytest.raises(ValueError, match="must be"):
         BreakerConfig(**kwargs)
+
+
+# Environment text both daemons parse: (text, threshold, timeout); None = refused.
+_ENV_TEXT_CASES = [
+    ("5", 5, 5.0),
+    (" 7 ", 7, 7.0),
+    ("5.0", None, 5.0),
+    ("", None, None),
+    ("1_0", None, None),
+    ("+3", None, None),
+    ("-2", None, None),
+    ("0", None, None),
+    ("true", None, None),
+    ("inf", None, None),
+    ("nan", None, None),
+    ("1e3", None, None),
+]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"), [(text, threshold) for text, threshold, _ in _ENV_TEXT_CASES]
+)
+def test_a_threshold_from_the_environment_must_be_plain_digits(
+    text: str, expected: int | None
+) -> None:
+    """Only a whole number written in digits (blanks around it allowed) is read."""
+    if expected is None:
+        with pytest.raises(ValueError, match=r"^SOME_VAR must be an integer > 0"):
+            parse_failure_threshold(text, name="SOME_VAR")
+    else:
+        assert parse_failure_threshold(text, name="SOME_VAR") == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"), [(text, timeout) for text, _, timeout in _ENV_TEXT_CASES]
+)
+def test_a_timeout_from_the_environment_must_be_a_plain_decimal(
+    text: str, expected: float | None
+) -> None:
+    """Digits with an optional fraction are read; signs, exponents and words are not."""
+    if expected is None:
+        with pytest.raises(ValueError, match=r"^SOME_VAR must be a finite number > 0"):
+            parse_reset_timeout(text, name="SOME_VAR")
+    else:
+        assert parse_reset_timeout(text, name="SOME_VAR") == expected
 
 
 def test_breaker_config_defaults_are_five_failures_and_thirty_seconds() -> None:
