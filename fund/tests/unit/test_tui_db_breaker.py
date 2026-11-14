@@ -1,15 +1,20 @@
 """The cockpit greys out its write actions while the database breaker is open.
 
 Validates ``fund.tui._mixins.dbgate.DbGateMixin`` as mixed into ``ShellApp``
-(``check_action``, ``_sync_db_gate``), the poll tick that drives it, and
+(``check_action``, ``_sync_db_gate``), the poll tick that drives it, the Ask
+decision route (``AskMixin._confirm_ask_action`` and ``_dispatch_ask_action``),
+the attention feed's log (``AttentionMixin._log_attention_failure``), and
 ``fund.tui.app.main`` handing the shell the breaker of ``fund.database``'s
 manager. The breaker is a real ``DbCircuitBreaker`` on a fake clock, opened by
-recording connection failures, so no test waits for time to pass.
+recording connection failures or by reads through a ``DatabaseManager`` whose
+engine cannot connect, so no test waits for time to pass.
 """
 
 from __future__ import annotations
 
+import logging
 import sys
+import uuid
 from contextlib import suppress
 from types import SimpleNamespace
 
@@ -18,13 +23,16 @@ from _fund_fakes import PORTFOLIO_ID, make_mandate
 from _gate_env import make_gate_env
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.store.memory import InMemoryStore
-from portopt_db.resilience import BreakerConfig, DbCircuitBreaker
+from portopt_db.config import DbConfig
+from portopt_db.engine import DatabaseManager
+from portopt_db.resilience import BreakerConfig, BreakerState, DbCircuitBreaker
 from sqlalchemy.exc import DisconnectionError
 
 from fund.audit import MandateRepository
 from fund.tui import app as tui_app
 from fund.tui._mixins.dbgate import DB_WRITE_ACTIONS
-from fund.tui.app import ShellApp
+from fund.tui.app import ConfirmScreen, ShellApp
+from fund.tui.ask import ResolvedAction
 
 _THRESHOLD = 2
 _TIMEOUT_S = 30.0
@@ -231,3 +239,130 @@ def test_main_hands_the_shell_its_database_breaker(monkeypatch) -> None:
         tui_app.main()
 
     assert seen == [db_mod.database_manager.breaker]
+
+
+class _SqliteConfig(DbConfig):
+    """SQLite config: the psycopg2 connect args would be rejected."""
+
+    def connect_args(self) -> dict:
+        """Return no driver arguments, since sqlite3 accepts none of psycopg2's."""
+        return {}
+
+
+def _manager_on(path, breaker: DbCircuitBreaker) -> DatabaseManager:
+    return DatabaseManager(_SqliteConfig(url=f"sqlite:///{path}"), breaker=breaker)
+
+
+def _shell_on(env, manager: DatabaseManager) -> ShellApp:
+    app = ShellApp(
+        PORTFOLIO_ID,
+        session_factory=manager.get_session,
+        persistence=env.persistence,
+        model_factory=env.model_factory,
+        poll_interval=30.0,
+    )
+    app.watch_db_breaker(manager.breaker)
+    return app
+
+
+@pytest.mark.asyncio
+async def test_a_failing_engine_greys_out_writes_until_a_probe_reaches_it(
+    env, tmp_path, breaker: DbCircuitBreaker, clock: _Clock
+) -> None:
+    """Poll reads through a dead engine open the breaker; a probe that connects
+    to the engine once it is back brings the writes back."""
+    folder = tmp_path / "appears-later"
+    manager = _manager_on(folder / "fund.db", breaker)
+    app = _shell_on(env, manager)
+    try:
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app._poll()
+            app._poll()
+            await pilot.pause()
+
+            assert breaker.state is BreakerState.OPEN
+            assert app.check_action("decide_approve", ()) is None
+            assert app.last_status.startswith("database unavailable: ")
+
+            folder.mkdir()
+            clock.advance(_TIMEOUT_S)
+            app._poll()
+            app._sync_db_gate()
+            await pilot.pause()
+
+            assert breaker.state is BreakerState.CLOSED
+            assert {app.check_action(a, ()) for a in DB_WRITE_ACTIONS} == {True}
+            assert "reachable again" in app.last_status
+    finally:
+        manager.close()
+
+
+@pytest.mark.asyncio
+async def test_an_ask_action_is_refused_before_its_confirm_while_unavailable(
+    env, breaker: DbCircuitBreaker
+) -> None:
+    """Ask's decision verbs meet the same gate as the keys: no confirm is offered."""
+    log: list[str] = []
+    view = SimpleNamespace(append_log=lambda _who, text: log.append(text))
+    app = _shell(env, breaker)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        _open(breaker)
+        app._sync_db_gate()
+
+        app._confirm_ask_action(
+            view, ResolvedAction("approve", uuid.uuid4(), PORTFOLIO_ID, None)
+        )
+        await pilot.pause()
+
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert log and log[-1].startswith("database unavailable: ")
+        assert app.last_status == log[-1]
+
+
+@pytest.mark.asyncio
+async def test_a_confirmed_ask_approve_is_refused_while_unavailable(
+    env, breaker: DbCircuitBreaker, monkeypatch
+) -> None:
+    """A confirm answered after the breaker opened sends nothing to ``apply_action``."""
+    import fund.actions as actions_mod
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        actions_mod, "apply_action", lambda action, **_kw: calls.append(action)
+    )
+    log: list[str] = []
+    view = SimpleNamespace(append_log=lambda _who, text: log.append(text))
+    app = _shell(env, breaker)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        _open(breaker)
+        app._sync_db_gate()
+
+        worker = app._dispatch_ask_action(
+            view, ResolvedAction("approve", uuid.uuid4(), PORTFOLIO_ID, None)
+        )
+        await pilot.pause()
+
+        assert worker is None
+        assert calls == []
+        assert log[-1].startswith("database unavailable: ")
+
+
+def test_a_refused_attention_read_logs_one_line_per_outage(
+    env, tmp_path, breaker: DbCircuitBreaker, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Each poll tick meets the open breaker; the log gets one line, no stack."""
+    manager = _manager_on(tmp_path / "fund.db", breaker)
+    _open(breaker)
+    app = _shell_on(env, manager)
+
+    with caplog.at_level(logging.WARNING, logger="fund.tui.app"):
+        reads = [app._read_attention() for _ in range(3)]
+
+    records = [r for r in caplog.records if r.name == "fund.tui.app"]
+    assert len(records) == 1
+    assert "database unavailable" in records[0].getMessage()
+    assert records[0].exc_info is None
+    assert all(read.degraded for read in reads)

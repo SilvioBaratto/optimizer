@@ -83,6 +83,16 @@ class DbGateMixin(ShellHost):
         refusal = breaker.refusal()
         return _PROBE_PENDING if refusal is None else describe_error(refusal)
 
+    def _db_write_refusal(self) -> str | None:
+        """The status line explaining a refused write, or None while writes run.
+
+        Reads the gate as of the last poll, the same state ``check_action`` reads,
+        so a write started any other way (an Ask decision verb) is refused exactly
+        when the keys are greyed out.
+        """
+        text = self._db_gate_text
+        return None if text is None else text + _DISABLED_SUFFIX
+
     def _sync_db_gate(self) -> None:
         """Re-read the breaker; when the gate flips, repaint the keys and say why."""
         text = self._db_refusal_text()
@@ -91,7 +101,7 @@ class DbGateMixin(ShellHost):
         if not flipped:
             return
         self.refresh_bindings()
-        self._set_status(_RECOVERED if text is None else text + _DISABLED_SUFFIX)
+        self._set_status(self._db_write_refusal() or _RECOVERED)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Report a write action as disabled while the database is unavailable.
