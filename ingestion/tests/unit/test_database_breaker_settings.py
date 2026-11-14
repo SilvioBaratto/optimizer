@@ -78,3 +78,38 @@ def test_a_value_that_cannot_drive_the_breaker_is_refused(
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+# The spellings fund is tested against too: (text, threshold, timeout); None = refused.
+_SHARED_EDGE_CASES = [
+    ("5.0", None, 5.0),
+    ("", None, None),
+    (" 7 ", 7, 7.0),
+    ("1_0", None, None),
+    ("+3", None, None),
+    ("true", None, None),
+    ("inf", None, None),
+    ("nan", None, None),
+]
+
+
+@pytest.mark.parametrize(
+    ("variable", "text", "expected"),
+    [(_THRESHOLD_VAR, text, threshold) for text, threshold, _ in _SHARED_EDGE_CASES]
+    + [(_TIMEOUT_VAR, text, timeout) for text, _, timeout in _SHARED_EDGE_CASES],
+)
+def test_the_daemon_reads_the_same_spellings_as_fund(
+    monkeypatch: pytest.MonkeyPatch, variable: str, text: str, expected: float | None
+) -> None:
+    """Plain digits (a fraction only for the timeout) or a refusal naming the variable."""
+    monkeypatch.setenv(variable, text)
+    field = {
+        _THRESHOLD_VAR: "database_breaker_failure_threshold",
+        _TIMEOUT_VAR: "database_breaker_reset_timeout_s",
+    }[variable]
+
+    if expected is None:
+        with pytest.raises(ValidationError, match=f"{variable} must be"):
+            Settings(_env_file=None)
+    else:
+        assert getattr(Settings(_env_file=None), field) == expected
