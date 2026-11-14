@@ -179,8 +179,8 @@ async def test_writes_come_back_once_a_probe_reaches_the_database(
         _open(breaker)
         app._sync_db_gate()
         clock.advance(_TIMEOUT_S)
-        breaker.before_call()
-        breaker.record_success()
+        ticket = breaker.before_call()
+        breaker.record_success(ticket)
 
         app._sync_db_gate()
         await pilot.pause()

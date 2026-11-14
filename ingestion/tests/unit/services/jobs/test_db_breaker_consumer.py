@@ -293,9 +293,9 @@ def test_breaker_state_gauge_reports_zero_one_two(clock: _Clock) -> None:
     breaker.record_failure(DisconnectionError("server closed"))
     assert scraped() == 1
     clock.advance(_TIMEOUT_S)
-    breaker.before_call()
+    ticket = breaker.before_call()
     assert scraped() == 2
-    breaker.record_success()
+    breaker.record_success(ticket)
     assert scraped() == 0
 
 

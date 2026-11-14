@@ -7,9 +7,14 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from typing import Any
+
+from portopt_db.resilience import (
+    DEFAULT_FAILURE_THRESHOLD,
+    DEFAULT_RESET_TIMEOUT_S,
+    validate_breaker_settings,
+)
 
 
 @dataclass(frozen=True)
@@ -48,7 +53,7 @@ class DbConfig:
 
     Raises:
         ValueError: A server-side timeout is negative, or a breaker setting is
-            not a finite number above zero.
+            refused by ``portopt_db.resilience.validate_breaker_settings``.
     """
 
     # The URL carries the password; keep it out of repr so a log line or traceback
@@ -66,8 +71,8 @@ class DbConfig:
     lock_timeout_ms: int = 0
     statement_timeout_ms: int = 0
     idle_in_transaction_timeout_ms: int = 0
-    breaker_failure_threshold: int = 5
-    breaker_reset_timeout_s: float = 30.0
+    breaker_failure_threshold: int = DEFAULT_FAILURE_THRESHOLD
+    breaker_reset_timeout_s: float = DEFAULT_RESET_TIMEOUT_S
 
     def __post_init__(self) -> None:
         for name in (
@@ -77,10 +82,11 @@ class DbConfig:
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0 (0 disables it)")
-        for name in ("breaker_failure_threshold", "breaker_reset_timeout_s"):
-            value = getattr(self, name)
-            if not (math.isfinite(value) and value > 0):
-                raise ValueError(f"{name} must be a finite number > 0, got {value!r}")
+        validate_breaker_settings(
+            self.breaker_failure_threshold,
+            self.breaker_reset_timeout_s,
+            prefix="breaker_",
+        )
 
     def connect_args(self) -> dict[str, Any]:
         """Build psycopg2 ``connect()`` kwargs for this config.

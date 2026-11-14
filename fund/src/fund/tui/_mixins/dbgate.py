@@ -18,7 +18,7 @@ from fund.tui._mixins.host import ShellHost
 from fund.tui.safe_text import describe_error
 
 if TYPE_CHECKING:
-    from portopt_db.resilience import DbCircuitBreaker
+    from portopt_db.resilience import CircuitBreaker
 
 # Bindings whose action writes through the database, directly or through a run.
 DB_WRITE_ACTIONS = frozenset(
@@ -54,12 +54,12 @@ class DbGateMixin(ShellHost):
     when it renders or runs a binding.
     """
 
-    _db_breaker: DbCircuitBreaker | None = None
+    _db_breaker: CircuitBreaker | None = None
     # Why the database is unavailable as of the last sync; ``None`` keeps every
     # action enabled.
     _db_gate_text: str | None = None
 
-    def watch_db_breaker(self, breaker: DbCircuitBreaker | None) -> None:
+    def watch_db_breaker(self, breaker: CircuitBreaker | None) -> None:
         """Disable the write actions whenever ``breaker`` is not closed.
 
         Safe before the shell is mounted: the next poll tick applies it.

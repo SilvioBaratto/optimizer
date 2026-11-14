@@ -9,7 +9,7 @@ The worker exposes these over ``prometheus_client.start_http_server`` on
 
 from __future__ import annotations
 
-from portopt_db.resilience import BreakerState, DbCircuitBreaker
+from portopt_db.resilience import BreakerState, CircuitBreaker
 from prometheus_client import Counter, Gauge, Histogram
 
 jobs_started_total = Counter(
@@ -61,7 +61,7 @@ _BREAKER_STATE_VALUES = {
 }
 
 
-def track_db_breaker(breaker: DbCircuitBreaker) -> None:
+def track_db_breaker(breaker: CircuitBreaker) -> None:
     """Report ``breaker``'s state on ``portopt_db_breaker_state`` at every scrape.
 
     The value is read when Prometheus scrapes, so it never lags a transition and

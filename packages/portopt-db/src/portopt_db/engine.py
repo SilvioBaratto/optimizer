@@ -22,11 +22,23 @@ from sqlalchemy.pool import QueuePool
 
 from portopt_db.base import Base
 from portopt_db.config import DbConfig
-from portopt_db.resilience import BreakerConfig, DbCircuitBreaker
+from portopt_db.resilience import (
+    BreakerConfig,
+    CircuitBreaker,
+    DbCircuitBreaker,
+    ProbeTicket,
+)
 
 logger = logging.getLogger(__name__)
 
 _MAX_LOGGED_ERROR_CHARS = 300
+
+
+def _close_quietly(session: Session) -> None:
+    try:
+        session.close()
+    except Exception as e:
+        logger.debug(f"Error closing session: {e}")
 
 
 def _session_error_label(exc: Exception) -> str:
@@ -74,14 +86,15 @@ class DatabaseManager:
     breaker (see `portopt_db.resilience`).
     """
 
-    def __init__(self, config: DbConfig, *, breaker: DbCircuitBreaker | None = None):
+    def __init__(self, config: DbConfig, *, breaker: CircuitBreaker | None = None):
         """Bind the manager to ``config``; no engine exists until first use.
 
         Args:
             config: Pool sizing, URL, echo flag, per-dialect connect args and
                 circuit-breaker settings for this manager instance.
-            breaker: Breaker guarding the sessions; built from ``config`` when
-                omitted. Injected by tests that drive it with a fake clock.
+            breaker: Breaker guarding the sessions; a ``DbCircuitBreaker`` built
+                from ``config`` when omitted. Injected by tests that drive it
+                with a fake clock.
         """
         self.config = config
         if breaker is None:
@@ -91,7 +104,7 @@ class DatabaseManager:
                     reset_timeout_s=config.breaker_reset_timeout_s,
                 )
             )
-        self._breaker = breaker
+        self._breaker: CircuitBreaker = breaker
         self._engine: Engine | None = None
         self._session_factory: sessionmaker[Session] | None = None
         self._is_initialized: bool = False
@@ -194,11 +207,11 @@ class DatabaseManager:
         """Session with rollback-on-error and always-close, behind the breaker.
 
         The breaker is asked first: while it is open the call is refused before
-        any engine or session exists. The connection opens lazily on first use,
-        so most connectivity failures surface in the body; each exit records
-        exactly one outcome on the breaker, and an exit that proves nothing
-        about the database (the caller's own error, ``GeneratorExit``) releases
-        a half-open probe slot instead of holding it.
+        any engine or session exists. A normal session connects lazily on first
+        use, so its connectivity failures surface in the body, and each exit
+        records exactly one outcome. The half-open probe is the exception: it
+        connects before the body runs and is decided by that connect, so the
+        probe slot is free again as soon as the connect returns.
 
         Dead connections are not invalidated here: SQLAlchemy discards them
         itself on a disconnect error, and `pool_pre_ping` screens the rest at
@@ -206,15 +219,11 @@ class DatabaseManager:
         manual invalidate would only check out and throw away a healthy one.
 
         Raises:
-            DatabaseUnavailableError: The circuit breaker is open.
+            DatabaseUnavailableError: The circuit breaker is open, or a probe is
+                testing the connection.
             RuntimeError: The manager was closed and not re-initialized.
         """
-        self._breaker.before_call()
-        try:
-            session = self._open_session()
-        except BaseException as exc:
-            self._breaker.record_failure(exc)
-            raise
+        session = self._start_session(self._breaker.before_call())
         try:
             yield session
         except Exception as exc:
@@ -226,10 +235,29 @@ class DatabaseManager:
         else:
             self._breaker.record_success()
         finally:
-            try:
-                session.close()
-            except Exception as e:
-                logger.debug(f"Error closing session: {e}")
+            _close_quietly(session)
+
+    def _start_session(self, ticket: ProbeTicket | None) -> Session:
+        # The probe connects before the caller's code runs and is decided there.
+        # Settled at exit instead, a long probe session would refuse every other
+        # session (heartbeats included) for its whole length, and a body that ran
+        # no SQL, or swallowed its own connection error, would close the breaker
+        # on no evidence.
+        try:
+            session = self._open_session()
+        except BaseException as exc:
+            self._breaker.record_failure(exc, ticket)
+            raise
+        if ticket is None:
+            return session
+        try:
+            session.connection()
+        except BaseException as exc:
+            self._breaker.record_failure(exc, ticket)
+            _close_quietly(session)
+            raise
+        self._breaker.record_success(ticket)
+        return session
 
     def _open_session(self) -> Session:
         # Check, lazy init and session creation share one critical section so a
@@ -297,7 +325,7 @@ class DatabaseManager:
         return self._engine
 
     @property
-    def breaker(self) -> DbCircuitBreaker:
+    def breaker(self) -> CircuitBreaker:
         """The circuit breaker guarding this manager's sessions."""
         return self._breaker
 
