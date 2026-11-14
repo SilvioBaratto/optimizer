@@ -109,7 +109,7 @@
   "ingestion/app/services/jobs/background_job.py::BackgroundJobService.start_background": 31,
   "ingestion/app/services/jobs/scheduler.py::_build_schedule_registry": 73,
   "ingestion/app/services/jobs/scheduler.py::_redispatch_reclaimed": 37,
-  "ingestion/app/services/jobs/scheduler.py::_run_step": 69,
+  "ingestion/app/services/jobs/scheduler.py::_run_step": 68,
   "ingestion/app/services/jobs/scheduler.py::create_scheduler": 47,
   "ingestion/app/services/macro/macro_regime_service.py::MacroRegimeService.fetch_fred_series": 63,
   "ingestion/app/services/macro/macro_regime_service.py::MacroRegimeService.fetch_macro_news": 73,
