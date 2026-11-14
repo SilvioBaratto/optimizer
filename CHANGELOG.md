@@ -126,9 +126,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A circuit breaker on every database session, so a dead database fails jobs
-  fast.** `DatabaseManager.get_session` (portopt-db) now asks a per-manager breaker
-  first. After 5 consecutive connection failures it refuses sessions at once with
+- **A circuit breaker on every `DatabaseManager` session, so a dead database fails
+  jobs fast.** `DatabaseManager.get_session` (portopt-db) now asks a per-manager breaker
+  first. The paths that reach the database without it (the APScheduler job stores,
+  fund's LangGraph pool, startup checks and migrations) are listed with their outage
+  behaviour in ADR-0008.
+  New portopt-db surface:
+  - `DatabaseManager(config, breaker=...)` takes an optional breaker, and
+    `DatabaseManager.breaker` exposes it;
+  - `DbConfig.breaker_failure_threshold` and `DbConfig.breaker_reset_timeout_s`;
+  - `portopt_db.resilience`: the `CircuitBreaker` protocol, `DbCircuitBreaker`,
+    `DatabaseUnavailableError`, `BreakerState`, `ProbeTicket`, the defaults, and the
+    validator and environment parsers. After 5 consecutive connection failures it refuses sessions at once with
   `DatabaseUnavailableError` instead of waiting out a connect timeout per call. After
   30 s it lets one probe session through, which connects before the caller's code runs
   and decides at that connect whether the breaker closes again. Both values are set
@@ -141,8 +150,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   errors prove the database answered and never open it.
   The ingestion daemon reports a stopped step in one log line and in the new
   `jobs_db_unavailable_total` counter, counts a refused failed-status write in
-  `jobs_failed_status_refused_total`, and retries on the next scheduled run. Such a row
-  stays `running` until the orphan reaper fails it as `orphaned`. The daemon also
+  `jobs_failed_status_refused_total`, and retries on the next scheduled run. When the
+  failed-status write of a step the breaker stopped does land, `background_jobs.error`
+  starts with the new `db_unavailable:` prefix. When it is refused, the row stays
+  `running` until the orphan reaper fails it as `orphaned`. The daemon also
   exposes the breaker as the `portopt_db_breaker_state` gauge (0 closed, 1 open,
   2 half-open).
   The fund cockpit greys out its write actions, and refuses Ask's decision verbs, while
