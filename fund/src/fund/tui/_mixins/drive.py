@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from fund.tui.questionnaire import OnboardingSubmission
 
-# Records keep the shell's logger name, which operators and the tests filter on.
+# Logs under ``fund.tui.app``, the shell's name that operators and tests filter on.
 logger = logging.getLogger("fund.tui.app")
 
 

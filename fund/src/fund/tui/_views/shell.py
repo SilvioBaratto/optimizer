@@ -27,8 +27,7 @@ if TYPE_CHECKING:
 
     from fund.config import FundConfig
 
-# Kept under the logger name the views had before they moved here, so a filter
-# or handler set for ``fund.tui.views`` still sees their records.
+# Logs under ``fund.tui.views`` so filters and handlers set for that name match.
 logger = logging.getLogger("fund.tui.views")
 
 

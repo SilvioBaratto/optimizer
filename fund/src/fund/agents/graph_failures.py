@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-# Records keep the logger name these functions had in ``fund.agents.graph``.
+# Logs under ``fund.agents.graph`` so filters set for the run graph match.
 _log = logging.getLogger("fund.agents.graph")
 
 

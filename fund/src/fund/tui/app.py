@@ -26,9 +26,12 @@ Every collaborator is injected (``session_factory`` / ``persistence`` /
 over SQLite + ``MemorySaver`` + a scripted model with zero network.
 
 The modal screens live in :mod:`fund.tui.screens` and the shell's sections in
-:mod:`fund.tui._mixins`. This module keeps ``ShellApp``'s state, layout and
-navigation, and re-exports every name it defined before that split, so
-existing imports and patches of ``fund.tui.app.<name>`` keep resolving.
+:mod:`fund.tui._mixins`. This module holds ``ShellApp``'s state, layout and
+navigation, and re-exports the names those modules define so imports from
+``fund.tui.app`` resolve. Patching ``fund.tui.app.<name>`` reaches only code
+defined here, such as ``_gate_text`` as read by ``ShellApp._ask_approve_gate``; a
+test that patches a name used by a screen or a mixin must patch the module that
+defines that code.
 """
 
 from __future__ import annotations
@@ -118,7 +121,7 @@ _NARROW_WIDTH = 80  # below this terminal width the sidebar collapses to a rail
 
 # Each mixin is a plain class holding one section of the shell. Textual merges
 # ``BINDINGS`` and collects ``@on`` handlers only from ``DOMNode`` subclasses,
-# so the class attributes Textual reads stay on ``ShellApp``.
+# so the class attributes Textual reads are defined on ``ShellApp``.
 class ShellApp(
     AttentionMixin,
     DecisionsMixin,
@@ -612,7 +615,7 @@ class ShellApp(
             return
         self._set_status(f"exported brief to {written}")
 
-    # Stays here, not on ``AskMixin``: it reads ``_gate_text`` from this
+    # Defined here rather than on ``AskMixin``: it reads ``_gate_text`` from this
     # module, the name the tests replace on ``fund.tui.app``.
     def _ask_approve_gate(self, run_id: uuid.UUID) -> str | None:
         """The gate text an Ask approve shows, or ``None`` when it cannot be read.

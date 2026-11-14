@@ -16,9 +16,11 @@ model, so ``import fund.tui.app`` stays agent-stack-light (the import-hygiene gu
 inside method bodies.
 
 The view classes and their helpers live in :mod:`fund.tui._views`, one module
-per view. This module keeps the sidebar specs and :func:`build_views`, and
-re-exports every name it defined before that split, so existing imports and
-patches of ``fund.tui.views.<name>`` keep resolving.
+per view. This module holds the sidebar specs and :func:`build_views`, and
+re-exports every name the view modules define so imports from
+``fund.tui.views`` resolve. Patching ``fund.tui.views.<name>`` reaches only
+:func:`build_views`; a test that patches a view's helper (``_read_brief``, say)
+must patch the ``fund.tui._views`` module that defines it.
 """
 
 from __future__ import annotations

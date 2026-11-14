@@ -18,7 +18,7 @@ from fund.tui._mixins.host import ShellHost
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-# Records keep the shell's logger name, which operators and the tests filter on.
+# Logs under ``fund.tui.app``, the shell's name that operators and tests filter on.
 logger = logging.getLogger("fund.tui.app")
 
 

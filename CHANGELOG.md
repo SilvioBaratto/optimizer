@@ -356,9 +356,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fund/tui/_views/`. `fund/tui/app.py` (3,341 lines) keeps `ShellApp`'s state,
   layout, navigation, `CSS` and `BINDINGS`; its modal screens moved to
   `fund/tui/screens.py` and its sections to plain mixins in `fund/tui/_mixins/`.
-  `fund/agents/graph.py` (2,736 lines) keeps the run drivers and every function
-  that calls a name the tests patch on it; the subagent factory, the run
-  instruction and the journal, HITL, failed-round and stream helpers moved to
+  `fund/agents/graph.py` (2,736 lines, now 1,324) keeps the run drivers,
+  `FundRun`, `build_fund_agent` and every other function that calls a name the
+  tests patch on `fund.agents.graph`, so those patches still reach their callers;
+  it also keeps the four role builders and their descriptions, because a skills
+  test reads `_ALLOCATOR_DESCRIPTION` from its source. The subagent factory, the
+  run instruction and the journal, HITL, failed-round and stream helpers moved to
   `graph_assembly`, `graph_prompts`, `graph_journal`, `graph_hitl`,
   `graph_failures` and `graph_stream`. Each definition moved byte-for-byte, the
   old modules re-export every name they defined, the moved code logs under the

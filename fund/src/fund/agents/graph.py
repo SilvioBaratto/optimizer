@@ -32,12 +32,19 @@ needs no environment (mirrors :mod:`fund.agents.profiler`).
 
 The subagent factory and caps, the run instruction, the HITL settle and resume
 helpers, the failed-round record and the stream-event shaping live in the
-``graph_*`` modules beside this one. The run drivers, ``FundRun``,
-``build_fund_agent`` and every function that calls a name the tests replace on
-this module stay here, so ``monkeypatch.setattr(fund.agents.graph, ...)`` still
-reaches the caller; the role builders and their descriptions stay too, as a
-skills test reads ``_ALLOCATOR_DESCRIPTION`` from this file's source. Every name
-defined here before that split is re-exported.
+``graph_*`` modules beside this one, and this module re-exports their names.
+
+The tests replace ten names on ``fund.agents.graph``: ``run_fund``,
+``stream_fund``, ``resume_run``, ``build_fund_agent``, ``build_backend``,
+``_run_instruction``, ``_require_fill_bars``, ``_prepare_fund_run``,
+``_optimizer_weights`` and ``_frozen_scope``. Every function in ``fund.agents``
+that calls one of them is defined here (the run drivers, ``FundRun`` and
+``build_fund_agent`` among them), and callers elsewhere import the drivers from
+this module when they run, so those patches reach every caller. A test that
+patches any other name defined in a ``graph_*`` module must patch that module.
+The role builders and their descriptions are defined here as well: a skills test
+reads ``_ALLOCATOR_DESCRIPTION`` from this file's source, and the other three
+builders sit beside the allocator's.
 """
 
 from __future__ import annotations
