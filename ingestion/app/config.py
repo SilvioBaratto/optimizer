@@ -4,6 +4,7 @@ import logging
 import os
 from pathlib import Path
 
+from portopt_db.resilience import DEFAULT_FAILURE_THRESHOLD, DEFAULT_RESET_TIMEOUT_S
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -54,6 +55,14 @@ class Settings(BaseSettings):
     # mid-fetch.
     database_lock_timeout_ms: int = Field(default=60_000, ge=0)
     database_statement_timeout_ms: int = Field(default=0, ge=0)
+    # Circuit breaker on every session (see docs/adr/0008): consecutive connection
+    # failures that open it, and seconds it refuses sessions before one probe.
+    database_breaker_failure_threshold: int = Field(
+        default=DEFAULT_FAILURE_THRESHOLD, ge=1
+    )
+    database_breaker_reset_timeout_s: float = Field(
+        default=DEFAULT_RESET_TIMEOUT_S, gt=0, allow_inf_nan=False
+    )
 
     log_level: str = Field(default="INFO")
     log_format: str = Field(default="json")

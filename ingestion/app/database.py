@@ -34,6 +34,8 @@ def _build_config() -> DbConfig:
         application_name=f"app-api-{settings.environment}",
         lock_timeout_ms=settings.database_lock_timeout_ms,
         statement_timeout_ms=settings.database_statement_timeout_ms,
+        breaker_failure_threshold=settings.database_breaker_failure_threshold,
+        breaker_reset_timeout_s=settings.database_breaker_reset_timeout_s,
     )
 
 
