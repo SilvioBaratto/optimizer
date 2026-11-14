@@ -355,11 +355,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `build_views` and re-exports the views, now one per module in
   `fund/tui/_views/`. `fund/tui/app.py` (3,341 lines) keeps `ShellApp`'s state,
   layout, navigation, `CSS` and `BINDINGS`; its modal screens moved to
-  `fund/tui/screens.py` and its sections to plain mixins in `fund/tui/_mixins/`.
-  `fund/agents/graph.py` (2,736 lines, now 1,324) keeps the run drivers,
-  `FundRun`, `build_fund_agent` and every other function that calls a name the
-  tests patch on `fund.agents.graph`, so those patches still reach their callers;
-  it also keeps the four role builders and their descriptions, because a skills
+  `fund/tui/screens.py` and its sections to plain mixins in `fund/tui/_mixins/`,
+  which are type-checked against the type-only `ShellHost` declarations in
+  `fund/tui/_mixins/host.py`. `fund/agents/graph.py` (2,736 lines) keeps the run
+  drivers, `FundRun`, `build_fund_agent` and every other run-graph function that
+  calls a name the tests patch on `fund.agents.graph`, so those patches still
+  reach the run graph (the profiler calls its own `build_backend` binding); it
+  also keeps the four role builders and their descriptions, because a skills
   test reads `_ALLOCATOR_DESCRIPTION` from its source. The subagent factory, the
   run instruction and the journal, HITL, failed-round and stream helpers moved to
   `graph_assembly`, `graph_prompts`, `graph_journal`, `graph_hitl`,

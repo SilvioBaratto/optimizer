@@ -37,10 +37,13 @@ helpers, the failed-round record and the stream-event shaping live in the
 The tests replace ten names on ``fund.agents.graph``: ``run_fund``,
 ``stream_fund``, ``resume_run``, ``build_fund_agent``, ``build_backend``,
 ``_run_instruction``, ``_require_fill_bars``, ``_prepare_fund_run``,
-``_optimizer_weights`` and ``_frozen_scope``. Every function in ``fund.agents``
-that calls one of them is defined here (the run drivers, ``FundRun`` and
-``build_fund_agent`` among them), and callers elsewhere import the drivers from
-this module when they run, so those patches reach every caller. A test that
+``_optimizer_weights`` and ``_frozen_scope``. The run graph's callers of those
+names (``build_fund_agent``, ``FundRun``, the run drivers and their setup and
+resume helpers) are defined here, and ``fund.actions``, ``fund.scheduler`` and
+the shell's drive mixin import the drivers from this module when they run, so
+those patches reach them. The exception is ``build_backend``:
+:mod:`fund.agents.profiler` calls its own imported binding, which a patch on this
+module does not reach, so tests patch it on the profiler module. A test that
 patches any other name defined in a ``graph_*`` module must patch that module.
 The role builders and their descriptions are defined here as well: a skills test
 reads ``_ALLOCATOR_DESCRIPTION`` from this file's source, and the other three
