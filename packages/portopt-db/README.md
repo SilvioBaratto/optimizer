@@ -12,8 +12,10 @@ Internal workspace package (not published), consumed by `ingestion` and by `fund
 
 The package is versioned with the rest of the workspace (`0.1.0`) and resolved through
 `[tool.uv.sources]`, so a consumer always builds against the checkout it sits in. What a
-consumer may rely on is the surface it imports: the models, the repositories, `RepositoryBase`
-and `DatabaseManager`. A change to that surface, or to a table a consumer reads, goes in
+consumer may rely on is the surface it imports: the models, the repositories, `RepositoryBase`,
+`DatabaseManager` and `portopt_db.resilience` (the `CircuitBreaker` protocol, `DbCircuitBreaker`,
+`DatabaseUnavailableError`, `BreakerState` and the breaker defaults and validator; see
+[ADR-0008](../../docs/adr/0008-database-circuit-breaker.md)). A change to that surface, or to a table a consumer reads, goes in
 `CHANGELOG.md`, and the consumer's tests change in the same pull request.
 
 ## Migrations

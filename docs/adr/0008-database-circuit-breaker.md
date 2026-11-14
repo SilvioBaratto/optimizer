@@ -23,22 +23,29 @@ The daemon runs with a 60 s `lock_timeout`, so a breaker that counts every
 
 ## Decision
 
-`portopt_db.resilience.DbCircuitBreaker` guards each `DatabaseManager`: one breaker
-per manager instance, no module global. `get_session` asks it before it builds
-anything, and every exit from the session records exactly one outcome.
+Every `DatabaseManager` is guarded by its own breaker, one per manager instance with
+no module global. `DatabaseManager` depends on the `portopt_db.resilience.CircuitBreaker`
+protocol; `DbCircuitBreaker` is the default implementation. `get_session` asks the
+breaker before it builds anything.
 
-- **Closed.** Sessions pass. Consecutive connectivity failures are counted. A session
+- **Closed.** Sessions pass and connect lazily on first use. Each session records one
+  outcome when it exits. Consecutive connectivity failures are counted, and a session
   that reaches the database resets the count.
 - **Open.** After `failure_threshold` consecutive connectivity failures, sessions are
   refused at once with `DatabaseUnavailableError` (a `RuntimeError`). No engine or
   session is created. The error message is one line without host, credentials or SQL.
-- **Half-open.** Once `reset_timeout_s` has passed, the next caller is admitted as the
-  single probe and every other caller is refused until it ends. Success closes the
-  breaker. A connectivity failure reopens it, and the full timeout restarts from that
-  failure.
+- **Half-open.** Once `reset_timeout_s` has passed, `before_call` admits the next caller
+  as the single probe and hands it a `ProbeTicket`. `get_session` connects that session
+  eagerly, before the caller's code runs, and the connect decides the probe. Success
+  closes the breaker. A connectivity failure reopens it, and the full timeout restarts
+  from that failure; the probe's body never runs. Other callers are refused only while
+  the probe connects. A probe session that stays open for a long time (a fund round
+  runs in one session) therefore holds nobody back. A probe whose body runs no SQL, or
+  swallows its own connection error, cannot close the breaker without evidence.
 
-Every state change happens under one `threading.Lock`. The clock is injected, so the
-tests never sleep.
+Every state change happens under one `threading.Lock`: the state, the failure count,
+the time the breaker opened and the ticket of the probe in flight. The clock is
+injected, so the tests never sleep.
 
 **What counts.** `DisconnectionError` (the pool's pre-ping), any `DBAPIError` that
 SQLAlchemy marked `connection_invalidated`, a SQLSTATE in class 08 or equal to 57P01,
@@ -47,25 +54,44 @@ SQLAlchemy marked `connection_invalidated`, a SQLSTATE in class 08 or equal to 5
 refused or timed-out connect at pool checkout surfaces. psycopg2's `pgcode` and
 psycopg 3's `sqlstate` are both read.
 
-**What does not count.** Any other SQLSTATE: statement and lock timeouts, integrity,
-programming and data errors. The server answered, so the database is reachable and
-the outcome is recorded as a success: it resets the count and settles a probe. A
-statement error without a SQLSTATE (SQLite) and a pool-exhaustion `TimeoutError` do
-not count either.
+**What proves the server answered.** A driver error that carries any other SQLSTATE:
+statement and lock timeouts, integrity, programming and data errors. It is recorded as
+a success, so it resets the count and closes a half-open breaker.
 
-**Inconclusive outcomes.** An exception from the caller's own code inside the `with`
-block, `GeneratorExit`, `KeyboardInterrupt` or a closed manager says nothing about the
-database. The count is left alone, and a held probe slot is released so the next
-caller probes. The breaker can therefore never stay half-open with its slot taken.
+**Inconclusive outcomes.** These say nothing about the database:
 
-**Late outcomes.** Outcomes are not tied to the session that produced them. While the
-breaker is open they are ignored, so a session admitted before it opened can neither
-close it nor extend it. While it is half-open the first outcome to land settles the
-probe, even when it comes from a session admitted before the breaker opened: it is
-equally fresh evidence about the same database.
+- a driver error without a SQLSTATE (SQLite reports none);
+- a pool-exhaustion `TimeoutError`;
+- an exception from the caller's own code;
+- `GeneratorExit`, `KeyboardInterrupt`;
+- a closed manager.
 
-**Defaults, on by default.** `DbConfig.breaker_failure_threshold = 5` and
-`DbConfig.breaker_reset_timeout_s = 30.0`, both validated as finite and above zero.
+The count is left alone. When the outcome carries the probe's ticket, the probe's slot
+is released so the next caller probes.
+
+**Late outcomes.** Only an outcome recorded with the probe's ticket decides a half-open
+breaker. While the breaker is open or half-open, an outcome from any other session is
+ignored, so a session admitted before the breaker opened can neither close it, extend
+it nor free the probe's slot. Because the probe is settled at its connect, the slot is
+free again as soon as the connect returns, whatever the body does afterwards.
+
+**Defaults, on by default, set from the environment.** The defaults are 5 failures and
+30 s. They are defined once, in `portopt_db.resilience`. `validate_breaker_settings` is
+the one validator: the threshold must be an `int` above zero (a `bool` is refused), and
+the timeout a finite number above zero. `BreakerConfig` and `DbConfig` both call it.
+
+Both daemons read the settings from the environment and pass them into `DbConfig`:
+
+| Variable | Default | Ingestion field | Fund field |
+|---|---|---|---|
+| `DATABASE_BREAKER_FAILURE_THRESHOLD` | 5 | `Settings.database_breaker_failure_threshold` | `FundConfig.db_breaker_failure_threshold` |
+| `DATABASE_BREAKER_RESET_TIMEOUT_S` | 30.0 | `Settings.database_breaker_reset_timeout_s` | `FundConfig.db_breaker_reset_timeout_s` |
+
+A zero, negative, non-numeric or non-finite value fails when the settings load. The
+env templates are edited by the repository owner only. Until he lists the two
+variables there, they are documented here and in `CLAUDE.md`, and the ingestion
+template guard accepts exactly these two names as documented outside the template.
+
 The breaker is on by default because it only counts connectivity failures, so a
 healthy database never sees it. A false open costs at most 30 s of refused sessions,
 and then one probe decides. `pool_pre_ping` already absorbs a single dropped connection
@@ -77,28 +103,44 @@ restarting server is not hammered.
 
 **Fallbacks.**
 
-- *Ingestion daemon.* A step that meets the open breaker stops. It writes one ERROR
-  line, without a traceback, and increments `jobs_db_unavailable_total{domain}`, and the
-  next scheduled run retries it. A row the breaker stopped mid-step is marked `failed`
-  with an error starting `db_unavailable:` when that write gets through. While the
-  breaker is open the write is refused before it reaches the database. The row then
-  stays `running` and the heartbeat-lease orphan reaper (ADR-0004) fails it once the
-  database answers again, so the failure is not lost. The reaper tick logs one line
-  while the breaker is open. The gauge `portopt_db_breaker_state` reports 0 (closed),
-  1 (open) and 2 (half-open), read at each scrape.
-- *Fund cockpit (`fund-tui`).* While the breaker of `fund.database`'s manager is not
-  closed, the bindings that write are disabled: approve, reject, killswitch, re-arm,
-  save mandate, guardrail override, new portfolio, profile, run, barge-in, edit and
-  steer. They show greyed out and do not run. The status bar shows the refusal as
-  `describe_error` renders it. Reads are refused at once by the same breaker, and each
-  view keeps its last paint, which gives a read-only view of the last known state. Once
-  the timeout has passed, the next poll read is the probe. When it succeeds, the writes
-  come back and the status bar says the database is reachable again. A confirm already
-  open when the breaker opened ends in a refused write, which the action worker reports
-  like any other failure.
+- *Ingestion daemon.*
+  - A step that meets the open breaker stops. It writes one ERROR line, without a
+    traceback, and increments `jobs_db_unavailable_total{domain}`. The next scheduled
+    run retries it.
+  - A step's failed-status write that the breaker refuses is logged at that moment and
+    increments `jobs_failed_status_refused_total{domain}`, whatever stopped the step.
+    Such a row stays `running` until the heartbeat-lease orphan reaper (ADR-0004) fails
+    it, once the database answers again. Its error then reads `orphaned - ...`, not
+    `db_unavailable`, so the refusal is visible only in that log line and counter.
+  - When the write does get through, the error starts `db_unavailable:`.
+  - The reaper tick, refused progress writes and refused heartbeats each log one line
+    without a traceback.
+  - The gauge `portopt_db_breaker_state` reports 0 (closed), 1 (open) and 2
+    (half-open), read at each scrape.
+- *Fund cockpit (`fund-tui`).*
+  - While the breaker of `fund.database`'s manager is not closed, the bindings that
+    write are disabled: approve, reject, killswitch, re-arm, save mandate, guardrail
+    override, new portfolio, profile, run, barge-in, edit and steer. They show greyed
+    out and do not run.
+  - Ask's decision verbs read the same gate. They are refused before any confirm is
+    offered, and again when a confirm answered after the breaker opened would dispatch.
+  - The status bar and the Ask log show the refusal as `describe_error` renders it.
+  - Reads are refused at once by the same breaker, and each view keeps its last paint,
+    which gives a read-only view of the last known state. The attention feed logs the
+    refusal once per outage, in one line.
+  - Once the timeout has passed, the next poll read is the probe. When its connect
+    succeeds, the writes come back and the status bar says the database is reachable
+    again.
 - *Fund CLI.* `DatabaseUnavailableError` is a `RuntimeError`, so the commands'
   existing `except RuntimeError` handlers print `error: database unavailable: ...` and
   exit 1.
+- *Fund worker daemon (`fund-worker`), a known limit.*
+  - Its scheduled ticks (`fund/src/fund/scheduler.py`: the rebalance sweep, the drift
+    monitor, the NAV mark and the orphan reaper) catch the refusal with
+    `logger.exception`, so each tick, and each portfolio inside a tick, logs a
+    traceback while the breaker is open.
+  - Their failed-status writes are refused the same way as the ingestion daemon's.
+  - The fund worker serves no metrics, so its breaker state is visible only in the log.
 
 ## Alternatives considered
 
@@ -122,19 +164,30 @@ restarting server is not hammered.
 - An outage fails each ingestion step in milliseconds with one log line and a counter.
   Operators see it on `portopt_db_breaker_state`, and the cockpit says it instead of
   failing after a confirm.
-- The breaker sees only outcomes that cross `get_session`. A body that catches its own
-  errors, such as the per-ticker loop of the yfinance sweep inside one long session, is
-  neither counted nor cut short. That sweep keeps fetching from Yahoo after the
-  database dies mid-run, until the step ends.
+- The breaker gates the entry to a session and sees only the outcomes that cross
+  `get_session`. The yfinance sweep is therefore not cut short when the database dies
+  mid-run, for two reasons:
+  - it does its per-ticker work inside one long session, opened before the breaker
+    opened, so it is never asked again;
+  - each ticker runs under its own `except Exception`, which absorbs the failure
+    inside that session.
+
+  The sweep keeps fetching from Yahoo until the step ends, its progress writes refused
+  one line each.
+
+  Two follow-ups would cut it short: re-raise `DatabaseUnavailableError` and connection
+  errors past the per-ticker handler, or set the step's cancel event when a progress
+  write is refused. Either is a change to the sweep, outside this record.
+- While the breaker is closed, a body that swallows its own connection error and exits
+  cleanly records a success and resets the count, which delays the open. The probe is
+  immune because its connect, not its exit, decides it.
 - Each process has its own breaker: the ingestion worker, the fund worker, the cockpit
   and each CLI run. They do not share state.
-- A stopped row stays `running` until the reaper runs after the database is back, and
-  its error then reads as an orphan rather than `db_unavailable`. A manual re-run of
-  that step within the 300 s lease is refused as already running.
-- The thresholds are `DbConfig` fields. Neither daemon reads them from the environment
-  yet, so changing them needs a code change.
+- A manual re-run of a step whose row the breaker left `running` is refused as already
+  running until the 300 s lease expires and the reaper fails the row.
 - New database access must go through `DatabaseManager.get_session`. Code that builds
   its own engine bypasses the breaker.
 - Deploying this needs the running ingestion and fund images rebuilt and restarted.
-  The change needs no migration and no new environment variable. This record does not
-  deploy it: when the live daemons pick it up is the owner's decision.
+  The change needs no migration. The two environment variables are optional and keep
+  the defaults when unset. This record does not deploy it: when the live daemons pick
+  it up is the owner's decision.

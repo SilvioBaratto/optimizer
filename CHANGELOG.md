@@ -129,17 +129,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A circuit breaker on every database session, so a dead database fails jobs
   fast.** `DatabaseManager.get_session` (portopt-db) now asks a per-manager breaker
   first. After 5 consecutive connection failures it refuses sessions at once with
-  `DatabaseUnavailableError` instead of waiting out a connect timeout per call, and
-  after 30 s it lets one probe session through to decide whether to close again
-  (`DbConfig.breaker_failure_threshold`, `DbConfig.breaker_reset_timeout_s`). Only
-  connection failures count: statement and lock timeouts, constraint and SQL errors
-  prove the database answered and never open it. The ingestion daemon reports a
-  stopped step in one log line and in the new `jobs_db_unavailable_total` counter,
+  `DatabaseUnavailableError` instead of waiting out a connect timeout per call. After
+  30 s it lets one probe session through, which connects before the caller's code runs
+  and decides at that connect whether the breaker closes again. Both values are set
+  from the environment, for the ingestion daemon and for fund alike:
+  `DATABASE_BREAKER_FAILURE_THRESHOLD` (default 5) and `DATABASE_BREAKER_RESET_TIMEOUT_S`
+  (default 30.0). A zero, negative, non-numeric or non-finite value fails at startup.
+  Only connection failures count: statement and lock timeouts, constraint and SQL
+  errors prove the database answered and never open it.
+  The ingestion daemon reports a stopped step in one log line and in the new
+  `jobs_db_unavailable_total` counter, counts a refused failed-status write in
+  `jobs_failed_status_refused_total`, and retries on the next scheduled run. Such a row
+  stays `running` until the orphan reaper fails it as `orphaned`. The daemon also
   exposes the breaker as the `portopt_db_breaker_state` gauge (0 closed, 1 open,
-  2 half-open) and retries on the next scheduled run. The fund cockpit greys out
-  its write actions while the database is unreachable and says why on the status
-  bar. The running daemons pick this up only once their images are rebuilt and
-  restarted. See `docs/adr/0008-database-circuit-breaker.md`.
+  2 half-open).
+  The fund cockpit greys out its write actions, and refuses Ask's decision verbs, while
+  the database is unreachable, and says why on the status bar. The running daemons pick
+  this up only once their images are rebuilt and restarted. See
+  `docs/adr/0008-database-circuit-breaker.md`.
 - **Decision log, integration docs and a changelog check.** `docs/adr/` starts an
   architecture decision log with seven records (the strip to an ingestion pipeline,
   the four-package workspace, the removal of `optimizer.pipeline`, the heartbeat-lease
