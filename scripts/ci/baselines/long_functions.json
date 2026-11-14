@@ -43,7 +43,7 @@
   "fund/src/fund/cli.py::profile": 35,
   "fund/src/fund/cli.py::report": 44,
   "fund/src/fund/cli.py::run": 72,
-  "fund/src/fund/config.py::load_config": 113,
+  "fund/src/fund/config.py::load_config": 111,
   "fund/src/fund/observe.py::_economist_read_asof": 31,
   "fund/src/fund/observe.py::daily_brief": 34,
   "fund/src/fund/observe.py::recent_events": 32,
