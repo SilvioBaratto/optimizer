@@ -60,7 +60,7 @@ a success, so it resets the count and closes a half-open breaker.
 
 **Inconclusive outcomes.** These say nothing about the database:
 
-- a driver error without a SQLSTATE (SQLite reports none);
+- any other driver error without a SQLSTATE (SQLite reports none);
 - a pool-exhaustion `TimeoutError`;
 - an exception from the caller's own code;
 - `GeneratorExit`, `KeyboardInterrupt`;
@@ -87,10 +87,17 @@ Both daemons read the settings from the environment and pass them into `DbConfig
 | `DATABASE_BREAKER_FAILURE_THRESHOLD` | 5 | `Settings.database_breaker_failure_threshold` | `FundConfig.db_breaker_failure_threshold` |
 | `DATABASE_BREAKER_RESET_TIMEOUT_S` | 30.0 | `Settings.database_breaker_reset_timeout_s` | `FundConfig.db_breaker_reset_timeout_s` |
 
-A zero, negative, non-numeric or non-finite value fails when the settings load. The
-env templates are edited by the repository owner only. Until he lists the two
-variables there, they are documented here and in `CLAUDE.md`, and the ingestion
-template guard accepts exactly these two names as documented outside the template.
+Both daemons parse the text with the same strict parsers, `parse_failure_threshold`
+and `parse_reset_timeout` in `portopt_db.resilience`, so a value starts both or
+neither. The threshold must be plain digits and the timeout digits with an optional
+fraction, blanks around either allowed, and both must be above zero. Anything else
+fails when the settings load, with the variable's name in the message: `5.0` for the
+threshold, `+3`, `1_0`, `1e3`, `true`, `inf`, `nan`, or an empty value.
+
+The env templates are edited by the repository owner only. Until he lists the two
+variables there, they are documented here and in `CLAUDE.md`. The ingestion template
+guard accepts exactly these two names as documented outside the template. It fails
+once the template names either of them, so the exemption must then be removed.
 
 The breaker is on by default because it only counts connectivity failures, so a
 healthy database never sees it. A false open costs at most 30 s of refused sessions,
@@ -122,8 +129,9 @@ restarting server is not hammered.
     write are disabled: approve, reject, killswitch, re-arm, save mandate, guardrail
     override, new portfolio, profile, run, barge-in, edit and steer. They show greyed
     out and do not run.
-  - Ask's decision verbs read the same gate. They are refused before any confirm is
-    offered, and again when a confirm answered after the breaker opened would dispatch.
+  - Ask's decision verbs read the same gate. They are refused before any confirm or
+    overlay is offered. They are refused again when an answer given after the breaker
+    opened would dispatch: a confirm, the fund re-arm rationale, or a steer directive.
   - The status bar and the Ask log show the refusal as `describe_error` renders it.
   - Reads are refused at once by the same breaker, and each view keeps its last paint,
     which gives a read-only view of the last known state. The attention feed logs the

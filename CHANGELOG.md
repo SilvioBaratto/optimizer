@@ -134,7 +134,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and decides at that connect whether the breaker closes again. Both values are set
   from the environment, for the ingestion daemon and for fund alike:
   `DATABASE_BREAKER_FAILURE_THRESHOLD` (default 5) and `DATABASE_BREAKER_RESET_TIMEOUT_S`
-  (default 30.0). A zero, negative, non-numeric or non-finite value fails at startup.
+  (default 30.0). Both processes parse them the same strict way: the threshold is
+  plain digits and the timeout digits with an optional fraction. Anything else
+  (`5.0` for the threshold, a sign, `inf`, an empty value) fails at startup.
   Only connection failures count: statement and lock timeouts, constraint and SQL
   errors prove the database answered and never open it.
   The ingestion daemon reports a stopped step in one log line and in the new
