@@ -6,8 +6,13 @@
 ## Context
 
 Standard 3.3 requires every database call to go through a circuit breaker with a
-half-open state, configurable thresholds, monitoring and a fallback. Before this
-record nothing stood between a caller and a dead database. Every
+half-open state, configurable thresholds, monitoring and a fallback. This record puts
+one in front of `DatabaseManager.get_session`, which the repositories, the services
+and the fund cockpit's reads and writes go through. It does not cover every database
+call. The paths that still reach the database another way, such as the APScheduler
+job stores and fund's LangGraph pool, are listed under
+[Unguarded paths](#unguarded-paths), each with its outage behaviour and its fallback.
+Before this record nothing stood between a caller and a dead database. Every
 `DatabaseManager.get_session` built a session, the first statement waited out the
 driver's `connect_timeout` (10 s), and the error crossed the session with a
 traceback. An ingestion pipeline runs six steps back to back, each with worker,
@@ -193,9 +198,126 @@ restarting server is not hammered.
   and each CLI run. They do not share state.
 - A manual re-run of a step whose row the breaker left `running` is refused as already
   running until the 300 s lease expires and the reaper fails the row.
-- New database access must go through `DatabaseManager.get_session`. Code that builds
-  its own engine bypasses the breaker.
+- Only `DatabaseManager.get_session` is guarded. Any other access bypasses the
+  breaker:
+  - `database_manager.engine` used directly;
+  - a `Session(bind=...)` on an existing session's engine;
+  - an engine of its own;
+  - a psycopg connection or pool;
+  - an Alembic run.
+
+  New database access should go through `get_session`. Access that cannot gets an
+  entry under [Unguarded paths](#unguarded-paths) in the same change, saying what it
+  does during an outage and what the operator sees.
 - Deploying this needs the running ingestion and fund images rebuilt and restarted.
   The change needs no migration. The two environment variables are optional and keep
   the defaults when unset. This record does not deploy it: when the live daemons pick
   it up is the owner's decision.
+
+## Unguarded paths
+
+These reach the database without passing through `DatabaseManager.get_session`, so
+the breaker neither counts their failures nor refuses them. Each entry gives what it
+does during an outage and the fallback, as read in the installed libraries
+(APScheduler 3.11.3, psycopg 3.3.5, psycopg_pool 3.3.1) and in the repository code.
+Guarded, for contrast: `DatabaseManager.health_check`, every repository and service
+session, `fund.observe` reads (they get their session from the caller), and the fund
+tools.
+
+- **Container start: database wait and migrations.**
+  - Where: `ingestion/entrypoint.sh`, `fund/entrypoint.sh`. `alembic upgrade head` runs
+    on an engine of its own, built from `DATABASE_URL` (`packages/portopt-db/alembic/env.py`).
+  - In an outage: the script polls `pg_isready` for up to `DB_WAIT_TIMEOUT` (120 s),
+    then prints `Database not ready after 120s; giving up.` and exits 1. If the
+    database is reachable but the migration fails, `set -e` exits non-zero.
+  - Fallback: compose restarts the container (`restart: unless-stopped`) and the wait
+    starts again. No session is ever opened, so there is nothing for the breaker to
+    guard.
+- **Process start: `init_db()`.**
+  - Where: `DatabaseManager.initialize` tests the connection with a direct
+    `engine.connect()`. The ingestion `init_db` also runs `_require_migrated_schema`
+    (`inspect(engine).has_table`) in `ingestion/app/database.py`. Both the ingestion
+    worker and CLI and the fund worker call it at start.
+  - In an outage: the connect fails after the driver's 10 s `connect_timeout`.
+    Ingestion logs `Database initialization failed: ...` and re-raises outside
+    development; the fund worker does not catch it. Either way the process exits.
+  - Fallback: the container restart above. A lazy `initialize` reached through
+    `get_session` is guarded; only the explicit start-up call is not.
+- **APScheduler job stores.**
+  - Where:
+    - `SQLAlchemyJobStore(engine=database_manager.engine)` in `create_scheduler` of
+      `ingestion/app/services/jobs/scheduler.py` (table `apscheduler_jobs`);
+    - `fund/src/fund/scheduler.py` (table `fund_apscheduler_jobs`).
+
+    The store polls and writes through the engine's pool, not through a session.
+  - In an outage, at start: ingestion's lookup of each job's persisted next run is
+    caught. It logs `scheduler: could not read persisted job ... — rescheduling from
+    now`. Then `scheduler.start()` has the store create its table and write the jobs,
+    neither worker guards that call, and the process exits.
+  - In an outage, while running: `_process_jobs` (`apscheduler/schedulers/base.py`)
+    catches a failing `get_due_jobs`. It logs one WARNING,
+    `Error getting due jobs from job store 'default': ...`, and retries after
+    `jobstore_retry_interval`, 10 s by default and not overridden here. Each retry is a
+    pool checkout with pre-ping and the 10 s connect timeout. A cron fire missed
+    meanwhile runs once the store answers if it is still within its misfire grace
+    (ingestion 3600 s, fund 21600 s), coalesced to one run; past the grace it is
+    skipped.
+  - Writes outside that guard: `update_job`, after a due job was handed to the
+    executor, and `get_next_run_time` are not guarded. An error there ends the
+    scheduler thread.
+    - Ingestion's `SupervisedScheduler` logs `APScheduler loop crashed; no scheduled
+      job will fire`. The worker's 30 s supervision then logs `APScheduler thread died
+      — exiting so the container restarts` and exits.
+    - fund uses a plain `BackgroundScheduler`, so the thread's traceback goes to
+      stderr. The worker's 30 s liveness poll logs `APScheduler thread died; exiting so
+      the container restarts`, tries to fail its in-flight job slots (refused by the
+      breaker while it is open), and calls `os._exit`.
+  - Fallback: the container restart. The operator sees the WARNING every ~10 s while
+    the store is unreadable, and a restart when a write fails.
+- **fund LangGraph persistence: setup connections.**
+  - Where: `setup_langgraph` in `fund/src/fund/audit/persistence.py`. The bootstrap
+    advisory lock and `create_schema` each open a `psycopg.connect` with
+    `connect_timeout` 10 s. It runs at the start of the fund worker, the cockpit, every
+    `fund` CLI command, and a manual scheduler run.
+  - In an outage: `psycopg.OperationalError` after the connect timeout, with no retry.
+    The worker and the cockpit exit at start, and a CLI command fails with its error.
+  - Fallback: the worker restarts with its container. The cockpit and the CLI are
+    started again by the operator.
+- **fund LangGraph persistence: the pool.**
+  - Where: `build_pool`, a `ConnectionPool(min_size=1, max_size=4, open=True,
+    check=ConnectionPool.check_connection)` with the library defaults `timeout=30.0`
+    and `reconnect_timeout=300.0`. The checkpointer (`PostgresSaver`) and the store
+    (`PostgresStore`) use it.
+  - Who uses it: a fund round's checkpoint writes; the Ask history (the Store, on the
+    cockpit's `_ask_io` thread); the Ask agent's checkpointer thread; and the gate
+    reads that take the saver (`observe.pending_hitl`, the cockpit's gate text).
+  - In an outage, for a caller: each call waits up to 30 s for a connection, then
+    raises `PoolTimeout("couldn't get a connection after 30.00 sec")`, a
+    `psycopg.OperationalError`.
+  - In an outage, in the background: the pool tries to reconnect. It logs one WARNING,
+    `error connecting in 'pool-N': ...`, per attempt, backing off from 1 s, doubling,
+    with 10 % jitter. After 300 s it logs `reconnection attempt in pool ... failed after
+    300 sec` and gives that slot up; no `reconnect_failed` callback is set. A later
+    caller that waits while the pool is below `max_size` starts a new attempt.
+  - What softens it: the gate reads, the round, and the cockpit's poll all open a
+    `get_session` session first. While the breaker is open, that session is refused
+    before the saver is touched, so they fail at once instead of waiting 30 s.
+  - What does not: the Ask history, which goes to the Store directly. Each read or save
+    waits out the 30 s on the `_ask_io` thread, off the event loop. The cockpit then
+    shows `saved Ask history unavailable: ...` and retries the load after 30 s.
+- **fund round bookkeeping on its own session.**
+  - Where: `_own_session` in `fund/src/fund/agents/graph_failures.py` opens
+    `Session(bind=session.get_bind())`. On that session the round spends and hands back
+    the first-round gate and records a failed round. It runs only inside a round whose
+    main session the breaker admitted.
+  - In an outage that begins mid-round: each of these opens a connection straight
+    from the engine's pool (pre-ping, 10 s connect timeout), and the breaker does not
+    count the failure.
+    - Spending the gate raises, and the round fails.
+    - Handing it back and recording the failed round catch the error, log it with a
+      traceback (`could not hand back the first-round gate of ...`, `could not record
+      failed fund run ...`) and give up. The failed run is then not recorded.
+  - Fallback: none beyond the log. The round's own session was admitted before the
+    outage, so the next round is refused at its first session by the breaker.
+- **Unused by the daemons.** `DatabaseManager.create_all_tables` creates tables
+  straight on the engine. No ingestion or fund code calls it.
