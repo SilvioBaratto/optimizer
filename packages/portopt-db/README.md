@@ -14,7 +14,8 @@ The package is versioned with the rest of the workspace (`0.1.0`) and resolved t
 `[tool.uv.sources]`, so a consumer always builds against the checkout it sits in. What a
 consumer may rely on is the surface it imports: the models, the repositories, `RepositoryBase`,
 `DatabaseManager` and `portopt_db.resilience` (the `CircuitBreaker` protocol, `DbCircuitBreaker`,
-`DatabaseUnavailableError`, `BreakerState` and the breaker defaults and validator; see
+`DatabaseUnavailableError`, `BreakerState`, `ProbeTicket`, the breaker defaults, the validator
+and the environment parsers `parse_failure_threshold` and `parse_reset_timeout`; see
 [ADR-0008](../../docs/adr/0008-database-circuit-breaker.md)). A change to that surface, or to a table a consumer reads, goes in
 `CHANGELOG.md`, and the consumer's tests change in the same pull request.
 
