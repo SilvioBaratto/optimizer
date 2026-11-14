@@ -350,6 +350,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when there is neither a mapping nor an explicit `groups`. The complexity
   ratchet's baselines drop the three functions: 261 long and 41 complex
   functions remain. Behaviour is unchanged.
+- **fund**: the three largest modules are split, and every import path still
+  works. `fund/tui/views.py` (3,345 lines) keeps the sidebar specs and
+  `build_views` and re-exports the views, now one per module in
+  `fund/tui/_views/`. `fund/tui/app.py` (3,341 lines) keeps `ShellApp`'s state,
+  layout, navigation, `CSS` and `BINDINGS`; its modal screens moved to
+  `fund/tui/screens.py` and its sections to plain mixins in `fund/tui/_mixins/`.
+  `fund/agents/graph.py` (2,736 lines) keeps the run drivers and every function
+  that calls a name the tests patch on it; the subagent factory, the run
+  instruction and the journal, HITL, failed-round and stream helpers moved to
+  `graph_assembly`, `graph_prompts`, `graph_journal`, `graph_hitl`,
+  `graph_failures` and `graph_stream`. Each definition moved byte-for-byte, the
+  old modules re-export every name they defined, the moved code logs under the
+  old logger names, and the complexity ratchet's baselines follow the moved
+  functions with unchanged values. Behaviour is unchanged.
 
 ### Removed
 
