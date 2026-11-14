@@ -11,6 +11,7 @@ breakers run on a fake clock, so no test sleeps.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
@@ -36,6 +37,7 @@ from app.services.jobs.background_job import BackgroundJobService
 _THRESHOLD = 2
 _TIMEOUT_S = 30.0
 _SCHEDULER_LOGGER = "app.services.jobs.scheduler"
+_JOBS_LOGGER = "app.services.jobs.background_job"
 
 
 class _Clock:
@@ -216,6 +218,45 @@ def test_other_step_failures_keep_their_traceback(
     raised = [r for r in _scheduler_records(caplog) if "raised" in r.getMessage()]
     assert len(raised) == 1
     assert raised[0].exc_info is not None
+
+
+def test_refused_progress_write_logs_one_line_without_a_stack(
+    unreachable: DatabaseManager, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A sweep reports progress per item; a refusal must not log a stack each time."""
+    jobs = BackgroundJobService(
+        job_type="breaker_probe_progress", session_factory=unreachable.get_session
+    )
+    for _ in range(_THRESHOLD):
+        unreachable.breaker.record_failure(DisconnectionError("server closed"))
+
+    with caplog.at_level(logging.INFO, logger=_JOBS_LOGGER):
+        jobs.update_job(str(uuid.uuid4()), current=1, total=2)
+
+    records = [r for r in caplog.records if r.name == _JOBS_LOGGER]
+    assert len(records) == 1
+    assert "database unavailable" in records[0].getMessage()
+    assert records[0].exc_info is None
+
+
+def test_refused_heartbeat_logs_one_line_and_keeps_the_loop_alive(
+    unreachable: DatabaseManager, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A heartbeat tick refused by the breaker keeps ticking and logs no stack."""
+    jobs = BackgroundJobService(
+        job_type="breaker_probe_heartbeat", session_factory=unreachable.get_session
+    )
+    for _ in range(_THRESHOLD):
+        unreachable.breaker.record_failure(DisconnectionError("server closed"))
+
+    with caplog.at_level(logging.INFO, logger=_JOBS_LOGGER):
+        keep_ticking = jobs._tick_heartbeat(uuid.uuid4(), threading.Event())
+
+    assert keep_ticking is True
+    records = [r for r in caplog.records if r.name == _JOBS_LOGGER]
+    assert len(records) == 1
+    assert "database unavailable" in records[0].getMessage()
+    assert records[0].exc_info is None
 
 
 def test_reaper_tick_skips_quietly_while_the_breaker_is_open(

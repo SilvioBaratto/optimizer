@@ -15,6 +15,8 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from portopt_db.resilience import DatabaseUnavailableError
+
 from app.config import settings
 from app.repositories.jobs.background_job_repository import (
     ORPHAN_ERROR_PREFIX,
@@ -22,6 +24,19 @@ from app.repositories.jobs.background_job_repository import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _log_dropped_write(what: str, job_id: object, exc: Exception) -> None:
+    """Log a best-effort job write that failed and is being dropped.
+
+    A sweep reports progress per item, so while the database circuit breaker is
+    open every call is refused; a stack trace per refusal would bury the log. Any
+    other failure keeps its traceback.
+    """
+    if isinstance(exc, DatabaseUnavailableError):
+        logger.warning("%s failed for %s: %s", what, job_id, exc)
+    else:
+        logger.warning("%s failed for %s", what, job_id, exc_info=exc)
 
 
 class JobAlreadyRunningError(Exception):
@@ -217,10 +232,10 @@ class BackgroundJobService:
                 repo = BackgroundJobRepository(session)
                 rowcount = repo.update(uid, **kwargs)
                 session.commit()
-        except Exception:
+        except Exception as exc:
             if "status" in kwargs:
                 raise
-            logger.warning("progress update failed for %s", job_id, exc_info=True)
+            _log_dropped_write("progress update", job_id, exc)
             return
 
         if rowcount == 1:
@@ -355,11 +370,11 @@ class BackgroundJobService:
                     row = repo.get(job_id)
                     finished = row is not None and _ended_by_worker(row)
                 session.commit()
-        except Exception:
+        except Exception as exc:
             # Best-effort liveness tick (see method docstring): a transient DB
-            # hiccup is logged with traceback and the loop continues — it must
-            # not kill an otherwise-healthy worker.
-            logger.warning("heartbeat update failed for %s", job_id, exc_info=True)
+            # hiccup is logged and the loop continues — it must not kill an
+            # otherwise-healthy worker.
+            _log_dropped_write("heartbeat update", job_id, exc)
             return True
         if not ok:
             if finished:
