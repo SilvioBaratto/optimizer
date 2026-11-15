@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import ast
 import datetime as dt
+import json
+import subprocess
+import sys
 import uuid
 from decimal import Decimal
 from pathlib import Path
@@ -1236,9 +1239,22 @@ def test_nav_series_warns_when_a_ticket_line_cannot_be_priced(db_session, caplog
     assert any("GHOST" in record.getMessage() for record in caplog.records)
 
 
-def _agent_stack_offenders(module) -> list[str]:
-    """AST-scan a module's source for any top-level agent-stack import."""
-    forbidden = ("deepagents", "langgraph", "langchain", "fund.agents", "fund.audit")
+# Name prefixes of the deep-agent stack and the agent layer.
+_AGENT_STACK = ("deepagents", "langgraph", "langchain", "fund.agents")
+# attribution.py keeps the rule that also bars the audit package.
+_AGENT_STACK_AND_AUDIT = (*_AGENT_STACK, "fund.audit")
+
+# Imports the given modules, then prints every loaded module name as JSON.
+_IMPORT_PROBE = (
+    "import importlib, json, sys\n"
+    "for name in {modules!r}:\n"
+    "    importlib.import_module(name)\n"
+    "print(json.dumps(sorted(sys.modules)))\n"
+)
+
+
+def _imported_names(module) -> list[str]:
+    """The module each import statement in a module's source names, in any scope."""
     source = Path(module.__file__).read_text(encoding="utf-8")
     names: list[str] = []
     for node in ast.walk(ast.parse(source)):
@@ -1246,15 +1262,69 @@ def _agent_stack_offenders(module) -> list[str]:
             names.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
             names.append(node.module)
-    return [n for n in names if any(n.startswith(f) for f in forbidden)]
+    return names
+
+
+def _agent_stack_offenders(
+    module, forbidden: tuple[str, ...] = _AGENT_STACK_AND_AUDIT
+) -> list[str]:
+    """AST-scan a module's source for any import named with a ``forbidden`` prefix."""
+    return [
+        n for n in _imported_names(module) if any(n.startswith(f) for f in forbidden)
+    ]
+
+
+def _agent_stack_in(module_names: set[str]) -> list[str]:
+    return sorted(
+        name for name in module_names if any(name.startswith(f) for f in _AGENT_STACK)
+    )
+
+
+def _modules_loaded_by(modules: list[str]) -> set[str]:
+    """Import ``modules`` in a fresh interpreter and return every module then loaded.
+
+    A fresh interpreter, so an agent stack another test already loaded cannot mask
+    a leak.
+    """
+    result = subprocess.run(  # noqa: S603 - fixed argv, our own interpreter
+        [sys.executable, "-c", _IMPORT_PROBE.format(modules=modules)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return set(json.loads(result.stdout))
 
 
 def test_performance_module_declares_no_agent_stack_imports():
-    """performance.py imports no agent stack (optimizer/skfolio are allowed)."""
-    offenders = _agent_stack_offenders(performance)
+    """performance.py imports no agent stack (optimizer/skfolio are allowed).
+
+    It may import the ``fund.audit`` repositories: what importing them loads is
+    checked by ``test_performance_and_its_imports_load_no_agent_stack``.
+    """
+    offenders = _agent_stack_offenders(performance, _AGENT_STACK)
     assert offenders == [], (
         f"agent-stack imports leaked into performance.py: {offenders}"
     )
+
+
+def test_performance_and_its_imports_load_no_agent_stack():
+    """Importing performance.py and every module it imports, function-local imports
+    included, loads no ``deepagents``, ``langgraph``, ``langchain*`` or
+    ``fund.agents`` module."""
+    targets = ["fund.performance", *_imported_names(performance)]
+
+    loaded = _modules_loaded_by(targets)
+
+    assert set(targets) <= loaded
+    assert _agent_stack_in(loaded) == []
+
+
+def test_the_import_probe_reports_a_module_that_loads_langgraph():
+    """Fail-injection: the LangGraph bootstrap module loads langgraph, and the probe
+    sees it, so the test above is not passing on a probe that observes nothing."""
+    loaded = _modules_loaded_by(["fund.audit.persistence"])
+
+    assert "langgraph" in {name.split(".")[0] for name in _agent_stack_in(loaded)}
 
 
 def test_attribution_module_declares_no_agent_stack_imports():

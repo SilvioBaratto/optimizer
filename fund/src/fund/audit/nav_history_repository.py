@@ -172,6 +172,28 @@ class NavHistoryRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def newest_nav_dates(
+        self, portfolio_id: uuid.UUID, *, on_or_before: dt.date | None, limit: int
+    ) -> list[dt.date]:
+        """Return a portfolio's newest persisted NAV dates, newest first.
+
+        Args:
+            portfolio_id: Portfolio to query.
+            on_or_before: Inclusive upper date bound; ``None`` leaves it open.
+            limit: The most dates to return.
+
+        Returns:
+            Up to ``limit`` dates in descending order; empty when none is persisted.
+        """
+        stmt = select(NavHistory.date).where(NavHistory.portfolio_id == portfolio_id)
+        if on_or_before is not None:
+            stmt = stmt.where(NavHistory.date <= on_or_before)
+        return list(
+            self.session.execute(
+                stmt.order_by(NavHistory.date.desc()).limit(limit)
+            ).scalars()
+        )
+
     def last_nav_before(
         self, portfolio_id: uuid.UUID, before: dt.date
     ) -> NavHistory | None:
