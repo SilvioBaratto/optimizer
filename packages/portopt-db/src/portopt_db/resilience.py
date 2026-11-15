@@ -12,20 +12,22 @@ connectivity failure opens it for another full timeout.
 
 Only connectivity failures count. SQLAlchemy wraps driver errors, and psycopg2's
 statement-timeout (``QueryCanceled``, 57014) and lock-timeout (``LockNotAvailable``,
-55P03) errors subclass the driver's ``OperationalError``, so the class alone would
-let one slow query open the breaker on a healthy database. An error is classified
-in this order:
+55P03) errors subclass the driver's ``OperationalError``, so counting by class would
+let slow queries open the breaker on a healthy database. An error is classified in
+this order:
 
 1. a ``DisconnectionError`` counts;
 2. a ``DBAPIError`` that SQLAlchemy marked ``connection_invalidated`` counts,
    tested before the SQLSTATE is read;
-3. a SQLSTATE in class 08 or equal to 57P01, 57P02 or 57P03 counts;
+3. a ``DBAPIError`` whose SQLSTATE is in class 08 or equal to 57P01, 57P02
+   or 57P03 counts;
 4. an ``OperationalError`` without a SQLSTATE raised outside a statement
    counts;
-5. any other driver error with a SQLSTATE is recorded as a success, because
+5. any other ``DBAPIError`` with a SQLSTATE is recorded as a success, because
    the server answered;
-6. anything else, without a SQLSTATE, is inconclusive and leaves the count
-   alone.
+6. anything else is inconclusive and leaves the count alone: a ``DBAPIError``
+   without a SQLSTATE that steps 2 and 4 do not cover, and any other
+   exception.
 """
 
 from __future__ import annotations
@@ -256,13 +258,15 @@ def is_connectivity_failure(exc: BaseException) -> bool:
     1. a ``DisconnectionError`` counts;
     2. a ``DBAPIError`` that SQLAlchemy marked ``connection_invalidated`` counts,
        tested before the SQLSTATE is read;
-    3. a SQLSTATE in class 08 or equal to 57P01, 57P02 or 57P03 counts;
+    3. a ``DBAPIError`` whose SQLSTATE is in class 08 or equal to 57P01, 57P02
+       or 57P03 counts;
     4. an ``OperationalError`` without a SQLSTATE raised outside a statement
        counts;
-    5. any other driver error with a SQLSTATE is recorded as a success, because
+    5. any other ``DBAPIError`` with a SQLSTATE is recorded as a success, because
        the server answered;
-    6. anything else, without a SQLSTATE, is inconclusive and leaves the count
-       alone.
+    6. anything else is inconclusive and leaves the count alone: a ``DBAPIError``
+       without a SQLSTATE that steps 2 and 4 do not cover, and any other
+       exception.
 
     Steps 1 to 4 return True. Step 4 is how a refused or timed-out connect at pool
     checkout surfaces.
@@ -400,13 +404,15 @@ class DbCircuitBreaker:
         1. a ``DisconnectionError`` counts;
         2. a ``DBAPIError`` that SQLAlchemy marked ``connection_invalidated`` counts,
            tested before the SQLSTATE is read;
-        3. a SQLSTATE in class 08 or equal to 57P01, 57P02 or 57P03 counts;
+        3. a ``DBAPIError`` whose SQLSTATE is in class 08 or equal to 57P01, 57P02
+           or 57P03 counts;
         4. an ``OperationalError`` without a SQLSTATE raised outside a statement
            counts;
-        5. any other driver error with a SQLSTATE is recorded as a success, because
+        5. any other ``DBAPIError`` with a SQLSTATE is recorded as a success, because
            the server answered;
-        6. anything else, without a SQLSTATE, is inconclusive and leaves the count
-           alone.
+        6. anything else is inconclusive and leaves the count alone: a ``DBAPIError``
+           without a SQLSTATE that steps 2 and 4 do not cover, and any other
+           exception.
 
         A counted failure of the probe reopens the breaker for a full timeout. An
         inconclusive outcome of the probe named by ``ticket`` releases its slot, so

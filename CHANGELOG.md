@@ -139,10 +139,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `is_connectivity_failure`, the defaults, and the validator and environment
     parsers.
 
-  After 5 consecutive connection failures the breaker refuses sessions at once with
-  `DatabaseUnavailableError` instead of waiting out a connect timeout per call. After
-  30 s it lets a probe session through, one at a time, which connects before the
-  caller's code runs and decides at that connect whether the breaker closes again. Both values are set
+  After 5 consecutive connectivity failures the breaker refuses new sessions at once
+  with `DatabaseUnavailableError` instead of waiting out a connect timeout per call.
+  After 30 s it lets a probe session through, one at a time, which connects before the
+  caller's code runs and is settled at that connect. Both values are set
   from the environment, for the ingestion daemon and for fund alike:
   `DATABASE_BREAKER_FAILURE_THRESHOLD` (default 5) and `DATABASE_BREAKER_RESET_TIMEOUT_S`
   (default 30.0). Both processes parse them the same strict way: the threshold is
@@ -150,12 +150,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`5.0` for the threshold, a sign, `inf`, an empty value) fails at startup.
   An error is classified in this order: (1) a `DisconnectionError` counts; (2) a
   `DBAPIError` that SQLAlchemy marked `connection_invalidated` counts, tested before the
-  SQLSTATE is read; (3) a SQLSTATE in class 08 or equal to 57P01, 57P02 or 57P03 counts;
-  (4) an `OperationalError` without a SQLSTATE raised outside a statement counts; (5) any
-  other driver error with a SQLSTATE is recorded as a success, because the server
-  answered; (6) anything else, without a SQLSTATE, is inconclusive and leaves the count
-  alone.
-  The ingestion daemon logs a stopped step without a traceback, counts it in the new
+  SQLSTATE is read; (3) a `DBAPIError` whose SQLSTATE is in class 08 or equal to 57P01,
+  57P02 or 57P03 counts; (4) an `OperationalError` without a SQLSTATE raised outside a
+  statement counts; (5) any other `DBAPIError` with a SQLSTATE is recorded as a success,
+  because the server answered; (6) anything else is inconclusive and leaves the count
+  alone: a `DBAPIError` without a SQLSTATE that steps 2 and 4 do not cover, and any other
+  exception.
+  The ingestion daemon logs a step the breaker stopped without a traceback (ADR-0008
+  lists the exceptions under Known limits), counts it in the new
   `jobs_db_unavailable_total` counter, counts a refused failed-status write in
   `jobs_failed_status_refused_total`, and retries on the next scheduled run unless the
   step's row is still active. When the

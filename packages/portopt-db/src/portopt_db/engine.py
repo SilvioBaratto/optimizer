@@ -207,11 +207,13 @@ class DatabaseManager:
         """Session with rollback-on-error and always-close, behind the breaker.
 
         The breaker is asked first: while it is open the call is refused before
-        an engine or a session is created for it. A normal session connects
-        lazily on first use, so its connectivity failures surface in the body,
-        and each exit records exactly one outcome. The half-open probe is the
-        exception: it connects before the body runs and is decided by that
-        connect, so the probe slot is free again as soon as the connect returns.
+        an engine or a session is created for it. On a manager not yet
+        initialized, ``initialize`` runs at entry and a failed connection test
+        is recorded there. Otherwise a normal session connects lazily on first
+        use, so its connectivity failures surface in the body, and each exit
+        records exactly one outcome. The half-open probe is the exception: it
+        connects before the body runs and is settled by that connect, so the
+        probe slot is free again as soon as the connect returns.
 
         Dead connections are not invalidated here: SQLAlchemy discards them
         itself on a disconnect error, and `pool_pre_ping` screens the rest at

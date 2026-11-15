@@ -6,19 +6,21 @@
 ## Context
 
 Standard 3.3 asks for a circuit breaker on database calls, with a half-open state,
-configurable thresholds, monitoring and a fallback. Before this record a
-`DatabaseManager.get_session` session tried to connect at its first statement and failed
-at once for a refused connection, or after the driver's `connect_timeout` for an
-unreachable host (10 s, `config.py:71`). Ingestion steps met a dead database one after
-another, and the fund cockpit let the adviser confirm a write that then failed. This record
-puts a breaker in front of `get_session`; the paths known to reach the database another
-way are listed under [Unguarded paths](#unguarded-paths).
+configurable thresholds, monitoring and a fallback. Before this record each
+`DatabaseManager.get_session` session tried to connect, at its first statement or, on a
+manager not yet initialized, at entry, and failed at once for a refused connection, or
+after the driver's `connect_timeout` for an unreachable host (10 s, `config.py:71`).
+Ingestion steps met a dead database one after another, and the fund cockpit let the
+adviser confirm a write that then failed. This record puts a breaker in front of
+`get_session`; the paths known to reach the database another way are listed under
+[Unguarded paths](#unguarded-paths).
 
 Counting failures by exception class does not work. SQLAlchemy wraps driver errors, and
 psycopg2's `QueryCanceled` (statement timeout, SQLSTATE 57014) and `LockNotAvailable`
 (lock timeout, 55P03) subclass the driver's `OperationalError`. The ingestion daemon sets
 a 60 s `lock_timeout` (`ingestion/app/config.py:61`), so a breaker counting each
-`OperationalError` would open on a healthy database whenever a write waits on a lock.
+`OperationalError` would open on a healthy database once `failure_threshold` sessions in a
+row ended on lock waits past that timeout.
 
 `engine.py`, `resilience.py` and `config.py` below are in
 `packages/portopt-db/src/portopt_db/`, `scheduler.py` is
@@ -28,64 +30,74 @@ a 60 s `lock_timeout` (`ingestion/app/config.py:61`), so a breaker counting each
 
 Each `DatabaseManager` builds its own `DbCircuitBreaker` unless one is injected
 (`engine.py:89-107`), with no module global. The manager depends on the `CircuitBreaker`
-protocol (`resilience.py:214-242`), and `get_session` asks it before opening a session
-(`engine.py:226`).
+protocol (`resilience.py:216-244`), and `get_session` asks it before opening a session
+(`engine.py:228`).
 
-- **Closed.** Sessions connect lazily and record their outcome at exit
-  (`engine.py:227-236`). Consecutive connectivity failures are counted; a body that exits
-  without raising resets the count (`engine.py:235-236`, `resilience.py:374-391`).
+- **Closed.** On an initialized manager, sessions connect lazily and record their outcome
+  at exit (`engine.py:229-238`). On a manager not yet initialized, `get_session` runs
+  `initialize` at entry, whose connection test (`engine.py:127`, `171-178`) is recorded
+  there if it fails (`engine.py:248-252`, `270-271`). Consecutive connectivity failures
+  are counted; a body that exits without raising resets the count (`engine.py:237-238`,
+  `resilience.py:378-395`).
 - **Open.** After `failure_threshold` consecutive connectivity failures
-  (`resilience.py:436-454`), `before_call` raises `DatabaseUnavailableError`, a
+  (`resilience.py:442-460`), `before_call` raises `DatabaseUnavailableError`, a
   `RuntimeError`, before a session exists. Its message names no host, credentials or SQL
-  (`resilience.py:462-471`).
+  (`resilience.py:468-477`).
 - **Half-open.** Once `reset_timeout_s` has passed, `before_call` admits the next caller as
-  the probe with a `ProbeTicket` (`resilience.py:346-372`). `get_session` connects that
-  session before the caller's code runs, and the connect decides the probe
-  (`engine.py:240-260`): success closes the breaker, a connectivity failure reopens it for
-  a full timeout. Other callers are refused while the probe connects
-  (`resilience.py:459-464`); the slot is free once the connect returns, so a long probe
-  session holds nobody back, and its body does not decide the probe.
+  the probe with a `ProbeTicket` (`resilience.py:350-376`). `get_session` connects that
+  session before the caller's code runs, and the connect settles the probe
+  (`engine.py:242-262`): success or a step-5 error closes the breaker, a counted failure
+  reopens it for a full timeout, and an inconclusive one frees the slot for the next
+  caller (`resilience.py:425-430`). Other callers are refused while the probe connects
+  (`resilience.py:465-470`); the slot is free once the connect returns, so a long probe
+  session holds nobody back, and its body does not settle the probe.
 
 State, failure count, opening time and probe ticket change under one `threading.Lock`
-(`resilience.py:316`). The clock is injected, so the unit tests do not sleep.
+(`resilience.py:320`). The clock is injected, so the unit tests do not sleep.
 
-**What counts.** An error is classified in this order (`resilience.py:251-288`,
-`393-424`):
+**What counts.** An error is classified in this order (`resilience.py:253-292`,
+`397-430`):
 
 1. a `DisconnectionError` counts;
 2. a `DBAPIError` that SQLAlchemy marked `connection_invalidated` counts, tested before
    the SQLSTATE is read;
-3. a SQLSTATE in class 08 or equal to 57P01, 57P02 or 57P03 counts;
+3. a `DBAPIError` whose SQLSTATE is in class 08 or equal to 57P01, 57P02 or 57P03
+   counts;
 4. an `OperationalError` without a SQLSTATE raised outside a statement counts;
-5. any other driver error with a SQLSTATE is recorded as a success, because the server
+5. any other `DBAPIError` with a SQLSTATE is recorded as a success, because the server
    answered;
-6. anything else, without a SQLSTATE, is inconclusive and leaves the count alone.
+6. anything else is inconclusive and leaves the count alone: a `DBAPIError` without a
+   SQLSTATE that steps 2 and 4 do not cover, and any other exception.
 
 Step 4 is how a refused or timed-out connect at pool checkout surfaces. psycopg2's
-`pgcode` and psycopg 3's `sqlstate` are both read (`resilience.py:245-248`). Statement
-and lock timeouts, integrity, programming and data errors fall under step 5 unless
-SQLAlchemy marked them invalidated. The installed psycopg2 dialect marks an error
-invalidated when the connection is closed, or when the first line of its message contains
-one of the libpq and SSL disconnect messages it lists with no double quote before it, such
-as `terminating connection`, `closed the connection` or `could not receive data from
-server`
+`pgcode` and psycopg 3's `sqlstate` are both read (`resilience.py:247-250`). Statement
+and lock timeouts, and integrity, programming and data errors that the server reports
+with a SQLSTATE, fall under step 5 unless SQLAlchemy marked them invalidated. The same
+classes raised during a statement without a SQLSTATE, such as psycopg2's client-side
+`can't adapt type`, fall under step 6
+(`packages/portopt-db/tests/test_db_circuit_breaker.py:238-246`). The installed psycopg2
+dialect marks an error invalidated when the connection is closed, or when the first line
+of its message contains one of the libpq and SSL disconnect messages it lists with no
+double quote before it, such as `terminating connection`, `closed the connection` or
+`could not receive data from server`
 (`.venv/lib/python3.12/site-packages/sqlalchemy/dialects/postgresql/psycopg2.py:815-863`).
 So `server closed the connection unexpectedly`, which carries no SQLSTATE, counts under
 step 2, and a server-side idle timeout such as `idle_in_transaction_session_timeout` (off
 by default, `config.py:74`) may count.
 
-**Inconclusive and late outcomes.** Step 6 covers, among others, a statement's driver
-error without a SQLSTATE that SQLAlchemy did not mark `connection_invalidated` (SQLite
-reports none), a pool-exhaustion `TimeoutError`, an exception from the caller's code,
-`GeneratorExit`, `KeyboardInterrupt` and a closed manager. An inconclusive outcome that
-carries the probe's ticket releases its slot (`resilience.py:423-424`, `431-434`).
+**Inconclusive and late outcomes.** Step 6 covers, among others, a `DBAPIError` raised
+during a statement without a SQLSTATE that SQLAlchemy did not mark
+`connection_invalidated` (SQLite reports none), a pool-exhaustion `TimeoutError`, an
+exception from the caller's code, `GeneratorExit`, `KeyboardInterrupt` and a closed
+manager. An inconclusive outcome that carries the probe's ticket releases its slot
+(`resilience.py:429-430`, `437-440`).
 While the breaker is open or half-open, an outcome without the probe's ticket is ignored
-(`resilience.py:426-429`), so a session admitted before the breaker opened can neither
+(`resilience.py:432-435`), so a session admitted before the breaker opened can neither
 close it, extend it nor free the probe's slot.
 
-**Configuration.** The defaults are 5 failures and 30 s (`resilience.py:47-48`).
+**Configuration.** The defaults are 5 failures and 30 s (`resilience.py:49-50`).
 `BreakerConfig` and `DbConfig` validate through `validate_breaker_settings`
-(`resilience.py:96-123`, `191`; `config.py:86`): an `int` threshold above zero (a `bool`
+(`resilience.py:98-125`, `193`; `config.py:86`): an `int` threshold above zero (a `bool`
 is refused) and a finite timeout above zero.
 
 | Variable | Default | Ingestion field | Fund field |
@@ -94,8 +106,8 @@ is refused) and a finite timeout above zero.
 | `DATABASE_BREAKER_RESET_TIMEOUT_S` | 30.0 | `Settings.database_breaker_reset_timeout_s` | `FundConfig.db_breaker_reset_timeout_s` |
 
 Both daemons parse the text with `parse_failure_threshold` and `parse_reset_timeout`
-(`resilience.py:133-171`; `ingestion/app/config.py:79`, `88`;
-`fund/src/fund/config.py:370`, `375`), so a value starts both or neither: plain digits for
+(`resilience.py:135-173`; `ingestion/app/config.py:79`, `88`;
+`fund/src/fund/config.py:372`, `377`), so a value starts both or neither: plain digits for
 the threshold, digits with an optional fraction for the timeout, blanks around either
 allowed, both above zero. Other text, such as `5.0` for the threshold, `+3`, `1_0`,
 `1e3`, `true`, `inf`, `nan` or an empty value, fails when the settings load, naming the
@@ -107,7 +119,7 @@ exempts the two names (`ingestion/tests/unit/setup/test_env_templates.py:170-180
 fails once the template names either, so the exemption is then removed.
 
 **Why on by default.** Statement and lock timeouts (57014, 55P03) are outside the counted
-SQLSTATEs (`resilience.py:52-53`). A false open refuses sessions for `reset_timeout_s`,
+SQLSTATEs (`resilience.py:54-55`). A false open refuses sessions for `reset_timeout_s`,
 then a probe decides. `pool_pre_ping` (`config.py:68`) reconnects at checkout after a
 failed ping (`.venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1319-1366`), so
 five consecutive connect failures are taken to mean the server is gone. The 30 s timeout is
@@ -128,15 +140,15 @@ short next to the 300 s ingestion orphan lease (`ingestion/app/config.py:165-166
 
 ## Consequences
 
-- Once the ingestion breaker is open, a step's job-slot claim is refused before a session
-  exists and the step is reported as under [Guarded paths](#guarded-paths). Once the
+- While the ingestion breaker refuses sessions, a step's job-slot claim is refused before a
+  session exists and the step is reported as under [Guarded paths](#guarded-paths). Once the
   cockpit's breaker is open, its writes are greyed out from the next poll tick.
-- The breaker is consulted when a session opens (`engine.py:226`); a session admitted
+- The breaker is consulted when a session opens (`engine.py:228`); a session admitted
   before it opened keeps running (see [Known limits](#known-limits)).
 - Each `DatabaseManager` has its own breaker (`engine.py:100-107`): the ingestion worker,
   the fund worker, the cockpit and each CLI run share no state.
 - While the breaker is closed, a body that swallows its own connection error and exits
-  cleanly records a success (`engine.py:235-236`), which delays the open.
+  cleanly records a success (`engine.py:237-238`), which delays the open.
 - Access outside `get_session` bypasses the breaker. New access that cannot use it gets an
   entry under [Unguarded paths](#unguarded-paths) in the same change.
 - Deploying needs the ingestion and fund images rebuilt and restarted; no migration, and
@@ -145,9 +157,10 @@ short next to the 300 s ingestion orphan lease (`ingestion/app/config.py:165-166
 
 ## Guarded paths
 
-`DatabaseManager.get_session` (`engine.py:206-238`), and `health_check`, which opens its
-session through it (`engine.py:190-191`). A lazy `initialize` reached through
-`get_session` runs after `before_call` (`engine.py:226`, `262-273`).
+`DatabaseManager.get_session` (`engine.py:206-240`), and `health_check` on an initialized
+manager, which opens its session through it (`engine.py:182-184`, `190-191`). A lazy
+`initialize` reached through `get_session` runs after `before_call` (`engine.py:228`,
+`264-275`).
 
 Consumers that handle a refusal on purpose:
 
@@ -167,13 +180,13 @@ Consumers that handle a refusal on purpose:
 - Gauge `portopt_db_breaker_state`, 0 closed, 1 open, 2 half-open, read at each scrape
   (`ingestion/app/metrics.py:59-80`), bound at `ingestion/app/worker.py:97`.
 - Cockpit gate: each poll tick (default 2.0 s, `fund/src/fund/tui/app.py:236`) re-reads
-  the breaker (`app.py:476`, `fund/src/fund/tui/_mixins/dbgate.py:102-110`), and
+  the breaker (`app.py:476`, `fund/src/fund/tui/_mixins/dbgate.py:99-107`), and
   `check_action` disables the `DB_WRITE_ACTIONS` bindings while the gate is shut
-  (`dbgate.py:28-43`, `112-125`).
+  (`dbgate.py:25-40`, `109-122`).
 - Ask's decision verbs check the same gate before a confirm is offered and when a confirm,
   the fund re-arm rationale or a steer directive is answered
   (`fund/src/fund/tui/_mixins/ask.py:143`, `214`, `240`, `257`; check at `173-183`), so
-  an answer given after the gate closed at a poll tick is refused (`dbgate.py:92-100`).
+  an answer given after the gate closed at a poll tick is refused (`dbgate.py:89-97`).
 - The attention feed logs a refused read without a traceback, once while that read keeps
   failing (`fund/src/fund/tui/_mixins/attention.py:199-209`).
 
@@ -206,7 +219,7 @@ Not guarded: the breaker neither counts these paths' failures nor refuses them.
   MiFID constraint-set cache (`fund/src/fund/audit/mifid_repository.py:147`, `318`).
 - fund round bookkeeping on `Session(bind=session.get_bind())`:
   `fund/src/fund/agents/graph_failures.py:33`.
-- `DatabaseManager.create_all_tables` (`engine.py:283-289`); no code under
+- `DatabaseManager.create_all_tables` (`engine.py:285-291`); no code under
   `ingestion/app` or `fund/src` calls it.
 - Generic: `database_manager.engine` used directly, a `Session(bind=...)` on an existing
   engine, an engine of its own, a psycopg connection or pool, an Alembic run.
@@ -249,7 +262,7 @@ Not guarded: the breaker neither counts these paths' failures nor refuses them.
   not cut short. In parallel mode (`YFINANCE_FETCH_WORKERS=4`) each ticker opens its own
   session before it fetches (`2221`) and `_worker` turns an exception into that ticker's
   error (`2308-2325`); once the breaker is open a starting ticker is refused, except a
-  probe, admitted one at a time once the timeout has passed (`resilience.py:346-372`).
+  probe, admitted one at a time once the timeout has passed (`resilience.py:350-376`).
   In serial mode
   (`YFINANCE_FETCH_WORKERS=1`) the sweep runs in one session admitted before its loop
   (`2072`), with an `except Exception` per ticker (`2133`). A refused progress write or
@@ -269,10 +282,14 @@ Not guarded: the breaker neither counts these paths' failures nor refuses them.
   `brief unavailable: ...`, followed by the last good brief of the same portfolio when
   there is one (`fund/src/fund/tui/_views/daily_brief.py:148-158`, error text from
   `254-261`).
-- A stopped ingestion step logs lines without a traceback; how many depends on where the
-  refusal surfaces:
+- A stopped ingestion step logs lines without a traceback, except where one of its
+  sessions is admitted as the probe and that connect fails: the driver error is then
+  logged with a traceback, for the claim (`scheduler.py:313`), the `running` write or step
+  code (`scheduler.py:323`), the failed-status write (`scheduler.py:349`), and at WARNING
+  for a progress write or heartbeat (`background_job.py:39`). How many lines a refusal
+  costs depends on where it surfaces:
   - at the claim, the `step stopped` line (`scheduler.py:298`), since the refusal is
-    raised at `engine.py:226`, before the session's `try`;
+    raised at `engine.py:228`, before the session's `try`;
   - at the `running` write or in step code outside a session, the `step stopped` line,
     then `could not record failed status` (`scheduler.py:367`) when the failed-status
     write is refused too;
@@ -281,12 +298,12 @@ Not guarded: the breaker neither counts these paths' failures nor refuses them.
     `ingestion/app/services/macro/macro_regime_service.py:704`, `723-728`; the serial
     yfinance sweep, `yfinance_data_service.py:2072`, `2144`), first the ERROR
     `Unexpected error in database session: database unavailable: ...`
-    (`engine.py:44-49`, `229-231`, `279`), then the lines of the previous case.
+    (`engine.py:44-49`, `231-233`, `281`), then the lines of the previous case.
 - `_universe_is_empty`, the daily pipeline's first-run bootstrap check, logs a WARNING with
   a traceback when its session is refused, then skips the bootstrap
   (`scheduler.py:775-791`).
 - The fund CLI starts a process per command, whose breaker starts closed
-  (`resilience.py:317`), so an outage meets the driver's error. `profile`, `run`,
+  (`resilience.py:321`), so an outage meets the driver's error. `profile`, `run`,
   `approve` and `reject` run `setup_langgraph` before their `try`
   (`fund/src/fund/cli.py:432`, `493`, `568`), so an outage ends them in a traceback.
   Handling it with a short message and a CLI test is a follow-up.

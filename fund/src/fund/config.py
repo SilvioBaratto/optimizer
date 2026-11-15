@@ -356,7 +356,9 @@ def _db_session_settings(
 
     Raises:
         ValueError: A breaker variable is not a plain number that can drive a
-            breaker; the message starts with the variable's name.
+            breaker, and the message starts with the variable's name; or
+            ``DATABASE_LOCK_TIMEOUT_MS`` is not an integer, and ``int()``'s
+            message does not name it.
     """
     threshold = env.get(_BREAKER_THRESHOLD_VAR)
     timeout = env.get(_BREAKER_TIMEOUT_VAR)

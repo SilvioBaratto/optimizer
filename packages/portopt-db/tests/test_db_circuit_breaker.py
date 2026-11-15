@@ -5,7 +5,7 @@ Validates ``portopt_db.resilience`` (``DbCircuitBreaker``, ``BreakerConfig``,
 ``DatabaseManager.get_session``. Time comes from an injected fake clock, so no test
 sleeps; threads meet on events and barriers, each wait bounded so a regression fails
 instead of hanging. Driver errors are SQLAlchemy wrappers around a fake ``orig``
-that carries a PostgreSQL ``pgcode``, so the SQLite-only CI exercises the
+that carries a PostgreSQL ``pgcode``, so the SQLite unit suite exercises the
 classification a psycopg2 error would get.
 """
 

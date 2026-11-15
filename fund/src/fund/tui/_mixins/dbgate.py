@@ -1,15 +1,12 @@
 """Grey out the shell's write actions while the database circuit breaker is open.
 
-Reads through the shell's ``session_factory`` need no gate: they go through the same
-breaker, which refuses them at once. Reads that bypass it, such as the Ask history in
-the LangGraph Store, are listed under Unguarded paths in ADR-0008. A write would be
-refused the same way, but only after the adviser had read a gate and answered a
-confirm, so the bindings that start one are disabled instead and the status bar says
-why. A key-binding confirm that was already open when the gate shut is not checked
-again: if the breaker still refuses when its worker opens a session, the worker
-reports the refusal like any other failure. An Ask confirm, the fund re-arm rationale
-and a steer directive are checked against the gate again when answered, and refused
-before any worker starts.
+Reads through the shell's ``session_factory`` need no database gate: the breaker
+refuses them at once. A write would be refused the same way, but only after the
+adviser had read a run's approval gate and answered a confirm, so the bindings that
+start one are disabled instead and the status bar says why. A key-binding confirm
+already open when the database gate shut is not checked again; its worker meets the
+breaker when it opens a session. Ask's checks and the paths that bypass the breaker
+are listed in ADR-0008 under Guarded paths and Unguarded paths.
 """
 
 from __future__ import annotations
@@ -66,7 +63,7 @@ class DbGateMixin(ShellHost):
     _db_gate_text: str | None = None
 
     def watch_db_breaker(self, breaker: CircuitBreaker | None) -> None:
-        """Gate the write actions on ``breaker``, from the next poll tick on.
+        """Gate the write actions on ``breaker``.
 
         Safe before the shell is mounted: the next poll tick applies it.
 
@@ -110,15 +107,15 @@ class DbGateMixin(ShellHost):
         self._set_status(self._db_write_refusal() or _RECOVERED)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Report a write action as disabled while the gate is shut.
+        """Report a write action as disabled while the database gate is shut.
 
         Args:
             action: Name of the action a binding or ``run_action`` would run.
             parameters: The action's arguments.
 
         Returns:
-            ``None`` (shown greyed out, not run) for a write action while the gate
-            is closed, else whatever Textual's default check decides.
+            ``None`` (shown greyed out, not run) for a write action while the
+            database gate is shut, else whatever Textual's default check decides.
         """
         if action in DB_WRITE_ACTIONS and self._db_gate_text is not None:
             return None
