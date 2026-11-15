@@ -11,21 +11,13 @@
 # Class.method or outer.inner function (the literal <module> at module level) and
 # kind is the constructor name or the .method called. " xN" follows the key when
 # that scope makes the call N times (N >= 2). Keys hold no line numbers, so moving a
-# call inside its function does not break the file. The test fails on a call not listed here and on an entry the tree
-# no longer matches: when a call moves into a repository, delete or lower its line.
-# Never add a line.
+# call inside its function does not break the file. The test fails on a call not
+# listed here and on an entry the tree no longer matches: when a call moves into a
+# repository, delete or lower its line. Never add a line.
 fund.agents.ask_agent::_read_only::.execute
 fund.agents.ask_agent::_read_only::text
 fund.audit.persistence::_bootstrap_lock::.execute
 fund.audit.persistence::create_schema::.execute
-fund.performance::_active_ticket::.execute
-fund.performance::_active_ticket::select
-fund.performance::_nav_last_interval::.execute
-fund.performance::_nav_last_interval::select
-fund.performance::_tickets_through::.execute
-fund.performance::_tickets_through::select
-fund.performance::build_nav_series::.execute
-fund.performance::build_nav_series::select
 fund.tools.universe::_investable::select
 fund.tools.universe::list_universe::.execute x3
 fund.tools.universe::list_universe::select

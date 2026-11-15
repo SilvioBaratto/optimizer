@@ -495,12 +495,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests that replace either on the repository class still see each read. The complexity
   ratchet's baselines for `_check_tradeable` and `_load_price_frame`, both shorter now,
   are lowered. Behaviour is unchanged.
-- **fund**: statements that seven `fund` modules built and ran inline now run in
+- **fund**: statements that eight `fund` modules built and ran inline now run in
   repository methods that return builtins or frozen dataclasses: `fund.worker` and
   `fund.scheduler` call `FundJobRepository.fail_active_slots_of` and
   `jobs_started_since` (`StartedJob`), `fund.actions` calls
   `HumanAuditLogRepository.latest_idempotency_key`, `fund.tools.orders` calls
-  `OrderRepository.restamp_created_at`, `fund.agents.graph_failures` calls
+  `OrderRepository.restamp_created_at`, `fund.performance` calls
+  `OrderRepository.filled_tickets` and `latest_filled_ticket` (`FilledTicket`) and
+  `NavHistoryRepository.newest_nav_dates`, `fund.agents.graph_failures` calls
   `AgentRunRepository.insert_run_if_absent`, `fund.observe` calls
   `YFinanceRepository.newest_close_per_instrument` through the `PriceReader` port, and
   `fund.tools.eligibility` calls `UniverseRepository.instrument_classes_for`
@@ -508,8 +510,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ETFMetadataRepository.newest_stock_pct`. Each method runs the statement the module
   ran before, with the same parameters, on the session the caller passes. None of the
   methods commits; the callers that committed after the inline statement still do. The
-  one difference is that the `finished_at` stamp of a slot failed at shutdown is taken
-  inside the method, after the session opens. A new guard,
+  one difference is that `fail_active_slots_of` takes the `finished_at` stamp of a slot
+  failed at shutdown just after the session opens instead of just before.
+  `fund.performance`'s private ticket helpers now hand `FilledTicket` values instead of
+  `PaperOrder` rows to the code that reads the ticket's id, fill date, notional and
+  lines. `performance.py` may now import the `fund.audit` repositories: the static
+  import scan in `test_performance_nav.py` bars only the `deepagents`, `langgraph`,
+  `langchain` and `fund.agents` prefixes for it (it still bars `fund.audit` too for
+  `attribution.py`). A new fresh-interpreter probe imports `fund.performance` and every
+  module it names in an import statement, and fails if any of them loads a module with
+  one of those four prefixes. A new guard,
   `fund/tests/unit/hygiene/test_no_orm_outside_repositories.py`, counts `sqlalchemy`
   `select`/`insert`/`update`/`delete`/`text` calls bound by import, `.execute`,
   `.query` and `.add_all` calls, `.scalar`/`.scalars` calls with a positional argument,
@@ -517,12 +527,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under `fund/src/fund` except `fund/audit/*repository.py`. It fails on a call its
   allowlist `orm_baseline.txt` does not hold and on an entry the tree no longer
   matches; its docstring lists the forms it does not detect. The allowlist still holds
-  `fund.performance` (its module rule forbids importing `fund.audit`, where the
-  paper-order and NAV repositories live), `fund.tools.universe` (`list_universe`,
-  `_investable`, `uninvestable_reasons`), the Ask tools' `SET TRANSACTION READ ONLY`
-  in `fund.agents.ask_agent`, and the psycopg schema bootstrap in
-  `fund.audit.persistence`. The complexity ratchet's baselines for
-  `run_scheduled_nav_mark` and `_fail_in_flight_slots`, both shorter now, are lowered.
+  `fund.tools.universe` (`list_universe`, `_investable`, `uninvestable_reasons`), the
+  Ask tools' `SET TRANSACTION READ ONLY` in `fund.agents.ask_agent`, and the psycopg
+  schema bootstrap in `fund.audit.persistence`. The complexity ratchet's baselines
+  for `run_scheduled_nav_mark`, `_fail_in_flight_slots` and `build_nav_series`, all
+  shorter now, are lowered.
 
 ### Removed
 
