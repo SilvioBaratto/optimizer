@@ -818,8 +818,7 @@ def run_scheduled_nav_mark(
         ``True`` when a mark ran and completed; ``False`` when none was due, or the
         mark itself did not complete.
     """
-    from portopt_db.models import BackgroundJob
-    from sqlalchemy import select
+    from fund.audit.fund_job_repository import FundJobRepository
 
     factory = _resolve_factory(session_factory)
     moment = now if now is not None else datetime.now(UTC)
@@ -830,17 +829,9 @@ def run_scheduled_nav_mark(
         return False
 
     with factory() as session:
-        rows = session.execute(
-            select(
-                BackgroundJob.job_type,
-                BackgroundJob.status,
-                BackgroundJob.started_at,
-                BackgroundJob.finished_at,
-            ).where(
-                BackgroundJob.job_type.in_((_INGESTION_PRICE_JOB, JOB_NAV_MARK)),
-                BackgroundJob.started_at >= midnight,
-            )
-        ).all()
+        rows = FundJobRepository(session).jobs_started_since(
+            (_INGESTION_PRICE_JOB, JOB_NAV_MARK), midnight
+        )
     sweeps = [row for row in rows if row.job_type == _INGESTION_PRICE_JOB]
     # A mark reads the stored closes as it goes, so it is only as fresh as the moment
     # it began: one that began before the sweep settled may have read portfolios the

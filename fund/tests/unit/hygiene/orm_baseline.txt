@@ -33,8 +33,6 @@ fund.performance::_tickets_through::.execute
 fund.performance::_tickets_through::select
 fund.performance::build_nav_series::.execute
 fund.performance::build_nav_series::select
-fund.scheduler::run_scheduled_nav_mark::.execute
-fund.scheduler::run_scheduled_nav_mark::select
 fund.tools.eligibility::_instrument_facts::.execute
 fund.tools.eligibility::_instrument_facts::select
 fund.tools.eligibility::_stock_shares::.execute
@@ -46,5 +44,3 @@ fund.tools.universe::list_universe::.execute x3
 fund.tools.universe::list_universe::select
 fund.tools.universe::uninvestable_reasons::.execute
 fund.tools.universe::uninvestable_reasons::select
-fund.worker::_fail_in_flight_slots::.execute
-fund.worker::_fail_in_flight_slots::update

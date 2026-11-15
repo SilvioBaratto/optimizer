@@ -12,14 +12,16 @@ commit to the caller, D1), this repo **owns its own short transactions**: the
 atomic slot claim and every lifecycle transition (``mark_running`` →
 ``update_heartbeat`` → ``mark_done``) must *land* — be durable and visible to a
 reaper or observer running in another process — the moment they succeed. That is
-the one documented exception to the fund "no commit" rule. :meth:`reap_orphans`
-is the exception's exception: it flushes but does **not** commit (its scheduler
-caller owns the commit), mirroring the ingestion reaper.
+the one documented exception to the fund "no commit" rule. The two bulk failures
+are the exception's exception and do **not** commit, their callers own the commit:
+:meth:`reap_orphans` flushes, mirroring the ingestion reaper, and
+:meth:`fail_active_slots_of` calls no ``flush``.
 
 Liveness is a **heartbeat lease**, not a host/PID identity check: a claim is
 reaped only once ``last_heartbeat_at`` is NULL or older than the lease TTL, with
-**no** ``worker_host``/``worker_pid`` clause (those columns are recorded for
-observability only). Run exactly one daemon per DB.
+**no** ``worker_host``/``worker_pid`` clause. Those columns serve observability and
+:meth:`fail_active_slots_of`, which a daemon exiting after a timed-out drain uses
+to fail the slots it claimed itself. Run exactly one daemon per DB.
 """
 
 from __future__ import annotations
@@ -27,6 +29,8 @@ from __future__ import annotations
 import os
 import socket
 import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -52,6 +56,23 @@ _ACTIVE_STATUSES: tuple[str, ...] = ("pending", "running")
 # First key of the two-int advisory lock (ASCII "fund"), so the per-job_type lock
 # cannot collide with another subsystem hashing into the same one-int key space.
 _CLAIM_LOCK_NAMESPACE = 0x66756E64
+
+
+@dataclass(frozen=True)
+class StartedJob:
+    """When one ``background_jobs`` row started and how it stands.
+
+    Attributes:
+        job_type: The row's ``job_type``.
+        status: The row's ``status`` as stored.
+        started_at: When the slot was claimed.
+        finished_at: The stored finish time, or ``None`` when none is stored.
+    """
+
+    job_type: str
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -280,8 +301,78 @@ class FundJobRepository(RepositoryBase):
         self.session.flush()
         return _rows_affected(result)
 
+    def fail_active_slots_of(
+        self, worker_pid: int, worker_host: str, *, error: str
+    ) -> int:
+        """Fail the active fund slots one process claimed; return how many.
+
+        For a daemon that exits with a step still running: its heartbeat dies with
+        it, so the slot would otherwise block the next run of its type until the
+        lease expired. Only ``pending``/``running`` rows of :data:`FUND_JOB_TYPES`
+        stamped with both ``worker_pid`` and ``worker_host`` are failed, so a slot
+        another process holds keeps running. It calls neither ``flush`` nor
+        ``commit``: the caller owns the commit.
+
+        Args:
+            worker_pid: The process id stamped on the slots to fail.
+            worker_host: The host name stamped on the slots to fail.
+            error: The ``error`` text recorded on each failed slot.
+
+        Returns:
+            The number of rows failed.
+        """
+        now = datetime.now(UTC)
+        result = self.session.execute(
+            update(BackgroundJob)
+            .where(
+                BackgroundJob.job_type.in_(FUND_JOB_TYPES),
+                BackgroundJob.status.in_(_ACTIVE_STATUSES),
+                BackgroundJob.worker_pid == worker_pid,
+                BackgroundJob.worker_host == worker_host,
+            )
+            .values(status="failed", error=error, finished_at=now, updated_at=now),
+            execution_options={"synchronize_session": False},
+        )
+        return _rows_affected(result)
+
+    def jobs_started_since(
+        self, job_types: Sequence[str], since: datetime
+    ) -> list[StartedJob]:
+        """Return the rows of ``job_types`` that started at or after ``since``.
+
+        Reads any job type, an ingestion one included, so a fund step can see how
+        far the ingestion daemon got. Rows come in no guaranteed order.
+
+        Args:
+            job_types: The ``job_type`` values to read.
+            since: Inclusive lower bound on ``started_at``.
+
+        Returns:
+            One :class:`StartedJob` per matching row; empty when none matches.
+        """
+        rows = self.session.execute(
+            select(
+                BackgroundJob.job_type,
+                BackgroundJob.status,
+                BackgroundJob.started_at,
+                BackgroundJob.finished_at,
+            ).where(
+                BackgroundJob.job_type.in_(job_types),
+                BackgroundJob.started_at >= since,
+            )
+        ).all()
+        return [
+            StartedJob(
+                job_type=row.job_type,
+                status=row.status,
+                started_at=row.started_at,
+                finished_at=row.finished_at,
+            )
+            for row in rows
+        ]
+
     def get(self, job_id: uuid.UUID) -> BackgroundJob | None:
         return self.session.get(BackgroundJob, job_id)
 
 
-__all__ = ["FUND_JOB_TYPES", "FundJobRepository"]
+__all__ = ["FUND_JOB_TYPES", "FundJobRepository", "StartedJob"]

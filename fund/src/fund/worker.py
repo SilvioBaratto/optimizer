@@ -169,37 +169,18 @@ def _fail_in_flight_slots(*, session_factory: SessionFactory | None = None) -> N
     ``mark_done`` can no longer flip the row back to ``completed``. **Non-fatal**: a DB
     failure logs and returns so the exit is never blocked.
     """
-    from datetime import UTC, datetime
-
-    from portopt_db.models import BackgroundJob
-    from portopt_db.models.jobs.background_job import FUND_JOB_TYPES
-    from sqlalchemy import update
+    from fund.audit.fund_job_repository import FundJobRepository
 
     factory = session_factory or database_manager.get_session
     try:
-        now = datetime.now(UTC)
         with factory() as session:
-            result = session.execute(
-                update(BackgroundJob)
-                .where(
-                    BackgroundJob.job_type.in_(FUND_JOB_TYPES),
-                    BackgroundJob.status.in_(("pending", "running")),
-                    BackgroundJob.worker_pid == os.getpid(),
-                    BackgroundJob.worker_host == socket.gethostname(),
-                )
-                .values(
-                    status="failed",
-                    error="abandoned at shutdown — drain timeout exceeded",
-                    finished_at=now,
-                    updated_at=now,
-                ),
-                execution_options={"synchronize_session": False},
+            failed = FundJobRepository(session).fail_active_slots_of(
+                os.getpid(),
+                socket.gethostname(),
+                error="abandoned at shutdown — drain timeout exceeded",
             )
             session.commit()
-        logger.warning(
-            "Failed %d in-flight fund job(s) abandoned at shutdown",
-            int(getattr(result, "rowcount", 0) or 0),
-        )
+        logger.warning("Failed %d in-flight fund job(s) abandoned at shutdown", failed)
     except Exception as exc:
         logger.warning("Could not fail in-flight fund jobs at shutdown: %s", exc)
 
