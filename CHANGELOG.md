@@ -495,6 +495,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests that replace either on the repository class still see each read. The complexity
   ratchet's baselines for `_check_tradeable` and `_load_price_frame`, both shorter now,
   are lowered. Behaviour is unchanged.
+- **fund**: statements that seven `fund` modules built and ran inline now run in
+  repository methods that return builtins or frozen dataclasses: `fund.worker` and
+  `fund.scheduler` call `FundJobRepository.fail_active_slots_of` and
+  `jobs_started_since` (`StartedJob`), `fund.actions` calls
+  `HumanAuditLogRepository.latest_idempotency_key`, `fund.tools.orders` calls
+  `OrderRepository.restamp_created_at`, `fund.agents.graph_failures` calls
+  `AgentRunRepository.insert_run_if_absent`, `fund.observe` calls
+  `YFinanceRepository.newest_close_per_instrument` through the `PriceReader` port, and
+  `fund.tools.eligibility` calls `UniverseRepository.instrument_classes_for`
+  (`InstrumentClass`) through the `UniverseReader` port and
+  `ETFMetadataRepository.newest_stock_pct`. Each method runs the statement the module
+  ran before, with the same parameters, on the session the caller passes. None of the
+  methods commits; the callers that committed after the inline statement still do. The
+  one difference is that the `finished_at` stamp of a slot failed at shutdown is taken
+  inside the method, after the session opens. A new guard,
+  `fund/tests/unit/hygiene/test_no_orm_outside_repositories.py`, counts `sqlalchemy`
+  `select`/`insert`/`update`/`delete`/`text` calls bound by import, `.execute`,
+  `.query` and `.add_all` calls, `.scalar`/`.scalars` calls with a positional argument,
+  and `.get`/`.add` calls on models imported from `portopt_db.models`, in every module
+  under `fund/src/fund` except `fund/audit/*repository.py`. It fails on a call its
+  allowlist `orm_baseline.txt` does not hold and on an entry the tree no longer
+  matches; its docstring lists the forms it does not detect. The allowlist still holds
+  `fund.performance` (its module rule forbids importing `fund.audit`, where the
+  paper-order and NAV repositories live), `fund.tools.universe` (`list_universe`,
+  `_investable`, `uninvestable_reasons`), the Ask tools' `SET TRANSACTION READ ONLY`
+  in `fund.agents.ask_agent`, and the psycopg schema bootstrap in
+  `fund.audit.persistence`. The complexity ratchet's baselines for
+  `run_scheduled_nav_mark` and `_fail_in_flight_slots`, both shorter now, are lowered.
 
 ### Removed
 

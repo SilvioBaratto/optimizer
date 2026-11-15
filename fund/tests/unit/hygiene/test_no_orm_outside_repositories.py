@@ -3,8 +3,9 @@
 Data access belongs in a repository, so a ``fund`` module that builds or runs a
 statement itself bypasses that layer. The calls that did so when this guard was
 written are listed in ``orm_baseline.txt``. The test fails on a call the baseline
-does not list and on a baseline entry the tree no longer matches, so the file can
-only shrink as calls move into repositories.
+does not list and on a baseline entry the tree no longer matches, so moving a call
+into a repository forces its entry out of the file, and a new call fails the test
+until someone adds an entry by hand.
 
 The scan parses the syntax tree of every ``.py`` file under ``fund/src/fund`` except
 the repository modules: the files directly under ``fund/audit/`` whose name ends in
