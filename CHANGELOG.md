@@ -141,19 +141,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   After 5 consecutive connection failures the breaker refuses sessions at once with
   `DatabaseUnavailableError` instead of waiting out a connect timeout per call. After
-  30 s it lets one probe session through, which connects before the caller's code runs
-  and decides at that connect whether the breaker closes again. Both values are set
+  30 s it lets a probe session through, one at a time, which connects before the
+  caller's code runs and decides at that connect whether the breaker closes again. Both values are set
   from the environment, for the ingestion daemon and for fund alike:
   `DATABASE_BREAKER_FAILURE_THRESHOLD` (default 5) and `DATABASE_BREAKER_RESET_TIMEOUT_S`
   (default 30.0). Both processes parse them the same strict way: the threshold is
   plain digits and the timeout digits with an optional fraction. Anything else
   (`5.0` for the threshold, a sign, `inf`, an empty value) fails at startup.
-  A SQLSTATE outside class 08 and 57P01-57P03 does not count unless SQLAlchemy marked
-  the error `connection_invalidated`; otherwise it is recorded as a success, because the
-  server answered. Statement and lock timeouts are outside the counted SQLSTATEs.
+  An error is classified in this order: (1) a `DisconnectionError` counts; (2) a
+  `DBAPIError` that SQLAlchemy marked `connection_invalidated` counts, tested before the
+  SQLSTATE is read; (3) a SQLSTATE in class 08 or equal to 57P01, 57P02 or 57P03 counts;
+  (4) an `OperationalError` without a SQLSTATE raised outside a statement counts; (5) any
+  other driver error with a SQLSTATE is recorded as a success, because the server
+  answered; (6) anything else, without a SQLSTATE, is inconclusive and leaves the count
+  alone.
   The ingestion daemon logs a stopped step without a traceback, counts it in the new
   `jobs_db_unavailable_total` counter, counts a refused failed-status write in
-  `jobs_failed_status_refused_total`, and retries on the next scheduled run. When the
+  `jobs_failed_status_refused_total`, and retries on the next scheduled run unless the
+  step's row is still active. When the
   failed-status write of a step the breaker stopped does land, `background_jobs.error`
   starts with the new `db_unavailable:` prefix. When it is refused, the row stays
   `running` or `pending` until the orphan reaper, or the reconciliation at the next

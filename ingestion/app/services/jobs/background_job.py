@@ -30,8 +30,8 @@ def _log_dropped_write(what: str, job_id: object, exc: Exception) -> None:
     """Log a best-effort job write that failed and is being dropped.
 
     A sweep reports progress per item, so while the database circuit breaker is
-    open every call is refused; a stack trace per refusal would bury the log. Any
-    other failure keeps its traceback.
+    open a refusal can repeat for each item; a stack trace per refusal would bury
+    the log. Any other failure keeps its traceback.
     """
     if isinstance(exc, DatabaseUnavailableError):
         logger.warning("%s failed for %s: %s", what, job_id, exc)

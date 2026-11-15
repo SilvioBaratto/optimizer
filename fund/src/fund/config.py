@@ -68,9 +68,10 @@ class FundConfig:
     # pool connection forever. 0 disables it. Shares the ingestion daemon's
     # DATABASE_LOCK_TIMEOUT_MS knob. ---
     db_lock_timeout_ms: int = 60_000
-    # --- Circuit breaker on every ORM session (docs/adr/0008): consecutive
-    # connection failures that open it, and seconds it refuses sessions before one
-    # probe. Shares the ingestion daemon's DATABASE_BREAKER_* knobs. ---
+    # --- Circuit breaker on DatabaseManager.get_session (docs/adr/0008):
+    # consecutive connectivity failures that open it, and seconds it refuses
+    # sessions before it admits a probe. Shares the ingestion daemon's
+    # DATABASE_BREAKER_* knobs. ---
     db_breaker_failure_threshold: int = DEFAULT_FAILURE_THRESHOLD
     db_breaker_reset_timeout_s: float = DEFAULT_RESET_TIMEOUT_S
 

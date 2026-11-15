@@ -290,9 +290,10 @@ def _report_db_unavailable(
 ) -> None:
     """Log one line and count a step the open circuit breaker stopped.
 
-    The refusal is expected while the database is down, and every step of a
-    pipeline meets it, so a traceback per step would bury the one line that
-    matters. The next scheduled run retries the step.
+    The refusal is expected while the database is down, and each step of a
+    pipeline can meet it, so a traceback per step would bury the line that
+    matters. The next scheduled run retries the step, unless its row is still
+    active (ADR-0008, Known limits).
     """
     logger.error("%s: step stopped, %s", label, exc)
     if not settings.enable_metrics:
@@ -330,10 +331,10 @@ def _mark_job_failed(
 
     The error text lands in the ``error`` column and the failure webhook, which
     otherwise only know the status. Used on error paths, where a failing write
-    must not replace the original error or abort the pipeline. A row left
-    behind is failed by the orphan reaper once its heartbeat lapses: while the
-    circuit breaker is open the write is refused before it reaches the database,
-    and that is the only way the row can still be failed.
+    must not replace the original error or abort the pipeline. While the circuit
+    breaker is open the write is refused before it reaches the database, and the
+    row stays active until the orphan reaper, or the orphan reconciliation at the
+    next worker start, fails it after its heartbeat lease has lapsed.
     """
     try:
         job_svc.update_job(
@@ -357,9 +358,10 @@ def _report_refused_status_write(
     """Log and count a failed-status write the open circuit breaker refused.
 
     The row stays ``running``, or ``pending`` when its ``running`` write was
-    refused too, until the orphan reaper fails it, and its error then reads
-    ``orphaned``, so this line and ``jobs_failed_status_refused_total`` are where
-    the refusal is visible when it happens.
+    refused too, until the orphan reaper or the orphan reconciliation at the next
+    worker start fails it, and its error then reads ``orphaned``, so this line and
+    ``jobs_failed_status_refused_total`` are where the refusal is visible when it
+    happens.
     """
     logger.error(
         "%s: could not record failed status (job %s), %s; the orphan reaper "
@@ -404,9 +406,11 @@ def _run_step(
     back to back, so one step's bookkeeping error must not skip the rest. A
     ``KeyboardInterrupt`` / ``SystemExit`` marks the row failed and propagates.
 
-    While the database circuit breaker is open, a refused session costs one log
-    line and one ``jobs_db_unavailable_total`` count instead of a traceback; the
-    next scheduled run retries the step.
+    While the database circuit breaker is open, a refused job-slot claim costs
+    one log line and one ``jobs_db_unavailable_total`` count instead of a
+    traceback. A refusal later in the step can add lines and a
+    ``jobs_failed_status_refused_total`` count; ADR-0008 (Known limits) lists
+    them. The next scheduled run retries the step, unless its row is still active.
     """
     if _scheduler is not None and _scheduler.draining:
         logger.warning("%s: skipped — scheduler is shutting down", label)

@@ -1,10 +1,15 @@
 """Grey out the shell's write actions while the database circuit breaker is open.
 
-Reads need no gate: they go through the same breaker, which refuses them at once.
-A write would be refused the same way, but only after the adviser had read a gate
-and answered a confirm, so the bindings that start one are disabled instead and the
-status bar says why. A confirm that was already open when the breaker opened still
-ends in a refused write, which the action worker reports like any other failure.
+Reads through the shell's ``session_factory`` need no gate: they go through the same
+breaker, which refuses them at once. Reads that bypass it, such as the Ask history in
+the LangGraph Store, are listed under Unguarded paths in ADR-0008. A write would be
+refused the same way, but only after the adviser had read a gate and answered a
+confirm, so the bindings that start one are disabled instead and the status bar says
+why. A key-binding confirm that was already open when the gate shut is not checked
+again: if the breaker still refuses when its worker opens a session, the worker
+reports the refusal like any other failure. An Ask confirm, the fund re-arm rationale
+and a steer directive are checked against the gate again when answered, and refused
+before any worker starts.
 """
 
 from __future__ import annotations
@@ -38,7 +43,8 @@ DB_WRITE_ACTIONS = frozenset(
 )
 
 # An open breaker whose timeout has passed refuses nothing until a call becomes
-# the probe, yet the database is not known to be back; the next poll read probes.
+# the probe, yet the database is not known to be back; the next session opened,
+# such as a poll read, probes.
 _PROBE_PENDING = "database unavailable: the next read tests the connection"
 _DISABLED_SUFFIX = " - write actions are disabled until it answers again"
 _RECOVERED = "database reachable again - write actions are enabled"
@@ -47,19 +53,20 @@ _RECOVERED = "database reachable again - write actions are enabled"
 class DbGateMixin(ShellHost):
     """Disables write bindings while the database breaker is not closed.
 
-    Mixed into :class:`~fund.tui.app.ShellApp`. Off until
-    :meth:`watch_db_breaker` names a breaker. Runs on the event loop only: the
-    poll tick calls :meth:`_sync_db_gate`, and Textual calls :meth:`check_action`
-    when it renders or runs a binding.
+    The breaker is read at each poll tick, so the bindings follow it from the next
+    tick on. Mixed into :class:`~fund.tui.app.ShellApp`. Off until
+    :meth:`watch_db_breaker` names a breaker. The poll tick calls
+    :meth:`_sync_db_gate`, and Textual calls :meth:`check_action` when it renders
+    or runs a binding.
     """
 
     _db_breaker: CircuitBreaker | None = None
-    # Why the database is unavailable as of the last sync; ``None`` keeps every
-    # action enabled.
+    # Why the database is unavailable as of the last sync; ``None`` leaves every
+    # action to Textual's default check.
     _db_gate_text: str | None = None
 
     def watch_db_breaker(self, breaker: CircuitBreaker | None) -> None:
-        """Disable the write actions whenever ``breaker`` is not closed.
+        """Gate the write actions on ``breaker``, from the next poll tick on.
 
         Safe before the shell is mounted: the next poll tick applies it.
 
@@ -86,7 +93,7 @@ class DbGateMixin(ShellHost):
         """The status line explaining a refused write, or None while writes run.
 
         Reads the gate as of the last poll, the same state ``check_action`` reads,
-        so a write started any other way (an Ask decision verb) is refused exactly
+        so an Ask decision verb, which no key binding starts, is refused exactly
         when the keys are greyed out.
         """
         text = self._db_gate_text
@@ -103,7 +110,7 @@ class DbGateMixin(ShellHost):
         self._set_status(self._db_write_refusal() or _RECOVERED)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Report a write action as disabled while the database is unavailable.
+        """Report a write action as disabled while the gate is shut.
 
         Args:
             action: Name of the action a binding or ``run_action`` would run.

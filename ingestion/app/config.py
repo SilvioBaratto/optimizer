@@ -60,8 +60,9 @@ class Settings(BaseSettings):
     # mid-fetch.
     database_lock_timeout_ms: int = Field(default=60_000, ge=0)
     database_statement_timeout_ms: int = Field(default=0, ge=0)
-    # Circuit breaker on every session (see docs/adr/0008): consecutive connection
-    # failures that open it, and seconds it refuses sessions before one probe.
+    # Circuit breaker on DatabaseManager.get_session (see docs/adr/0008):
+    # consecutive connectivity failures that open it, and seconds it refuses
+    # sessions before it admits a probe.
     database_breaker_failure_threshold: int = Field(
         default=DEFAULT_FAILURE_THRESHOLD, ge=1, strict=True
     )

@@ -46,10 +46,11 @@ class DbConfig:
             disables it. Leave off for workloads that keep one transaction open
             across network calls: the server kills the session mid-transaction
             and the whole unit of work is lost.
-        breaker_failure_threshold: Consecutive connection failures after which
-            the manager's circuit breaker opens and refuses sessions at once.
+        breaker_failure_threshold: Consecutive connectivity failures (see
+            ``portopt_db.resilience.is_connectivity_failure``) after which the
+            manager's circuit breaker opens and refuses each new session at once.
         breaker_reset_timeout_s: Seconds an open breaker refuses sessions before
-            it lets one probe session through.
+            it admits a probe session.
 
     Raises:
         ValueError: A server-side timeout is negative, or a breaker setting is

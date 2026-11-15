@@ -257,7 +257,7 @@ _ANSWER_CASES: list[tuple[str, Callable[[], BaseException], str]] = [
 def test_only_an_error_with_a_sqlstate_proves_the_server_answered(
     make_error: Callable[[], BaseException], expected: str
 ) -> None:
-    """A SQLSTATE resets the count; an error without one proves nothing."""
+    """A SQLSTATE resets the count; these errors without one prove nothing."""
     breaker = _breaker(_Clock())
     _trip(breaker, _THRESHOLD - 1)
 

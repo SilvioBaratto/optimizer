@@ -2,10 +2,10 @@
 
 Validates ``app.services.jobs.scheduler._run_step``, ``_mark_job_failed`` and
 ``run_orphan_reaper``, the ``portopt_db_breaker_state`` gauge and the
-``jobs_db_unavailable_total`` counter in ``app.metrics``, and the binding in
-``app.worker._serve_metrics``. The engines are real SQLite engines: one whose
-every connect fails, one that works until the test opens its breaker. The
-breakers run on a fake clock, so no test sleeps.
+``jobs_db_unavailable_total`` and ``jobs_failed_status_refused_total`` counters in
+``app.metrics``, and the binding in ``app.worker._serve_metrics``. The engines are
+real SQLite engines: one whose every connect fails, one that works until the test
+opens its breaker. The breakers run on a fake clock, so no test sleeps.
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ def reachable(tmp_path, clock: _Clock):
 def test_open_breaker_skips_the_step_without_touching_the_database(
     unreachable: DatabaseManager, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A dead database fails the step in one line: no traceback, no engine, no work."""
+    """A refused claim stops the step in one line: no traceback, no engine, no work."""
     domain = "breaker_probe_claim"
     jobs = BackgroundJobService(
         job_type=domain, session_factory=unreachable.get_session
@@ -157,8 +157,8 @@ def test_breaker_opening_mid_step_leaves_the_row_for_the_orphan_reaper(
     clock: _Clock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The failed status cannot be written through an open breaker; the reaper
-    records the failure once the database answers again."""
+    """The failed status cannot be written through an open breaker, so the row is
+    left for the orphan reaper."""
     domain = "breaker_probe_midstep"
     jobs = BackgroundJobService(job_type=domain, session_factory=reachable.get_session)
 
