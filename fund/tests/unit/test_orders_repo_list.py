@@ -203,3 +203,37 @@ def test_latest_for_portfolio_returns_most_recent(db_session):
 def test_latest_for_portfolio_none_when_empty(db_session):
     repo = OrderRepository(db_session)
     assert repo.latest_for_portfolio(_PID) is None
+
+
+# --- OrderRepository.restamp_created_at --------------------------------------
+
+
+def test_restamp_created_at_makes_an_older_ticket_the_latest(committing_session):
+    """The database-clock stamp outranks older ones; the caller owns the commit."""
+    old = _order(
+        _PID,
+        asof=date(2026, 1, 30),
+        created_at=datetime(2026, 1, 31, tzinfo=UTC),
+        weights_hash="h1",
+    )
+    new = _order(
+        _PID,
+        asof=date(2026, 2, 27),
+        created_at=datetime(2026, 2, 28, tzinfo=UTC),
+        weights_hash="h2",
+    )
+    committing_session.add_all([old, new])
+    committing_session.commit()
+    old_id, new_id = old.id, new.id
+    repo = OrderRepository(committing_session)
+
+    repo.restamp_created_at(old_id)
+    committing_session.expire_all()
+    restamped = repo.latest_for_portfolio(_PID)
+    restamped_id = None if restamped is None else restamped.id
+    committing_session.rollback()
+    restored = repo.latest_for_portfolio(_PID)
+
+    assert restamped_id == old_id
+    assert restored is not None
+    assert restored.id == new_id

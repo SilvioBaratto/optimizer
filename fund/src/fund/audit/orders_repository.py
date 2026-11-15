@@ -27,9 +27,10 @@ import uuid
 from datetime import date
 from typing import Any
 
+from portopt_db.base import ClockTimestamp
 from portopt_db.models import PaperOrder
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 
 def weights_hash(weights: dict[str, float]) -> str:
@@ -152,6 +153,23 @@ class OrderRepository(RepositoryBase):
             .order_by(PaperOrder.created_at.desc())
         )
         return self.session.execute(stmt).scalars().first()
+
+    def restamp_created_at(self, order_id: uuid.UUID) -> None:
+        """Set a ticket's ``created_at`` to the database clock's current time.
+
+        Issued as a bulk ``UPDATE`` that leaves the session's loaded copy of the row
+        unchanged. It calls neither ``flush`` nor ``commit``: the caller owns the
+        transaction.
+
+        Args:
+            order_id: The ticket to re-stamp.
+        """
+        self.session.execute(
+            update(PaperOrder)
+            .where(PaperOrder.id == order_id)
+            .values(created_at=ClockTimestamp())
+            .execution_options(synchronize_session=False)
+        )
 
 
 __all__ = ["OrderRepository", "weights_hash"]

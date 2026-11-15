@@ -35,8 +35,6 @@ fund.tools.eligibility::_instrument_facts::.execute
 fund.tools.eligibility::_instrument_facts::select
 fund.tools.eligibility::_stock_shares::.execute
 fund.tools.eligibility::_stock_shares::select
-fund.tools.orders::_make_newest::.execute
-fund.tools.orders::_make_newest::update
 fund.tools.universe::_investable::select
 fund.tools.universe::list_universe::.execute x3
 fund.tools.universe::list_universe::select
