@@ -101,7 +101,11 @@ class FxRatePoint:
 
 @runtime_checkable
 class PriceReader(Protocol):
-    """Instrument, profile and daily-bar reads keyed by Yahoo symbol or instrument."""
+    """Instrument, profile and daily-bar reads.
+
+    Each read is keyed by Yahoo symbol or by instrument, except
+    :meth:`newest_close_per_instrument`, which spans every instrument.
+    """
 
     def instrument_for(self, yfinance_ticker: str) -> InstrumentSummary | None:
         """Return the instrument listed under ``yfinance_ticker``.
@@ -146,6 +150,21 @@ class PriceReader(Protocol):
 
         Returns:
             The bars in the requested order; empty when none is stored.
+        """
+        ...
+
+    def newest_close_per_instrument(
+        self, start: dt.date, end: dt.date
+    ) -> list[dt.date]:
+        """Return each instrument's newest bar date with a close inside a window.
+
+        Args:
+            start: Inclusive lower bound on the bar date.
+            end: Inclusive upper bound on the bar date.
+
+        Returns:
+            One date per instrument with a non-NULL close in the window, in no
+            guaranteed order; empty when no instrument has one.
         """
         ...
 

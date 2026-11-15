@@ -408,20 +408,14 @@ def default_decision_bar(session: Any, *, today: dt.date | None = None) -> dt.da
     Returns:
         The decision bar, or ``today`` when no recent price data is stored.
     """
-    from portopt_db.models.market_data.yfinance_data import PriceHistory
-    from sqlalchemy import func, select
+    from fund.readers import price_reader
 
     day = today if today is not None else dt.datetime.now(dt.UTC).date()
-    stmt = (
-        select(func.max(PriceHistory.date))
-        .where(
-            PriceHistory.close.is_not(None),
-            PriceHistory.date >= day - dt.timedelta(days=_DECISION_BAR_LOOKBACK_DAYS),
-            PriceHistory.date <= day,
+    latest = sorted(
+        price_reader(session).newest_close_per_instrument(
+            day - dt.timedelta(days=_DECISION_BAR_LOOKBACK_DAYS), day
         )
-        .group_by(PriceHistory.instrument_id)
     )
-    latest: list[dt.date] = sorted(session.execute(stmt).scalars())
     if not latest:
         return day
     reached = latest[int(len(latest) * _DECISION_BAR_LAGGING_SHARE)]

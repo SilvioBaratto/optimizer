@@ -21,8 +21,6 @@ fund.agents.graph_failures::record_failed_round::.add_all
 fund.agents.graph_failures::record_failed_round::.get
 fund.audit.persistence::_bootstrap_lock::.execute
 fund.audit.persistence::create_schema::.execute
-fund.observe::default_decision_bar::.execute
-fund.observe::default_decision_bar::select
 fund.performance::_active_ticket::.execute
 fund.performance::_active_ticket::select
 fund.performance::_nav_last_interval::.execute

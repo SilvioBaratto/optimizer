@@ -286,6 +286,52 @@ def test_price_bars_for_reads_the_same_bars_as_get_price_history(
     ]
 
 
+def _add_close(
+    session: Session, instrument: Instrument, day: dt.date, close: str | None
+) -> None:
+    add_and_flush(
+        session,
+        PriceHistory(
+            instrument_id=instrument.id,
+            date=day,
+            close=None if close is None else Decimal(close),
+        ),
+    )
+
+
+def test_newest_close_per_instrument_reads_each_instrument_newest_closed_bar(
+    db_session: Session,
+) -> None:
+    """One date per instrument with a close in the window; a NULL close is skipped."""
+    early, late, blank, stale = (
+        _instrument(db_session, ticker) for ticker in ("EARLY", "LATE", "BLANK", "OLD")
+    )
+    _add_close(db_session, early, dt.date(2026, 3, 2), "1")
+    _add_close(db_session, early, dt.date(2026, 3, 4), "1")
+    _add_close(db_session, late, dt.date(2026, 3, 5), "1")
+    _add_close(db_session, late, dt.date(2026, 3, 9), "1")
+    _add_close(db_session, blank, dt.date(2026, 3, 3), "1")
+    _add_close(db_session, blank, dt.date(2026, 3, 5), None)
+    _add_close(db_session, stale, dt.date(2026, 2, 27), "1")
+    repository = YFinanceRepository(db_session)
+
+    dates = repository.newest_close_per_instrument(
+        dt.date(2026, 3, 1), dt.date(2026, 3, 6)
+    )
+
+    assert sorted(dates) == [
+        dt.date(2026, 3, 3),
+        dt.date(2026, 3, 4),
+        dt.date(2026, 3, 5),
+    ]
+    assert (
+        repository.newest_close_per_instrument(
+            dt.date(2026, 4, 1), dt.date(2026, 4, 30)
+        )
+        == []
+    )
+
+
 def _add_rate(session: Session, base: str, quote: str, day: dt.date, rate: str) -> None:
     add_and_flush(
         session,
