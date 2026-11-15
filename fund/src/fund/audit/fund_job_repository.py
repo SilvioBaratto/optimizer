@@ -3,10 +3,9 @@
 The ``background_jobs`` *model* lives in ``portopt_db`` (shared schema,
 Alembic-owned); the fund daemon needs its own *behavior* over it — a
 boundary-clean mirror of the ingestion ``BackgroundJobRepository`` that never
-imports ``ingestion.app``. :meth:`claim_or_create` gives each ``job_type`` at most
-one active row, so the three fund job types in :data:`FUND_JOB_TYPES` (the
-rebalance sweep, the drift monitor and the NAV mark) each run in at most one claimed
-slot at a time, also across a restart or a second daemon.
+imports ``ingestion.app``. :meth:`claim_or_create` keeps at most one active row per
+``job_type``; :data:`FUND_JOB_TYPES` names the three fund job types (the rebalance
+sweep, the drift monitor and the NAV mark).
 
 Unlike the other ``fund.audit`` repositories (which open no session and leave the
 commit to the caller, D1), this repo **owns its own short transactions**: the
@@ -21,8 +20,8 @@ are the exception's exception and do **not** commit, their callers own the commi
 Liveness is a **heartbeat lease**, not a host/PID identity check: a claim is
 reaped only once ``last_heartbeat_at`` is NULL or older than the lease TTL, with
 **no** ``worker_host``/``worker_pid`` clause. Those columns serve observability and
-:meth:`fail_active_slots_of`, which the fund daemon calls on its way out to fail
-the slots it claimed itself. Run exactly one daemon per DB.
+:meth:`fail_active_slots_of`, which ``fund.worker`` calls before the daemon exits.
+Run exactly one daemon per DB.
 """
 
 from __future__ import annotations
@@ -307,12 +306,11 @@ class FundJobRepository(RepositoryBase):
     ) -> int:
         """Fail the active fund slots one process claimed; return how many.
 
-        For a daemon that exits with a step still running: its heartbeat dies with
-        it, so the slot would otherwise block the next run of its type until the
-        lease expired. Only ``pending``/``running`` rows of :data:`FUND_JOB_TYPES`
-        stamped with both ``worker_pid`` and ``worker_host`` are failed, so a slot
-        another process holds keeps running. It calls neither ``flush`` nor
-        ``commit``: the caller owns the commit.
+        For a daemon about to exit: a running step's heartbeat dies with it, so its
+        slot would otherwise stay active until a reaper fails it after its lease has
+        expired. Only ``pending``/``running`` rows of :data:`FUND_JOB_TYPES` stamped
+        with both ``worker_pid`` and ``worker_host`` are failed. It calls neither
+        ``flush`` nor ``commit``: the caller owns the commit.
 
         Args:
             worker_pid: The process id stamped on the slots to fail.

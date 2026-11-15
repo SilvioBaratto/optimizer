@@ -1,8 +1,8 @@
 """``OrderRepository`` reads of filled tickets and the ``created_at`` re-stamp.
 
 The ticket reads return :class:`FilledTicket` values ranked oldest to newest by fill
-bar, decision bar, ``created_at`` and id, the order NAV and the holdings table read.
-The re-stamp writes through the caller's session without committing.
+bar, decision bar, ``created_at`` and id. The re-stamp writes through the caller's
+session without committing.
 """
 
 from __future__ import annotations

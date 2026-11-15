@@ -41,8 +41,8 @@ Each hit is keyed ``<module>::<qualified name>::<kind>``: the dotted module, the
 dotted chain of enclosing classes and functions (``Class.method``, ``outer.inner``;
 ``<module>`` at module level), and the kind (``select``, ``.execute``, ``.get`` ...).
 The key holds no line number, so an edit that moves a call within its function does
-not break the baseline; moving it to another function or class changes its key, which
-the test reports as a new call plus a stale entry.
+not break the baseline; moving it to another function or class changes its key and
+fails the test.
 """
 
 from __future__ import annotations
@@ -61,8 +61,7 @@ _CONSTRUCTORS = frozenset({"select", "insert", "update", "delete", "text"})
 _ANY_ARGUMENT_METHODS = frozenset({"execute", "query", "add_all"})
 _STATEMENT_ARGUMENT_METHODS = frozenset({"scalar", "scalars"})
 _MODULE_LEVEL = "<module>"
-# Well below the number of modules in ``fund``, so a scan that finds fewer most
-# likely looks at the wrong root.
+# A floor well below the number of modules ``fund`` has.
 _MIN_SCANNED_MODULES = 50
 
 _ScopeNode = ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef

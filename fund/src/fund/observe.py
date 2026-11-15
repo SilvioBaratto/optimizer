@@ -391,7 +391,7 @@ _DECISION_BAR_LAGGING_SHARE = 0.1
 
 
 def default_decision_bar(session: Any, *, today: dt.date | None = None) -> dt.date:
-    """The newest decision bar whose next close is stored for most of the universe.
+    """Choose the decision bar from the stored closes of recently priced instruments.
 
     ``place_orders`` fills at the first close strictly after the decision bar (D30),
     so a bar equal to the wall-clock date (or to the last stored bar) has nothing to

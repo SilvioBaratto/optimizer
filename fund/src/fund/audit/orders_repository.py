@@ -38,8 +38,8 @@ from sqlalchemy import Select, select, update
 class FilledTicket:
     """One paper ticket's id, fill bar, ``created_at``, notional and lines.
 
-    ``frozen`` stops reassigning a field only: ``lines`` holds the loaded row's own
-    line dicts, so editing one of them edits the loaded row as well.
+    ``frozen`` blocks attribute assignment, not edits to the dicts in ``lines``:
+    they are the loaded row's own line dicts, so editing one edits the loaded row.
 
     Attributes:
         id: The ticket's primary key.

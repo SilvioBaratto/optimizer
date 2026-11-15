@@ -161,15 +161,15 @@ def _fail_in_flight_slots(*, session_factory: SessionFactory | None = None) -> N
 
     ``main`` calls it when the process is about to exit, after a timed-out drain or
     after the APScheduler thread died; any step's heartbeat thread dies with the
-    process. Without this an active slot would stay active until its lease expired,
-    blocking the next scheduled run of that type. Only rows stamped at claim with this
-    process's ``worker_pid`` and ``worker_host`` are failed: a manual
-    ``python -m fund.scheduler`` run holds a slot of its own, and failing it would end
-    its heartbeats and let the next daemon claim the same job type while that run is
-    still driving the portfolio. ``mark_done`` moves only active rows, so once a slot
-    is failed here an abandoned step's late ``mark_done`` cannot flip it to
-    ``completed``. **Non-fatal**: an exception is logged and swallowed, so a database
-    error does not stop the exit.
+    process. Without this an active slot would stay active, blocking the next
+    scheduled run of that type, until a reaper fails it after its lease has expired.
+    Only rows stamped at claim with this process's ``worker_pid`` and ``worker_host``
+    are failed: a manual ``python -m fund.scheduler`` run holds a slot of its own, and
+    failing it would end its heartbeats and let the next daemon claim the same job type
+    while that run is still driving the portfolio. ``mark_done`` moves only active
+    rows, so once a slot is failed here an abandoned step's late ``mark_done`` cannot
+    flip it to ``completed``. **Non-fatal**: an exception is logged and swallowed, so a
+    database error does not stop the exit.
     """
     from fund.audit.fund_job_repository import FundJobRepository
 
