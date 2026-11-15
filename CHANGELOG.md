@@ -127,11 +127,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **ingestion: the external-call breakers, attempts and timeouts are settings.** The
-  ingestion daemon reads them from its environment. `BREAKER_TRADING_212_MAX_ATTEMPTS` is
-  new, because the Trading 212 client had no breaker; every other default is the value its
-  client used before. They are not in `ingestion/.env.example` yet;
-  `docs/integrations.md` lists them per source.
-  - Breaker failure counts: `BREAKER_YFINANCE_MAX_ATTEMPTS` (10),
+  ingestion daemon reads them from its environment; `docs/integrations.md` lists them with
+  what they set. The defaults are the values the code used before, except
+  `BREAKER_TRADING_212_MAX_ATTEMPTS`: the Trading 212 client had no breaker. They are not
+  in `ingestion/.env.example` yet.
+  - Breaker `max_attempts`: `BREAKER_YFINANCE_MAX_ATTEMPTS` (10),
     `BREAKER_FRED_MAX_ATTEMPTS` (8), `BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS` (5),
     `BREAKER_ILSOLE_MAX_ATTEMPTS` (5), `BREAKER_TRADING_212_MAX_ATTEMPTS` (5).
   - Attempts per request, the first included: `FRED_REQUEST_ATTEMPTS` (5),
@@ -140,24 +140,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Request timeouts in seconds: `FRED_REQUEST_TIMEOUT_SECONDS` (30),
     `TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS` (20), `ILSOLE_REQUEST_TIMEOUT_SECONDS`
     (10), `TRADING_212_REQUEST_TIMEOUT_SECONDS` (30).
-  - FRED's backoff after an error its breaker does not count:
-    `FRED_RETRY_BASE_DELAY_SECONDS` (1.0) and `FRED_RETRY_MAX_DELAY_SECONDS` (60.0).
-
-  For FRED, Trading Economics and Il Sole the breaker counts only errors that
-  `is_transient_network_error` flags: an HTTP 429, or an error carrying one of its
-  markers, such as a timeout or a connection reset. Trading Economics also counts a page
-  that no longer parses. After a counted error the next attempt waits out the breaker's
-  window, 120 s at the first failure counted and doubling up to 30 min, instead of the
-  backoff, or is refused once the count reaches the `BREAKER_*` setting; other errors that
-  are retried take the backoff and are not counted.
+  - Base and cap of FRED's retry backoff for errors `is_transient_network_error` does not
+    flag: `FRED_RETRY_BASE_DELAY_SECONDS` (1.0) and `FRED_RETRY_MAX_DELAY_SECONDS` (60.0).
 
   An attempt count that is not an integer of at least 1, or a duration that is not a
   finite number above 0, fails at startup with an error that names the variable. A
   scraper built with an explicit `timeout` keeps it.
 - **ingestion: metrics for the external HTTP sources.** `external_breaker_open{service}`
   reads 1 while the process-wide breaker of FRED, Trading Economics, Il Sole 24 Ore or
-  Trading 212 refuses requests, and `external_request_seconds{service,outcome}` times each
-  HTTP request those four clients send (`outcome` is `ok` or `error`).
+  Trading 212 would refuse a request, and `external_request_seconds{service,outcome}` times
+  the HTTP requests those four clients send (`outcome` is `ok` or `error`).
 - **A circuit breaker on `DatabaseManager` sessions, so a dead database fails jobs
   fast.** `DatabaseManager.get_session` (portopt-db) now asks a per-manager breaker
   first. The paths that reach the database without it (the APScheduler job stores,
@@ -322,21 +314,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **ingestion: Trading 212 requests go through `retry_with_backoff` and a circuit
-  breaker.** A 408, 429 or 5xx answer, or any other `requests` failure, trips the breaker
-  and is retried once its window has passed: 2 s at the first failure counted, doubling
-  with each one, up to 120 s. After a 429 the window lasts at least the wait the server
-  reported, clamped to the same 120 s. A failure that arrives while a window is already
-  open, as with two calls at once, is not counted and leaves that window as it is. Any
-  other 4xx is still raised without a retry.
-  The breaker that `Trading212Client.from_settings` hands out is shared by the whole
-  process; once it has counted `BREAKER_TRADING_212_MAX_ATTEMPTS` failures it refuses
-  requests with `CircuitOpenError` until its window ends, and `t212_annotate` fails before
-  it touches any instrument, as for any other unreachable catalogue. A `Retry-After` of
-  0 or below, which used to mean no wait (0) or the exponential backoff (below 0), now
-  sets no floor, so the breaker's own window applies. A `Retry-After` that is not a whole
-  number of seconds sets no floor either, and, as before, `x-ratelimit-reset` is then not
-  read.
+- **ingestion: the requests `Trading212Client` sends go through `retry_with_backoff` and a
+  circuit breaker.** A 408, a 429, a 5xx and any other `requests` failure are passed to the
+  breaker and retried while attempts remain, unless the breaker refuses the attempt; any
+  other 4xx is still raised at once. The wait a 429 reports can lengthen the breaker's
+  window, which stays capped at 120 s. The clients that `Trading212Client.from_settings`
+  builds share one breaker per process. When it refuses with `CircuitOpenError`,
+  `t212_annotate` fails before it reads or writes any instrument, as for any other
+  unreachable catalogue. A `Retry-After` of 0 or below used to mean no wait (0) or the
+  exponential backoff (below 0); it now sets no floor on the window.
 - **ci**: the CI workflow also runs on pushes to `feature/**`, `bugfix/**`,
   `hotfix/**` and `release/**`, so a change merged without a pull request still
   carries the status checks that branch protection on `main` and `development`

@@ -6,13 +6,11 @@ from dataclasses import dataclass, field
 
 
 class CircuitOpenError(RuntimeError):
-    """The breaker refused a call because the failures it counts reached its limit.
+    """The breaker refused a call: window open, count at ``max_attempts`` or more.
 
-    What counts is the caller's choice: the macro scrapers trip it on errors that
-    ``is_transient_network_error`` flags (Trading Economics also on a page that no
-    longer parses), the Trading 212 client also on 5xx answers and other
-    transport failures. The message is shared by every service and says the rate
-    limit persists whatever the failures were.
+    What counts as a failure is up to the code that calls ``trigger()``. The
+    message, built in ``check()``, says the rate limit persists whatever the
+    failures were.
 
     A ``RuntimeError`` subclass so callers that already catch the generic error
     keep working, while resilience wrappers can tell a refused call from any
@@ -24,7 +22,7 @@ class CircuitOpenError(RuntimeError):
 class CircuitBreaker:
     """Exponential-backoff circuit breaker for rate-limited services.
 
-    Tracks consecutive failures and blocks callers via ``check()`` for a
+    Counts failures and blocks callers via ``check()`` for a
     back-off window proportional to ``base_wait_minutes * 2**attempt``, capped
     at ``max_wait_minutes``.
     Decays the attempt counter on each successful recovery so the breaker
@@ -58,7 +56,7 @@ class CircuitBreaker:
 
         Args:
             min_wait_seconds: Shortest window to open, for a service that said
-                when it will take calls again. The window still never exceeds
+                when it will take calls again. The window is still capped at
                 ``max_wait_minutes``.
         """
         with self._lock:
@@ -146,7 +144,7 @@ class CircuitBreaker:
 
     @property
     def attempt_count(self) -> int:
-        """Current consecutive-failure count."""
+        """Current failure count, net of the decrements ``reset`` and ``check`` make."""
         with self._lock:
             return self._attempt
 

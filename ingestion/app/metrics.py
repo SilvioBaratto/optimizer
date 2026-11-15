@@ -121,7 +121,7 @@ class _OpenState(Protocol):
 
 
 def track_external_breaker(service: str, breaker: _OpenState) -> None:
-    """Report ``breaker.is_open`` on ``external_breaker_open{service}`` at each scrape.
+    """Report ``breaker.is_open`` on ``external_breaker_open{service}``.
 
     The value is read when Prometheus scrapes, like ``portopt_db_breaker_state``.
     Tracking another breaker under the same ``service`` replaces the first.

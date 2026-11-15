@@ -332,7 +332,7 @@ class TestReportedWaitAndOpenState:
         assert cb._until - fake_clock.now == 120.0
 
     def test_trigger_without_a_reported_wait_keeps_the_backoff(self, fake_clock):
-        """Existing callers pass nothing and get the window they always had."""
+        """A caller that passes nothing gets the plain back-off window."""
         cb = CircuitBreaker(service_name="svc")
 
         cb.trigger()

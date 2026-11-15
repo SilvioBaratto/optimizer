@@ -127,7 +127,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
 
 @pytest.fixture
 def mock_get(clock: _Clock):
-    """Patch ``requests.get``; ``mock_get.sent_at`` lists the time of each request."""
+    """Patch ``requests.get``; ``mock_get.sent_at`` lists the request times."""
     with patch("app.services.universe.trading212.client.requests.get") as get:
         get.sent_at = []
         answers: list[Any] = []
@@ -159,7 +159,7 @@ def _gaps(sent_at: list[float]) -> list[float]:
 
 
 class TestCredentialsAreNotRendered:
-    """The API key and secret stay out of every rendering of the client."""
+    """The API key and secret stay out of the client's reprs."""
 
     def test_repr_hides_api_key_and_secret(self):
         """``repr`` omits both credentials."""
@@ -187,7 +187,7 @@ class TestCredentialsAreNotRendered:
         assert "test-secret-xyz" not in repr(builder)
 
     def test_a_failed_call_logs_no_credential(self, mock_get, caplog):
-        """The exhaustion log line names the error, never the key or the header."""
+        """The exhaustion log line names the error, not the key or the header."""
         mock_get.queue([requests.exceptions.ConnectionError("refused")] * 2)
         encoded = base64.b64encode(b"test-key-abc:test-secret-xyz").decode()
 
@@ -250,7 +250,7 @@ class TestTrading212ClientInit:
 
 
 class TestBrowserHeaders:
-    """Every request carries the headers that clear Cloudflare."""
+    """Requests carry the headers that clear Cloudflare."""
 
     def test_headers_include_browser_user_agent(self):
         """A browser User-Agent."""
@@ -330,7 +330,7 @@ class TestGetInternal:
         assert mock_get.call_count == 2
 
     def test_raises_after_max_retries_network_error(self, mock_get):
-        """The last transport error is raised once every attempt failed."""
+        """The last transport error is raised once the attempts ran out."""
         mock_get.queue([requests.exceptions.ConnectionError("fail")] * 2)
         c = _make_client(max_retries=2)
         with pytest.raises(requests.exceptions.ConnectionError):
@@ -443,7 +443,7 @@ class TestTransientServerErrorsAreRetried:
         assert _gaps(mock_get.sent_at) == [pytest.approx(2)]
 
     def test_persistent_server_error_is_raised_after_max_retries(self, mock_get):
-        """The last 5xx is raised once every attempt failed."""
+        """The last 5xx is raised once the attempts ran out."""
         mock_get.queue([_raise(_mock_http_error(503)) for _ in range(2)])
         c = _make_client(max_retries=2)
 
@@ -503,7 +503,7 @@ def process_breaker_on_the_gauge():
 
 
 class TestCircuitBreaker:
-    """Every request passes the Trading 212 breaker, which refuses once open."""
+    """Requests pass the Trading 212 breaker, which refuses while open."""
 
     def test_consecutive_failures_wait_two_four_eight_sixteen_seconds(self, mock_get):
         """The breaker's windows space the attempts of one call."""
@@ -574,7 +574,7 @@ class TestCircuitBreaker:
         assert c.breaker.attempt_count == 0
 
     def test_from_settings_shares_the_process_breaker(self, monkeypatch):
-        """Every client the daemon builds trips the same breaker."""
+        """Clients from ``from_settings`` trip the same breaker."""
         monkeypatch.setattr(settings, "trading_212_api_key", "k")
         monkeypatch.setattr(settings, "trading_212_secret_key", "s")
 
@@ -662,7 +662,7 @@ class TestInstrumentCachingAndRateLimit:
         assert mock_get.call_count == 2
 
     def test_exchanges_are_not_cached(self, mock_get):
-        """Exchanges are fetched on every call."""
+        """Exchanges are not cached."""
         mock_get.return_value = _mock_response([{"id": 1, "name": "NASDAQ"}])
         c = _make_client()
         c.get_exchanges()
@@ -679,7 +679,7 @@ class TestInstrumentCachingAndRateLimit:
         assert headers["Accept"] == "application/json"
 
     def test_captures_rate_limit_headers(self, mock_get):
-        """Only the ``x-ratelimit-*`` headers are kept."""
+        """The ``x-ratelimit-*`` headers are kept, the others dropped."""
         mock_get.return_value = _mock_response(
             [{"ticker": "AAPL_US_EQ"}],
             headers={
@@ -709,7 +709,7 @@ class TestInstrumentCachingAndRateLimit:
 
 
 class TestFromSettings:
-    """``from_settings`` builds a client only when both credentials are set."""
+    """``from_settings`` needs both credentials to build a client."""
 
     @patch("app.services.universe.trading212.client.settings")
     def test_returns_none_when_no_api_key(self, mock_settings):
@@ -764,7 +764,7 @@ class TestMissingCredentials:
 
     @patch("app.services.universe.trading212.client.settings")
     def test_names_the_unset_variables(self, mock_settings):
-        """Each unset variable is named, in order."""
+        """Unset variables are named, in order."""
         mock_settings.trading_212_api_key = ""
         mock_settings.trading_212_secret_key = "secret123"  # noqa: S105 - test value, not a secret
         assert Trading212Client.missing_credentials() == ["TRADING_212_API_KEY"]

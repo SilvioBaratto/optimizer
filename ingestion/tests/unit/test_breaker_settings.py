@@ -62,7 +62,7 @@ _BREAKER_VARS = {
 
 @pytest.fixture(autouse=True)
 def _unset_external_call_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Start every test from the defaults, whatever the shell exports."""
+    """Start the tests from the defaults, whatever the shell exports."""
     for name in (*_ATTEMPT_DEFAULTS, *_SECONDS_DEFAULTS):
         monkeypatch.delenv(name, raising=False)
 
@@ -72,7 +72,7 @@ def _field(env_name: str) -> str:
 
 
 class TestSettingsFields:
-    """Each knob has its documented default, reads its variable, rejects bad values."""
+    """Documented defaults, values read from the variables, bad values refused."""
 
     @pytest.mark.parametrize(
         ("env_name", "default"),
@@ -126,7 +126,7 @@ class TestSettingsFields:
 
 
 class TestBuildBreaker:
-    """``build_breaker`` sizes each source's breaker from the settings it is given."""
+    """``build_breaker`` sizes a source's breaker from the settings it is given."""
 
     @pytest.mark.parametrize(("service", "env_name"), list(_BREAKER_VARS.items()))
     def test_the_setting_sets_the_breaker_max_attempts(
@@ -158,7 +158,7 @@ class TestBuildBreaker:
     def test_each_breaker_keeps_its_service_name(
         self, service: ExternalService, name: str
     ) -> None:
-        """The name in a refusal message is the one each scraper used."""
+        """The name in a refusal message is the one the scrapers used."""
         assert build_breaker(service).service_name == name
 
     @pytest.mark.parametrize(
@@ -172,7 +172,7 @@ class TestBuildBreaker:
     def test_scraper_breakers_keep_the_shared_back_off_windows(
         self, service: ExternalService
     ) -> None:
-        """Only the attempt count moved to settings; the windows did not change."""
+        """The attempt count moved to settings; the windows did not change."""
         breaker = build_breaker(service)
         default = CircuitBreaker()
 
@@ -200,7 +200,7 @@ class TestBuildBreaker:
 
 
 class TestProcessBreakers:
-    """One breaker per source per process, shared by every scraper instance."""
+    """One breaker per source per process, shared by the scraper instances."""
 
     @pytest.mark.parametrize(
         ("module", "attribute", "service"),
@@ -326,7 +326,7 @@ def _request_count(service: str, outcome: str) -> float:
 
 
 class TestScrapersTimeTheirRequests:
-    """Each scraper request lands on ``external_request_seconds``."""
+    """Scraper requests land on ``external_request_seconds``."""
 
     def test_a_fred_request_is_timed_under_its_service(
         self, monkeypatch: pytest.MonkeyPatch
@@ -466,7 +466,7 @@ class TestExternalBreakerGauge:
         assert _gauge(_GAUGE_PROBE) == 0
 
     def test_serving_metrics_binds_every_process_breaker(self) -> None:
-        """The worker exposes the breaker each source's clients share."""
+        """The worker exposes the process-wide breakers."""
         with (
             patch.object(worker_module.settings, "enable_metrics", True),
             patch.object(worker_module, "start_http_server"),

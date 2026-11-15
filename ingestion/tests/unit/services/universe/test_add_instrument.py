@@ -26,7 +26,7 @@ from app.services.universe.add_instrument import (
     add_instrument,
 )
 
-# Captured before the autouse fixture below replaces it in every test.
+# Captured before the autouse fixture below replaces it in the tests.
 _REAL_LOAD_T212_TICKERS = add_instrument_module._load_t212_tickers
 
 XETRA = "Deutsche Börse Xetra"
@@ -626,7 +626,7 @@ def test_result_is_a_frozen_value_object() -> None:
 
 
 class TestUnreachableTrading212Catalogue:
-    """An unreachable catalogue reads as "nothing checked", never as "absent"."""
+    """An unreachable catalogue reads as "nothing checked", not as "absent"."""
 
     @pytest.mark.parametrize(
         "unreachable",

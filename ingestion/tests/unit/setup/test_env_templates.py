@@ -269,7 +269,7 @@ def test_the_retirement_check_notices_a_named_variable() -> None:
 
 @pytest.mark.parametrize("doc", _EXEMPTION_DOCS, ids=lambda p: p.name)
 def test_an_exempt_variable_stays_documented_while_exempt(doc: Path) -> None:
-    """While the template lacks them, each file mapped to a name must name it."""
+    """While the template lacks them, a file mapped to a name must name it."""
     text = doc.read_text(encoding="utf-8")
     expected = {
         name for name, docs in _DOCUMENTED_OUTSIDE_THE_TEMPLATE.items() if doc in docs

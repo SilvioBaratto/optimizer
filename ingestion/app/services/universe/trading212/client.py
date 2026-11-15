@@ -33,7 +33,7 @@ _MAX_RATE_LIMIT_WAIT_SECONDS = TRADING_212_MAX_WAIT_SECONDS
 _RESET_MARGIN_SECONDS = 1
 
 # Answers worth repeating: the request was fine, T212 (or Cloudflare in front of
-# it) was not ready for it. Every other 4xx is an answer a retry cannot change.
+# it) was not ready for it. Another 4xx is an answer a retry cannot change.
 _RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
 _RATE_LIMITED = 429
 _FIRST_SERVER_ERROR = 500
@@ -74,9 +74,9 @@ class Trading212Client:
     Attributes:
         max_retries: Attempts per request, the first included;
             ``TRADING_212_REQUEST_ATTEMPTS`` unless given.
-        timeout_seconds: Timeout passed to ``requests`` for each request;
+        timeout_seconds: Timeout passed to ``requests.get``;
             ``TRADING_212_REQUEST_TIMEOUT_SECONDS`` unless given.
-        breaker: Circuit breaker every request goes through. Unless given, a
+        breaker: Circuit breaker :meth:`_send` checks before it sends. Unless given, a
             client gets its own, sized by ``BREAKER_TRADING_212_MAX_ATTEMPTS``;
             :meth:`from_settings` passes the process-wide one, which the worker
             reports on ``external_breaker_open`` when metrics are enabled.
@@ -167,12 +167,10 @@ class Trading212Client:
     ) -> Any:
         """GET ``path`` through the circuit breaker, with retries.
 
-        Every attempt first goes through :attr:`breaker`. A failure that trips it
-        (a 408, 429 or 5xx answer, or any other ``requests`` failure such as a
-        timeout) is retried once the breaker's window, which a 429's reported
-        wait can lengthen, has passed, for up to :attr:`max_retries` attempts,
-        unless the breaker then refuses the attempt. Any other 4xx is raised at
-        once.
+        An attempt calls ``breaker.check()`` before it sends (:meth:`_send`). A
+        failure :func:`_trips_breaker` accepts is passed to ``breaker.trigger()``
+        and retried, up to :attr:`max_retries` attempts, unless ``check()``
+        refuses the next attempt. Any other 4xx is raised at once.
 
         Args:
             path: Path under :attr:`base_url`.
@@ -187,7 +185,7 @@ class Trading212Client:
                 no request.
             requests.RequestException: At once for a 4xx other than 408 or 429
                 and for an HTTP error without a response; otherwise the last
-                failure, once every attempt has failed.
+                failure, once the attempts have run out.
         """
         if self.max_retries < 1:
             raise ValueError(f"max_retries must be at least 1, got {self.max_retries}")
@@ -203,7 +201,7 @@ class Trading212Client:
                 raise
 
         # The body travels in a tuple so that a JSON null is not mistaken for the
-        # None that retry_with_backoff returns once every attempt has failed.
+        # None that retry_with_backoff returns after the last failed attempt.
         answer = retry_with_backoff(
             attempt,
             self.max_retries,

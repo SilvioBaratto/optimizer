@@ -1,10 +1,9 @@
 """Circuit breakers and request timing for the daemon's external HTTP sources.
 
-FRED, Trading Economics, Il Sole 24 Ore and Trading 212 each have one breaker per
-process, sized from ``app.config.settings`` when this module is imported, so the
-clients of a source that use it share its back-off state and the metrics can
-report it. :func:`timed_request` records one request on
-``external_request_seconds``.
+At import this module builds one breaker per source in :class:`ExternalService`,
+sized from ``app.config.settings``; the clients that use it share its state, and
+the worker reports it on ``external_breaker_open`` when metrics are enabled.
+:func:`timed_request` records one request on ``external_request_seconds``.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ from app.services.infrastructure.circuit_breaker import CircuitBreaker
 # nor a wait taken from that report exceeds this, so a bogus header cannot stall
 # a run.
 TRADING_212_MAX_WAIT_SECONDS = 120
-# Windows of 2, 4, 8 and 16 s at failure counts 1 to 4.
+# With this base the back-off part of a window is 2, 4, 8 and 16 s at counts 1 to 4.
 _TRADING_212_BASE_WAIT_MINUTES = 1 / 30
 
 _OK = "ok"
@@ -53,11 +52,9 @@ def build_breaker(
             ``app.config.settings`` when omitted.
 
     Returns:
-        A breaker named after ``service``. Trading 212's back-off windows start
-        at 2 s, double with each failure counted and stop at
-        ``TRADING_212_MAX_WAIT_SECONDS`` (a ``min_wait_seconds`` passed to
-        ``trigger()`` can lengthen one up to that cap); the other sources keep
-        the ``CircuitBreaker`` default windows.
+        A breaker named after ``service``. Trading 212's has a base of 1/30 min
+        and a cap of ``TRADING_212_MAX_WAIT_SECONDS`` seconds; the other sources
+        keep the ``CircuitBreaker`` default base and cap.
     """
     config = config or settings
     max_attempts = {
@@ -86,7 +83,7 @@ def process_breaker(service: ExternalService) -> CircuitBreaker:
         service: The source whose breaker to return.
 
     Returns:
-        The same breaker on every call for the life of the process.
+        The breaker built for ``service`` when this module was imported.
     """
     return _PROCESS_BREAKERS[service]
 

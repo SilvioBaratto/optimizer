@@ -269,7 +269,7 @@ class Settings(BaseSettings):
 
     # External HTTP sources. A breaker's max_attempts is the failure count at which
     # it refuses calls while its back-off window is open; request attempts count
-    # the first try; timeouts go to requests for each request.
+    # the first try; timeouts are passed to requests.
     breaker_yfinance_max_attempts: int = Field(
         default=10, ge=1, alias="BREAKER_YFINANCE_MAX_ATTEMPTS"
     )
