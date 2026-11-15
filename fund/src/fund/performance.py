@@ -287,19 +287,17 @@ def _load_price_frame(
         ``(prices, currency_map)`` — the price frame (empty when nothing loads) and
         the raw ``{ticker: price_unit}`` map.
     """
-    from portopt_db.repositories.market_data.yfinance_repository import (
-        YFinanceRepository,
-    )
+    from fund.readers import price_reader
 
-    repo = YFinanceRepository(session)
+    reader = price_reader(session)
     series: dict[str, pd.Series] = {}
     currency_map: dict[str, str] = {}
     for ticker in tickers:
-        instrument = repo.get_instrument_by_yfinance_ticker(ticker)
+        instrument = reader.instrument_for(ticker)
         if instrument is None:
             continue
         if newest is None:
-            rows = repo.get_price_history(
+            rows = reader.price_bars_for(
                 instrument.id,
                 start_date=start,
                 end_date=end,
@@ -307,7 +305,7 @@ def _load_price_frame(
                 ascending=True,
             )
         else:
-            rows = repo.get_price_history(
+            rows = reader.price_bars_for(
                 instrument.id, start_date=start, end_date=end, limit=newest
             )
         # The newest bar's unit stands for the series however the rows were ordered, so
@@ -397,11 +395,9 @@ def _load_fx_rates_frame(
     Returns:
         A ``DatetimeIndex`` × currency-column rate frame; empty when no rows match.
     """
-    from portopt_db.repositories.market_data.fx_rates_repository import (
-        FxRatesRepository,
-    )
+    from fund.readers import fx_rate_reader
 
-    rows = FxRatesRepository(session).get_rates(base.upper(), quotes, start, end)
+    rows = fx_rate_reader(session).rates_for(base.upper(), quotes, start, end)
     if not rows:
         return pd.DataFrame()
     data: dict[str, dict[dt.date, float]] = {}

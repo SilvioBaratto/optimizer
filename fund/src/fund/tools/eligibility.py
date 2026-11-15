@@ -64,10 +64,10 @@ from portopt_db.models.universe.universe import Instrument
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
-from portopt_db.repositories.universe.universe_repository import UniverseRepository
 from sqlalchemy import select
 
 from fund.config import settings
+from fund.readers import universe_reader
 from fund.tools.mandate import held_tickers
 from fund.tools.universe import (
     UNCLASSIFIED,
@@ -520,14 +520,14 @@ def resolve_eligibility(
     barred = uninvestable_reasons(session, tickers, asof)
     notes: tuple[str, ...] = ()
     if tradeable_only:
-        refused = UniverseRepository(session).get_t212_untradeable_tickers(
+        refused = universe_reader(session).get_t212_untradeable_tickers(
             [t for t in tickers if t not in barred]
         )
         if refused is None:
             notes = (TRADEABLE_NOT_EVALUATED_NOTE,)
         else:
             barred.update(dict.fromkeys(refused, NOT_T212_TRADEABLE))
-            unchecked = UniverseRepository(session).get_t212_unevaluated_tickers(
+            unchecked = universe_reader(session).get_t212_unevaluated_tickers(
                 [t for t in tickers if t not in barred]
             )
             if unchecked:
@@ -555,7 +555,7 @@ def _broker_scope(session: Session) -> Eligibility:
     an allowlist, so only the names the broker lacks are collected. When no instrument
     has been evaluated nothing can be refused and the note says why.
     """
-    refused = UniverseRepository(session).get_t212_untradeable_tickers()
+    refused = universe_reader(session).get_t212_untradeable_tickers()
     return Eligibility(
         allowed=(),
         barred=(),
