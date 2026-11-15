@@ -1,11 +1,10 @@
 """Grey out the shell's write actions while the database circuit breaker is open.
 
-Reads need no gate: they go through the same breaker, which refuses them at once,
-and each view keeps its last paint. A write would be refused the same way, but
-only after the adviser had read a gate and answered a confirm, so the bindings
-that start one are disabled instead and the status bar says why. A confirm that
-was already open when the breaker opened still ends in a refused write, which the
-action worker reports like any other failure.
+Reads need no gate: they go through the same breaker, which refuses them at once.
+A write would be refused the same way, but only after the adviser had read a gate
+and answered a confirm, so the bindings that start one are disabled instead and the
+status bar says why. A confirm that was already open when the breaker opened still
+ends in a refused write, which the action worker reports like any other failure.
 """
 
 from __future__ import annotations

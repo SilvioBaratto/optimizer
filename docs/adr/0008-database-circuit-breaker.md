@@ -16,10 +16,9 @@ Before this record nothing stood between a caller and a dead database. Every
 `DatabaseManager.get_session` built a session, its first statement tried to connect
 (failing at once for a refused connection, or after the driver's 10 s
 `connect_timeout` for an unreachable host), and the error crossed the session with a
-traceback. An ingestion pipeline runs six steps back to back, each with worker,
-progress and heartbeat threads, so an outage cost minutes per run and a traceback
-per call. The fund cockpit let the adviser read a gate and answer a confirm, only for
-the write to fail afterwards.
+traceback. An ingestion pipeline runs six steps back to back, so each step met the
+dead database on its own. The fund cockpit let the adviser read a gate and answer a
+confirm, only for the write to fail afterwards.
 
 Counting failures by exception class does not work. SQLAlchemy wraps driver errors,
 and psycopg2's `QueryCanceled` (statement timeout, SQLSTATE 57014) and
@@ -35,8 +34,8 @@ protocol; `DbCircuitBreaker` is the default implementation. `get_session` asks t
 breaker before it builds anything.
 
 - **Closed.** Sessions pass and connect lazily on first use. Each session records one
-  outcome when it exits. Consecutive connectivity failures are counted, and a session
-  that reaches the database resets the count.
+  outcome when it exits. Consecutive connectivity failures are counted. A session whose
+  body exits without raising resets the count, whether or not it ran SQL.
 - **Open.** After `failure_threshold` consecutive connectivity failures, sessions are
   refused at once with `DatabaseUnavailableError` (a `RuntimeError`). No engine or
   session is created. The error message is one line without host, credentials or SQL.
@@ -51,7 +50,7 @@ breaker before it builds anything.
 
 Every state change happens under one `threading.Lock`: the state, the failure count,
 the time the breaker opened and the ticket of the probe in flight. The clock is
-injected, so the tests never sleep.
+injected, so the breaker's unit tests never sleep.
 
 **What counts.** `DisconnectionError` (the pool's pre-ping), any `DBAPIError` that
 SQLAlchemy marked `connection_invalidated`, a SQLSTATE in class 08 or equal to 57P01,
@@ -105,32 +104,42 @@ variables there, they are documented here and in `CLAUDE.md`. The ingestion temp
 guard accepts exactly these two names as documented outside the template. It fails
 once the template names either of them, so the exemption must then be removed.
 
-The breaker is on by default because it only counts connectivity failures, so a
-healthy database never sees it. A false open costs at most 30 s of refused sessions,
-and then one probe decides. `pool_pre_ping` already absorbs a single dropped connection
-by reconnecting at checkout. Five consecutive connect failures across the daemon's
-threads therefore mean the server is gone, not a blip. 30 s matches the heartbeat
+The breaker is on by default because it counts only connectivity failures: statement
+and lock timeouts, and every error the server answers with a SQLSTATE outside class 08
+and 57P01-57P03, never count. A false open costs at most 30 s of refused sessions, and then one probe decides.
+`pool_pre_ping` already absorbs a single dropped connection by reconnecting at
+checkout, so five consecutive connect failures across the daemon's threads are taken to
+mean the server is gone, not a blip. 30 s matches the heartbeat
 cadence and the health-check cache. It is short next to the 300 s orphan lease, so a
 recovered database is noticed long before the reaper acts, and long enough that a
 restarting server is not hammered.
 
 **Fallbacks.** Read in the code, for the default configuration. Each process has its
 own breaker, which starts closed and opens only after 5 connectivity failures recorded
-through that process's `get_session`. Until then the process fails on the driver's
-error, with a traceback, as it did before this record.
+through that process's `get_session`. Until then the process meets the driver's
+error, as it did before this record.
 
 - *Ingestion daemon.*
-  - Once the breaker is open, a step stops when its job-slot claim, a status write or
-    its own code meets the refusal. It writes one ERROR line, without a traceback,
-    increments `jobs_db_unavailable_total{domain}`, and runs again at its next
-    scheduled time.
+  - Once the breaker is open, a step stops when the refusal escapes its job-slot
+    claim, a status write or its own code. It writes one ERROR line, without a
+    traceback, increments `jobs_db_unavailable_total{domain}`, and runs again at its
+    next scheduled time. A step whose own code absorbs the refusal does not stop.
+    The yfinance sweep is one: its parallel workers catch it per ticker, and either
+    path drops a refused progress write.
   - A failed-status write that the breaker refuses is logged at that moment and
     increments `jobs_failed_status_refused_total{domain}`, whatever stopped the step.
-  - Such a row stays `running` until the orphan reaper fails it. The lease is 300 s
-    and the reaper runs every 300 s, so that happens 300 to 600 s after the last
-    heartbeat, at a reaper tick when the database answers. Under the default `fail`
-    strategy its error then reads `orphaned — heartbeat stale, reaped by periodic
-    reaper`, not `db_unavailable`.
+  - Such a row stays active until the orphan reaper fails it. It stays `running`, or
+    `pending` if its `running` write was refused as well; either status blocks a
+    re-run.
+  - Reap timing: the reaper runs every 300 s through `get_session` and fails rows
+    whose last heartbeat is more than 300 s old. The row is reaped at the first reaper
+    tick at least 300 s after its last heartbeat at which the database answers and the
+    breaker admits that tick's session.
+    - That is 300 to 600 s after the last heartbeat if the outage is over by then.
+    - Otherwise it is within one more tick after the database is back and the breaker
+      has closed.
+  - Under the default `fail` strategy the reaped row's error reads `orphaned —
+    heartbeat stale, reaped by periodic reaper`, not `db_unavailable`.
   - When the failed-status write of a step stopped by the refusal does land, the error
     starts `db_unavailable:`.
   - A refused reaper tick, progress write or heartbeat logs one line without a
@@ -150,8 +159,13 @@ error, with a traceback, as it did before this record.
     opened would dispatch: a confirm, the fund re-arm rationale, or a steer directive.
   - The status bar and the Ask log show the refusal as `describe_error` renders it.
   - Once the breaker is open, reads are refused at once.
-    - The Performance and Daily brief views read off the event loop and keep their
-      last paint when a read fails.
+    - Performance: its read returns the error instead of raising.
+      - The returns strip shows `(performance unavailable: ...)` and the risk line is
+        blanked.
+      - The holdings table keeps its rows for the same portfolio, and the detail
+        pane says `holdings unavailable: ...`.
+    - Daily brief: shows `brief unavailable: ...`, followed by the last good brief of
+      the same portfolio when there is one.
     - What the other views show then is not verified.
     - The attention feed logs the refusal once per outage, in one line.
   - Once the timeout has passed, the next poll read is the probe. When its connect
@@ -165,8 +179,8 @@ error, with a traceback, as it did before this record.
     `try`. Its `psycopg.OperationalError` escapes as an uncaught Typer traceback
     (exit 1).
     - Their `except (RuntimeError, ValueError, LookupError)` would print
-      `error: database unavailable: ...` for a refusal, but an outage never reaches
-      it.
+      `error: database unavailable: ...` for a refusal, but an outage does not reach
+      it: the refusal needs 5 counted failures within the one command first.
     - If the LangGraph setup succeeded and the session then failed, the driver's
       `sqlalchemy.exc.OperationalError` is not in that tuple either, so it is also a
       traceback.
@@ -190,12 +204,15 @@ error, with a traceback, as it did before this record.
     - the per-portfolio handlers log one traceback per portfolio;
     - the step's heartbeat thread logs `heartbeat[...]: pulse failed; retrying next
       tick` with a traceback every 30 s.
-  - The breaker never refuses a tick's failed-status write:
-    - The tick logs `... aborted` with a traceback, then writes `failed` with
-      `job_repo.mark_done` on its own session. The breaker admitted that session
-      before the outage and is consulted only when a session is opened.
-    - On a dead database that write fails with a database error, which escapes the
-      `except` to APScheduler (`Job "..." raised an exception`).
+  - The breaker never refuses a tick's status write.
+    - The tick writes its status with `job_repo.mark_done` on its own session, which
+      the breaker admitted before the outage. The breaker is consulted only when a
+      session is opened.
+    - That write runs either from the tick's `except`, after a `... aborted`
+      traceback, or from `_close_slot`, after the per-portfolio handlers caught the
+      errors.
+    - On a dead database that write fails with a database error, which reaches
+      APScheduler (`Job "..." raised an exception`).
     - No counter records it, and the row stays `running` until the fund reaper fails
       it after its 300 s lease.
     - Only `_fail_in_flight_slots` goes through `get_session`. It runs when the worker
@@ -239,9 +256,12 @@ error, with a traceback, as it did before this record.
     - Whether the breaker opens at all during a parallel sweep is not verified. A
       session body that absorbs its own error and exits cleanly resets the count (see
       the next point).
-  - *Serial* (`YFINANCE_FETCH_WORKERS=1`). The sweep runs in one session opened
-    before its loop, with an `except Exception` per ticker. The breaker is never asked
-    again, and the sweep keeps fetching from Yahoo until the step ends.
+  - *Serial* (`YFINANCE_FETCH_WORKERS=1`). The sweep runs in one session admitted
+    before its loop, with an `except Exception` per ticker. That session is never
+    admitted again.
+    - Its per-ticker progress writes and the step's 30 s heartbeats each open a
+      session through the breaker, and a refused one is dropped with one WARNING.
+    - So the sweep keeps fetching from Yahoo until the step ends.
 
   Two follow-ups would cut it short: re-raise `DatabaseUnavailableError` and
   connection errors past the per-ticker handler, or set the step's cancel event when a
@@ -251,9 +271,9 @@ error, with a traceback, as it did before this record.
   immune because its connect, not its exit, decides it.
 - Each process has its own breaker: the ingestion worker, the fund worker, the cockpit
   and each CLI run. They do not share state.
-- A manual re-run of an ingestion step whose row was left `running` is refused as
-  already running until the orphan reaper fails the row, 300 to 600 s after its last
-  heartbeat.
+- A manual re-run of an ingestion step whose row was left active is refused as already
+  running until the orphan reaper fails the row, at the reap timing given under the
+  ingestion fallbacks.
 - Only `DatabaseManager.get_session` is guarded. Any other access bypasses the
   breaker:
   - `database_manager.engine` used directly;
@@ -277,9 +297,10 @@ the breaker neither counts their failures nor refuses them. Each entry was read 
 installed libraries (APScheduler 3.11.3, psycopg 3.3.5, psycopg_pool 3.3.1) and the
 repository code, for the default configuration.
 
-Guarded, for contrast: `DatabaseManager.health_check`, every repository and service
-session, `fund.observe` reads (they get their session from the caller), and the fund
-tools.
+Guarded, for contrast: `DatabaseManager.health_check` and every session opened through
+`get_session`. That includes the ingestion services' and repositories' sessions,
+`fund.observe` reads (they get their session from the caller), and the fund tools' ORM
+sessions.
 
 - **Container start: database wait and migrations.**
   - Where: `ingestion/entrypoint.sh`, `fund/entrypoint.sh`. `alembic upgrade head` runs
@@ -300,8 +321,14 @@ tools.
     - The ingestion worker runs with `ENVIRONMENT` at its code default,
       `development`, which compose does not override. There `init_db` logs
       `Database initialization failed: ...` and
-      `Continuing in development mode despite database errors`, then returns. The
-      start fails a moment later at `create_scheduler`, which raises
+      `Continuing in development mode despite database errors`, then returns.
+    - The worker then logs `Database initialized`. `health_check` returns False
+      without opening a session, because the manager is not initialized.
+    - `_reconcile_orphans` opens a session through `get_session`. Its lazy
+      `initialize` connects again, and the breaker counts the failure. The worker logs
+      `Database initialization failed: ...` again, then
+      `Orphan reconciliation failed: ...`.
+    - The start then fails at `create_scheduler`, which raises
       `RuntimeError: create_scheduler() called before database_manager.initialize()`
       because no engine exists.
     - With `ENVIRONMENT=production`, `init_db` re-raises instead. Either way the
@@ -351,8 +378,11 @@ tools.
   - The reaper's re-dispatch (`_scheduler.add_job`) also writes to the store. It runs
     only under `SCHEDULER_ORPHAN_STRATEGY=reclaim`, not the default `fail`, and inside
     the reaper's `try`.
-  - Fallback: the container restart. The operator sees the WARNING every ~10 s while
-    the store is unreadable, and a restart when a guarded-off call fails.
+  - Fallback: the container restart.
+    - The operator sees the WARNING about every 10 s while the store is unreadable.
+      APScheduler computes the retry wakeup from the poll's start, so an unreachable
+      host's 10 s connect wait uses up the interval and the next poll runs at once.
+    - A restart follows when a call outside that guard fails.
 - **fund LangGraph persistence: setup connections.**
   - Where: `setup_langgraph` in `fund/src/fund/audit/persistence.py`. The bootstrap
     advisory lock and `create_schema` each open a `psycopg.connect` with

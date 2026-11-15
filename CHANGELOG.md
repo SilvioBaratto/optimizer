@@ -136,8 +136,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `DatabaseManager.breaker` exposes it;
   - `DbConfig.breaker_failure_threshold` and `DbConfig.breaker_reset_timeout_s`;
   - `portopt_db.resilience`: the `CircuitBreaker` protocol, `DbCircuitBreaker`,
-    `DatabaseUnavailableError`, `BreakerState`, `ProbeTicket`, the defaults, and the
-    validator and environment parsers.
+    `BreakerConfig`, `DatabaseUnavailableError`, `BreakerState`, `ProbeTicket`,
+    `is_connectivity_failure`, the defaults, and the validator and environment
+    parsers.
 
   After 5 consecutive connection failures the breaker refuses sessions at once with
   `DatabaseUnavailableError` instead of waiting out a connect timeout per call. After
