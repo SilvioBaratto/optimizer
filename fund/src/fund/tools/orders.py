@@ -39,16 +39,16 @@ from typing import TYPE_CHECKING, Any
 
 from portopt_db.base import ClockTimestamp
 from portopt_db.models import PaperOrder
-from portopt_db.repositories.market_data.fx_rates_repository import FxRatesRepository
-from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 from sqlalchemy import update
 
 from fund.audit.orders_repository import OrderRepository, weights_hash
+from fund.readers import fx_rate_reader, price_reader
 from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from portopt_db.ports import FxRateReader, PriceReader
     from sqlalchemy.orm import Session
 
 # Simple paper-execution cost model (D30): flat notional the weights scale, and
@@ -95,7 +95,7 @@ def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
     return uuid.UUID(portfolio_id)
 
 
-def _next_close(repo: YFinanceRepository, ticker: str, asof: dt.date) -> _Fill:
+def _next_close(prices: PriceReader, ticker: str, asof: dt.date) -> _Fill:
     """Return the first priced bar strictly after ``asof`` and its quote unit.
 
     The unit is the bar's raw ``price_unit`` (``GBp`` stays pence), falling back to
@@ -104,10 +104,10 @@ def _next_close(repo: YFinanceRepository, ticker: str, asof: dt.date) -> _Fill:
     Raises ``LookupError`` if the ticker has no instrument row or no priced bar
     after ``asof`` — the envelope turns that into ``{ok: false, error}``.
     """
-    instrument = repo.get_instrument_by_yfinance_ticker(ticker)
+    instrument = prices.instrument_for(ticker)
     if instrument is None:
         raise LookupError(f"unknown ticker {ticker!r}")
-    rows = repo.get_price_history(
+    rows = prices.price_bars_for(
         instrument.id, start_date=asof + dt.timedelta(days=1), ascending=True
     )
     priced = [(row, float(row.close)) for row in rows if row.close is not None]
@@ -122,7 +122,7 @@ def _next_close(repo: YFinanceRepository, ticker: str, asof: dt.date) -> _Fill:
 
 
 def _base_close(
-    session: Session, fill: _Fill, ticker: str, base_currency: str
+    fx_rates: FxRateReader, fill: _Fill, ticker: str, base_currency: str
 ) -> float:
     """The fill close as a price per share in ``base_currency``.
 
@@ -141,7 +141,7 @@ def _base_close(
     price = fill.close / scale
     if major == base:
         return price
-    rates = FxRatesRepository(session).get_rates(
+    rates = fx_rates.rates_for(
         base,
         [major],
         start=fill.date - dt.timedelta(days=_FX_LOOKBACK_DAYS),
@@ -152,7 +152,7 @@ def _base_close(
             f"no FX rate {major}->{base} on or before {fill.date.isoformat()} "
             f"for {ticker!r}"
         )
-    return price * float(rates[-1].rate)
+    return price * rates[-1].rate
 
 
 def fill_shortfalls(
@@ -173,14 +173,14 @@ def fill_shortfalls(
     Returns:
         One message per ticker that cannot fill; ``[]`` when every line could.
     """
-    repo = YFinanceRepository(session)
+    prices, fx_rates = price_reader(session), fx_rate_reader(session)
     shortfalls: list[str] = []
     names = _held(tickers) if isinstance(tickers, Mapping) else tickers
     for ticker in names:
         try:
-            fill = _next_close(repo, ticker, asof)
+            fill = _next_close(prices, ticker, asof)
             if base_currency is not None:
-                _base_close(session, fill, ticker, base_currency)
+                _base_close(fx_rates, fill, ticker, base_currency)
         except LookupError as exc:
             shortfalls.append(str(exc))
     return shortfalls
@@ -339,7 +339,7 @@ def place_orders(
         {ticker: float(w) for ticker, w in prior.weights.items()} if prior else {}
     )
 
-    prices = YFinanceRepository(session)
+    prices, fx_rates = price_reader(session), fx_rate_reader(session)
     lines: list[dict[str, Any]] = []
     total_commission = 0.0
     total_slippage_cost = 0.0
@@ -352,7 +352,7 @@ def place_orders(
         # Shares divide a base-currency notional, so the price must be one too. Without
         # a base currency (a what-if) the quote is used as given.
         base_price = (
-            _base_close(session, fill, ticker, base_currency)
+            _base_close(fx_rates, fill, ticker, base_currency)
             if base_currency is not None
             else fill_price
         )

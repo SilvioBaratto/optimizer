@@ -47,9 +47,9 @@ from optimizer.pre_selection import PreSelectionConfig, build_preselection_pipel
 from optimizer.preprocessing import prices_to_returns
 from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.universe import Instrument
-from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 from sqlalchemy import exists, func, or_, select
 
+from fund.readers import price_reader
 from fund.schemas.enums import GicsSector
 from fund.tools._base import (
     ToolResult,
@@ -63,6 +63,7 @@ from fund.tools.prices import load_price_frame
 
 if TYPE_CHECKING:
     import pandas as pd
+    from portopt_db.ports import PriceReader
     from sklearn.pipeline import Pipeline
     from sqlalchemy import ColumnElement, Select
     from sqlalchemy.orm import Session
@@ -180,11 +181,10 @@ def _resolve_exclusions(criteria: dict[str, Any] | None) -> frozenset[GicsSector
         ) from None
 
 
-def _gics_sector(session: Session, ticker: str) -> GicsSector | None:
+def _gics_sector(prices: PriceReader, ticker: str) -> GicsSector | None:
     """The GICS sector of ``ticker`` from its stored profile, or ``None`` if unknown."""
-    repo = YFinanceRepository(session)
-    instrument = repo.get_instrument_by_yfinance_ticker(ticker)
-    profile = None if instrument is None else repo.get_profile(instrument.id)
+    instrument = prices.instrument_for(ticker)
+    profile = None if instrument is None else prices.profile_for(instrument.id)
     if profile is None or not profile.sector:
         return None
     label = re.sub(r"[^a-z]+", "_", profile.sector.lower()).strip("_")
@@ -215,9 +215,10 @@ def esg_barred(
         ``{ticker: sector value or "unclassified"}`` for every ticker that may not be
         held; absent for the rest.
     """
+    prices = price_reader(session)
     barred: dict[str, str] = {}
     for ticker in tickers:
-        sector = _gics_sector(session, ticker)
+        sector = _gics_sector(prices, ticker)
         if sector is None:
             barred[ticker] = UNCLASSIFIED
         elif sector in exclusions:

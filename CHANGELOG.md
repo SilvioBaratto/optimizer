@@ -481,6 +481,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   new modules load no `fund.tui` module and none of `deepagents`, `langchain`,
   `langchain_core`, `langgraph`, `optimizer`, `skfolio` or `textual`. Behaviour
   is unchanged.
+- **fund**: the reads `fund` ran through `YFinanceRepository`, `FxRatesRepository` and
+  `UniverseRepository` go through the `portopt_db.ports` protocols. In
+  `fund/readers.py`, `price_reader`, `fx_rate_reader` and `universe_reader` return those
+  repositories typed as `PriceReader`, `FxRateReader` and `UniverseReader`.
+  `fund.tools.orders`, `fund.tools.prices`, `fund.tools.mandate`, `fund.tools.universe`,
+  `fund.tools.eligibility`, `fund.actions` and `fund.performance` take their readers
+  from it and no longer import the three repositories, and the five of them that read
+  instrument, profile, price or FX rows now read the DTOs instead of ORM rows. Tool and
+  public function signatures are unchanged. Every numeric column those five read from
+  the rows was already passed through `float()`, so the `float` fields of the DTOs give
+  the same numbers. `price_bars_for` and `rates_for` call `get_price_history` and `get_rates`, so
+  tests that replace either on the repository class still see each read. The complexity
+  ratchet's baselines for `_check_tradeable` and `_load_price_frame`, both shorter now,
+  are lowered. Behaviour is unchanged.
 
 ### Removed
 

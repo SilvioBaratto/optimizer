@@ -1415,18 +1415,15 @@ def _check_tradeable(session: Session, mandate: Any) -> list[str]:
     """
     if not mandate.tradeable_only:
         return []
-    from portopt_db.repositories.universe.universe_repository import (
-        UniverseRepository,
-    )
-
+    from fund.readers import universe_reader
     from fund.tools.eligibility import unchecked_names_note
 
     # An empty list asks about nothing rather than everything: with no allowlist the
     # whole refusal list would be thousands of names, and only the "not evaluated"
     # answer is worth a warning.
     tickers = _normalised_tickers(mandate.eligible_tickers)
-    repo = UniverseRepository(session)
-    refused = repo.get_t212_untradeable_tickers(tickers)
+    overlay = universe_reader(session)
+    refused = overlay.get_t212_untradeable_tickers(tickers)
     warnings: list[str] = []
     if refused is None:
         warnings.append(
@@ -1440,7 +1437,7 @@ def _check_tradeable(session: Session, mandate: Any) -> list[str]:
                 f"eligible tickers not on Trading 212: {', '.join(refused)}; they "
                 "stay barred (not_t212_tradeable) while tradeable_only is set"
             )
-        unchecked = repo.get_t212_unevaluated_tickers(
+        unchecked = overlay.get_t212_unevaluated_tickers(
             [t for t in tickers if t not in refused]
         )
         if unchecked:
