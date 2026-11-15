@@ -59,12 +59,9 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
-from portopt_db.models.market_data.etf_metadata import ETFAssetClass
-from portopt_db.models.universe.universe import Instrument
 from portopt_db.repositories.market_data.etf_metadata_repository import (
     ETFMetadataRepository,
 )
-from sqlalchemy import select
 
 from fund.config import settings
 from fund.readers import universe_reader
@@ -260,36 +257,20 @@ def _instrument_facts(
     """The classification of each ticker's instrument, in one query.
 
     A symbol that moved venues leaves a delisted row beside its live one, classified
-    separately. The rows are ordered like ``get_instrument_by_yfinance_ticker`` (live
-    listing first, then the most recently delisted, then the newest) so the route a
-    fund takes never depends on row order.
+    separately. The reader orders the rows like ``get_instrument_by_yfinance_ticker``
+    (live listing first, then the most recently delisted, then the newest) and the
+    first row per symbol is kept, so the route a fund takes never depends on the
+    order the database returns rows in.
     """
-    rows = session.execute(
-        select(
-            Instrument.yfinance_ticker,
-            Instrument.id,
-            Instrument.instrument_type,
-            Instrument.asset_class,
-            Instrument.fi_subclass,
-        )
-        .where(Instrument.yfinance_ticker.in_(list(tickers)))
-        .order_by(
-            Instrument.delisted_at.is_(None).desc(),
-            Instrument.delisted_at.desc(),
-            Instrument.created_at.desc(),
-            Instrument.ticker,
-            Instrument.id,
-        )
-    ).all()
     facts: dict[str, _InstrumentFacts] = {}
-    for ticker, instrument_id, instrument_type, asset_class, fi_subclass in rows:
+    for row in universe_reader(session).instrument_classes_for(list(tickers)):
         facts.setdefault(
-            ticker,
+            row.yfinance_ticker,
             _InstrumentFacts(
-                instrument_id=instrument_id,
-                instrument_type=(instrument_type or "").strip().upper(),
-                asset_class=(asset_class or "").strip().lower(),
-                fi_subclass=(fi_subclass or "").strip().lower(),
+                instrument_id=row.id,
+                instrument_type=(row.instrument_type or "").strip().upper(),
+                asset_class=(row.asset_class or "").strip().lower(),
+                fi_subclass=(row.fi_subclass or "").strip().lower(),
             ),
         )
     return facts
@@ -306,24 +287,14 @@ def _stock_shares(
     owner = {fact.instrument_id: ticker for ticker, fact in facts.items()}
     if not owner:
         return {}
-    rows = session.execute(
-        select(
-            ETFAssetClass.instrument_id, ETFAssetClass.as_of, ETFAssetClass.stock_pct
-        )
-        .where(
-            ETFAssetClass.instrument_id.in_(list(owner)), ETFAssetClass.as_of <= asof
-        )
-        .order_by(ETFAssetClass.as_of.desc())
-    ).all()
-    shares: dict[str, float] = {}
-    seen: set[uuid.UUID] = set()
-    for instrument_id, _, stock_pct in rows:
-        if instrument_id in seen:
-            continue
-        seen.add(instrument_id)
-        if stock_pct is not None:
-            shares[owner[instrument_id]] = float(stock_pct)
-    return shares
+    newest = ETFMetadataRepository(session).newest_stock_pct(
+        list(owner), on_or_before=asof
+    )
+    return {
+        owner[instrument_id]: stock_pct
+        for instrument_id, stock_pct in newest.items()
+        if stock_pct is not None
+    }
 
 
 def _stock_esg_reasons(

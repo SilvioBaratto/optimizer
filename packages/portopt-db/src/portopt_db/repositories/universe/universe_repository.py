@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, joinedload
 from portopt_db.models.market_data.yfinance_data import TickerProfile
 from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Exchange, Instrument
+from portopt_db.ports import InstrumentClass
 from portopt_db.repositories.universe.pinned_instrument_repository import (
     row_carries_symbol,
 )
@@ -504,6 +505,51 @@ class UniverseRepository(RepositoryBase):
             .order_by(Instrument.yfinance_ticker)
         )
         return [t for t in self.session.execute(stmt).scalars() if t is not None]
+
+    def instrument_classes_for(self, tickers: Collection[str]) -> list[InstrumentClass]:
+        """Return the classification of every row that carries one of ``tickers``.
+
+        The rows follow :meth:`YFinanceRepository.get_instrument_by_yfinance_ticker`'s
+        order, so a caller that keeps the first row per symbol keeps the listing
+        that lookup returns.
+
+        Args:
+            tickers: Yahoo symbols to look up; an empty collection matches no row.
+
+        Returns:
+            One entry per matching row: rows not delisted first, then the most
+            recently delisted, then the most recently created, ties broken by
+            ``ticker`` and ``id``; empty when no row matches.
+        """
+        rows = self.session.execute(
+            select(
+                Instrument.yfinance_ticker,
+                Instrument.id,
+                Instrument.instrument_type,
+                Instrument.asset_class,
+                Instrument.fi_subclass,
+            )
+            .where(Instrument.yfinance_ticker.in_(list(tickers)))
+            .order_by(
+                Instrument.delisted_at.is_(None).desc(),
+                Instrument.delisted_at.desc(),
+                Instrument.created_at.desc(),
+                Instrument.ticker,
+                Instrument.id,
+            )
+        ).all()
+        # The IN already drops NULL symbols; the condition narrows the column type.
+        return [
+            InstrumentClass(
+                yfinance_ticker=ticker,
+                id=instrument_id,
+                instrument_type=instrument_type,
+                asset_class=asset_class,
+                fi_subclass=fi_subclass,
+            )
+            for ticker, instrument_id, instrument_type, asset_class, fi_subclass in rows
+            if ticker is not None
+        ]
 
     def set_isin_if_missing(self, *, ticker: str, exchange_id: Any, isin: str) -> bool:
         """Store an ISIN on an instrument that has none yet.

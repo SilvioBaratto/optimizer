@@ -28,6 +28,7 @@ from portopt_db.models.universe.universe import Instrument
 from portopt_db.ports import (
     FxRatePoint,
     FxRateReader,
+    InstrumentClass,
     InstrumentSummary,
     PriceBar,
     PriceReader,
@@ -330,6 +331,50 @@ def test_newest_close_per_instrument_reads_each_instrument_newest_closed_bar(
         )
         == []
     )
+
+
+def test_instrument_classes_for_lists_every_row_live_listing_first(
+    db_session: Session,
+) -> None:
+    """Each row carrying a symbol is listed, live before delisted, newest delisting
+    first; other symbols are left out."""
+    newer_delisting = _instrument(
+        db_session, "VUSA1", yfinance_ticker="VUSA.L", delisted_at=dt.date(2025, 6, 1)
+    )
+    live = _instrument(db_session, "VUSA2", yfinance_ticker="VUSA.L")
+    older_delisting = _instrument(
+        db_session, "VUSA3", yfinance_ticker="VUSA.L", delisted_at=dt.date(2024, 1, 2)
+    )
+    live.asset_class = "equity"
+    live.fi_subclass = None
+    other = _instrument(db_session, "IGLT", yfinance_ticker="IGLT.L")
+    other.asset_class = "fixed_income"
+    other.fi_subclass = "government"
+    _instrument(db_session, "SKIP", yfinance_ticker="SKIP.L")
+    db_session.flush()
+    repository = UniverseRepository(db_session)
+
+    classes = repository.instrument_classes_for(["VUSA.L", "IGLT.L", "NONE.L"])
+
+    assert [
+        (c.yfinance_ticker, c.id) for c in classes if c.yfinance_ticker == "VUSA.L"
+    ] == [
+        ("VUSA.L", live.id),
+        ("VUSA.L", newer_delisting.id),
+        ("VUSA.L", older_delisting.id),
+    ]
+    assert (
+        InstrumentClass(
+            yfinance_ticker="IGLT.L",
+            id=other.id,
+            instrument_type="ETF",
+            asset_class="fixed_income",
+            fi_subclass="government",
+        )
+        in classes
+    )
+    assert len(classes) == 4
+    assert repository.instrument_classes_for([]) == []
 
 
 def _add_rate(session: Session, base: str, quote: str, day: dt.date, rate: str) -> None:
