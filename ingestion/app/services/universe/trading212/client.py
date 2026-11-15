@@ -8,6 +8,14 @@ from typing import Any, Optional
 import requests
 
 from app.config import settings
+from app.services.infrastructure import CircuitBreaker, retry_with_backoff
+from app.services.infrastructure.external_calls import (
+    TRADING_212_MAX_WAIT_SECONDS,
+    ExternalService,
+    build_breaker,
+    process_breaker,
+    timed_request,
+)
 
 # Trading 212's metadata endpoints sit behind Cloudflare, which 403s the default
 # python-requests User-Agent. A browser UA (paired with an explicit JSON Accept)
@@ -21,8 +29,38 @@ _BROWSER_USER_AGENT = (
 # seconds) and sends no Retry-After. The window on /metadata/instruments is
 # about 50 s, so a fixed 2+4+8+16 s backoff gives up before it reopens; waiting
 # for the reported reset is capped so a bogus header cannot stall the daemon.
-_MAX_RATE_LIMIT_WAIT_SECONDS = 120
+_MAX_RATE_LIMIT_WAIT_SECONDS = TRADING_212_MAX_WAIT_SECONDS
 _RESET_MARGIN_SECONDS = 1
+
+# Answers worth repeating: the request was fine, T212 (or Cloudflare in front of
+# it) was not ready for it. Every other 4xx is an answer a retry cannot change.
+_RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
+_RATE_LIMITED = 429
+_FIRST_SERVER_ERROR = 500
+
+
+def _status_of(exc: Exception) -> int | None:
+    return getattr(getattr(exc, "response", None), "status_code", None)
+
+
+def _trips_breaker(exc: Exception) -> bool:
+    """Whether ``exc`` shows Trading 212, or the way to it, failing for now.
+
+    True for a 408, 429 or 5xx answer and for any other ``requests`` failure
+    (connection, timeout, undecodable body); False for any other 4xx, for an
+    HTTP error without a response and for anything raised outside ``requests``,
+    such as :class:`CircuitOpenError`.
+    """
+    if isinstance(exc, requests.exceptions.HTTPError):
+        status = _status_of(exc)
+        if status is None:
+            return False
+        return status in _RETRYABLE_CLIENT_STATUSES or status >= _FIRST_SERVER_ERROR
+    return isinstance(exc, requests.exceptions.RequestException)
+
+
+def _ends_the_call(exc: Exception) -> bool:
+    return not _trips_breaker(exc)
 
 
 @dataclass
@@ -32,12 +70,31 @@ class Trading212Client:
     Covers only the exchange and instrument lists used by universe
     ingestion; account/portfolio/order endpoints are intentionally absent
     (the daemon ingests market data, it does not trade).
+
+    Attributes:
+        max_retries: Attempts per request, the first included;
+            ``TRADING_212_REQUEST_ATTEMPTS`` unless given.
+        timeout_seconds: Timeout passed to ``requests`` for each request;
+            ``TRADING_212_REQUEST_TIMEOUT_SECONDS`` unless given.
+        breaker: Circuit breaker every request passes. Unless given, a client
+            gets its own, sized by ``BREAKER_TRADING_212_MAX_ATTEMPTS``;
+            :meth:`from_settings` passes the process-wide one that the
+            daemon's ``external_breaker_open`` gauge reports.
     """
 
     api_key: str = field(repr=False)
     api_secret: str = field(repr=False)
     mode: str = "live"
-    max_retries: int = 5
+    max_retries: int = field(
+        default_factory=lambda: settings.trading_212_request_attempts
+    )
+    timeout_seconds: float = field(
+        default_factory=lambda: settings.trading_212_request_timeout_seconds
+    )
+    breaker: CircuitBreaker = field(
+        default_factory=lambda: build_breaker(ExternalService.TRADING_212),
+        repr=False,
+    )
     base_url: str = field(init=False)
     rate_limit: dict[str, str] = field(default_factory=dict, init=False, repr=False)
     _instruments_cache: list[dict[str, Any]] | None = field(
@@ -108,62 +165,102 @@ class Trading212Client:
         *,
         params: dict[str, Any] | None = None,
     ) -> Any:
-        """General-purpose GET with retry/rate-limit logic. Returns parsed JSON."""
-        last_error: Exception | None = None
+        """GET ``path`` through the circuit breaker, with retries.
 
-        for attempt in range(self.max_retries):
+        Every attempt first passes :attr:`breaker`. A failure that trips it (a
+        408, 429 or 5xx answer, or any other ``requests`` failure such as a
+        timeout) is retried once the breaker's window, which a 429's reported
+        wait can lengthen, has passed, for up to :attr:`max_retries` attempts.
+        Any other 4xx is raised at once.
+
+        Args:
+            path: Path under :attr:`base_url`.
+            params: Query parameters.
+
+        Returns:
+            The parsed JSON body, ``None`` for a JSON ``null``.
+
+        Raises:
+            ValueError: :attr:`max_retries` is below 1.
+            CircuitOpenError: The breaker refused an attempt; that attempt sent
+                no request.
+            requests.RequestException: At once for a 4xx other than 408 or 429
+                and for an HTTP error without a response; otherwise the last
+                failure, once every attempt has failed.
+        """
+        if self.max_retries < 1:
+            raise ValueError(f"max_retries must be at least 1, got {self.max_retries}")
+        url = f"{self.base_url}{path}"
+        failures: list[Exception] = []
+
+        def attempt() -> tuple[Any]:
+            """Run one attempt, keeping its error for the caller."""
             try:
-                url = f"{self.base_url}{path}"
-                resp = requests.get(
-                    url,
-                    headers=self.headers,
-                    params=params,
-                    timeout=30,
-                )
-                self._capture_rate_limit(resp)
-                resp.raise_for_status()
-                return resp.json()
-
-            except requests.exceptions.HTTPError as e:
-                last_error = e
-                response = e.response
-                if response is None:
-                    raise
-                if response.status_code == 429:
-                    if attempt >= self.max_retries - 1:
-                        raise
-                    time.sleep(self._rate_limit_wait(response.headers, attempt))
-                    continue
-                if response.status_code == 408 or response.status_code >= 500:
-                    # Cloudflare in front of T212 answers 502/503/504 under load.
-                    if attempt >= self.max_retries - 1:
-                        raise
-                    time.sleep((2**attempt) * 2)
-                    continue
+                return (self._send(url, params),)
+            except Exception as exc:
+                failures.append(exc)
                 raise
 
-            except requests.exceptions.RequestException as e:
-                last_error = e
-                if attempt >= self.max_retries - 1:
-                    raise
-                time.sleep((2**attempt) * 2)
-                continue
+        # The body travels in a tuple so that a JSON null is not mistaken for the
+        # None that retry_with_backoff returns once every attempt has failed.
+        answer = retry_with_backoff(
+            attempt,
+            self.max_retries,
+            is_permanent_error=_ends_the_call,
+            # _send has passed these to breaker.trigger(); the next attempt's
+            # check() then waits out an open window, or refuses the attempt
+            # once max_attempts is reached.
+            is_rate_limit_error=_trips_breaker,
+            on_success=lambda _: self.breaker.reset(),
+        )
+        if answer is None:
+            raise failures[-1]
+        return answer[0]
 
-        raise Exception(
-            f"Failed to fetch {path} after {self.max_retries} attempts"
-        ) from last_error
+    def _send(self, url: str, params: dict[str, Any] | None) -> Any:
+        """Send one GET through the breaker and return the parsed JSON body.
+
+        A failure that :func:`_trips_breaker` accepts goes to
+        ``breaker.trigger()``, with a 429's reported wait as the shortest
+        window, before it propagates.
+        """
+        self.breaker.check()
+        try:
+            return self._request(url, params)
+        except requests.exceptions.RequestException as exc:
+            if _trips_breaker(exc):
+                self.breaker.trigger(min_wait_seconds=self._reported_wait(exc))
+            raise
+
+    def _request(self, url: str, params: dict[str, Any] | None) -> Any:
+        with timed_request(ExternalService.TRADING_212):
+            response = requests.get(
+                url,
+                headers=self.headers,
+                params=params,
+                timeout=self.timeout_seconds,
+            )
+            self._capture_rate_limit(response)
+            response.raise_for_status()
+            body = response.json()
+        return body
+
+    @classmethod
+    def _reported_wait(cls, exc: Exception) -> float:
+        response = getattr(exc, "response", None)
+        if _status_of(exc) != _RATE_LIMITED or response is None:
+            return 0.0
+        return cls._rate_limit_wait(response.headers)
 
     @staticmethod
-    def _rate_limit_wait(headers: Any, attempt: int) -> float:
-        """Seconds to sleep after a 429.
+    def _rate_limit_wait(headers: Any) -> float:
+        """Seconds a 429 asked for, or 0 when it gave nothing usable.
 
         Precedence: ``Retry-After`` (seconds), then the time left until
-        ``x-ratelimit-reset`` (capped), then exponential backoff when neither
-        header is usable.
+        ``x-ratelimit-reset``; both capped at ``_MAX_RATE_LIMIT_WAIT_SECONDS``.
         """
-        backoff = (2**attempt) * 2
         if not isinstance(headers, Mapping):
-            return backoff
+            return 0.0
         lowered = {str(key).lower(): value for key, value in headers.items()}
 
         retry_after = lowered.get("retry-after")
@@ -171,19 +268,17 @@ class Trading212Client:
             try:
                 seconds = int(retry_after)
             except ValueError:
-                return backoff
+                return 0.0
             # The server's value is untrusted: an hour-scale one would stall the
-            # universe build and a negative one makes ``time.sleep`` raise.
-            if seconds < 0:
-                return backoff
-            return min(seconds, _MAX_RATE_LIMIT_WAIT_SECONDS)
+            # universe build.
+            return min(max(seconds, 0), _MAX_RATE_LIMIT_WAIT_SECONDS)
 
         try:
             until_reset = float(lowered["x-ratelimit-reset"]) - time.time()
         except (KeyError, TypeError, ValueError):
-            return backoff
+            return 0.0
         if not math.isfinite(until_reset) or until_reset <= 0:
-            return backoff
+            return 0.0
         return min(until_reset + _RESET_MARGIN_SECONDS, _MAX_RATE_LIMIT_WAIT_SECONDS)
 
     def _fetch_json(self, path: str) -> list[dict[str, Any]]:
@@ -234,9 +329,10 @@ class Trading212Client:
                 ``settings.trading_212_mode`` when omitted.
 
         Returns:
-            A configured client, or ``None`` when either API credential is
-            absent from settings (the ``t212_annotate`` step skips without
-            claiming a slot; the universe build does not need this client).
+            A configured client on the process-wide Trading 212 breaker, or
+            ``None`` when either API credential is absent from settings (the
+            ``t212_annotate`` step skips without claiming a slot; the universe
+            build does not need this client).
         """
         if cls.missing_credentials():
             return None
@@ -246,4 +342,5 @@ class Trading212Client:
             api_key=api_key,
             api_secret=api_secret,
             mode=mode or settings.trading_212_mode,
+            breaker=process_breaker(ExternalService.TRADING_212),
         )

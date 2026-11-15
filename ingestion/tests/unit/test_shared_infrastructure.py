@@ -9,6 +9,7 @@ import requests
 
 from app.services.infrastructure import (
     CircuitBreaker,
+    CircuitOpenError,
     RateLimiter,
     retry_with_backoff,
 )
@@ -299,6 +300,61 @@ class TestCircuitBreakerRecovery:
             )
 
         assert result == "ok"
+
+
+class TestReportedWaitAndOpenState:
+    """A service's own wait sets a floor on the window; ``is_open`` mirrors ``check``."""
+
+    def test_a_reported_wait_longer_than_the_backoff_sets_the_window(self, fake_clock):
+        """The window lasts as long as the service asked."""
+        cb = CircuitBreaker(service_name="svc")
+
+        cb.trigger(min_wait_seconds=500.0)
+
+        assert cb._until - fake_clock.now == 500.0
+
+    def test_a_reported_wait_shorter_than_the_backoff_leaves_the_backoff(
+        self, fake_clock
+    ):
+        """The exponential window still applies when it is the longer one."""
+        cb = CircuitBreaker(service_name="svc")
+
+        cb.trigger(min_wait_seconds=5.0)
+
+        assert cb._until - fake_clock.now == 120.0
+
+    def test_a_reported_wait_never_exceeds_the_cap(self, fake_clock):
+        """A huge or infinite report is held to ``max_wait_minutes``."""
+        cb = CircuitBreaker(service_name="svc", max_wait_minutes=2.0)
+
+        cb.trigger(min_wait_seconds=float("inf"))
+
+        assert cb._until - fake_clock.now == 120.0
+
+    def test_trigger_without_a_reported_wait_keeps_the_backoff(self, fake_clock):
+        """Existing callers pass nothing and get the window they always had."""
+        cb = CircuitBreaker(service_name="svc")
+
+        cb.trigger()
+
+        assert cb._until - fake_clock.now == 120.0
+
+    def test_is_open_only_while_check_would_refuse(self, fake_clock):
+        """Backing off below ``max_attempts`` is not open; an elapsed window is not."""
+        cb = CircuitBreaker(service_name="svc", max_attempts=2)
+        assert cb.is_open is False
+
+        cb.trigger()
+        assert cb.is_open is False
+
+        fake_clock.now = cb._until
+        cb.trigger()
+        assert cb.is_open is True
+        with pytest.raises(CircuitOpenError):
+            cb.check()
+
+        fake_clock.now = cb._until
+        assert cb.is_open is False
 
 
 # ---------------------------------------------------------------------------

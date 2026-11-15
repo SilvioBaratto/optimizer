@@ -44,11 +44,16 @@ class CircuitBreaker:
     _attempt: int = field(default=0, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
-    def trigger(self) -> None:
+    def trigger(self, *, min_wait_seconds: float = 0.0) -> None:
         """Record a failure and extend the back-off window.
 
         Idempotent while the current window is still open — a second trigger
         during an active back-off does not reset the window.
+
+        Args:
+            min_wait_seconds: Shortest window to open, for a service that said
+                when it will take calls again. The window still never exceeds
+                ``max_wait_minutes``.
         """
         with self._lock:
             if self._active:
@@ -57,8 +62,9 @@ class CircuitBreaker:
                     return
 
             self._attempt += 1
+            backoff_seconds = (2**self._attempt) * 60 * self.base_wait_minutes / 2
             wait_seconds = min(
-                (2**self._attempt) * 60 * self.base_wait_minutes / 2,
+                max(backoff_seconds, min_wait_seconds),
                 self.max_wait_minutes * 60,
             )
             resume_time = time.time() + wait_seconds
@@ -121,6 +127,16 @@ class CircuitBreaker:
                 self._active = False
                 return False
             return True
+
+    @property
+    def is_open(self) -> bool:
+        """True while ``check()`` would raise :class:`CircuitOpenError`."""
+        with self._lock:
+            return (
+                self._active
+                and time.time() < self._until
+                and self._attempt >= self.max_attempts
+            )
 
     @property
     def attempt_count(self) -> int:

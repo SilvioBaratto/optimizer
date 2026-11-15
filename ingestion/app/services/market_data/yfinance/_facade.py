@@ -10,6 +10,8 @@ import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
 
+from app.config import settings
+
 from ._base import TICKER_REQUEST_KEY, fetch_with_fault_retry
 from ._config import reapply_yfinance_log_level
 from .funds import FundsClient
@@ -169,7 +171,9 @@ class YFinanceClient:
                             default_ttl=cache_ttl,
                         ),
                         rate_limiter=RateLimiter(delay=rate_limit_delay),
-                        circuit_breaker=CircuitBreaker(),
+                        circuit_breaker=CircuitBreaker(
+                            max_attempts=settings.breaker_yfinance_max_attempts
+                        ),
                         default_max_retries=default_max_retries,
                     )
         return cls._instance

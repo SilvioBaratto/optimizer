@@ -167,17 +167,41 @@ def test_docs_name_t212_annotate_as_the_step_the_key_gates(relpath: str) -> None
 _NOT_KNOBS = {"project_name", "version", "debug"}
 # Read with os.getenv rather than through Settings.
 _EXTRA_KNOBS = {"PORTOPT_SECRETS_DIR": "/run/secrets"}
-# Knobs whose names and defaults are documented in docs/adr/0008 and CLAUDE.md
-# until the owner, who alone edits the env templates, lists them in the template.
-# The checks below fail once the template names one, so the set cannot outlive
-# its reason.
-_DOCUMENTED_OUTSIDE_THE_TEMPLATE = {
-    "DATABASE_BREAKER_FAILURE_THRESHOLD",
-    "DATABASE_BREAKER_RESET_TIMEOUT_S",
-}
-_EXEMPTION_DOCS = (
+# Knobs whose names and defaults are documented in the files mapped to them until
+# the owner, who alone edits the env templates, lists them in the template. The
+# checks below fail once the template names one, so an entry cannot outlive its
+# reason.
+_DB_BREAKER_DOCS = (
     _REPO_ROOT / "docs" / "adr" / "0008-database-circuit-breaker.md",
     _REPO_ROOT / "CLAUDE.md",
+)
+_EXTERNAL_CALL_DOCS = (
+    _REPO_ROOT / "docs" / "integrations.md",
+    _REPO_ROOT / "CHANGELOG.md",
+)
+_DOCUMENTED_OUTSIDE_THE_TEMPLATE: dict[str, tuple[Path, ...]] = {
+    "DATABASE_BREAKER_FAILURE_THRESHOLD": _DB_BREAKER_DOCS,
+    "DATABASE_BREAKER_RESET_TIMEOUT_S": _DB_BREAKER_DOCS,
+    "BREAKER_FRED_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
+    "BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
+    "BREAKER_ILSOLE_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
+    "BREAKER_TRADING_212_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
+    "BREAKER_YFINANCE_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
+    "FRED_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
+    "TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
+    "ILSOLE_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
+    "TRADING_212_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
+    "FRED_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
+    "TRADINGECONOMICS_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
+    "ILSOLE_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
+    "TRADING_212_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
+    "FRED_RETRY_BASE_DELAY_SECONDS": _EXTERNAL_CALL_DOCS,
+    "FRED_RETRY_MAX_DELAY_SECONDS": _EXTERNAL_CALL_DOCS,
+}
+_EXEMPTION_DOCS = tuple(
+    dict.fromkeys(
+        doc for docs in _DOCUMENTED_OUTSIDE_THE_TEMPLATE.values() for doc in docs
+    )
 )
 
 # A `NAME=value` line, active or commented out.
@@ -205,7 +229,7 @@ def _setting_knobs() -> dict[str, object]:
 
 def test_ingestion_template_lists_every_setting_the_daemon_reads() -> None:
     """CLAUDE.md sends operators here for the full list, SCHEDULER_* crons included."""
-    documented = set(_documented_knobs()) | _DOCUMENTED_OUTSIDE_THE_TEMPLATE
+    documented = set(_documented_knobs()) | set(_DOCUMENTED_OUTSIDE_THE_TEMPLATE)
     missing = sorted((set(_setting_knobs()) | set(_EXTRA_KNOBS)) - documented)
     assert not missing, f"ingestion/.env.example does not mention: {missing}"
 
@@ -245,9 +269,10 @@ def test_the_retirement_check_notices_a_named_variable() -> None:
 
 @pytest.mark.parametrize("doc", _EXEMPTION_DOCS, ids=lambda p: p.name)
 def test_an_exempt_variable_stays_documented_while_exempt(doc: Path) -> None:
-    """While the template lacks them, the ADR and CLAUDE.md must name them."""
+    """While the template lacks them, each file mapped to a name must name it."""
     text = doc.read_text(encoding="utf-8")
-    missing = sorted(
-        set(_DOCUMENTED_OUTSIDE_THE_TEMPLATE) - set(_exempt_names_in(text))
-    )
+    expected = {
+        name for name, docs in _DOCUMENTED_OUTSIDE_THE_TEMPLATE.items() if doc in docs
+    }
+    missing = sorted(expected - set(_exempt_names_in(text)))
     assert not missing, f"{doc.name} no longer names {missing}"

@@ -2,8 +2,9 @@
 
 Every system the platform talks to, what it needs, what breaks without it and how the
 code defends itself. Standard 2.10 asks for this per integration, with sequence and
-communication diagrams. Values were read from the source on 2026-11-13; the source file
-named under **Code** is the authority when they differ.
+communication diagrams. Values were read from the source on 2026-11-13, the external-call
+settings below on 2026-11-15; the source file named under **Code** is the authority when
+they differ.
 
 ## How the pieces talk
 
@@ -83,6 +84,25 @@ sequenceDiagram
     G-->>U: paper ticket and report
 ```
 
+## External-call settings and metrics
+
+The ingestion daemon reads the breaker, attempt and timeout settings named in the
+sections below from its environment (`app/config.py`); they are not in
+`ingestion/.env.example` yet. An attempt count includes the first try; a breaker refuses
+requests with `CircuitOpenError` once its failure count reaches its `BREAKER_*` setting,
+until its back-off window ends. FRED, Trading Economics, Il Sole 24 Ore and Trading 212
+each have a process-wide breaker (`app/services/infrastructure/external_calls.py`).
+
+The worker reports two metrics for those four sources, labelled `FRED API`,
+`Trading Economics`, `IlSole24Ore` and `Trading 212`:
+
+- `external_breaker_open{service}`: 1 while the source's process-wide breaker refuses
+  requests, 0 otherwise, read at each scrape.
+- `external_request_seconds{service,outcome}`: the duration of each HTTP request the
+  source's client sends; `outcome` is `error` when the request or the client's check of
+  the answer raised (for Trading 212 that includes decoding the JSON body), `ok`
+  otherwise.
+
 ## Yahoo Finance
 
 - **API**: the `yfinance` library over HTTPS (prices, profiles, statements, holders, news,
@@ -92,7 +112,8 @@ sequenceDiagram
   fund keep working on stored data. The fund marks NAV only after the day's price sweep
   has settled, so a failed sweep delays the mark instead of using a partial one.
 - **Risk and mitigation**: Yahoo throttles and changes routes. `CircuitBreaker` backs off
-  exponentially (default 2 min base, 30 min cap, 10 attempts) and a case-sensitive substring
+  exponentially (default 2 min base, 30 min cap; it refuses calls at
+  `BREAKER_YFINANCE_MAX_ATTEMPTS` failures, default 10) and a case-sensitive substring
   check marks transient errors. `YFINANCE_FETCH_WORKERS` (1 to 16, default 4) bounds
   concurrency and `YFINANCE_REQUEST_TIMEOUT_SECONDS` bounds each request. A 404 means one
   empty module, not a dead symbol. The retired ticker-news feed falls back to Yahoo search.
@@ -111,8 +132,11 @@ sequenceDiagram
 - **Impact if down**: the monthly macro series stop updating; stored series stay readable.
 - **Risk and mitigation**: because the key is in the URL, `requests` echoes it in errors.
   `redact_secrets` masks it in log messages and the retry helper redacts the exception text
-  and attaches no traceback. Timeout 30 s, five retries with backoff from 1 s to 60 s, and a
-  module-level breaker that opens after eight failures.
+  and attaches no traceback. Timeout `FRED_REQUEST_TIMEOUT_SECONDS` (default 30 s), up to
+  `FRED_REQUEST_ATTEMPTS` attempts per request (default 5) with a jittered exponential
+  backoff of base `FRED_RETRY_BASE_DELAY_SECONDS` (default 1 s) and cap
+  `FRED_RETRY_MAX_DELAY_SECONDS` (default 60 s), and a breaker that refuses requests at
+  `BREAKER_FRED_MAX_ATTEMPTS` failures (default 8).
 - **Code**: `ingestion/app/services/macro/scrapers/fred_scraper.py`,
   `ingestion/app/utils/log_redaction.py`, `ingestion/app/services/infrastructure/retry.py`.
 
@@ -126,9 +150,20 @@ sequenceDiagram
 - **Impact if down**: `is_t212_tradeable` stays as last evaluated. A portfolio with
   `tradeable_only` set keeps its last known universe.
 - **Risk and mitigation**: the catalogue endpoint allows about one call per 50 s and reports
-  the window end in `x-ratelimit-reset`. The wait after a 429 is capped at 120 s, and a
-  server-sent `Retry-After` is clamped to the same ceiling. Timeout 30 s. The credentials
-  are not part of any `repr`.
+  the window end in `x-ratelimit-reset`. Every request goes through `retry_with_backoff`
+  and a circuit breaker; the clients that `Trading212Client.from_settings` builds share
+  the process-wide one. A 408, 429 or 5xx answer, or any other `requests` failure such as a
+  timeout, trips the breaker and is retried, up to `TRADING_212_REQUEST_ATTEMPTS` attempts
+  (default 5), once the breaker's window has passed. The window is 2 s at the first
+  failure counted and doubles with each one, up to 120 s. After a 429 it lasts at least the
+  wait the server reported (`Retry-After`, else the time to `x-ratelimit-reset` plus 1 s),
+  which is clamped to the same 120 s. Any other 4xx is raised without a retry. At
+  `BREAKER_TRADING_212_MAX_ATTEMPTS` failures (default 5) the breaker refuses requests
+  with `CircuitOpenError` until its window ends. `run_t212_annotate` then raises before it
+  reads or writes any instrument, so no flag or stored ticker changes, and
+  `add-instrument` treats the catalogue as unavailable, as for any other failure. Timeout
+  `TRADING_212_REQUEST_TIMEOUT_SECONDS` (default 30 s). The credentials are not part of any
+  `repr`.
 - **Code**: `ingestion/app/services/universe/trading212/client.py`,
   `ingestion/app/services/universe/t212_annotate.py`.
 
@@ -141,7 +176,9 @@ sequenceDiagram
 - **Risk and mitigation**: a markup change breaks the parser silently, and once a response
   that could not be decoded froze the table for 16 days; the scraper therefore never
   advertises `br` in `Accept-Encoding`. Rows that mix non-comparable measures are skipped.
-  Timeout 20 s, three retries, module-level breaker opening after five failures.
+  Timeout `TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS` (default 20 s), up to
+  `TRADINGECONOMICS_REQUEST_ATTEMPTS` attempts per page (default 3), and a breaker that
+  refuses requests at `BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS` failures (default 5).
 - **Code**: `ingestion/app/services/macro/scrapers/tradingeconomics_scraper.py`.
 
 ## Il Sole 24 Ore
@@ -152,7 +189,9 @@ sequenceDiagram
 - **Authentication**: none.
 - **Impact if down**: that country comparison stops refreshing.
 - **Risk and mitigation**: the same markup risk as Trading Economics. `Accept-Encoding` is
-  pinned to `gzip, deflate`. Timeout 10 s, three retries, breaker after five failures.
+  pinned to `gzip, deflate`. Timeout `ILSOLE_REQUEST_TIMEOUT_SECONDS` (default 10 s), up
+  to `ILSOLE_REQUEST_ATTEMPTS` attempts per page (default 3), and a breaker that refuses
+  requests at `BREAKER_ILSOLE_MAX_ATTEMPTS` failures (default 5).
 - **Code**: `ingestion/app/services/macro/scrapers/ilsole_scraper.py`.
 
 ## Business Insider
