@@ -42,6 +42,7 @@ from portopt_db.models.market_data.yfinance_data import (
 )
 from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Instrument
+from portopt_db.ports import InstrumentSummary, PriceBar, ProfileSummary
 from portopt_db.repository import RepositoryBase
 
 logger = logging.getLogger(__name__)
@@ -379,6 +380,27 @@ def _statement_staleness(
     return entries
 
 
+def _optional_float(value: float | None) -> float | None:
+    # ``Numeric`` columns load as ``Decimal`` although the models annotate ``float``.
+    return None if value is None else float(value)
+
+
+def _price_bar(row: PriceHistory) -> PriceBar:
+    """Copy a ``price_history`` row into the DTO the ``PriceReader`` port returns."""
+    return PriceBar(
+        date=row.date,
+        open=_optional_float(row.open),
+        high=_optional_float(row.high),
+        low=_optional_float(row.low),
+        close=_optional_float(row.close),
+        volume=row.volume,
+        dividends=_optional_float(row.dividends),
+        stock_splits=_optional_float(row.stock_splits),
+        capital_gains=_optional_float(row.capital_gains),
+        price_unit=row.price_unit,
+    )
+
+
 class YFinanceRepository(RepositoryBase):
     """Sync repository for yfinance data. Uses PostgreSQL ON CONFLICT upsert."""
 
@@ -519,6 +541,20 @@ class YFinanceRepository(RepositoryBase):
         """Return the ticker profile for an instrument, or None if not yet fetched."""
         stmt = select(TickerProfile).where(TickerProfile.instrument_id == instrument_id)
         return self.session.execute(stmt).scalar_one_or_none()
+
+    def profile_for(self, instrument_id: UUID) -> ProfileSummary | None:
+        """Return the profile :meth:`get_profile` reads, as a DTO.
+
+        Args:
+            instrument_id: The instrument's primary key.
+
+        Returns:
+            The profile's sector and long name, or ``None`` when none is stored.
+        """
+        profile = self.get_profile(instrument_id)
+        if profile is None:
+            return None
+        return ProfileSummary(sector=profile.sector, long_name=profile.long_name)
 
     def upsert_profile_extras(self, instrument_id: UUID, info: dict[str, Any]) -> int:
         """Upsert the 1:1 extra-info row (short interest, momentum, governance
@@ -1049,6 +1085,37 @@ class YFinanceRepository(RepositoryBase):
         if limit is not None:
             stmt = stmt.limit(limit)
         return self.session.execute(stmt).scalars().all()
+
+    def price_bars_for(
+        self,
+        instrument_id: UUID,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int | None = None,
+        ascending: bool = False,
+    ) -> list[PriceBar]:
+        """Return the bars :meth:`get_price_history` reads, as DTOs.
+
+        Args:
+            instrument_id: The instrument's primary key.
+            start_date: Inclusive lower bound; ``None`` leaves it open.
+            end_date: Inclusive upper bound; ``None`` leaves it open.
+            limit: Keep at most this many bars from the front of the order; ``None``
+                keeps every bar in the window.
+            ascending: Order the bars oldest first instead of newest first.
+
+        Returns:
+            The bars in the requested order, decimal columns as ``float``; empty when
+            none is stored.
+        """
+        rows = self.get_price_history(
+            instrument_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            ascending=ascending,
+        )
+        return [_price_bar(row) for row in rows]
 
     # ------------------------------------------------------------------
     # Financial Statements
@@ -2205,6 +2272,26 @@ class YFinanceRepository(RepositoryBase):
             )
             .scalars()
             .first()
+        )
+
+    def instrument_for(self, yfinance_ticker: str) -> InstrumentSummary | None:
+        """Return the row :meth:`get_instrument_by_yfinance_ticker` picks, as a DTO.
+
+        Args:
+            yfinance_ticker: The Yahoo Finance symbol to look up.
+
+        Returns:
+            The chosen instrument's summary, or ``None`` when no row has that symbol.
+        """
+        instrument = self.get_instrument_by_yfinance_ticker(yfinance_ticker)
+        if instrument is None:
+            return None
+        return InstrumentSummary(
+            id=instrument.id,
+            name=instrument.name,
+            instrument_type=instrument.instrument_type,
+            currency_code=instrument.currency_code,
+            delisted_at=instrument.delisted_at,
         )
 
     def get_benchmark_coverage(

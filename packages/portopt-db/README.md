@@ -13,7 +13,8 @@ Internal workspace package (not published), consumed by `ingestion` and by `fund
 The package is versioned with the rest of the workspace (`0.1.0`) and resolved through
 `[tool.uv.sources]`, so a consumer always builds against the checkout it sits in. What a
 consumer may rely on is the surface it imports: the models, the repositories, `RepositoryBase`,
-`DatabaseManager` and `portopt_db.resilience` (the `CircuitBreaker` protocol, `DbCircuitBreaker`,
+`DatabaseManager`, `portopt_db.ports` (the `PriceReader`, `FxRateReader` and `UniverseReader`
+protocols and the frozen dataclasses they return) and `portopt_db.resilience` (the `CircuitBreaker` protocol, `DbCircuitBreaker`,
 `BreakerConfig`, `DatabaseUnavailableError`, `BreakerState`, `ProbeTicket`,
 `is_connectivity_failure`, the breaker defaults, the validator and the environment parsers
 `parse_failure_threshold` and `parse_reset_timeout`; see

@@ -126,6 +126,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **portopt-db: read ports for the repository reads `fund` runs.** `portopt_db.ports`
+  defines three `runtime_checkable` protocols and the frozen dataclasses they return:
+  `PriceReader` (`instrument_for`, `profile_for` and `price_bars_for`, returning
+  `InstrumentSummary`, `ProfileSummary` and `PriceBar`), `FxRateReader` (`rates_for`,
+  returning `FxRatePoint`) and `UniverseReader` (`get_t212_untradeable_tickers` and
+  `get_t212_unevaluated_tickers`, returning lists of Yahoo symbols).
+  `YFinanceRepository`, `FxRatesRepository` and `UniverseRepository` implement them. The
+  four new repository methods call `get_instrument_by_yfinance_ticker`, `get_profile`,
+  `get_price_history` and `get_rates` and copy the rows into the dataclasses, with the
+  decimal columns as `float`. No existing repository method changed its signature or
+  return type. `packages/portopt-db/tests/test_ports.py` checks that each repository
+  has its protocol's parameters and type hints and that no protocol method's type hints
+  name an ORM model.
 - **ingestion: the external-call breakers, attempts and timeouts are settings.** The
   ingestion daemon reads them from its environment; `docs/integrations.md` lists them with
   what they set. The defaults are the values the code used before, except
