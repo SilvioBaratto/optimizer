@@ -1308,9 +1308,9 @@ def test_performance_module_declares_no_agent_stack_imports():
 
 
 def test_performance_and_its_imports_load_no_agent_stack():
-    """Importing performance.py and every module it imports, function-local imports
-    included, loads no ``deepagents``, ``langgraph``, ``langchain*`` or
-    ``fund.agents`` module."""
+    """Importing performance.py and every module its import statements name,
+    function-local and type-only ones included, loads no ``deepagents``,
+    ``langgraph``, ``langchain*`` or ``fund.agents`` module."""
     targets = ["fund.performance", *_imported_names(performance)]
 
     loaded = _modules_loaded_by(targets)

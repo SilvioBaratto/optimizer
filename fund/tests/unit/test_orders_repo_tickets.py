@@ -1,8 +1,8 @@
 """``OrderRepository`` reads of filled tickets and the ``created_at`` re-stamp.
 
 The ticket reads return frozen :class:`FilledTicket` values ranked oldest to newest
-by fill bar, decision bar, insertion time and id, the order NAV and the holdings
-table share. The re-stamp writes through the caller's session without committing.
+by fill bar, decision bar, ``created_at`` and id, the order NAV and the holdings
+table read. The re-stamp writes through the caller's session without committing.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def _seed(session) -> list[PaperOrder]:
 
 
 def test_filled_tickets_rank_oldest_first_by_fill_asof_and_insertion(db_session):
-    """The portfolio's tickets come back in rank order, each one copied whole."""
+    """The portfolio's tickets come back in rank order with their stored values."""
     orders = _seed(db_session)
 
     tickets = OrderRepository(db_session).filled_tickets(_PID, filled_through=None)
@@ -133,7 +133,7 @@ def test_a_filled_ticket_is_frozen(db_session):
 
 
 def test_restamp_created_at_makes_an_older_ticket_the_newest(committing_session):
-    """The stamp moves the ticket to the end of the rank; the caller commits it."""
+    """The stamp moves the ticket to the end of the rank, and a rollback undoes it."""
     orders = _seed(committing_session)
     restamped, newest = orders[2].id, orders[-1].id
     committing_session.commit()

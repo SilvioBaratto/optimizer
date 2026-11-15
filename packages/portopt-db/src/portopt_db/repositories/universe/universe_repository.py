@@ -517,9 +517,9 @@ class UniverseRepository(RepositoryBase):
             tickers: Yahoo symbols to look up; an empty collection matches no row.
 
         Returns:
-            One entry per matching row: rows not delisted first, then the most
-            recently delisted, then the most recently created, ties broken by
-            ``ticker`` and ``id``; empty when no row matches.
+            One entry per matching row, sorted by these keys in turn: not delisted
+            before delisted, newer ``delisted_at`` first, newer ``created_at``
+            first, then ``ticker`` and ``id``; empty when no row matches.
         """
         rows = self.session.execute(
             select(

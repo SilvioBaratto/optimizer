@@ -1,11 +1,10 @@
 """Guard: no new ORM or SQL statement call outside the ``fund`` repositories.
 
 Data access belongs in a repository, so a ``fund`` module that builds or runs a
-statement itself bypasses that layer. The calls that did so when this guard was
-written are listed in ``orm_baseline.txt``. The test fails on a call the baseline
-does not list and on a baseline entry the tree no longer matches, so moving a call
-into a repository forces its entry out of the file, and a new call fails the test
-until someone adds an entry by hand.
+statement itself bypasses that layer. ``orm_baseline.txt`` lists the calls that still
+do so. The test fails on a call the baseline does not list and on a baseline entry the
+tree no longer matches, so moving a call into a repository forces its entry out of
+the file and a new call fails the test. The baseline's header forbids adding entries.
 
 The scan parses the syntax tree of every ``.py`` file under ``fund/src/fund`` except
 the repository modules: the files directly under ``fund/audit/`` whose name ends in
@@ -38,9 +37,11 @@ another, each detected call is keyed under the function it sits in. A docstring 
 comment that mentions a call is not a hit. The scan imports no implementation module.
 
 Each hit is keyed ``<module>::<qualified name>::<kind>``: the dotted module, the
-enclosing ``Class.method`` or ``outer.inner`` (``<module>`` at module level), and the
-kind (``select``, ``.execute``, ``.get`` ...). The key holds no line number, so an
-edit that only moves a call does not break the baseline.
+dotted chain of enclosing classes and functions (``Class.method``, ``outer.inner``;
+``<module>`` at module level), and the kind (``select``, ``.execute``, ``.get`` ...).
+The key holds no line number, so an edit that moves a call within its function does
+not break the baseline; moving it to another function or class changes its key, which
+the test reports as a new call plus a stale entry.
 """
 
 from __future__ import annotations
@@ -59,7 +60,8 @@ _CONSTRUCTORS = frozenset({"select", "insert", "update", "delete", "text"})
 _ANY_ARGUMENT_METHODS = frozenset({"execute", "query", "add_all"})
 _STATEMENT_ARGUMENT_METHODS = frozenset({"scalar", "scalars"})
 _MODULE_LEVEL = "<module>"
-# Far fewer modules than ``fund`` has means the scan root moved.
+# Well below the number of modules in ``fund``, so a scan that finds fewer most
+# likely looks at the wrong root.
 _MIN_SCANNED_MODULES = 50
 
 _ScopeNode = ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
@@ -117,7 +119,7 @@ class _Bindings:
 def _model_argument_kind(
     method: str, first: ast.expr, bindings: _Bindings
 ) -> str | None:
-    """Return ``.get`` / ``.add`` when the first argument names an imported model."""
+    """Return ``.get`` for ``.get(Model, ...)``, ``.add`` for ``.add(Model(...))``."""
     if method == "get" and isinstance(first, ast.Name):
         return ".get" if first.id in bindings.models else None
     if (
@@ -275,7 +277,7 @@ def _scan(
 
 
 def test_an_empty_tree_reports_nothing(tmp_path: Path) -> None:
-    """A tree with no module yields no key, so a hit always comes from source."""
+    """A tree with no module yields no key."""
     (tmp_path / "fund").mkdir()
     assert find_orm_sites(tmp_path) == Counter()
 
@@ -372,7 +374,7 @@ def test_an_empty_tree_reports_nothing(tmp_path: Path) -> None:
 def test_each_detected_call_form_is_reported(
     tmp_path: Path, source: str, expected: list[str]
 ) -> None:
-    """Fail-injection: every form the docstring lists is counted under its key."""
+    """Fail-injection: each probe of a detected form is counted under its exact key."""
     assert _scan(tmp_path, source) == Counter(expected)
 
 

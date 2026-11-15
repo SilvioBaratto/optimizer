@@ -36,7 +36,7 @@ from sqlalchemy import Select, select, update
 
 @dataclass(frozen=True)
 class FilledTicket:
-    """The ``paper_orders`` columns the NAV and holdings reads use.
+    """One paper ticket's id, fill bar, ``created_at``, notional and lines.
 
     Attributes:
         id: The ticket's primary key.
@@ -70,9 +70,10 @@ def _ticket_rank() -> tuple[Any, ...]:
     Tickets for the same decision bar share ``asof`` and ``fill_date`` but may carry
     different weights (a re-run after a reject, a sweep plus a manual run), so those
     two keys alone leave their order to the database. ``created_at`` then ``id``
-    make the newest ticket supersede the others deterministically; NAV reads the
-    ascending order and the holdings table the descending one, so both follow the
-    same ticket.
+    make the newest ticket supersede the others deterministically. NAV and the
+    holdings table read the ascending order (the holdings take its last ticket as the
+    current book) and ``marked_weights`` reads the newest ticket, so under the same
+    fill bound all three treat the same ticket as the newest.
     """
     return (
         PaperOrder.fill_date,

@@ -258,9 +258,9 @@ def _instrument_facts(
 
     A symbol that moved venues leaves a delisted row beside its live one, classified
     separately. The reader orders the rows like ``get_instrument_by_yfinance_ticker``
-    (live listing first, then the most recently delisted, then the newest) and the
-    first row per symbol is kept, so the route a fund takes never depends on the
-    order the database returns rows in.
+    (not delisted first, then newer delisting, then newer creation, then ticker and
+    id) and the first row per symbol is kept, so the row chosen for a symbol does not
+    depend on the order the database returns rows in.
     """
     facts: dict[str, _InstrumentFacts] = {}
     for row in universe_reader(session).instrument_classes_for(list(tickers)):

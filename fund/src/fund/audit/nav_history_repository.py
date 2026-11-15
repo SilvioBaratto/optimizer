@@ -183,7 +183,7 @@ class NavHistoryRepository(RepositoryBase):
             limit: The most dates to return.
 
         Returns:
-            Up to ``limit`` dates in descending order; empty when none is persisted.
+            Up to ``limit`` dates in descending order; empty when none matches.
         """
         stmt = select(NavHistory.date).where(NavHistory.portfolio_id == portfolio_id)
         if on_or_before is not None:

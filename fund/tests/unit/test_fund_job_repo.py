@@ -553,6 +553,8 @@ def _insert_owned_job(
 
 
 def test_fail_active_slots_of_fails_only_that_process_active_fund_slots(job_session):
+    """``fail_active_slots_of`` fails the matching slot and spares another PID, host,
+    job type and a terminal row."""
     owned = _insert_owned_job(
         job_session, job_type="fund_nav_mark", status="running", pid=7, host="me"
     )
@@ -597,6 +599,7 @@ def test_fail_active_slots_of_fails_only_that_process_active_fund_slots(job_sess
 
 
 def test_fail_active_slots_of_leaves_the_commit_to_its_caller(job_session):
+    """A rollback after ``fail_active_slots_of`` restores the slot's status."""
     owned = _insert_owned_job(
         job_session, job_type="fund_drift_monitor", status="pending", pid=7, host="me"
     )
@@ -608,12 +611,13 @@ def test_fail_active_slots_of_leaves_the_commit_to_its_caller(job_session):
     assert FundJobRepository(job_session).get(owned.id).status == "pending"
 
 
-# --- jobs_started_since: what ran today ---------------------------------------
+# --- jobs_started_since: rows started at or after a cutoff --------------------
 
 
 def test_jobs_started_since_returns_the_asked_types_started_on_or_after_the_cutoff(
     job_session,
 ):
+    """``jobs_started_since`` filters on job type and an inclusive start bound."""
     cutoff = datetime(2026, 11, 13, tzinfo=UTC)
     rows = [
         ("yfinance_fetch", "completed", cutoff + timedelta(hours=6), True),
@@ -657,6 +661,7 @@ def test_jobs_started_since_returns_the_asked_types_started_on_or_after_the_cuto
 
 
 def test_started_job_is_a_frozen_value():
+    """``StartedJob`` refuses attribute assignment."""
     job = StartedJob(
         job_type="fund_nav_mark",
         status="completed",
