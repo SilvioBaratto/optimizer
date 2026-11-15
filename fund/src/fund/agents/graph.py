@@ -171,7 +171,7 @@ if TYPE_CHECKING:
     from fund.agents.toolsets import RunContext
     from fund.schemas import ConstraintSet
     from fund.schemas.mandate import PortfolioMandate
-    from fund.tui.stream import StreamEvent
+    from fund.stream_events import StreamEvent
 
 
 _log = logging.getLogger(__name__)
@@ -967,8 +967,8 @@ def stream_fund(
     The live-deliberation counterpart to :func:`run_fund`: it shares
     :func:`_prepare_fund_run`'s setup, then drives the PM agent with
     ``agent.stream(stream_mode="updates")`` and yields one
-    :class:`~fund.tui.stream.StreamEvent` per meaningful pipeline step — each subagent
-    report (economist → allocator → risk → executor), then the ``place_orders``
+    :class:`~fund.stream_events.StreamEvent` per meaningful pipeline step — each
+    subagent report (economist → allocator → risk → executor), then the ``place_orders``
     commit — in emission order, filtering the interleaved middleware-hook chunks. The
     stream ends on exactly one terminal event: ``paused`` once the ``place_orders`` HITL
     gate is live (the run is flipped ``paused`` so the Decisions queue finds it), or
@@ -982,12 +982,12 @@ def stream_fund(
     (caller owns the transaction). Not thread-safe — one stream per thread.
 
     Yields:
-        :class:`~fund.tui.stream.StreamEvent` in emission order, terminated by a single
-        ``paused`` / ``incomplete`` event.
+        :class:`~fund.stream_events.StreamEvent` in emission order, terminated by a
+        single ``paused`` / ``incomplete`` event.
     """
     from langgraph.errors import GraphRecursionError
 
-    from fund.tui.stream import StepStatus, StreamEvent
+    from fund.stream_events import StepStatus, StreamEvent
 
     setup = _prepare_fund_run(
         model,

@@ -1,17 +1,22 @@
 """``fund.tui.ask`` — the model-free classify / target-resolve / retrieve helpers.
 
 The Ask view's deterministic core: deciding whether a turn is a read-only *query* or a
-decision *action*, resolving which gate / portfolio / scope an action targets, and
-assembling a compact grounded context from the agent-stack-free read model. Pure
-functions over an injected session + checkpointer — no Textual, no model, no agent
-stack. The lazy LLM summarize call and all ``apply_action`` dispatch live in
-``fund.tui.app`` workers; this module only decides and retrieves, and never guesses a
-target (an ambiguous turn asks a follow-up instead).
+decision *action*, and resolving which gate / portfolio / scope an action targets. The
+compact grounded context, :func:`build_context`, lives in :mod:`fund.ask_context`,
+which the Ask agent can import without importing the cockpit, and is re-exported
+here. Pure functions over an injected session + checkpointer — no Textual, no model,
+no agent stack. A query is answered by the read-only deep agent
+(:mod:`fund.agents.ask_agent`), which ``AskMixin._ask_worker`` in
+:mod:`fund.tui._mixins.ask` builds lazily; a confirmed action is handed from that
+mixin to ``ShellApp``'s shared action workers in :mod:`fund.tui._mixins`. This module
+only decides and retrieves, and never guesses a target (an ambiguous turn asks a
+follow-up instead).
 
-At module scope this imports only the stdlib and the agent-stack-free ``fund.observe``
-read model (whose optimizer/skfolio tracker is itself lazy), so ``import fund.tui.ask``
-— and therefore ``import fund.tui.app`` — stays agent-stack-light and
-optimizer/skfolio-free.
+At module scope this imports only the stdlib, the agent-stack-free ``fund.observe``
+read model (whose optimizer/skfolio tracker is itself lazy) and
+:mod:`fund.ask_context`, which itself imports only the stdlib and ``fund.observe``.
+So ``import fund.tui.ask`` — and therefore ``import fund.tui.app`` — stays
+agent-stack-light and optimizer/skfolio-free.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from fund import observe
+from fund.ask_context import _short, build_context
 
 if TYPE_CHECKING:
     from fund.observe import RunSummary
@@ -647,71 +653,6 @@ def _answers_pending(verb: str, turn: str) -> bool:
         or _ACTION_VERBS.get(word) == verb
         for word in _ANSWER_WORD.findall(lowered)
     )
-
-
-def build_context(
-    session: Any, saver: Any, focus: uuid.UUID | None, question: str
-) -> str:
-    """Assemble a compact, grounded context from the read model for ``question``.
-
-    Selects the relevant ``fund.observe`` reads — the fund roster size, the pending
-    gates and, when a portfolio is focused, its drift/holdings count, NAV-series
-    returns, and recent decisions — formatted as a short plain-text block the summarizer
-    grounds its answer in. A pure read: opens no transaction, builds no model.
-    ``question`` is accepted for future relevance selection; today the snapshot is
-    fixed and compact.
-
-    Args:
-        session: An injected read-only sync session; not owned here.
-        saver: The bootstrapped LangGraph checkpointer (opaque), for the gate reads.
-        focus: The focused portfolio, or ``None`` for a fund-wide question.
-        question: The adviser's natural-language question (reserved).
-
-    Returns:
-        A compact grounded-context string — never empty (at minimum the fund summary).
-    """
-    portfolios = observe.list_portfolios(session)
-    gates = observe.pending_hitl(session, saver, None)
-    lines = [
-        "FUND STATE",
-        f"portfolios: {len(portfolios)} · pending gates: {len(gates)}",
-    ]
-    for gate in gates[:5]:
-        pf = _short(gate.portfolio_id) if gate.portfolio_id else "fund"
-        lines.append(f"  gate #{_short(gate.run_id)} · pf {pf} · asof {gate.asof}")
-    if focus is not None:
-        lines.extend(_focus_lines(session, focus))
-    return "\n".join(lines)
-
-
-def _focus_lines(session: Any, focus: uuid.UUID) -> list[str]:
-    """The focused-portfolio grounding block: drift, NAV returns, recent decisions."""
-    state = observe.portfolio_state(session, focus)
-    summary = observe.performance_summary(session, focus)
-    lines = [
-        f"FOCUS portfolio {_short(focus)}",
-        f"  drift L1 {state.drift_l1:.4f} · "
-        f"{len(state.current)} held → {len(state.target)} target",
-        f"  returns: max {_fmt_pct(summary.returns.get('max'))} · "
-        f"1D {_fmt_pct(summary.returns.get('1D'))}",
-    ]
-    timeline = observe.audit_timeline(session, portfolio_id=focus, limit=5)
-    if timeline:
-        lines.append("  recent decisions:")
-        lines.extend(
-            f"    {entry.when:%m-%d} {entry.actor} {entry.action}" for entry in timeline
-        )
-    return lines
-
-
-def _fmt_pct(value: float | None) -> str:
-    """A signed-percent cell, or ``n/a`` when the metric is unavailable."""
-    return f"{value:+.2%}" if value is not None else "n/a"
-
-
-def _short(value: Any) -> str:
-    """First hex group of a UUID (or its string) — matches the view's compact id."""
-    return str(value).split("-", 1)[0]
 
 
 __all__ = [

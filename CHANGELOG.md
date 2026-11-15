@@ -448,6 +448,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   old modules re-export every name they defined, the moved code logs under the
   old logger names, and the complexity ratchet's baselines follow the moved
   functions with unchanged values. Behaviour is unchanged.
+- **fund**: the agent layer no longer imports the TUI. `StepStatus` and
+  `StreamEvent` moved from `fund/tui/stream.py` to `fund/stream_events.py`;
+  `MAX_MESSAGE_CHARS`, `strip_control`, `clip`, `defang_markdown` and
+  `describe_error` moved from `fund/tui/safe_text.py` to `fund/text_safety.py`;
+  and `build_context` moved from `fund/tui/ask.py` to `fund/ask_context.py`.
+  `fund/agents/graph.py`, `graph_stream.py` and `ask_agent.py` import them from
+  their new modules. The old modules re-export those names, so imports from the
+  old paths still work. Replacing a module attribute reaches only code that reads
+  the name from that module, and the Ask agent's `fund_snapshot` tool now reads
+  `build_context` from `fund.ask_context`, so `test_ask_tools_contract.py` and
+  `test_ask_agent.py` now patch `fund.ask_context` instead of `fund.tui.ask`. A
+  new guard, `test_agents_do_not_import_tui.py`, fails on an `import` or
+  `from ... import` statement under `fund/agents` that names `fund.tui` or one of
+  its submodules, function-local, type-only and relative statements included,
+  and on an `import_module`/`__import__` call whose first positional argument is
+  a string literal naming one; computed names, keyword arguments, relative string
+  names and the `fromlist` form are not detected. It also checks that the three
+  new modules load no `fund.tui` module and none of `deepagents`, `langchain`,
+  `langchain_core`, `langgraph`, `optimizer`, `skfolio` or `textual`. Behaviour
+  is unchanged.
 
 ### Removed
 
