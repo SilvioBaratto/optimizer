@@ -1,0 +1,50 @@
+# ORM and SQL statement calls outside the fund repositories, allowed until moved.
+#
+# Read by test_no_orm_outside_repositories.py, whose docstring states exactly which
+# calls it counts and which it does not. In short: sqlalchemy select/insert/update/
+# delete/text constructors bound by import, .execute/.query/.add_all on any receiver,
+# .scalar/.scalars with a positional argument, and .get(Model, ...)/.add(Model(...))
+# with a model imported from portopt_db.models, in every module under fund/src/fund
+# except the files directly under fund/audit/ whose name ends in repository.py.
+#
+# One line per key, <dotted module>::<scope>::<kind>, where scope is the enclosing
+# Class.method or outer.inner function (the literal <module> at module level) and
+# kind is the constructor name or the .method called. " xN" follows the key when
+# that scope makes the call N times (N >= 2). Keys hold no line numbers, so moving a
+# call inside its function does not break the file. The test fails on a call not listed here and on an entry the tree
+# no longer matches: when a call moves into a repository, delete or lower its line.
+# Never add a line.
+fund.actions::resolution_key::.execute
+fund.actions::resolution_key::select
+fund.agents.ask_agent::_read_only::.execute
+fund.agents.ask_agent::_read_only::text
+fund.agents.graph_failures::record_failed_round::.add
+fund.agents.graph_failures::record_failed_round::.add_all
+fund.agents.graph_failures::record_failed_round::.get
+fund.audit.persistence::_bootstrap_lock::.execute
+fund.audit.persistence::create_schema::.execute
+fund.observe::default_decision_bar::.execute
+fund.observe::default_decision_bar::select
+fund.performance::_active_ticket::.execute
+fund.performance::_active_ticket::select
+fund.performance::_nav_last_interval::.execute
+fund.performance::_nav_last_interval::select
+fund.performance::_tickets_through::.execute
+fund.performance::_tickets_through::select
+fund.performance::build_nav_series::.execute
+fund.performance::build_nav_series::select
+fund.scheduler::run_scheduled_nav_mark::.execute
+fund.scheduler::run_scheduled_nav_mark::select
+fund.tools.eligibility::_instrument_facts::.execute
+fund.tools.eligibility::_instrument_facts::select
+fund.tools.eligibility::_stock_shares::.execute
+fund.tools.eligibility::_stock_shares::select
+fund.tools.orders::_make_newest::.execute
+fund.tools.orders::_make_newest::update
+fund.tools.universe::_investable::select
+fund.tools.universe::list_universe::.execute x3
+fund.tools.universe::list_universe::select
+fund.tools.universe::uninvestable_reasons::.execute
+fund.tools.universe::uninvestable_reasons::select
+fund.worker::_fail_in_flight_slots::.execute
+fund.worker::_fail_in_flight_slots::update
