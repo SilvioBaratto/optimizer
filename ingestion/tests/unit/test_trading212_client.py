@@ -559,6 +559,20 @@ class TestCircuitBreaker:
 
         assert c.breaker.attempt_count == 0
 
+    def test_a_call_inside_an_earlier_calls_window_waits_out_the_rest(self, mock_get):
+        """Below ``max_attempts`` a new call first sleeps through the open window."""
+        mock_get.queue(
+            [_raise(_mock_429_error(retry_after="30")), _mock_response({"ok": True})]
+        )
+        c = _client_with_breaker(max_attempts=5, max_retries=1)
+
+        with pytest.raises(requests.HTTPError):
+            c._get("/p")
+        assert c._get("/p") == {"ok": True}
+
+        assert _gaps(mock_get.sent_at) == [pytest.approx(30)]
+        assert c.breaker.attempt_count == 0
+
     def test_from_settings_shares_the_process_breaker(self, monkeypatch):
         """Every client the daemon builds trips the same breaker."""
         monkeypatch.setattr(settings, "trading_212_api_key", "k")

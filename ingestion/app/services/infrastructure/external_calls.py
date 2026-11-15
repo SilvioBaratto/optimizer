@@ -53,10 +53,11 @@ def build_breaker(
             ``app.config.settings`` when omitted.
 
     Returns:
-        A breaker named after ``service``. Trading 212's windows start at 2 s,
-        double with each failure counted and stop at
-        ``TRADING_212_MAX_WAIT_SECONDS``; the other sources keep the
-        ``CircuitBreaker`` default windows.
+        A breaker named after ``service``. Trading 212's back-off windows start
+        at 2 s, double with each failure counted and stop at
+        ``TRADING_212_MAX_WAIT_SECONDS`` (a ``min_wait_seconds`` passed to
+        ``trigger()`` can lengthen one up to that cap); the other sources keep
+        the ``CircuitBreaker`` default windows.
     """
     config = config or settings
     max_attempts = {

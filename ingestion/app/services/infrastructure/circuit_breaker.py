@@ -6,7 +6,13 @@ from dataclasses import dataclass, field
 
 
 class CircuitOpenError(RuntimeError):
-    """The breaker refused a call because the service keeps rate-limiting us.
+    """The breaker refused a call because the failures it counts reached its limit.
+
+    What counts is the caller's choice: the macro scrapers trip it on errors that
+    ``is_transient_network_error`` flags (Trading Economics also on a page that no
+    longer parses), the Trading 212 client also on 5xx answers and other
+    transport failures. The message is shared by every service and says the rate
+    limit persists whatever the failures were.
 
     A ``RuntimeError`` subclass so callers that already catch the generic error
     keep working, while resilience wrappers can tell a refused call from any

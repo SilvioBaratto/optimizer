@@ -53,7 +53,7 @@ sequenceDiagram
     S->>V: run step (yfinance, macro, news, ...)
     loop per instrument or series
         V->>B: check()
-        B-->>V: refuse with CircuitOpenError when the source keeps rate-limiting
+        B-->>V: refuse with CircuitOpenError once the failures it counts reach max_attempts
         V->>X: HTTPS request (timeout per source)
         X-->>V: payload or 429 / 5xx
         V->>V: validate and shape the payload
@@ -86,15 +86,29 @@ sequenceDiagram
 
 ## External-call settings and metrics
 
-The ingestion daemon reads the breaker, attempt and timeout settings named in the
-sections below from its environment (`app/config.py`); they are not in
+The ingestion daemon reads the breaker, attempt, timeout and FRED backoff settings named
+in the sections below from its environment (`app/config.py`); they are not in
 `ingestion/.env.example` yet. An attempt count includes the first try; a breaker refuses
 requests with `CircuitOpenError` once its failure count reaches its `BREAKER_*` setting,
 until its back-off window ends. FRED, Trading Economics, Il Sole 24 Ore and Trading 212
 each have a process-wide breaker (`app/services/infrastructure/external_calls.py`).
 
-The worker reports two metrics for those four sources, labelled `FRED API`,
-`Trading Economics`, `IlSole24Ore` and `Trading 212`:
+For FRED, Trading Economics and Il Sole 24 Ore the breaker counts only the errors that
+`is_transient_network_error` (`app/services/infrastructure/retry.py`) flags: an HTTP 429,
+and errors whose type and message carry one of its case-sensitive markers, such as a
+timeout or a connection reset (a 504 counts when its reason phrase contains `Timeout`).
+Trading Economics also counts a page whose table no longer parses. A failure that arrives
+while a window is still open, as when two requests run at once, is not counted. After a
+flagged error the next attempt waits out the breaker's window, 120 s at the first failure
+counted and doubling up to 30 min, instead of the retry backoff, or is refused once the
+count has reached the `BREAKER_*` setting. Any other failure, such as a refused connection
+or a 500, does not count and is retried after a jittered exponential backoff: base
+`FRED_RETRY_BASE_DELAY_SECONDS` and cap `FRED_RETRY_MAX_DELAY_SECONDS` for FRED, base 2 s
+and cap 120 s for Trading Economics and Il Sole. FRED does not retry a 4xx other than 408
+or 429. Trading 212 counts differently; see its section.
+
+The worker's metrics endpoint carries two metrics for those four sources, labelled
+`FRED API`, `Trading Economics`, `IlSole24Ore` and `Trading 212`:
 
 - `external_breaker_open{service}`: 1 while the source's process-wide breaker refuses
   requests, 0 otherwise, read at each scrape.
@@ -112,7 +126,7 @@ The worker reports two metrics for those four sources, labelled `FRED API`,
   fund keep working on stored data. The fund marks NAV only after the day's price sweep
   has settled, so a failed sweep delays the mark instead of using a partial one.
 - **Risk and mitigation**: Yahoo throttles and changes routes. `CircuitBreaker` backs off
-  exponentially (default 2 min base, 30 min cap; it refuses calls at
+  exponentially (default 2 min base, 30 min cap; it refuses calls once it has counted
   `BREAKER_YFINANCE_MAX_ATTEMPTS` failures, default 10) and a case-sensitive substring
   check marks transient errors. `YFINANCE_FETCH_WORKERS` (1 to 16, default 4) bounds
   concurrency and `YFINANCE_REQUEST_TIMEOUT_SECONDS` bounds each request. A 404 means one
@@ -132,11 +146,13 @@ The worker reports two metrics for those four sources, labelled `FRED API`,
 - **Impact if down**: the monthly macro series stop updating; stored series stay readable.
 - **Risk and mitigation**: because the key is in the URL, `requests` echoes it in errors.
   `redact_secrets` masks it in log messages and the retry helper redacts the exception text
-  and attaches no traceback. Timeout `FRED_REQUEST_TIMEOUT_SECONDS` (default 30 s), up to
-  `FRED_REQUEST_ATTEMPTS` attempts per request (default 5) with a jittered exponential
-  backoff of base `FRED_RETRY_BASE_DELAY_SECONDS` (default 1 s) and cap
-  `FRED_RETRY_MAX_DELAY_SECONDS` (default 60 s), and a breaker that refuses requests at
-  `BREAKER_FRED_MAX_ATTEMPTS` failures (default 8).
+  and attaches no traceback. Timeout `FRED_REQUEST_TIMEOUT_SECONDS` (default 30 s) and up
+  to `FRED_REQUEST_ATTEMPTS` attempts per request (default 5). After an error the breaker
+  does not count, the next attempt waits a jittered exponential backoff of base
+  `FRED_RETRY_BASE_DELAY_SECONDS` (default 1 s) and cap `FRED_RETRY_MAX_DELAY_SECONDS`
+  (default 60 s). The breaker refuses requests once it has counted
+  `BREAKER_FRED_MAX_ATTEMPTS` failures (default 8); the section on external-call settings
+  says which errors it counts and how long a counted one waits.
 - **Code**: `ingestion/app/services/macro/scrapers/fred_scraper.py`,
   `ingestion/app/utils/log_redaction.py`, `ingestion/app/services/infrastructure/retry.py`.
 
@@ -153,14 +169,18 @@ The worker reports two metrics for those four sources, labelled `FRED API`,
   the window end in `x-ratelimit-reset`. Every request goes through `retry_with_backoff`
   and a circuit breaker; the clients that `Trading212Client.from_settings` builds share
   the process-wide one. A 408, 429 or 5xx answer, or any other `requests` failure such as a
-  timeout, trips the breaker and is retried, up to `TRADING_212_REQUEST_ATTEMPTS` attempts
-  (default 5), once the breaker's window has passed. The window is 2 s at the first
-  failure counted and doubles with each one, up to 120 s. After a 429 it lasts at least the
-  wait the server reported (`Retry-After`, else the time to `x-ratelimit-reset` plus 1 s),
-  which is clamped to the same 120 s. Any other 4xx is raised without a retry. At
-  `BREAKER_TRADING_212_MAX_ATTEMPTS` failures (default 5) the breaker refuses requests
-  with `CircuitOpenError` until its window ends. `run_t212_annotate` then raises before it
-  reads or writes any instrument, so no flag or stored ticker changes, and
+  timeout, trips the breaker, and the call retries once the breaker's window has passed,
+  up to `TRADING_212_REQUEST_ATTEMPTS` attempts (default 5), unless the breaker refuses
+  the attempt. The window is 2 s at the first failure counted and doubles with each one,
+  up to 120 s. After a 429 it lasts at least the wait the server reported (`Retry-After`,
+  else the time to `x-ratelimit-reset` plus 1 s), clamped to the same 120 s, unless that
+  `Retry-After` is negative or not a whole number of seconds: such a value sets no floor,
+  and `x-ratelimit-reset` is then not read. A failure that arrives while a window is
+  already open, as with two calls running at once in one process, is not counted and
+  leaves that window as it is. Any other 4xx is raised without a retry. Once it has
+  counted `BREAKER_TRADING_212_MAX_ATTEMPTS` failures (default 5), the breaker refuses
+  requests with `CircuitOpenError` until its window ends. `run_t212_annotate` then raises
+  before it reads or writes any instrument, so no flag or stored ticker changes, and
   `add-instrument` treats the catalogue as unavailable, as for any other failure. Timeout
   `TRADING_212_REQUEST_TIMEOUT_SECONDS` (default 30 s). The credentials are not part of any
   `repr`.
@@ -178,7 +198,8 @@ The worker reports two metrics for those four sources, labelled `FRED API`,
   advertises `br` in `Accept-Encoding`. Rows that mix non-comparable measures are skipped.
   Timeout `TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS` (default 20 s), up to
   `TRADINGECONOMICS_REQUEST_ATTEMPTS` attempts per page (default 3), and a breaker that
-  refuses requests at `BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS` failures (default 5).
+  refuses requests once it has counted `BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS` failures
+  (default 5); the section on external-call settings says which failures it counts.
 - **Code**: `ingestion/app/services/macro/scrapers/tradingeconomics_scraper.py`.
 
 ## Il Sole 24 Ore
@@ -191,7 +212,8 @@ The worker reports two metrics for those four sources, labelled `FRED API`,
 - **Risk and mitigation**: the same markup risk as Trading Economics. `Accept-Encoding` is
   pinned to `gzip, deflate`. Timeout `ILSOLE_REQUEST_TIMEOUT_SECONDS` (default 10 s), up
   to `ILSOLE_REQUEST_ATTEMPTS` attempts per page (default 3), and a breaker that refuses
-  requests at `BREAKER_ILSOLE_MAX_ATTEMPTS` failures (default 5).
+  requests once it has counted `BREAKER_ILSOLE_MAX_ATTEMPTS` failures (default 5); the
+  section on external-call settings says which errors it counts.
 - **Code**: `ingestion/app/services/macro/scrapers/ilsole_scraper.py`.
 
 ## Business Insider

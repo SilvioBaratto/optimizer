@@ -639,7 +639,7 @@ class TestUnreachableTrading212Catalogue:
     def test_the_catalogue_load_reports_none(
         self, unreachable: Exception, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """An open breaker leaves the flag unknown like any other failure."""
+        """An open breaker makes the catalogue unavailable, like any other failure."""
         client = MagicMock()
         client.get_instruments.side_effect = unreachable
         monkeypatch.setattr(

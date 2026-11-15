@@ -72,7 +72,7 @@ def _field(env_name: str) -> str:
 
 
 class TestSettingsFields:
-    """Each knob has today's default, reads its variable and rejects bad values."""
+    """Each knob has its documented default, reads its variable, rejects bad values."""
 
     @pytest.mark.parametrize(
         ("env_name", "default"),
@@ -81,7 +81,7 @@ class TestSettingsFields:
     def test_defaults_are_the_values_the_clients_were_built_with(
         self, env_name: str, default: float
     ) -> None:
-        """Unset, every knob keeps the number its client hardcoded."""
+        """Unset, a knob takes the number its client used; the T212 breaker is new."""
         assert getattr(Settings(_env_file=None), _field(env_name)) == default
 
     @pytest.mark.parametrize("env_name", list(_ATTEMPT_DEFAULTS))
@@ -141,7 +141,7 @@ class TestBuildBreaker:
     def test_the_default_breaker_size_is_unchanged(
         self, service: ExternalService, env_name: str
     ) -> None:
-        """On the defaults each breaker opens at the count its module hardcoded."""
+        """The scraper breakers keep their old counts; the new T212 one opens at 5."""
         breaker = build_breaker(service, Settings(_env_file=None))
 
         assert breaker.max_attempts == _ATTEMPT_DEFAULTS[env_name]
@@ -259,7 +259,7 @@ class TestScrapersReadTheirSettings:
     def test_trading_economics_timeout_and_attempts_on_every_page(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Indicators, bond yields and the country lists share one attempt budget."""
+        """Indicators, bond yields and the country lists read one attempt setting."""
         monkeypatch.setattr(settings, "tradingeconomics_request_timeout_seconds", 12.5)
         monkeypatch.setattr(settings, "tradingeconomics_request_attempts", 2)
         retry = MagicMock(return_value=None)

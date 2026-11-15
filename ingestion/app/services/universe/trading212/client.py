@@ -76,10 +76,10 @@ class Trading212Client:
             ``TRADING_212_REQUEST_ATTEMPTS`` unless given.
         timeout_seconds: Timeout passed to ``requests`` for each request;
             ``TRADING_212_REQUEST_TIMEOUT_SECONDS`` unless given.
-        breaker: Circuit breaker every request passes. Unless given, a client
-            gets its own, sized by ``BREAKER_TRADING_212_MAX_ATTEMPTS``;
-            :meth:`from_settings` passes the process-wide one that the
-            daemon's ``external_breaker_open`` gauge reports.
+        breaker: Circuit breaker every request goes through. Unless given, a
+            client gets its own, sized by ``BREAKER_TRADING_212_MAX_ATTEMPTS``;
+            :meth:`from_settings` passes the process-wide one, which the worker
+            reports on ``external_breaker_open`` when metrics are enabled.
     """
 
     api_key: str = field(repr=False)
@@ -167,11 +167,12 @@ class Trading212Client:
     ) -> Any:
         """GET ``path`` through the circuit breaker, with retries.
 
-        Every attempt first passes :attr:`breaker`. A failure that trips it (a
-        408, 429 or 5xx answer, or any other ``requests`` failure such as a
+        Every attempt first goes through :attr:`breaker`. A failure that trips it
+        (a 408, 429 or 5xx answer, or any other ``requests`` failure such as a
         timeout) is retried once the breaker's window, which a 429's reported
-        wait can lengthen, has passed, for up to :attr:`max_retries` attempts.
-        Any other 4xx is raised at once.
+        wait can lengthen, has passed, for up to :attr:`max_retries` attempts,
+        unless the breaker then refuses the attempt. Any other 4xx is raised at
+        once.
 
         Args:
             path: Path under :attr:`base_url`.
@@ -221,8 +222,9 @@ class Trading212Client:
         """Send one GET through the breaker and return the parsed JSON body.
 
         A failure that :func:`_trips_breaker` accepts goes to
-        ``breaker.trigger()``, with a 429's reported wait as the shortest
-        window, before it propagates.
+        ``breaker.trigger()``, with a 429's reported wait passed as
+        ``min_wait_seconds``, before it propagates. ``trigger()`` changes nothing
+        while a window is already open, as with two calls running at once.
         """
         self.breaker.check()
         try:
@@ -256,8 +258,12 @@ class Trading212Client:
     def _rate_limit_wait(headers: Any) -> float:
         """Seconds a 429 asked for, or 0 when it gave nothing usable.
 
-        Precedence: ``Retry-After`` (seconds), then the time left until
-        ``x-ratelimit-reset``; both capped at ``_MAX_RATE_LIMIT_WAIT_SECONDS``.
+        A non-empty ``Retry-After`` decides alone: its seconds when it is a whole
+        number, 0 when it is negative or not a whole number (an HTTP date,
+        ``1.5``), and ``x-ratelimit-reset`` is then not read. Without one, the
+        time left until ``x-ratelimit-reset`` plus a one-second margin, or 0 when
+        that header is missing, unreadable or already past. The result is capped
+        at ``_MAX_RATE_LIMIT_WAIT_SECONDS``.
         """
         if not isinstance(headers, Mapping):
             return 0.0
