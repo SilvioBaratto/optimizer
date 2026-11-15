@@ -53,7 +53,7 @@ from fund.agents.backend import (
 )
 from fund.agents.summarization import summarization_override
 from fund.config import FundConfig, settings
-from fund.tui.safe_text import describe_error, strip_control
+from fund.text_safety import describe_error, strip_control
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
@@ -534,13 +534,15 @@ def make_fund_snapshot_tool(ctx: AskToolContext) -> BaseTool:
     """
     from langchain_core.tools import tool
 
-    from fund.tui import ask
+    from fund import ask_context
 
     @tool
     def fund_snapshot() -> str:
         """Summarize the fund now: portfolios, pending gates, the focused portfolio."""
         return ctx.read(
-            lambda s: ask.build_context(s, ctx.saver, ctx.focus, "").splitlines()
+            lambda s: ask_context.build_context(
+                s, ctx.saver, ctx.focus, ""
+            ).splitlines()
         )
 
     return fund_snapshot

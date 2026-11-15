@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    from fund.tui.stream import StreamEvent
+    from fund.stream_events import StreamEvent
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ def _terminal_event(
     payload: dict[str, Any] | None = None,
 ) -> StreamEvent:
     """The single event a streamed round ends on, pending at ``place_orders``."""
-    from fund.tui.stream import StepStatus, StreamEvent
+    from fund.stream_events import StepStatus, StreamEvent
 
     return StreamEvent(
         kind=kind,

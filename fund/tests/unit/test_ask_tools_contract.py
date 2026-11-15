@@ -25,9 +25,9 @@ from typing import Any
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
+from fund import ask_context as ask_module
 from fund import observe
 from fund.agents import ask_agent
-from fund.tui import ask as ask_module
 
 PID = uuid.UUID("11111111-2222-3333-4444-555555555555")
 OTHER = uuid.UUID("99999999-9999-9999-9999-999999999999")
