@@ -130,3 +130,32 @@ def test_list_recent_date_range_bounds(db_session):
     past = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
     assert repo.list_recent(start=future) == []
     assert len(repo.list_recent(start=past)) == 1
+
+
+def test_latest_idempotency_key_is_the_newest_keyed_row_of_the_run_and_action(
+    db_session,
+):
+    """Unkeyed rows, other actions and other runs never answer for the run."""
+    run = uuid.uuid4()
+    base = dt.datetime(2026, 11, 1, tzinfo=dt.timezone.utc)
+    rows = [
+        (0, run, "approve", f"{run}:approve:gate-1"),
+        (5, run, "approve", f"{run}:approve:gate-2"),
+        (9, run, "approve", None),
+        (7, run, "reject", f"{run}:reject"),
+        (8, uuid.uuid4(), "approve", "another-run:approve"),
+    ]
+    for minutes, run_id, action, key in rows:
+        db_session.add(
+            HumanAuditLog(
+                action=action,
+                run_id=run_id,
+                idempotency_key=key,
+                created_at=base + dt.timedelta(minutes=minutes),
+            )
+        )
+    db_session.flush()
+    repo = HumanAuditLogRepository(db_session)
+
+    assert repo.latest_idempotency_key(run, "approve") == f"{run}:approve:gate-2"
+    assert repo.latest_idempotency_key(run, "killswitch") is None

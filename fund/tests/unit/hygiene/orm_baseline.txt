@@ -14,8 +14,6 @@
 # call inside its function does not break the file. The test fails on a call not listed here and on an entry the tree
 # no longer matches: when a call moves into a repository, delete or lower its line.
 # Never add a line.
-fund.actions::resolution_key::.execute
-fund.actions::resolution_key::select
 fund.agents.ask_agent::_read_only::.execute
 fund.agents.ask_agent::_read_only::text
 fund.agents.graph_failures::record_failed_round::.add
