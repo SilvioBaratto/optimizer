@@ -126,6 +126,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A circuit breaker on `DatabaseManager` sessions, so a dead database fails jobs
+  fast.** `DatabaseManager.get_session` (portopt-db) now asks a per-manager breaker
+  first. The paths that reach the database without it (the APScheduler job stores,
+  fund's LangGraph pool, startup checks and migrations) are listed in ADR-0008.
+  New portopt-db surface:
+  - `DatabaseManager(config, breaker=...)` takes an optional breaker, and
+    `DatabaseManager.breaker` exposes it;
+  - `DbConfig.breaker_failure_threshold` and `DbConfig.breaker_reset_timeout_s`;
+  - `portopt_db.resilience`: the `CircuitBreaker` protocol, `DbCircuitBreaker`,
+    `BreakerConfig`, `DatabaseUnavailableError`, `BreakerState`, `ProbeTicket`,
+    `is_connectivity_failure`, the defaults, and the validator and environment
+    parsers.
+
+  After 5 consecutive connectivity failures the breaker refuses new sessions at once
+  with `DatabaseUnavailableError` instead of waiting out a connect timeout per call.
+  After 30 s it lets a probe session through, one at a time, which connects before the
+  caller's code runs and is settled at that connect. Both values are set
+  from the environment, for the ingestion daemon and for fund alike:
+  `DATABASE_BREAKER_FAILURE_THRESHOLD` (default 5) and `DATABASE_BREAKER_RESET_TIMEOUT_S`
+  (default 30.0). Both processes parse them the same strict way: the threshold is
+  plain digits and the timeout digits with an optional fraction. Anything else
+  (`5.0` for the threshold, a sign, `inf`, an empty value) fails at startup.
+  An error is classified in this order: (1) a `DisconnectionError` counts; (2) a
+  `DBAPIError` that SQLAlchemy marked `connection_invalidated` counts, tested before the
+  SQLSTATE is read; (3) a `DBAPIError` whose SQLSTATE is in class 08 or equal to 57P01,
+  57P02 or 57P03 counts; (4) an `OperationalError` without a SQLSTATE raised outside a
+  statement counts; (5) any other `DBAPIError` with a SQLSTATE is recorded as a success,
+  because the server answered; (6) anything else is inconclusive and leaves the count
+  alone: a `DBAPIError` without a SQLSTATE that steps 2 and 4 do not cover, and any other
+  exception.
+  The ingestion daemon logs a step the breaker stopped without a traceback (ADR-0008
+  lists the exceptions under Known limits), counts it in the new
+  `jobs_db_unavailable_total` counter, counts a refused failed-status write in
+  `jobs_failed_status_refused_total`, and retries on the next scheduled run unless the
+  step's row is still active. When the
+  failed-status write of a step the breaker stopped does land, `background_jobs.error`
+  starts with the new `db_unavailable:` prefix. When it is refused, the row stays
+  `running` or `pending` until the orphan reaper, or the reconciliation at the next
+  worker start, fails it as `orphaned`. The daemon also
+  exposes the breaker as the `portopt_db_breaker_state` gauge (0 closed, 1 open,
+  2 half-open).
+  The fund cockpit greys out its write actions, and refuses Ask's decision verbs, while
+  the breaker is not closed as of the last poll, and says why on the status bar. The
+  running daemons pick this up once their images are rebuilt and restarted. See
+  `docs/adr/0008-database-circuit-breaker.md`.
 - **Decision log, integration docs and a changelog check.** `docs/adr/` starts an
   architecture decision log with seven records (the strip to an ingestion pipeline,
   the four-package workspace, the removal of `optimizer.pipeline`, the heartbeat-lease

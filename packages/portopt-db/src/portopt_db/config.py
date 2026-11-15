@@ -10,6 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from portopt_db.resilience import (
+    DEFAULT_FAILURE_THRESHOLD,
+    DEFAULT_RESET_TIMEOUT_S,
+    validate_breaker_settings,
+)
+
 
 @dataclass(frozen=True)
 class DbConfig:
@@ -40,6 +46,15 @@ class DbConfig:
             disables it. Leave off for workloads that keep one transaction open
             across network calls: the server kills the session mid-transaction
             and the whole unit of work is lost.
+        breaker_failure_threshold: Consecutive connectivity failures (see
+            ``portopt_db.resilience.is_connectivity_failure``) after which the
+            manager's circuit breaker opens and refuses each new session at once.
+        breaker_reset_timeout_s: Seconds an open breaker refuses sessions before
+            it admits a probe session.
+
+    Raises:
+        ValueError: A server-side timeout is negative, or a breaker setting is
+            refused by ``portopt_db.resilience.validate_breaker_settings``.
     """
 
     # The URL carries the password; keep it out of repr so a log line or traceback
@@ -57,6 +72,8 @@ class DbConfig:
     lock_timeout_ms: int = 0
     statement_timeout_ms: int = 0
     idle_in_transaction_timeout_ms: int = 0
+    breaker_failure_threshold: int = DEFAULT_FAILURE_THRESHOLD
+    breaker_reset_timeout_s: float = DEFAULT_RESET_TIMEOUT_S
 
     def __post_init__(self) -> None:
         for name in (
@@ -66,6 +83,11 @@ class DbConfig:
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0 (0 disables it)")
+        validate_breaker_settings(
+            self.breaker_failure_threshold,
+            self.breaker_reset_timeout_s,
+            prefix="breaker_",
+        )
 
     def connect_args(self) -> dict[str, Any]:
         """Build psycopg2 ``connect()`` kwargs for this config.

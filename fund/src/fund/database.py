@@ -35,6 +35,8 @@ def _build_config() -> DbConfig:
         url=settings.database_url or "",
         application_name="fund-cli",
         lock_timeout_ms=settings.db_lock_timeout_ms,
+        breaker_failure_threshold=settings.db_breaker_failure_threshold,
+        breaker_reset_timeout_s=settings.db_breaker_reset_timeout_s,
     )
 
 

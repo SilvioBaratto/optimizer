@@ -32,6 +32,8 @@ if TYPE_CHECKING:
 # Logs under ``fund.tui.app``, the shell's name that operators and tests filter on.
 logger = logging.getLogger("fund.tui.app")
 
+_GATE_UNREADABLE = "cannot approve: gate details unavailable - retry shortly"
+
 
 class AskMixin(ShellHost):
     """The Ask flow: route a turn to a query or an action, confirm it, keep the history.
@@ -138,6 +140,8 @@ class AskMixin(ShellHost):
         ceremony; a steer collects its directive in the barge-in overlay; the rest take
         a plain spelled-out-consequence confirm.
         """
+        if self._ask_refused_by_db_gate(view):
+            return
         if action.verb == "rearm" and action.scope == "fund":
             self._ask_fund_rearm(view)
             return
@@ -161,12 +165,27 @@ class AskMixin(ShellHost):
             shown_gate = self._shown_gate_id(action.run_id)
             gate = self._ask_approve_gate(action.run_id)
             if gate is None:
-                reason = "cannot approve: gate details unavailable - retry shortly"
-                view.append_log("ask", reason)
-                self._set_status(reason)
+                self._ask_refuse(view, _GATE_UNREADABLE)
                 return
             prompt = f"{prompt}\n\n{gate}"
         self.push_screen(ConfirmScreen(prompt), _resolved)
+
+    def _ask_refused_by_db_gate(self, view: AskView) -> bool:
+        """Say why on the log and status bar, and return True, while writes are held.
+
+        Ask's decision verbs reach the action workers without a key binding, so
+        ``check_action`` never sees them; they read the same gate here instead.
+        """
+        reason = self._db_write_refusal()
+        if reason is None:
+            return False
+        self._ask_refuse(view, reason)
+        return True
+
+    def _ask_refuse(self, view: AskView, reason: str) -> None:
+        """Explain on the Ask log and the status bar why nothing was sent."""
+        view.append_log("ask", reason)
+        self._set_status(reason)
 
     def _shown_gate_id(self, run_id: uuid.UUID) -> str | None:
         """The id of the gate ``run_id`` is parked at, or ``None`` on any read error."""
@@ -188,8 +207,12 @@ class AskMixin(ShellHost):
         """Dispatch a confirmed ``action`` through the matching action worker.
 
         ``shown_gate`` is the gate whose orders the confirm displayed; an approve of a
-        run that has moved to another gate since is refused.
+        run that has moved to another gate since is refused, and so is any verb
+        while the database gate holds writes back (the breaker may have opened
+        while the confirm was open).
         """
+        if self._ask_refused_by_db_gate(view):
+            return None
         view.append_log("ask", f"{action.verb} confirmed")
         verb = action.verb
         if verb in ("approve", "reject", "killswitch") and action.run_id is not None:
@@ -214,6 +237,8 @@ class AskMixin(ShellHost):
             if rationale is None:
                 self._ask_cancelled(view, "rearm")
                 return
+            if self._ask_refused_by_db_gate(view):
+                return
             view.append_log("ask", "rearm confirmed")
             self.last_worker = self._rearm_worker("fund", None, rationale)
 
@@ -228,6 +253,8 @@ class AskMixin(ShellHost):
         def _resolved(result: BargeInResult | None) -> None:
             if result is None:
                 self._ask_cancelled(view, "steer")
+                return
+            if self._ask_refused_by_db_gate(view):
                 return
             view.append_log("ask", "steer sent")
             self.last_worker = self._barge_in_worker(

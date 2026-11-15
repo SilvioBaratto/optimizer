@@ -47,3 +47,4 @@ rejected, the record says that instead of inventing a reason.
 | [0005](0005-langgraph-postgres-schema.md) | Keep the LangGraph tables in a dedicated Postgres schema | Accepted | 2026-09-16 |
 | [0006](0006-llm-provider-registry.md) | A lazy provider registry over LangChain chat models | Accepted | 2026-09-18 |
 | [0007](0007-branching-review-and-secrets-policy.md) | Branching, review and secrets policy for a single maintainer | Accepted | 2026-11-13 |
+| [0008](0008-database-circuit-breaker.md) | Guard database sessions with a circuit breaker | Accepted | 2026-11-14 |

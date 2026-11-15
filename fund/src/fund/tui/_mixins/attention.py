@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import sys
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from portopt_db.resilience import DatabaseUnavailableError
 from textual import work
 from textual.css.query import NoMatches
 from textual.widgets import Static
@@ -195,8 +197,15 @@ class AttentionMixin(ShellHost):
             what: Human description of the read, naming the portfolio where relevant.
         """
         failing.add(key)
-        if key not in self._logged_attention_failures:
-            self._logged_attention_failures.add(key)
+        if key in self._logged_attention_failures:
+            return
+        self._logged_attention_failures.add(key)
+        # An open breaker is an expected outage with a one-line explanation; its
+        # stack trace says nothing the message does not.
+        refused = sys.exc_info()[1]
+        if isinstance(refused, DatabaseUnavailableError):
+            logger.warning("attention feed: %s unreadable: %s", what, refused)
+        else:
             logger.warning("attention feed: %s unreadable", what, exc_info=True)
 
     def _is_drift_breach(self, session: Session, portfolio_id: uuid.UUID) -> bool:

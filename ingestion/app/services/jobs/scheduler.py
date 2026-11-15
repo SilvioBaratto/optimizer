@@ -55,6 +55,7 @@ from apscheduler.schedulers.base import STATE_PAUSED, STATE_STOPPED
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
+from portopt_db.resilience import DatabaseUnavailableError
 
 from app.config import settings
 from app.database import database_manager
@@ -75,6 +76,10 @@ from app.services.market_data.yfinance_data_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Prefix of the ``error`` text on a row the open circuit breaker stopped, so a
+# query or an alert can tell an outage from a step's own failure.
+_DB_UNAVAILABLE_REASON = "db_unavailable"
 
 # ---------------------------------------------------------------------------
 # Job-service instances (one per pipeline step)
@@ -273,6 +278,52 @@ def _describe_exception(exc: BaseException) -> str:
     return f"{name}: {detail}" if detail else name
 
 
+def _failure_reason(exc: BaseException) -> str:
+    """Return the ``error`` text for a job row that ``exc`` ended."""
+    if isinstance(exc, DatabaseUnavailableError):
+        return f"{_DB_UNAVAILABLE_REASON}: {exc}"
+    return _describe_exception(exc)
+
+
+def _report_db_unavailable(
+    label: str, job_svc: BackgroundJobService, exc: DatabaseUnavailableError
+) -> None:
+    """Log one line and count a step the open circuit breaker stopped.
+
+    The refusal is expected while the database is down, and each step of a
+    pipeline can meet it, so a traceback per step would bury the line that
+    matters. The next scheduled run retries the step, unless its row is still
+    active (ADR-0008, Known limits).
+    """
+    logger.error("%s: step stopped, %s", label, exc)
+    if not settings.enable_metrics:
+        return
+    from app import metrics
+
+    metrics.jobs_db_unavailable_total.labels(domain=job_svc._job_type).inc()
+
+
+def _report_claim_failure(
+    label: str, job_svc: BackgroundJobService, exc: Exception
+) -> None:
+    """Log why no job slot could be claimed (no row exists to fail)."""
+    if isinstance(exc, DatabaseUnavailableError):
+        _report_db_unavailable(label, job_svc, exc)
+        return
+    logger.error("%s: could not claim a job slot", label, exc_info=exc)
+
+
+def _fail_step(
+    job_svc: BackgroundJobService, job_id: str, label: str, exc: Exception
+) -> None:
+    """Log a step that raised, then record ``failed`` on its row."""
+    if isinstance(exc, DatabaseUnavailableError):
+        _report_db_unavailable(label, job_svc, exc)
+    else:
+        logger.error("%s: raised an exception", label, exc_info=exc)
+    _mark_job_failed(job_svc, job_id, label, exc)
+
+
 def _mark_job_failed(
     job_svc: BackgroundJobService, job_id: str, label: str, exc: BaseException
 ) -> None:
@@ -280,18 +331,50 @@ def _mark_job_failed(
 
     The error text lands in the ``error`` column and the failure webhook, which
     otherwise only know the status. Used on error paths, where a failing write
-    must not replace the original error or abort the pipeline. A row left
-    behind is failed by the orphan reaper once its heartbeat lapses.
+    must not replace the original error or abort the pipeline. While the circuit
+    breaker is open the write is refused before it reaches the database, and the
+    row stays active until the orphan reaper, or the orphan reconciliation at the
+    next worker start, fails it after its heartbeat lease has lapsed.
     """
     try:
         job_svc.update_job(
             job_id,
             status="failed",
-            error=_describe_exception(exc),
+            error=_failure_reason(exc),
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
+    except DatabaseUnavailableError as refused:
+        _report_refused_status_write(label, job_svc, job_id, refused)
     except Exception:
         logger.exception("%s: could not record failed status (job %s)", label, job_id)
+
+
+def _report_refused_status_write(
+    label: str,
+    job_svc: BackgroundJobService,
+    job_id: str,
+    refused: DatabaseUnavailableError,
+) -> None:
+    """Log and count a failed-status write the open circuit breaker refused.
+
+    The row stays ``running``, or ``pending`` when its ``running`` write was
+    refused too, until the orphan reaper or the orphan reconciliation at the next
+    worker start fails it, and its error then reads ``orphaned``, so this line and
+    ``jobs_failed_status_refused_total`` are where the refusal is visible when it
+    happens.
+    """
+    logger.error(
+        "%s: could not record failed status (job %s), %s; the orphan reaper "
+        "fails the row once the database answers again",
+        label,
+        job_id,
+        refused,
+    )
+    if not settings.enable_metrics:
+        return
+    from app import metrics
+
+    metrics.jobs_failed_status_refused_total.labels(domain=job_svc._job_type).inc()
 
 
 def _run_step(
@@ -322,6 +405,12 @@ def _run_step(
     never raises for a database fault around the job row: callers chain steps
     back to back, so one step's bookkeeping error must not skip the rest. A
     ``KeyboardInterrupt`` / ``SystemExit`` marks the row failed and propagates.
+
+    While the database circuit breaker is open, a refused job-slot claim costs
+    one log line and one ``jobs_db_unavailable_total`` count instead of a
+    traceback. A refusal later in the step can add lines and a
+    ``jobs_failed_status_refused_total`` count; ADR-0008 (Known limits) lists
+    them. The next scheduled run retries the step, unless its row is still active.
     """
     if _scheduler is not None and _scheduler.draining:
         logger.warning("%s: skipped — scheduler is shutting down", label)
@@ -336,8 +425,8 @@ def _run_step(
             exc.existing_job_id,
         )
         return False
-    except Exception:
-        logger.exception("%s: could not claim a job slot", label)
+    except Exception as exc:
+        _report_claim_failure(label, job_svc, exc)
         return False
 
     logger.info("%s: started (job %s)", label, job_id)
@@ -382,8 +471,7 @@ def _run_step(
         logger.warning("%s: aborted — job %s was reaped mid-run", label, job_id)
         return False
     except Exception as exc:
-        logger.exception("%s: raised an exception", label)
-        _mark_job_failed(job_svc, job_id, label, exc)
+        _fail_step(job_svc, job_id, label, exc)
         return False
     except BaseException as exc:
         # KeyboardInterrupt / SystemExit bypass ``except Exception``. The
@@ -1017,6 +1105,8 @@ def run_orphan_reaper() -> None:
             _emit_reap_metrics(reaped)
             if reclaim:
                 _redispatch_reclaimed(reaped)
+    except DatabaseUnavailableError as exc:
+        logger.warning("orphan_reaper: tick skipped, %s", exc)
     except Exception:
         logger.exception("orphan_reaper: tick failed (non-fatal)")
 

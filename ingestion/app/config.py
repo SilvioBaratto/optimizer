@@ -4,6 +4,12 @@ import logging
 import os
 from pathlib import Path
 
+from portopt_db.resilience import (
+    DEFAULT_FAILURE_THRESHOLD,
+    DEFAULT_RESET_TIMEOUT_S,
+    parse_failure_threshold,
+    parse_reset_timeout,
+)
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -54,6 +60,33 @@ class Settings(BaseSettings):
     # mid-fetch.
     database_lock_timeout_ms: int = Field(default=60_000, ge=0)
     database_statement_timeout_ms: int = Field(default=0, ge=0)
+    # Circuit breaker on DatabaseManager.get_session (see docs/adr/0008):
+    # consecutive connectivity failures that open it, and seconds it refuses
+    # sessions before it admits a probe.
+    database_breaker_failure_threshold: int = Field(
+        default=DEFAULT_FAILURE_THRESHOLD, ge=1, strict=True
+    )
+    database_breaker_reset_timeout_s: float = Field(
+        default=DEFAULT_RESET_TIMEOUT_S, gt=0, allow_inf_nan=False, strict=True
+    )
+
+    # fund reads the same two variables; parsing both through portopt_db keeps the
+    # two daemons from accepting different spellings of one value.
+    @field_validator("database_breaker_failure_threshold", mode="before")
+    @classmethod
+    def _parse_breaker_threshold(cls, value: object) -> object:
+        if isinstance(value, str):
+            return parse_failure_threshold(
+                value, name="DATABASE_BREAKER_FAILURE_THRESHOLD"
+            )
+        return value
+
+    @field_validator("database_breaker_reset_timeout_s", mode="before")
+    @classmethod
+    def _parse_breaker_timeout(cls, value: object) -> object:
+        if isinstance(value, str):
+            return parse_reset_timeout(value, name="DATABASE_BREAKER_RESET_TIMEOUT_S")
+        return value
 
     log_level: str = Field(default="INFO")
     log_format: str = Field(default="json")
