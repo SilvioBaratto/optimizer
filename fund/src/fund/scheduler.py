@@ -798,16 +798,18 @@ def run_scheduled_nav_mark(
     config: FundConfig = settings,
     now: datetime | None = None,
 ) -> bool:
-    """Run :func:`run_nav_mark` once today's ingestion price sweep has settled.
+    """Run :func:`run_nav_mark` once today's ingestion price sweep has settled, or late.
 
-    Fired by the daily NAV-mark cron and by a periodic re-check. From
-    ``background_jobs`` alone it marks when every ``yfinance_fetch`` sweep started
-    today has completed or failed and no NAV mark has completed since the last of
-    them finished. Past ``fund_nav_mark_wait_seconds`` after the cron's due time,
-    with the sweep still unsettled, it marks once on the closes stored so far and
-    logs a warning; a sweep that settles after that still earns a fresh mark. Any
-    other call returns at once, so the single-worker scheduler is never held up
-    while the sweep runs.
+    Fired by the daily NAV-mark cron and by a periodic re-check. From the cron's due
+    time on, and from ``background_jobs`` alone, it marks when at least one
+    ``yfinance_fetch`` sweep started since UTC midnight, every such sweep has
+    completed or failed, and no NAV mark that started at or after the last of them
+    finished has completed. Past ``fund_nav_mark_wait_seconds`` after the due time,
+    with no sweep started today or one still unsettled, it marks on the closes stored
+    so far if no NAV mark started today has completed, logging a warning when the wait
+    is above zero; a sweep that settles after that still earns a fresh mark. Any other
+    call returns without marking, so the single-worker scheduler is not held up while
+    the sweep runs.
 
     Args:
         session_factory: Session source; the daemon's database when omitted.

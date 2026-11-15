@@ -11,8 +11,8 @@ finds an existing ticket so ``place_orders`` can be re-run safely under the HITL
 ``Command(resume=…)`` gotcha (SPEC D3) without double-placing.
 
 Concurrency: the get-then-create is find-or-create, not atomic. That is safe under
-the D1 model (one daemon, one sync writer per run — see ``CLAUDE.md`` reaper is
-host-scoped). Should two writers ever race the same key, the DB-level
+the D1 model (one daemon per database, one sync writer per run; see the reaper
+gotcha in ``CLAUDE.md``). Should two writers ever race the same key, the DB-level
 ``UNIQUE(portfolio_id, asof, weights_hash)`` is the backstop: the second insert
 raises ``IntegrityError``, which ``tool_envelope`` degrades to ``{ok: false}``
 rather than double-placing. The caller owns the transaction boundary (D1), so it —
@@ -38,13 +38,17 @@ from sqlalchemy import Select, select, update
 class FilledTicket:
     """One paper ticket's id, fill bar, ``created_at``, notional and lines.
 
+    ``frozen`` stops reassigning a field only: ``lines`` holds the loaded row's own
+    line dicts, so editing one of them edits the loaded row as well.
+
     Attributes:
         id: The ticket's primary key.
         fill_date: The ticket's stored fill bar; a line may carry its own.
         created_at: When the ticket was stored, or last re-stamped by
             :meth:`OrderRepository.restamp_created_at`.
         notional: The paper notional the weights were sized against.
-        lines: The stored per-ticker fill lines, in stored order.
+        lines: The stored per-ticker fill lines, in stored order, as a tuple of the
+            row's line dicts.
     """
 
     id: uuid.UUID
@@ -253,8 +257,9 @@ class OrderRepository(RepositoryBase):
     def restamp_created_at(self, order_id: uuid.UUID) -> None:
         """Set a ticket's ``created_at`` to the database clock's current time.
 
-        Issued as a bulk ``UPDATE`` that leaves the session's loaded copy of the row
-        unchanged. It calls neither ``flush`` nor ``commit``: the caller owns the
+        Issued as a bulk ``UPDATE`` with ``synchronize_session=False``, so a
+        ``PaperOrder`` already loaded in the session keeps the ``created_at`` it was
+        loaded with. It calls neither ``flush`` nor ``commit``: the caller owns the
         transaction.
 
         Args:

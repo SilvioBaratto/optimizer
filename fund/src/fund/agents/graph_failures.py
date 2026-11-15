@@ -140,8 +140,9 @@ def record_failed_round(session: Any, exc: BaseException) -> bool:
     this re-creates the run and its decisions from the snapshot the exception carries,
     so the failure stays visible and the drift monitor's cooldown (which counts
     ``failed`` among the outcomes nobody acted on) still applies. It also hands back a
-    first-round gate that :func:`_finalize_failed` could not. Best effort: never
-    raises, and a run that already exists (the caller committed after all) is left as
+    first-round gate that :func:`_finalize_failed` could not. Best effort: an
+    exception while handing back the gate or writing the run is logged instead of
+    raised, and a run that already exists (the caller committed after all) is left as
     it is.
 
     Args:

@@ -1,8 +1,8 @@
 """``OrderRepository`` reads of filled tickets and the ``created_at`` re-stamp.
 
-The ticket reads return frozen :class:`FilledTicket` values ranked oldest to newest
-by fill bar, decision bar, ``created_at`` and id, the order NAV and the holdings
-table read. The re-stamp writes through the caller's session without committing.
+The ticket reads return :class:`FilledTicket` values ranked oldest to newest by fill
+bar, decision bar, ``created_at`` and id, the order NAV and the holdings table read.
+The re-stamp writes through the caller's session without committing.
 """
 
 from __future__ import annotations
@@ -82,8 +82,9 @@ def _seed(session) -> list[PaperOrder]:
     ]
 
 
-def test_filled_tickets_rank_oldest_first_by_fill_asof_and_insertion(db_session):
-    """The portfolio's tickets come back in rank order with their stored values."""
+def test_filled_tickets_rank_oldest_first_by_fill_asof_and_created_at(db_session):
+    """The portfolio's tickets come back in rank order; the last carries its stored
+    fill date, notional, ``created_at`` and lines."""
     orders = _seed(db_session)
 
     tickets = OrderRepository(db_session).filled_tickets(_PID, filled_through=None)
@@ -124,7 +125,7 @@ def test_latest_filled_ticket_is_the_last_of_the_ranked_tickets(db_session):
 
 
 def test_a_filled_ticket_is_frozen(db_session):
-    """The value cannot be edited into disagreeing with the stored row."""
+    """A ``FilledTicket``'s fields cannot be reassigned."""
     _seed(db_session)
     ticket = OrderRepository(db_session).filled_tickets(_PID, filled_through=None)[0]
 

@@ -4,7 +4,8 @@ Data access belongs in a repository, so a ``fund`` module that builds or runs a
 statement itself bypasses that layer. ``orm_baseline.txt`` lists the calls that still
 do so. The test fails on a call the baseline does not list and on a baseline entry the
 tree no longer matches, so moving a call into a repository forces its entry out of
-the file and a new call fails the test. The baseline's header forbids adding entries.
+the file, or its ``xN`` count down, and a new call fails the test. The baseline's
+header says never to add a line.
 
 The scan parses the syntax tree of every ``.py`` file under ``fund/src/fund`` except
 the repository modules: the files directly under ``fund/audit/`` whose name ends in

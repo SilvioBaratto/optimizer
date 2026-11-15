@@ -1472,8 +1472,9 @@ def _nav_last_interval(
 
     Returns:
         ``(prior date, last date)`` of the last NAV step; ``None`` with fewer than two
-        persisted points or a NAV that lags ``last_bar`` (callers then use the
-        holdings' own last two bars).
+        persisted points on or before ``asof`` or a NAV that lags ``last_bar`` (the
+        caller then falls back to the holdings' own last two bars, when there are
+        two).
     """
     from fund.audit.nav_history_repository import NavHistoryRepository
 

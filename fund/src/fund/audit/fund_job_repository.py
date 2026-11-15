@@ -3,9 +3,10 @@
 The ``background_jobs`` *model* lives in ``portopt_db`` (shared schema,
 Alembic-owned); the fund daemon needs its own *behavior* over it — a
 boundary-clean mirror of the ingestion ``BackgroundJobRepository`` that never
-imports ``ingestion.app``. Two fund-specific ``job_type``s
-(:data:`FUND_JOB_TYPES`) each get at most one active row, so the rebalance sweep
-and the drift monitor can never double-run across a restart or a second daemon.
+imports ``ingestion.app``. :meth:`claim_or_create` gives each ``job_type`` at most
+one active row, so the three fund job types in :data:`FUND_JOB_TYPES` (the
+rebalance sweep, the drift monitor and the NAV mark) each run in at most one claimed
+slot at a time, also across a restart or a second daemon.
 
 Unlike the other ``fund.audit`` repositories (which open no session and leave the
 commit to the caller, D1), this repo **owns its own short transactions**: the

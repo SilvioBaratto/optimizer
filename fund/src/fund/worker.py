@@ -157,17 +157,19 @@ def _reconcile_orphans(*, session_factory: SessionFactory | None = None) -> None
 
 
 def _fail_in_flight_slots(*, session_factory: SessionFactory | None = None) -> None:
-    """Fail this process's active fund slots so an abandoned step is not left running.
+    """Fail this process's active fund slots before the process exits.
 
-    Run only after a timed-out drain, when the process is about to exit and the
-    heartbeat thread dies with it. Without this the slot would stay ``running`` until
-    its lease expired, blocking the next scheduled run of that type. Only the rows this
-    process claimed are failed (``worker_pid`` and ``worker_host`` as stamped at claim):
-    a manual ``python -m fund.scheduler`` run holds a slot of its own, and failing it
-    would end its heartbeats and let the next daemon claim the same job type while that
-    run is still driving the portfolio. Status-guarded, so the abandoned step's own late
-    ``mark_done`` can no longer flip the row back to ``completed``. **Non-fatal**: a DB
-    failure logs and returns so the exit is never blocked.
+    ``main`` calls it when the process is about to exit, after a timed-out drain or
+    after the APScheduler thread died; any step's heartbeat thread dies with the
+    process. Without this an active slot would stay active until its lease expired,
+    blocking the next scheduled run of that type. Only rows stamped at claim with this
+    process's ``worker_pid`` and ``worker_host`` are failed: a manual
+    ``python -m fund.scheduler`` run holds a slot of its own, and failing it would end
+    its heartbeats and let the next daemon claim the same job type while that run is
+    still driving the portfolio. ``mark_done`` moves only active rows, so once a slot
+    is failed here an abandoned step's late ``mark_done`` cannot flip it to
+    ``completed``. **Non-fatal**: an exception is logged and swallowed, so a database
+    error does not stop the exit.
     """
     from fund.audit.fund_job_repository import FundJobRepository
 
