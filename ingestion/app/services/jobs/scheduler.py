@@ -356,9 +356,10 @@ def _report_refused_status_write(
 ) -> None:
     """Log and count a failed-status write the open circuit breaker refused.
 
-    The row stays ``running`` until the orphan reaper fails it, and its error then
-    reads ``orphaned``, so this line and ``jobs_failed_status_refused_total`` are
-    where the refusal is visible when it happens.
+    The row stays ``running``, or ``pending`` when its ``running`` write was
+    refused too, until the orphan reaper fails it, and its error then reads
+    ``orphaned``, so this line and ``jobs_failed_status_refused_total`` are where
+    the refusal is visible when it happens.
     """
     logger.error(
         "%s: could not record failed status (job %s), %s; the orphan reaper "

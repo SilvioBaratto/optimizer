@@ -14,7 +14,9 @@ Only connectivity failures count. SQLAlchemy wraps driver errors, and psycopg2's
 statement-timeout (``QueryCanceled``, 57014) and lock-timeout (``LockNotAvailable``,
 55P03) errors subclass the driver's ``OperationalError``, so the class alone would
 let one slow query open the breaker on a healthy database. The SQLSTATE decides
-instead: an error the server answered with a SQLSTATE proves it is reachable.
+instead: a SQLSTATE outside class 08 and 57P01-57P03 does not count unless
+SQLAlchemy marked the error ``connection_invalidated``; otherwise it is recorded as
+a success, because the server answered.
 """
 
 from __future__ import annotations
@@ -246,7 +248,8 @@ def is_connectivity_failure(exc: BaseException) -> bool:
     ``OperationalError`` without a SQLSTATE raised outside a statement, which is
     how a refused or timed-out connect at pool checkout surfaces.
 
-    Not counted: any other SQLSTATE (statement and lock timeouts, integrity,
+    Not counted: any other SQLSTATE on an error SQLAlchemy did not mark
+    ``connection_invalidated`` (statement and lock timeouts, integrity,
     programming and data errors: the server answered), an ``OperationalError``
     raised by a statement without a SQLSTATE, a pool-exhaustion timeout, and
     every non-driver exception.
@@ -379,9 +382,9 @@ class DbCircuitBreaker:
         """Record a call that ended by raising ``exc``.
 
         A connectivity failure (see ``is_connectivity_failure``) counts toward
-        opening, and a failed probe reopens the breaker for a full timeout. A
-        driver error that carries a SQLSTATE proves the server answered and is
-        recorded as a success. Anything else (a driver error without a SQLSTATE,
+        opening, and a failed probe reopens the breaker for a full timeout. Any
+        other driver error that carries a SQLSTATE proves the server answered and
+        is recorded as a success. Anything else (a driver error without a SQLSTATE,
         the caller's own bug, ``GeneratorExit``) says nothing about the database:
         the count is left alone, and the probe named by ``ticket`` releases its
         slot so the next caller probes instead.

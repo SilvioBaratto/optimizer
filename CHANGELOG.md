@@ -126,11 +126,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **A circuit breaker on every `DatabaseManager` session, so a dead database fails
-  jobs fast.** `DatabaseManager.get_session` (portopt-db) now asks a per-manager breaker
+- **A circuit breaker on `DatabaseManager` sessions, so a dead database fails jobs
+  fast.** `DatabaseManager.get_session` (portopt-db) now asks a per-manager breaker
   first. The paths that reach the database without it (the APScheduler job stores,
-  fund's LangGraph pool, startup checks and migrations) are listed with their outage
-  behaviour in ADR-0008.
+  fund's LangGraph pool, startup checks and migrations) are listed in ADR-0008.
   New portopt-db surface:
   - `DatabaseManager(config, breaker=...)` takes an optional breaker, and
     `DatabaseManager.breaker` exposes it;
@@ -149,19 +148,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (default 30.0). Both processes parse them the same strict way: the threshold is
   plain digits and the timeout digits with an optional fraction. Anything else
   (`5.0` for the threshold, a sign, `inf`, an empty value) fails at startup.
-  Only connection failures count: statement and lock timeouts, constraint and SQL
-  errors prove the database answered and never open it.
-  The ingestion daemon reports a stopped step in one log line and in the new
+  A SQLSTATE outside class 08 and 57P01-57P03 does not count unless SQLAlchemy marked
+  the error `connection_invalidated`; otherwise it is recorded as a success, because the
+  server answered. Statement and lock timeouts are outside the counted SQLSTATEs.
+  The ingestion daemon logs a stopped step without a traceback, counts it in the new
   `jobs_db_unavailable_total` counter, counts a refused failed-status write in
   `jobs_failed_status_refused_total`, and retries on the next scheduled run. When the
   failed-status write of a step the breaker stopped does land, `background_jobs.error`
   starts with the new `db_unavailable:` prefix. When it is refused, the row stays
-  `running` until the orphan reaper fails it as `orphaned`. The daemon also
+  `running` or `pending` until the orphan reaper, or the reconciliation at the next
+  worker start, fails it as `orphaned`. The daemon also
   exposes the breaker as the `portopt_db_breaker_state` gauge (0 closed, 1 open,
   2 half-open).
   The fund cockpit greys out its write actions, and refuses Ask's decision verbs, while
-  the database is unreachable, and says why on the status bar. The running daemons pick
-  this up only once their images are rebuilt and restarted. See
+  the breaker is not closed as of the last poll, and says why on the status bar. The
+  running daemons pick this up once their images are rebuilt and restarted. See
   `docs/adr/0008-database-circuit-breaker.md`.
 - **Decision log, integration docs and a changelog check.** `docs/adr/` starts an
   architecture decision log with seven records (the strip to an ingestion pipeline,
