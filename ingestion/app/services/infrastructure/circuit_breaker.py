@@ -22,11 +22,13 @@ class CircuitOpenError(RuntimeError):
 class CircuitBreaker:
     """Exponential-backoff circuit breaker for rate-limited services.
 
-    Counts failures and blocks callers via ``check()`` for a
-    back-off window proportional to ``base_wait_minutes * 2**attempt``, capped
-    at ``max_wait_minutes``.
-    Decays the attempt counter on each successful recovery so the breaker
-    self-heals over time.
+    Counts failures. A ``trigger()`` outside an open window raises the count to
+    n and opens a window of ``base_wait_minutes * 2**n / 2`` minutes, or of
+    ``min_wait_seconds`` seconds when that is longer, capped at
+    ``max_wait_minutes``. While a window is open, ``check()`` sleeps until it
+    ends, or raises when the count is at ``max_attempts`` or more. ``reset()``
+    and the half-open branch of ``check()`` take one off the count, so it can
+    come back down.
 
     Args:
         service_name: Human-readable name used in error messages.
@@ -35,8 +37,8 @@ class CircuitBreaker:
             back-off window is open.
         base_wait_minutes: Scaling factor for the back-off formula.
         max_wait_minutes: Upper bound on a single back-off window. Uncapped,
-            the window reaches hours, and every worker sleeping through it
-            keeps its job's heartbeat alive and outlasts the upstream ban.
+            the window reaches hours, and a worker sleeping through it keeps
+            its job's heartbeat alive and outlasts the upstream ban.
     """
 
     service_name: str = "external service"
@@ -79,9 +81,10 @@ class CircuitBreaker:
     def check(self) -> None:
         """Block until the back-off window elapses, then return.
 
-        Once the window has elapsed the breaker is half-open: the attempt
-        counter decays by one and the caller proceeds as a probe, even when
-        *max_attempts* had been reached.
+        Once the window has elapsed the breaker is half-open: the caller
+        proceeds as a probe, even when *max_attempts* had been reached, and the
+        attempt counter decays by one, unless ``is_active`` already closed the
+        window while the count was below *max_attempts*.
 
         Raises:
             CircuitOpenError: If *max_attempts* has been reached and the back-off

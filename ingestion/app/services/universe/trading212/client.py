@@ -46,10 +46,10 @@ def _status_of(exc: Exception) -> int | None:
 def _trips_breaker(exc: Exception) -> bool:
     """Whether ``exc`` shows Trading 212, or the way to it, failing for now.
 
-    True for a 408, 429 or 5xx answer and for any other ``requests`` failure
-    (connection, timeout, undecodable body); False for any other 4xx, for an
-    HTTP error without a response and for anything raised outside ``requests``,
-    such as :class:`CircuitOpenError`.
+    True for a 408, 429 or 5xx answer and for a ``requests`` failure that is not
+    an HTTP error (connection, timeout, undecodable body); False for another
+    HTTP error (a different 4xx, or one without a response) and for anything
+    raised outside ``requests``, such as :class:`CircuitOpenError`.
     """
     if isinstance(exc, requests.exceptions.HTTPError):
         status = _status_of(exc)
@@ -207,8 +207,8 @@ class Trading212Client:
             self.max_retries,
             is_permanent_error=_ends_the_call,
             # _send has passed these to breaker.trigger(); the next attempt's
-            # check() then waits out an open window, or refuses the attempt
-            # once max_attempts is reached.
+            # check() then sleeps out a window that is still open, or refuses
+            # the attempt while it is open and the count is at max_attempts.
             is_rate_limit_error=_trips_breaker,
             on_success=lambda _: self.breaker.reset(),
         )

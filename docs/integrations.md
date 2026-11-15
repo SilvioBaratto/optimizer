@@ -115,40 +115,53 @@ number above 0, fails at startup with an error that names the variable (`ge=1`, 
 except `BREAKER_TRADING_212_MAX_ATTEMPTS`: the Trading 212 client had no breaker (see
 Trading 212 for its new retry path). A scraper built with an explicit `timeout` keeps it.
 
-How the breakers count (paths under `ingestion/app/services/`):
+How the breakers count (paths from the repository root):
 
 - The count is net. `trigger()` adds one unless a window is still open
-  (`infrastructure/circuit_breaker.py:62-68`). `reset()` takes one off
-  (`circuit_breaker.py:117-121`), and the FRED, Trading Economics, Il Sole and Trading 212
-  clients call it after a successful request (`macro/scrapers/fred_scraper.py:185`,
-  `macro/scrapers/tradingeconomics_scraper.py:867`, `macro/scrapers/ilsole_scraper.py:157`,
-  `universe/trading212/client.py:213`). The half-open branch of `check()`, which lets a
-  request through after a window has ended, also takes one off
-  (`circuit_breaker.py:104-111`).
+  (`ingestion/app/services/infrastructure/circuit_breaker.py:64-70`). `reset()` takes one
+  off (`ingestion/app/services/infrastructure/circuit_breaker.py:120-124`), and the FRED,
+  Trading Economics, Il Sole and Trading 212 clients call it after a successful request
+  (`ingestion/app/services/macro/scrapers/fred_scraper.py:185`,
+  `ingestion/app/services/macro/scrapers/tradingeconomics_scraper.py:867`,
+  `ingestion/app/services/macro/scrapers/ilsole_scraper.py:157`,
+  `ingestion/app/services/universe/trading212/client.py:213`). The half-open branch of
+  `check()`, which lets a request through after a window has ended, also takes one off
+  (`ingestion/app/services/infrastructure/circuit_breaker.py:107-114`).
 - `check()` raises `CircuitOpenError` while a window is open and the count is at
-  `max_attempts` or more (`circuit_breaker.py:95-101`).
-- FRED raises a 4xx other than 408 or 429 at once, without a retry
-  (`fred_scraper.py:186, 244-248`). Of the other request errors, the FRED, Trading
-  Economics and Il Sole clients pass to `trigger()` those that `is_transient_network_error`
-  flags (`infrastructure/retry.py:172-174`; `fred_scraper.py:183-184`,
-  `tradingeconomics_scraper.py:865-866`, `ilsole_scraper.py:155-156`). Trading Economics
+  `max_attempts` or more
+  (`ingestion/app/services/infrastructure/circuit_breaker.py:98-104`).
+- When FRED answers a 4xx other than 408 or 429, the FRED client ends the request at once,
+  without a retry, and returns an error result
+  (`ingestion/app/services/macro/scrapers/fred_scraper.py:186-194, 244-248`). Of the other
+  request errors, the FRED, Trading Economics and Il Sole clients pass to `trigger()`
+  those that `is_transient_network_error` flags
+  (`ingestion/app/services/infrastructure/retry.py:172-174`;
+  `ingestion/app/services/macro/scrapers/fred_scraper.py:183-184`,
+  `ingestion/app/services/macro/scrapers/tradingeconomics_scraper.py:865-866`,
+  `ingestion/app/services/macro/scrapers/ilsole_scraper.py:155-156`). Trading Economics
   also calls `trigger()` for a page that no longer parses
-  (`tradingeconomics_scraper.py:478, 660, 835`). A request error that
-  `is_transient_network_error` does not flag is not passed to `trigger()`; when attempts
+  (`ingestion/app/services/macro/scrapers/tradingeconomics_scraper.py:478, 660, 835`). Any
+  other request error of those three clients is not passed to `trigger()`; when attempts
   remain, the retry helper sleeps a jittered backoff before the next attempt
-  (`retry.py:181-183`).
-- Window sizes, jitter and backoff: see `circuit_breaker.py`, `retry.py` and the client
-  modules.
+  (`ingestion/app/services/infrastructure/retry.py:181-183`).
+- Window sizes, jitter and backoff: see
+  `ingestion/app/services/infrastructure/circuit_breaker.py`,
+  `ingestion/app/services/infrastructure/retry.py` and the client modules.
 
 Metrics, served by the worker when metrics are enabled:
 
 - `external_breaker_open{service}`: the worker binds it to the four process-wide breakers
-  (`app/worker.py:102-103`); it reads 1 while the breaker's `is_open` is true, that is
-  while `check()` would refuse (`circuit_breaker.py:135-143`), and 0 otherwise.
-- `external_request_seconds{service,outcome}`: the duration of the HTTP requests these four
-  clients send inside `timed_request` (`infrastructure/external_calls.py:91-113`;
-  `fred_scraper.py:242`, `tradingeconomics_scraper.py:857`, `ilsole_scraper.py:147`,
-  `client.py:236`); `outcome` is `error` when the timed block raised, `ok` otherwise.
+  (`ingestion/app/worker.py:102-103`); it reads 1 while the breaker's `is_open` is true,
+  that is while `check()` would refuse
+  (`ingestion/app/services/infrastructure/circuit_breaker.py:138-146`), and 0 otherwise.
+- `external_request_seconds{service,outcome}`: the duration of the HTTP requests these
+  four clients send inside `timed_request`
+  (`ingestion/app/services/infrastructure/external_calls.py:90-112`;
+  `ingestion/app/services/macro/scrapers/fred_scraper.py:242`,
+  `ingestion/app/services/macro/scrapers/tradingeconomics_scraper.py:857`,
+  `ingestion/app/services/macro/scrapers/ilsole_scraper.py:147`,
+  `ingestion/app/services/universe/trading212/client.py:236`); `outcome` is `error` when
+  the timed block raised, `ok` otherwise.
 - `service` is one of `FRED API`, `Trading Economics`, `IlSole24Ore` and `Trading 212`.
 
 ## Yahoo Finance
@@ -194,21 +207,26 @@ Metrics, served by the worker when metrics are enabled:
   Without both, the annotation step skips and nothing else depends on it.
 - **Impact if down**: `is_t212_tradeable` stays as last evaluated. A portfolio with
   `tradeable_only` set keeps its last known universe.
-- **Risk and mitigation**: the catalogue endpoint allows about one call per 50 s and reports
-  the window end in `x-ratelimit-reset`. The requests `Trading212Client` sends go through
-  `retry_with_backoff` and a circuit breaker
-  (`ingestion/app/services/universe/trading212/client.py:205-214, 227-233`). A 408, a 429,
-  a 5xx and any other `requests` failure, such as a timeout or a body that is not JSON, are
-  passed to the breaker's `trigger()` and retried while attempts remain, unless the
-  breaker refuses the attempt; any other 4xx, and an HTTP error without a response, is
-  raised at once (`_trips_breaker`, `client.py:46-59`). The wait a 429 reports can lengthen
-  the breaker's window, which stays capped at 120 s (`client.py:256-286`;
-  `external_calls.py:71`). The clients that `Trading212Client.from_settings` builds share
-  the process-wide breaker (`client.py:349`). When it refuses with `CircuitOpenError`,
-  `run_t212_annotate` raises before it reads or writes any instrument
-  (`t212_annotate.py:357-358`) and `add-instrument` treats the catalogue as unavailable
-  (`add_instrument.py:104-106`). Timeout, attempts and breaker size: see "External-call
-  settings and metrics". The credentials are not part of any `repr`.
+- **Risk and mitigation**: the catalogue endpoint allows about one call per 50 s and
+  reports the window end in `x-ratelimit-reset`. The requests `Trading212Client` sends go
+  through `retry_with_backoff` and a circuit breaker
+  (`ingestion/app/services/universe/trading212/client.py:205-214, 227-233`). A 408, a 429
+  or a 5xx answer, and a `requests` failure that is not an HTTP error, such as a timeout
+  or a body that is not JSON, are passed to the breaker's `trigger()` and retried while
+  attempts remain, unless the breaker refuses the attempt; any other 4xx, and an HTTP
+  error without a response, is raised at once (`_trips_breaker`,
+  `ingestion/app/services/universe/trading212/client.py:46-59`). The wait a 429 reports
+  can lengthen the breaker's window, which stays capped at 120 s
+  (`ingestion/app/services/universe/trading212/client.py:256-286`;
+  `ingestion/app/services/infrastructure/external_calls.py:70`). The clients that
+  `Trading212Client.from_settings` builds share the process-wide breaker
+  (`ingestion/app/services/universe/trading212/client.py:349`). When it refuses with
+  `CircuitOpenError`, `run_t212_annotate` raises before it reads or writes any instrument
+  (`ingestion/app/services/universe/t212_annotate.py:357-358`) and `add-instrument` treats
+  the catalogue as unavailable
+  (`ingestion/app/services/universe/add_instrument.py:104-106`). Timeout, attempts and
+  breaker size: see "External-call settings and metrics". The credentials are not part of
+  any `repr`.
 - **Code**: `ingestion/app/services/universe/trading212/client.py`,
   `ingestion/app/services/universe/t212_annotate.py`.
 

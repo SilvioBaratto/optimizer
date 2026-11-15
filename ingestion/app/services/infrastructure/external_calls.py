@@ -17,9 +17,8 @@ from app import metrics
 from app.config import Settings, settings
 from app.services.infrastructure.circuit_breaker import CircuitBreaker
 
-# Trading 212 reports when a rate-limit window ends; neither its breaker window
-# nor a wait taken from that report exceeds this, so a bogus header cannot stall
-# a run.
+# Cap on a Trading 212 breaker window and on a wait read from its rate-limit
+# headers, so a bogus header cannot set an hour-long wait.
 TRADING_212_MAX_WAIT_SECONDS = 120
 # With this base the back-off part of a window is 2, 4, 8 and 16 s at counts 1 to 4.
 _TRADING_212_BASE_WAIT_MINUTES = 1 / 30

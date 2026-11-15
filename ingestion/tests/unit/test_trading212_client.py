@@ -781,7 +781,7 @@ class TestMissingCredentials:
 
 
 class TestRetryAfterWait:
-    """A server-sent ``Retry-After`` must never stall the build or crash the sleep."""
+    """``_rate_limit_wait`` reads ``Retry-After`` as whole seconds, capped, or 0."""
 
     @pytest.mark.parametrize(
         ("header", "expected"),

@@ -315,9 +315,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **ingestion: the requests `Trading212Client` sends go through `retry_with_backoff` and a
-  circuit breaker.** A 408, a 429, a 5xx and any other `requests` failure are passed to the
-  breaker and retried while attempts remain, unless the breaker refuses the attempt; any
-  other 4xx is still raised at once. The wait a 429 reports can lengthen the breaker's
+  circuit breaker.** A 408, a 429 or a 5xx answer, and a `requests` failure that is not an
+  HTTP error, such as a timeout, are passed to the breaker and retried while attempts
+  remain, unless the breaker refuses the attempt; any other 4xx is still raised at once, and
+  so is an HTTP error without a response. The wait a 429 reports can lengthen the breaker's
   window, which stays capped at 120 s. The clients that `Trading212Client.from_settings`
   builds share one breaker per process. When it refuses with `CircuitOpenError`,
   `t212_annotate` fails before it reads or writes any instrument, as for any other
