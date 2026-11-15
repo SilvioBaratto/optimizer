@@ -15,14 +15,19 @@ from uuid import uuid4
 
 import pandas as pd
 import pytest
+import requests
 from portopt_db.models.universe.universe import Exchange, Instrument
 
+from app.services.infrastructure import CircuitOpenError
 from app.services.universe import add_instrument as add_instrument_module
 from app.services.universe.add_instrument import (
     AddInstrumentError,
     AddInstrumentResult,
     add_instrument,
 )
+
+# Captured before the autouse fixture below replaces it in the tests.
+_REAL_LOAD_T212_TICKERS = add_instrument_module._load_t212_tickers
 
 XETRA = "Deutsche Börse Xetra"
 LSE = "London Stock Exchange"
@@ -618,3 +623,27 @@ def test_result_is_a_frozen_value_object() -> None:
     with pytest.raises(AttributeError):
         result.created = False  # type: ignore[misc]
     assert result.warnings == []
+
+
+class TestUnreachableTrading212Catalogue:
+    """An unreachable catalogue reads as "nothing checked", not as "absent"."""
+
+    @pytest.mark.parametrize(
+        "unreachable",
+        [
+            CircuitOpenError("Trading 212 rate limit persists after 5 attempts."),
+            requests.exceptions.ConnectionError("refused"),
+        ],
+        ids=["breaker_open", "connection_error"],
+    )
+    def test_the_catalogue_load_reports_none(
+        self, unreachable: Exception, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An open breaker makes the catalogue unavailable, like any other failure."""
+        client = MagicMock()
+        client.get_instruments.side_effect = unreachable
+        monkeypatch.setattr(
+            add_instrument_module, "build_trading212_client", lambda: client
+        )
+
+        assert _REAL_LOAD_T212_TICKERS() is None

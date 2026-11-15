@@ -11,10 +11,16 @@ from datetime import datetime
 
 import requests
 
-from app.services.infrastructure import CircuitBreaker, retry_with_backoff
+from app.config import settings
+from app.services.infrastructure import retry_with_backoff
+from app.services.infrastructure.external_calls import (
+    ExternalService,
+    process_breaker,
+    timed_request,
+)
 from app.services.infrastructure.retry import is_transient_network_error
 
-_fred_circuit_breaker = CircuitBreaker(service_name="FRED API", max_attempts=8)
+_fred_circuit_breaker = process_breaker(ExternalService.FRED)
 
 logger = logging.getLogger(__name__)
 
@@ -123,14 +129,17 @@ class FredScraper:
 
     Args:
         api_key: FRED API key (from ``FRED_API_KEY`` env var).
-        timeout: HTTP request timeout in seconds.
+        timeout: HTTP request timeout in seconds;
+            ``FRED_REQUEST_TIMEOUT_SECONDS`` when omitted.
     """
 
-    def __init__(self, api_key: str, timeout: int = 30) -> None:
+    def __init__(self, api_key: str, timeout: float | None = None) -> None:
         if not api_key:
             raise ValueError("FRED API key is required. Set FRED_API_KEY in .env")
         self.api_key = api_key
-        self.timeout = timeout
+        self.timeout = (
+            settings.fred_request_timeout_seconds if timeout is None else timeout
+        )
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json"})
 
@@ -165,23 +174,12 @@ class FredScraper:
 
         url = f"{_FRED_BASE_URL}/series/observations"
 
-        def _fetch() -> requests.Response:
-            _fred_circuit_breaker.check()
-            resp = self.session.get(url, params=params, timeout=self.timeout)
-            if (
-                400 <= resp.status_code < 500
-                and resp.status_code not in _RETRYABLE_CLIENT_STATUSES
-            ):
-                raise _FredRequestRejected(_rejection_message(resp))
-            resp.raise_for_status()
-            return resp
-
         try:
             raw = retry_with_backoff(
-                _fetch,
-                max_retries=5,
-                base_delay=1.0,
-                max_delay=60.0,
+                lambda: self._request(url, params),
+                max_retries=settings.fred_request_attempts,
+                base_delay=settings.fred_retry_base_delay_seconds,
+                max_delay=settings.fred_retry_max_delay_seconds,
                 is_rate_limit_error=is_transient_network_error,
                 on_rate_limit=_fred_circuit_breaker.trigger,
                 on_success=lambda _: _fred_circuit_breaker.reset(),
@@ -230,6 +228,26 @@ class FredScraper:
                 "error": f"Parsing failed: {exc!s}",
                 "timestamp": datetime.now().isoformat(),
             }
+
+    def _request(self, url: str, params: dict[str, str | int]) -> requests.Response:
+        """Send one GET through the FRED breaker and return the accepted response.
+
+        Raises:
+            CircuitOpenError: The breaker refused the request.
+            _FredRequestRejected: FRED answered with a 4xx other than 408 or 429.
+            requests.RequestException: The request failed or FRED answered 408,
+                429 or 5xx.
+        """
+        _fred_circuit_breaker.check()
+        with timed_request(ExternalService.FRED):
+            resp = self.session.get(url, params=params, timeout=self.timeout)
+            if (
+                400 <= resp.status_code < 500
+                and resp.status_code not in _RETRYABLE_CLIENT_STATUSES
+            ):
+                raise _FredRequestRejected(_rejection_message(resp))
+            resp.raise_for_status()
+        return resp
 
     def get_all_series(
         self,

@@ -14,6 +14,7 @@ import pytest
 import requests
 from yfinance.exceptions import YFRateLimitError
 
+from app.services.infrastructure import CircuitOpenError
 from app.services.market_data.yfinance import MetadataClient, RequestLostError
 from app.services.universe import t212_annotate
 
@@ -986,6 +987,32 @@ def test_skips_cleanly_when_trading212_not_configured() -> None:
 
     assert summary["skipped"] is True
     assert summary["annotated"] == 0
+
+
+@pytest.mark.parametrize(
+    "unreachable",
+    [
+        CircuitOpenError("Trading 212 rate limit persists after 5 attempts."),
+        requests.exceptions.ConnectionError("refused"),
+    ],
+    ids=["breaker_open", "connection_error"],
+)
+def test_an_unreachable_catalogue_fails_the_run_before_any_database_access(
+    unreachable: Exception,
+) -> None:
+    """An open breaker is one more unreachable catalogue: nothing flagged or cleared."""
+    repo = MagicMock()
+    client = MagicMock()
+    client.get_instruments.side_effect = unreachable
+    events: list[str] = []
+
+    with _patched(repo, client, events), pytest.raises(type(unreachable)):
+        t212_annotate.run_t212_annotate(isin_lookup=lambda t: "US123")
+
+    assert events == []
+    repo.set_t212_tradeable.assert_not_called()
+    repo.set_t212_ticker.assert_not_called()
+    repo.set_isin_if_missing.assert_not_called()
 
 
 def test_unconfigured_run_never_touches_the_database() -> None:

@@ -267,6 +267,71 @@ class Settings(BaseSettings):
         ),
     )
 
+    # External HTTP sources. A breaker's max_attempts is the failure count at which
+    # it refuses calls while its back-off window is open; request attempts count
+    # the first try; timeouts are passed to requests.
+    breaker_yfinance_max_attempts: int = Field(
+        default=10, ge=1, alias="BREAKER_YFINANCE_MAX_ATTEMPTS"
+    )
+    breaker_fred_max_attempts: int = Field(
+        default=8, ge=1, alias="BREAKER_FRED_MAX_ATTEMPTS"
+    )
+    breaker_tradingeconomics_max_attempts: int = Field(
+        default=5, ge=1, alias="BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS"
+    )
+    breaker_ilsole_max_attempts: int = Field(
+        default=5, ge=1, alias="BREAKER_ILSOLE_MAX_ATTEMPTS"
+    )
+    breaker_trading_212_max_attempts: int = Field(
+        default=5, ge=1, alias="BREAKER_TRADING_212_MAX_ATTEMPTS"
+    )
+    fred_request_attempts: int = Field(default=5, ge=1, alias="FRED_REQUEST_ATTEMPTS")
+    tradingeconomics_request_attempts: int = Field(
+        default=3, ge=1, alias="TRADINGECONOMICS_REQUEST_ATTEMPTS"
+    )
+    ilsole_request_attempts: int = Field(
+        default=3, ge=1, alias="ILSOLE_REQUEST_ATTEMPTS"
+    )
+    trading_212_request_attempts: int = Field(
+        default=5, ge=1, alias="TRADING_212_REQUEST_ATTEMPTS"
+    )
+    fred_request_timeout_seconds: float = Field(
+        default=30.0, gt=0, allow_inf_nan=False, alias="FRED_REQUEST_TIMEOUT_SECONDS"
+    )
+    tradingeconomics_request_timeout_seconds: float = Field(
+        default=20.0,
+        gt=0,
+        allow_inf_nan=False,
+        alias="TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS",
+    )
+    ilsole_request_timeout_seconds: float = Field(
+        default=10.0, gt=0, allow_inf_nan=False, alias="ILSOLE_REQUEST_TIMEOUT_SECONDS"
+    )
+    trading_212_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        allow_inf_nan=False,
+        alias="TRADING_212_REQUEST_TIMEOUT_SECONDS",
+    )
+    fred_retry_base_delay_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        allow_inf_nan=False,
+        alias="FRED_RETRY_BASE_DELAY_SECONDS",
+        description=(
+            "Base of the jittered exponential backoff between FRED attempts. An "
+            "error that is_transient_network_error flags waits on the FRED circuit "
+            "breaker instead."
+        ),
+    )
+    fred_retry_max_delay_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        allow_inf_nan=False,
+        alias="FRED_RETRY_MAX_DELAY_SECONDS",
+        description="Cap on one wait of that backoff.",
+    )
+
     news_retention_days: int = Field(
         default=365,
         ge=0,

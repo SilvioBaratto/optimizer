@@ -126,6 +126,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ingestion: the external-call breakers, attempts and timeouts are settings.** The
+  ingestion daemon reads them from its environment; `docs/integrations.md` lists them with
+  what they set. The defaults are the values the code used before, except
+  `BREAKER_TRADING_212_MAX_ATTEMPTS`: the Trading 212 client had no breaker. They are not
+  in `ingestion/.env.example` yet.
+  - Breaker `max_attempts`: `BREAKER_YFINANCE_MAX_ATTEMPTS` (10),
+    `BREAKER_FRED_MAX_ATTEMPTS` (8), `BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS` (5),
+    `BREAKER_ILSOLE_MAX_ATTEMPTS` (5), `BREAKER_TRADING_212_MAX_ATTEMPTS` (5).
+  - Attempts per request, the first included: `FRED_REQUEST_ATTEMPTS` (5),
+    `TRADINGECONOMICS_REQUEST_ATTEMPTS` (3), `ILSOLE_REQUEST_ATTEMPTS` (3),
+    `TRADING_212_REQUEST_ATTEMPTS` (5).
+  - Request timeouts in seconds: `FRED_REQUEST_TIMEOUT_SECONDS` (30),
+    `TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS` (20), `ILSOLE_REQUEST_TIMEOUT_SECONDS`
+    (10), `TRADING_212_REQUEST_TIMEOUT_SECONDS` (30).
+  - Base and cap of FRED's retry backoff for errors `is_transient_network_error` does not
+    flag: `FRED_RETRY_BASE_DELAY_SECONDS` (1.0) and `FRED_RETRY_MAX_DELAY_SECONDS` (60.0).
+
+  An attempt count that is not an integer of at least 1, or a duration that is not a
+  finite number above 0, fails at startup with an error that names the variable. A
+  scraper built with an explicit `timeout` keeps it.
+- **ingestion: metrics for the external HTTP sources.** `external_breaker_open{service}`
+  reads 1 while the process-wide breaker of FRED, Trading Economics, Il Sole 24 Ore or
+  Trading 212 would refuse a request, and `external_request_seconds{service,outcome}` times
+  the HTTP requests those four clients send (`outcome` is `ok` or `error`).
 - **A circuit breaker on `DatabaseManager` sessions, so a dead database fails jobs
   fast.** `DatabaseManager.get_session` (portopt-db) now asks a per-manager breaker
   first. The paths that reach the database without it (the APScheduler job stores,
@@ -290,6 +314,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **ingestion: the requests `Trading212Client` sends go through `retry_with_backoff` and a
+  circuit breaker.** A 408, a 429 or a 5xx answer, and a `requests` failure that is not an
+  HTTP error, such as a timeout, are passed to the breaker and retried while attempts
+  remain, unless the breaker refuses the attempt; any other 4xx is still raised at once, and
+  so is an HTTP error without a response. The wait a 429 reports can lengthen the breaker's
+  window, which stays capped at 120 s. The clients that `Trading212Client.from_settings`
+  builds share one breaker per process. When it refuses with `CircuitOpenError`,
+  `t212_annotate` fails before it reads or writes any instrument, as for any other
+  unreachable catalogue. A `Retry-After` of 0 or below used to mean no wait (0) or the
+  exponential backoff (below 0); it now sets no floor on the window.
 - **ci**: the CI workflow also runs on pushes to `feature/**`, `bugfix/**`,
   `hotfix/**` and `release/**`, so a change merged without a pull request still
   carries the status checks that branch protection on `main` and `development`

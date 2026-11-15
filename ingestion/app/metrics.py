@@ -1,4 +1,5 @@
-"""Prometheus metric definitions for background jobs and the database breaker.
+"""Prometheus metric definitions for background jobs, the database breaker and
+the external HTTP sources.
 
 All metric objects are module-level singletons. Python's import cache ensures
 prometheus_client never sees duplicate registrations within the same process.
@@ -8,6 +9,8 @@ The worker exposes these over ``prometheus_client.start_http_server`` on
 """
 
 from __future__ import annotations
+
+from typing import Protocol
 
 from portopt_db.resilience import BreakerState, CircuitBreaker
 from prometheus_client import Counter, Gauge, Histogram
@@ -96,6 +99,41 @@ def track_db_breaker(breaker: CircuitBreaker | None) -> CircuitBreaker | None:
     global _tracked_breaker
     previous, _tracked_breaker = _tracked_breaker, breaker
     return previous
+
+
+external_breaker_open = Gauge(
+    "external_breaker_open",
+    "1 while the circuit breaker of an external HTTP source refuses calls, else 0",
+    ["service"],
+)
+
+external_request_seconds = Histogram(
+    "external_request_seconds",
+    "Duration of one HTTP request to an external source; outcome is ok or error",
+    ["service", "outcome"],
+    buckets=[0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60],
+)
+
+
+class _OpenState(Protocol):
+    @property
+    def is_open(self) -> bool: ...
+
+
+def track_external_breaker(service: str, breaker: _OpenState) -> None:
+    """Report ``breaker.is_open`` on ``external_breaker_open{service}``.
+
+    The value is read when Prometheus scrapes, like ``portopt_db_breaker_state``.
+    Tracking another breaker under the same ``service`` replaces the first.
+
+    Args:
+        service: Label value naming the source. The worker passes the values of
+            ``ExternalService``, which keeps the label set fixed.
+        breaker: The breaker to report.
+    """
+    external_breaker_open.labels(service=service).set_function(
+        lambda: float(breaker.is_open)
+    )
 
 
 def register_domain(domain: str) -> None:
