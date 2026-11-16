@@ -27,7 +27,7 @@ import logging
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import numpy as np
 import pandas as pd
@@ -82,6 +82,34 @@ class NavPoint:
     date: dt.date
     nav: float
     benchmark: float | None
+
+
+# NAV points ordered by date, as :func:`compute_nav` returns them.
+NavSeries: TypeAlias = list[NavPoint]
+
+
+@dataclass(frozen=True, eq=False)
+class NavInputs:
+    """What :func:`compute_nav` marks, as :func:`load_nav_inputs` read it.
+
+    ``eq=False``: a ``DataFrame`` has no single truth value to compare by.
+
+    Attributes:
+        tickets: Every filled paper ticket of the portfolio, oldest first.
+        base_prices: Base-currency mark frame (see :func:`_carried_base_prices`).
+        benchmark: Benchmark column emitted beside NAV; ``None`` when no benchmark was
+            given or it was left out of the series.
+        capital: Mandate capital the first ticket is denominated in; ``None`` keeps the
+            ticket's own notional.
+        since: Lower date bound on the emitted points; ``None`` emits from the first
+            fill.
+    """
+
+    tickets: tuple[FilledTicket, ...]
+    base_prices: pd.DataFrame
+    benchmark: str | None
+    capital: float | None
+    since: dt.date | None
 
 
 @dataclass(frozen=True)
@@ -932,25 +960,107 @@ def build_nav_series(
             has no resolvable price currency at all — marking would silently mix
             currencies, so it fails loud instead.
     """
+    inputs = load_nav_inputs(
+        portfolio_id,
+        session=session,
+        base_currency=base_currency,
+        benchmark=benchmark,
+        asof=asof,
+        since=since,
+        capital=capital,
+    )
+    return [] if inputs is None else compute_nav(inputs)
+
+
+def load_nav_inputs(
+    portfolio_id: uuid.UUID,
+    *,
+    session: Any,
+    base_currency: str,
+    benchmark: str | None = None,
+    asof: dt.date | None = None,
+    since: dt.date | None = None,
+    capital: float | None = None,
+) -> NavInputs | None:
+    """Read what :func:`compute_nav` needs to mark the portfolio's NAV series.
+
+    Holds the reads of :func:`build_nav_series`, its FX-coverage guard and its warning
+    about a benchmark left out of the series; the arguments mean what they mean there.
+
+    Returns:
+        The inputs, or ``None`` when there is nothing to mark: no filled ticket, or no
+        price row left once the listings without a known currency are dropped.
+
+    Raises:
+        FxCoverageError: As :func:`build_nav_series` documents.
+    """
     tickets = _tickets_through(session, portfolio_id, None)
     if not tickets:
-        return []
-
+        return None
     holding_tickers = {line["ticker"] for t in tickets for line in t.lines}
+    first_fill = min(t.fill_date for t in tickets)
+    raw_prices, currency_map = _nav_raw_prices(
+        session, holding_tickers, benchmark, first_fill, asof
+    )
+    if raw_prices.empty:
+        return None
+    fx_rates = _nav_fx_rates(
+        session, base_currency, currency_map, holding_tickers, first_fill, asof
+    )
+    base_prices = _carried_base_prices(
+        raw_prices,
+        base_currency=base_currency,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+    )
+    return NavInputs(
+        tickets=tuple(tickets),
+        base_prices=base_prices,
+        benchmark=_emitted_benchmark(
+            benchmark, base_currency, base_prices, currency_map, fx_rates
+        ),
+        capital=capital,
+        since=since,
+    )
+
+
+def _nav_raw_prices(
+    session: Any,
+    holding_tickers: set[str],
+    benchmark: str | None,
+    first_fill: dt.date,
+    asof: dt.date | None,
+) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Listing-currency closes of the holdings and the benchmark from the first fill.
+
+    Raises:
+        FxCoverageError: A holding has no resolvable price currency.
+    """
     load_tickers = sorted(holding_tickers)
     if benchmark and benchmark not in load_tickers:
         load_tickers.append(benchmark)
-
-    first_fill = min(t.fill_date for t in tickets)
     raw_prices, currency_map = _load_price_frame(
         session, load_tickers, start=first_fill, end=asof
     )
     raw_prices = _require_known_currencies(
         raw_prices, currency_map, holdings=holding_tickers
     )
-    if raw_prices.empty:
-        return []
+    return raw_prices, currency_map
 
+
+def _nav_fx_rates(
+    session: Any,
+    base_currency: str,
+    currency_map: dict[str, str],
+    holding_tickers: set[str],
+    first_fill: dt.date,
+    asof: dt.date | None,
+) -> pd.DataFrame:
+    """FX rates for the quoted currencies, checked to cover every holding's currency.
+
+    Raises:
+        FxCoverageError: A holding's currency has no FX rate under ``base_currency``.
+    """
     quotes = sorted({_major_currency(code) for code in currency_map.values()})
     fx_rates = _load_fx_rates_frame(
         session,
@@ -970,13 +1080,17 @@ def build_nav_series(
     _require_fx_coverage(
         base_currency, holding_currency_map, fx_rates, every_currency=True
     )
-    base_prices = _carried_base_prices(
-        raw_prices,
-        base_currency=base_currency,
-        currency_map=currency_map,
-        fx_rates=fx_rates,
-    )
+    return fx_rates
 
+
+def _emitted_benchmark(
+    benchmark: str | None,
+    base_currency: str,
+    base_prices: pd.DataFrame,
+    currency_map: dict[str, str],
+    fx_rates: pd.DataFrame,
+) -> str | None:
+    """The benchmark column to emit beside NAV; ``None`` (warned) if left out."""
     # A benchmark whose currency could not be converted is dropped, not emitted raw:
     # a local-currency index level beside a base-currency NAV would make excess,
     # tracking error and beta compare two currencies with no FX return between them.
@@ -997,29 +1111,57 @@ def build_nav_series(
             benchmark,
             reason,
         )
+    return benchmark if bench_in_base else None
 
+
+def compute_nav(inputs: NavInputs) -> NavSeries:
+    """Mark the NAV series of ``inputs`` without a session or any read.
+
+    The maths of :func:`build_nav_series`: shares from each ticket's lines, the
+    chain-linked scale of each ticket (:func:`_chain_links`), then one point per bar
+    the active book can be marked on. The per-line warnings of :func:`_ticket_shares`
+    are logged here.
+
+    Returns:
+        NAV points ordered by date; empty when no ticket line has a base-currency
+        price at its fill or no bar on or after ``since`` can be marked.
+    """
     priced = [
         (
             ticket.fill_date,
-            _ticket_book(ticket, base_prices),
+            _ticket_book(ticket, inputs.base_prices),
             float(ticket.notional or 0),
         )
-        for ticket in tickets
+        for ticket in inputs.tickets
     ]
     priced = [entry for entry in priced if entry[1]]
     if not priced:
         return []
     ticket_books = [(fill_date, book) for fill_date, book, _ in priced]
     links = _chain_links(
-        ticket_books, [gross for _, _, gross in priced], base_prices, capital
+        ticket_books,
+        [gross for _, _, gross in priced],
+        inputs.base_prices,
+        inputs.capital,
     )
     scaled_books = [
         _scaled_book(book, link.scale)
         for (_, book), link in zip(ticket_books, links, strict=True)
     ]
     earliest = ticket_books[0][0]
-    mark_from = earliest if since is None else max(earliest, since)
+    mark_from = earliest if inputs.since is None else max(earliest, inputs.since)
+    return _mark_bars(inputs, ticket_books, scaled_books, links, mark_from)
 
+
+def _mark_bars(
+    inputs: NavInputs,
+    ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
+    scaled_books: list[dict[str, tuple[float, dt.date, float]]],
+    links: list[_ChainLink],
+    mark_from: dt.date,
+) -> NavSeries:
+    """One point per bar from ``mark_from`` on whose active book can be marked."""
+    base_prices, benchmark = inputs.base_prices, inputs.benchmark
     points: list[NavPoint] = []
     for ts in base_prices.index:
         day = ts.date()
@@ -1033,7 +1175,7 @@ def build_nav_series(
             continue
         nav = raw_nav + links[index].offset
         bench_level: float | None = None
-        if benchmark and bench_in_base:
+        if benchmark:
             raw = base_prices.at[ts, benchmark]
             if pd.notna(raw):
                 bench_level = float(raw)
@@ -1765,11 +1907,15 @@ def marked_weights(
 __all__ = [
     "FxCoverageError",
     "HoldingMark",
+    "NavInputs",
     "NavPoint",
+    "NavSeries",
     "PerformanceSummary",
     "build_nav_series",
+    "compute_nav",
     "convert_prices_to_base",
     "holding_marks",
+    "load_nav_inputs",
     "marked_weights",
     "nav_return_series",
     "portfolio_metrics",

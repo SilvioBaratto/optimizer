@@ -49,7 +49,6 @@
   "fund/src/fund/observe.py::recent_events": 32,
   "fund/src/fund/performance.py::_book_base_prices": 39,
   "fund/src/fund/performance.py::_load_price_frame": 42,
-  "fund/src/fund/performance.py::build_nav_series": 107,
   "fund/src/fund/performance.py::holding_marks": 125,
   "fund/src/fund/performance.py::marked_weights": 37,
   "fund/src/fund/performance.py::portfolio_metrics": 71,
