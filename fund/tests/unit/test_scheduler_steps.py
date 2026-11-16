@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Callable, Generator
@@ -1319,29 +1320,43 @@ def test_heartbeat_thread_pulses_repeatedly(session_factory):
     assert pulses >= 2  # immediate pulse plus at least one loop iteration
 
 
+# Five pulses mean three ran after the failing second one. The wait for them is capped
+# so a dead pulse thread fails the test instead of hanging it.
+_WANTED_PULSES = 5
+_PULSE_WAIT_CAP_S = 10.0
+
+
 def test_heartbeat_keeps_pulsing_after_a_failed_pulse(session_factory, monkeypatch):
+    """Test ``fund.scheduler._heartbeat``: a pulse that raises does not stop the
+    thread, which goes on renewing the lease."""
     with session_factory() as session:
         repo = FundJobRepository(session)
         job_id = repo.claim_or_create("fund_rebalance_sweep")
         repo.mark_running(job_id)
 
     calls: list[uuid.UUID] = []
+    enough_pulses = threading.Event()
     original = FundJobRepository.update_heartbeat
 
     def _flaky(self, jid):
         calls.append(jid)
+        if len(calls) >= _WANTED_PULSES:
+            enough_pulses.set()
         if len(calls) == 2:
             raise RuntimeError("connection reset")  # one transient DB blip
         return original(self, jid)
 
     monkeypatch.setattr(FundJobRepository, "update_heartbeat", _flaky)
 
+    # Each pulse commits to a file-backed SQLite database, so on a loaded machine the
+    # pulses can outlast a fixed sleep; wait for them instead, with a cap.
     with _heartbeat(job_id, cadence=0.02, session_factory=session_factory):
-        time.sleep(0.4)
+        reached = enough_pulses.wait(timeout=_PULSE_WAIT_CAP_S)
 
     # A dead pulse thread would leave the lease unrenewed past the blip and let the
     # reaper fail a step that is still running.
-    assert len(calls) >= 5
+    assert reached
+    assert len(calls) >= _WANTED_PULSES
 
 
 # --- work transaction: per-portfolio commit/rollback ------------------------

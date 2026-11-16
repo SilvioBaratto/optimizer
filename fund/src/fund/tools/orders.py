@@ -1,4 +1,4 @@
-"""``place_orders``: idempotent paper execution, the last allocator node.
+"""``place_orders``: the last allocator node, which hands the order to a venue.
 
 Turns a target-weight vector into an ``OrderRequest`` and hands it to an execution
 venue (``fund.execution``), the paper venue unless the caller passes another. The
@@ -21,13 +21,13 @@ differs it refuses the call, since the key holds no cost params. The DB-level
 ``UNIQUE(portfolio_id, asof, weights_hash)`` is the backstop.
 
 Contract (via ``tool_envelope``), with the paper venue, in the order the checks run
-(the last two run ticker by ticker). The checks after the stored-ticket one apply
-only to a key with no stored ticket:
+(the fill-bar and FX checks run ticker by ticker). The checks after the
+stored-ticket one apply only to a key with no stored ticket:
 
 * empty ``weights`` ⇒ ``{ok: false, error}``;
 * a stored ticket for the same ``(portfolio_id, asof, weights)`` key priced with a
-  different notional, slippage or commission ⇒ ``{ok: false, error}`` — a what-if
-  with other cost params needs a distinct key;
+  different notional, slippage or commission, as far as its stored lines show,
+  ⇒ ``{ok: false, error}`` — a what-if with other cost params needs a distinct key;
 * weights that are all zero or dust ⇒ ``{ok: false, error}`` — nothing to place;
 * a held ticker (weight of magnitude above ``fund.pricing.DUST_WEIGHT``) with no
   instrument row, or no close strictly after ``asof`` (no fill bar), ⇒
@@ -58,7 +58,7 @@ from fund.readers import fx_rate_reader, price_reader
 from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from portopt_db.ports import FxRateReader, PriceReader
     from sqlalchemy.orm import Session
@@ -69,9 +69,9 @@ if TYPE_CHECKING:
 # constant bps for slippage/commission. VWAP/Almgren-Chriss come later (needs
 # intraday). These params are NOT part of the idempotency key (which is
 # weights-only): overrides are honoured only for a FRESH key. A what-if with
-# different cost params for an already-placed key is rejected (vary the key —
-# e.g. a distinct portfolio_id) rather than silently re-priced from the stored
-# ticket.
+# different cost params for an already-placed key is rejected, as far as the
+# stored ticket's lines show (vary the key — e.g. a distinct portfolio_id),
+# rather than silently re-priced from the stored ticket.
 _DEFAULT_NOTIONAL = 100_000.0
 _DEFAULT_SLIPPAGE_BPS = 5.0
 _DEFAULT_COMMISSION_BPS = 1.0
@@ -157,6 +157,34 @@ def _base_close(
     return price * rates[-1].rate
 
 
+def _fill_lookup(
+    session: Session, asof: dt.date, base_currency: str | None
+) -> Callable[[str], FillQuote]:
+    """Return a function that looks up where a ticker fills after ``asof``.
+
+    The price and FX readers are built once, here. The returned function finds a
+    ticker's fill bar with ``_next_close`` and, given ``base_currency``, converts its
+    close with ``_base_close``; without a base currency the quoted close is used as
+    given. Either step raises ``LookupError`` for a ticker that cannot fill.
+    """
+    prices, fx_rates = price_reader(session), fx_rate_reader(session)
+
+    def quote(ticker: str) -> FillQuote:
+        fill = _next_close(prices, ticker, asof)
+        # Shares divide a base-currency notional, so the price must be one too. Without
+        # a base currency (a what-if) the quote is used as given.
+        base_price = (
+            _base_close(fx_rates, fill, ticker, base_currency)
+            if base_currency is not None
+            else fill.close
+        )
+        return FillQuote(
+            date=fill.date, price=fill.close, base_price=base_price, unit=fill.unit
+        )
+
+    return quote
+
+
 def fill_shortfalls(
     session: Session,
     asof: dt.date,
@@ -175,14 +203,12 @@ def fill_shortfalls(
     Returns:
         One message per ticker that cannot fill; ``[]`` when every line could.
     """
-    prices, fx_rates = price_reader(session), fx_rate_reader(session)
+    quote = _fill_lookup(session, asof, base_currency)
     shortfalls: list[str] = []
     names = held_weights(tickers) if isinstance(tickers, Mapping) else tickers
     for ticker in names:
         try:
-            fill = _next_close(prices, ticker, asof)
-            if base_currency is not None:
-                _base_close(fx_rates, fill, ticker, base_currency)
+            quote(ticker)
         except LookupError as exc:
             shortfalls.append(str(exc))
     return shortfalls
@@ -204,21 +230,8 @@ def _fill_quotes(
             ``asof``, or (given ``base_currency``) a foreign listing has no FX rate
             for its fill bar.
     """
-    prices, fx_rates = price_reader(session), fx_rate_reader(session)
-    quotes: dict[str, FillQuote] = {}
-    for ticker in tickers:
-        fill = _next_close(prices, ticker, asof)
-        # Shares divide a base-currency notional, so the price must be one too. Without
-        # a base currency (a what-if) the quote is used as given.
-        base_price = (
-            _base_close(fx_rates, fill, ticker, base_currency)
-            if base_currency is not None
-            else fill.close
-        )
-        quotes[ticker] = FillQuote(
-            date=fill.date, price=fill.close, base_price=base_price, unit=fill.unit
-        )
-    return quotes
+    quote = _fill_lookup(session, asof, base_currency)
+    return {ticker: quote(ticker) for ticker in tickers}
 
 
 @tool_envelope
@@ -267,10 +280,11 @@ def place_orders(
         ``fill_date``, per-``lines`` fills for the held names, cost totals and the
         ``idempotent`` flag. ``err`` on empty ``weights`` or the venue's refusal or
         failure. The paper venue refuses a re-run of a stored key with other cost
-        params and, for a key with no stored ticket, weights that are all zero or
-        dust; it fails on an unknown held ticker, a held ticker with no fill bar
-        after ``asof`` or, given ``base_currency``, a held listing in another
-        currency with no FX rate in the look-back window ending on its fill bar.
+        params (as far as the stored ticket's lines show) and, for a key with no
+        stored ticket, weights that are all zero or dust; it fails on an unknown
+        held ticker, a held ticker with no fill bar after ``asof`` or, given
+        ``base_currency``, a held listing in another currency with no FX rate in
+        the look-back window ending on its fill bar.
     """
     if not weights:
         return err("no weights to place")

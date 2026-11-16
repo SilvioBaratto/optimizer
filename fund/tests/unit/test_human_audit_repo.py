@@ -135,7 +135,8 @@ def test_list_recent_date_range_bounds(db_session):
 def test_latest_idempotency_key_is_the_newest_keyed_row_of_the_run_and_action(
     db_session,
 ):
-    """The seeded unkeyed row, other action and other run do not answer for the run."""
+    """Test ``HumanAuditLogRepository.latest_idempotency_key``: the seeded unkeyed row,
+    other action and other run do not answer for the run."""
     run = uuid.uuid4()
     base = dt.datetime(2026, 11, 1, tzinfo=dt.timezone.utc)
     rows = [

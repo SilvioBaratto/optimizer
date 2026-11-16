@@ -1,19 +1,22 @@
 """``fund.observe`` — the shared, model-free read model (Phase 8, Task 5).
 
-The single read model both frontends use: the CLI ``status``/``report`` commands and
-the TUI's four panels are thin wrappers over these functions. It constructs **no**
-LLM and imports **no** agent stack at module load — ``import fund.observe`` drags in
-no ``deepagents`` / ``langchain`` / ``langgraph`` (asserted by a subprocess guard).
-The repositories it reads through live under ``fund.audit`` (whose package
-``__init__`` pulls the LangGraph persistence bootstrap), so they are imported lazily
-**inside** the functions, mirroring ``fund.agents.graph``'s lazy builders — the bare
-import stays clean, the call path still routes through the single-source repos.
+The read model both frontends share: the CLI ``status``/``report`` commands and the
+TUI views read through these functions, next to some repository reads of their own.
+It constructs **no** LLM and imports **no** agent stack at module load —
+``import fund.observe`` drags in no ``deepagents`` / ``langchain`` / ``langgraph``
+(asserted by a subprocess guard). The repositories this module imports — those of
+``fund.audit`` (whose package ``__init__`` resolves the LangGraph persistence names
+lazily, through a PEP 562 ``__getattr__``), the ``portopt_db`` market and portfolio
+journal repositories, and the price reader of ``fund.readers`` — are imported
+**inside** the functions, mirroring ``fund.agents.graph``'s lazy builders: the bare
+import stays clean, and the call path still routes through the repositories.
 
-Every function takes an injected sync ``Session`` (the caller — CLI/TUI — owns the
-transaction; these read paths never ``commit``). Where a run's transcript or a
-pending-HITL cross-check is needed, an already-bootstrapped LangGraph ``saver`` is
-passed in and typed ``Any`` (no ``langgraph`` import at module load; the transcript
-fold imports ``add_messages`` lazily).
+Each function that reads through a repository takes an injected sync ``Session``
+(the caller — CLI/TUI — owns the transaction; these read paths never ``commit``).
+Where a run's transcript or a pending-HITL cross-check is needed, an
+already-bootstrapped LangGraph ``saver`` is passed in and typed ``Any`` (no
+``langgraph`` import at module load; the transcript fold imports ``add_messages``
+lazily).
 
 Two sources feed the transcript (SPEC §4a): the verbatim PM/subagent turns live in
 the checkpoint's ``messages`` channel (rebuilt read-only from the saver — no compiled
@@ -412,7 +415,7 @@ def default_decision_bar(session: Any, *, today: dt.date | None = None) -> dt.da
 
     day = today if today is not None else dt.datetime.now(dt.UTC).date()
     latest = sorted(
-        price_reader(session).newest_close_per_instrument(
+        price_reader(session).newest_close_dates(
             day - dt.timedelta(days=_DECISION_BAR_LOOKBACK_DAYS), day
         )
     )

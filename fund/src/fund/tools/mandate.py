@@ -116,11 +116,11 @@ def mandate_breaches(
     if not excluded and not no_complex and not no_leverage:
         return []
 
-    prices = price_reader(session)
+    catalog = price_reader(session)
     breaches: list[dict[str, Any]] = []
     for ticker in tickers:
-        instrument = prices.instrument_for(ticker)
-        profile = prices.profile_for(instrument.id) if instrument is not None else None
+        instrument = catalog.instrument_for(ticker)
+        profile = catalog.profile_for(instrument.id) if instrument is not None else None
 
         if excluded:
             sector = profile.sector if profile is not None else None
@@ -214,10 +214,10 @@ def constraint_set_breaches(
 
 def _etf_tickers(session: Session, tickers: Iterable[str]) -> list[str]:
     """The distinct ``tickers`` whose instrument is an ETF."""
-    prices = price_reader(session)
+    catalog = price_reader(session)
     funds: list[str] = []
     for ticker in dict.fromkeys(tickers):
-        instrument = prices.instrument_for(ticker)
+        instrument = catalog.instrument_for(ticker)
         kind = instrument.instrument_type if instrument is not None else None
         if (kind or "").strip().upper() == "ETF":
             funds.append(ticker)

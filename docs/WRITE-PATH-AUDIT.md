@@ -41,11 +41,11 @@ targeted delete of themes absent from the payload, moving a second hit from
 `session.add(` to `_upsert(`.
 
 **Updated by issue #20**: row 29 (`save_exchange`) was converted from
-check-then-`session.add` to a single `_upsert` on `uq_exchanges_name`, moving
-a third hit from `session.add(` to `_upsert(`. This conversion also required
-naming the ORM's previously-unnamed `exchanges.name` unique constraint (see
-the former "Constraint landmines" entry below, now resolved) and a migration
-normalising any pre-existing differently-named constraint in place.
+check-then-`session.add` to a single `_upsert`, moving a third hit from
+`session.add(` to `_upsert(`. It names the conflict column
+(`index_elements=["name"]`, the column's `unique=True`) rather than a
+constraint, so it does not depend on the name the database gave the unique
+constraint on `exchanges.name` (see "Constraint landmines" below).
 
 **Updated by issue #21**: row 30 (`reference_index_seeder.py`) was converted
 from `get_instrument_by_yfinance_ticker()`-then-`session.add()` to a single
@@ -126,17 +126,17 @@ until the constraint (and the matching migration) is added.
 | # | Site (file:line) | Table | Natural key | Mechanism | Verdict |
 |---|---|---|---|---|---|
 | 1 | `repositories/_shared/base.py:33` | — | — | `_upsert()` definition (not a write; listed so the row count reconciles with the stated 26 `_upsert(` hits) | n/a |
-| 2 | `repositories/market_data/yfinance_repository.py:223` | `ticker_profiles` | `instrument_id` | `_upsert` on `uq_ticker_profile_instrument` | idempotent |
-| 3 | `repositories/market_data/yfinance_repository.py:285` | `price_history` | `(instrument_id, date)` | `_upsert` on `uq_price_history_instrument_date` | idempotent |
-| 4 | `repositories/market_data/yfinance_repository.py:351` | `financial_statements` | `(instrument_id, statement_type, period_type, period_date, line_item)` | `_upsert` on `uq_financial_statement_row` | idempotent |
-| 5 | `repositories/market_data/yfinance_repository.py:396` | `dividends` | `(instrument_id, date)` | `_upsert` on `uq_dividend_instrument_date` | idempotent |
-| 6 | `repositories/market_data/yfinance_repository.py:430` | `stock_splits` | `(instrument_id, date)` | `_upsert` on `uq_stock_split_instrument_date` | idempotent |
-| 7 | `repositories/market_data/yfinance_repository.py:467` | `analyst_recommendations` | `(instrument_id, period)` | `_upsert` on `uq_analyst_rec_instrument_period` | idempotent |
-| 8 | `repositories/market_data/yfinance_repository.py:498` | `analyst_price_targets` | `instrument_id` | `_upsert` on `uq_analyst_pt_instrument` | idempotent |
-| 9 | `repositories/market_data/yfinance_repository.py:534` | `institutional_holders` | `(instrument_id, holder_name)` | `_upsert` on `uq_inst_holder_instrument_name` | idempotent |
-| 10 | `repositories/market_data/yfinance_repository.py:574` | `mutual_fund_holders` | `(instrument_id, holder_name)` | `_upsert` on `uq_mutual_fund_holder_instrument_name` | idempotent |
+| 2 | `repositories/market_data/fundamentals_repository.py:181` | `ticker_profiles` | `instrument_id` | `_upsert` on `uq_ticker_profile_instrument` | idempotent |
+| 3 | `repositories/market_data/prices_repository.py:81` | `price_history` | `(instrument_id, date)` | `_upsert` on `uq_price_history_instrument_date` | idempotent |
+| 4 | `repositories/market_data/fundamentals_repository.py:365` | `financial_statements` | `(instrument_id, statement_type, period_type, period_date, line_item)` | `_upsert` on `uq_financial_statement_row` | idempotent |
+| 5 | `repositories/market_data/prices_repository.py:186` | `dividends` | `(instrument_id, date)` | `_upsert` on `uq_dividend_instrument_date` | idempotent |
+| 6 | `repositories/market_data/prices_repository.py:217` | `stock_splits` | `(instrument_id, date)` | `_upsert` on `uq_stock_split_instrument_date` | idempotent |
+| 7 | `repositories/market_data/analyst_repository.py:355` | `analyst_recommendations` | `(instrument_id, period)` | `_upsert` on `uq_analyst_rec_instrument_period` | idempotent |
+| 8 | `repositories/market_data/analyst_repository.py:383` | `analyst_price_targets` | `instrument_id` | `_upsert` on `uq_analyst_pt_instrument` | idempotent |
+| 9 | `repositories/market_data/ownership_repository.py:102` | `institutional_holders` | `(instrument_id, holder_name)` | `_upsert` on `uq_inst_holder_instrument_name` | idempotent |
+| 10 | `repositories/market_data/ownership_repository.py:151` | `mutual_fund_holders` | `(instrument_id, holder_name)` | `_upsert` on `uq_mutual_fund_holder_instrument_name` | idempotent |
 | 11 | `repositories/market_data/yfinance_repository.py:640` | `insider_transactions` | `(instrument_id, insider_name, start_date, transaction_type)` | `_upsert` on `uq_insider_tx_row`, batch pre-deduped at `:623-643` | idempotent (see known defect below) |
-| 12 | `repositories/market_data/yfinance_repository.py:739` | `ticker_news` | `(instrument_id, news_uuid)` | `_upsert` on `uq_ticker_news_instrument_uuid` | idempotent |
+| 12 | `repositories/market_data/news_repository.py:132`, `:138` | `ticker_news` | `(instrument_id, news_uuid)` | `_upsert` on `uq_ticker_news_instrument_uuid` | idempotent |
 | 13 | `repositories/macro/macro_regime_repository.py:74` | `economic_indicators` | `country` | `_upsert` on `uq_economic_indicator_country` | idempotent |
 | 14 | `repositories/macro/macro_regime_repository.py:140` | `economic_indicator_observations` | `(country, date)` | `_upsert` on `uq_econ_obs_country_date` | idempotent |
 | 15 | `repositories/macro/macro_regime_repository.py:205` | `trading_economics_indicators` | `(country, indicator_key)` | `_upsert` on `uq_te_indicator_country_key` | idempotent |
@@ -158,28 +158,30 @@ until the constraint (and the matching migration) is added.
 
 ## Constraint landmines — tables whose natural key lacks a usable unique constraint
 
-- **`exchanges.name`** (row 29) — **resolved by issue #20**.
-  `models/universe/universe.py` previously declared `unique=True` at the
-  column level, which SQLAlchemy renders as an **unnamed** `UNIQUE (name)`
-  constraint, while migration
-  `alembic/versions/c3d4e5f6a7b8_align_exchanges_with_orm.py:80`
-  conditionally created it as **`uq_exchanges_name`** — the ORM and the
-  migration disagreed on the name. `Exchange` now declares
-  `UniqueConstraint("name", name="uq_exchanges_name")` in `__table_args__`,
-  so `Base.metadata.create_all` (the SQLite test harness's schema source)
-  and a PostgreSQL database produce the same constraint name, and migration
-  `0287fcf584d0_name_exchanges_name_unique_constraint.py` normalises any
-  database whose constraint kept the pre-fix auto-generated name.
+- **`exchanges.name`** (row 29) — the constraint name varies, the write path
+  does not depend on it. `models/universe/universe.py:56` declares
+  `unique=True` at the column level, which SQLAlchemy renders as an
+  **unnamed** `UNIQUE (name)` constraint, and the initial revision creates the
+  table that way. Migration
+  `alembic/versions/c3d4e5f6a7b8_align_exchanges_with_orm.py:86` creates
+  **`uq_exchanges_name`** when it converts a table not yet in the ORM shape
+  (such as a legacy one with an `exchange_name` column) and finds no
+  constraint of that name; on a table the initial revision created, it returns
+  before that step. `save_exchange` conflicts on the column, so it works under
+  either name; a write that names the constraint as its conflict target would
+  not.
 - **`instruments.yfinance_ticker`** — `ix_instrument_yfinance_ticker`
-  (`models/universe/universe.py:50`) is a plain, **non-unique** `Index`. It
+  (`models/universe/universe.py:106`) is a plain, **non-unique** `Index`. It
   cannot be an `ON CONFLICT` target. No write path in this audit currently
   targets it as a conflict key (row 30 conflicts on `uq_instrument_ticker_exchange`
   instead), so this is a standing landmine for any *future* write keyed on
   `yfinance_ticker`, not an open defect in an existing conversion.
 
 No other table in the write-path table above is missing a matching unique
-constraint — rows 2-29 all target constraints that already exist and are
-correctly named in both the ORM and the corresponding migration.
+constraint — rows 2-24 target constraints that already exist and are
+correctly named in both the ORM and the corresponding migration, row 29
+conflicts on its unique column (see above), and rows 25-28 have no conflict
+target.
 
 ## Known defects — already mitigated, recorded for completeness
 

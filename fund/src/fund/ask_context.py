@@ -19,23 +19,19 @@ from typing import Any
 from fund import observe
 
 
-def build_context(
-    session: Any, saver: Any, focus: uuid.UUID | None, question: str
-) -> str:
-    """Assemble a compact, grounded context from the read model for ``question``.
+def build_context(session: Any, saver: Any, focus: uuid.UUID | None) -> str:
+    """Assemble a compact, grounded context from the read model.
 
     Reads the fund roster size and the pending gates (the first five listed) and,
     when a portfolio is focused, its drift, its held and target holding counts, its
     NAV-series returns and its five most recent decisions, formatted as a short
     plain-text block. It only reads, through the caller's session and saver, and
-    builds no model. ``question`` is accepted for future relevance selection; today
-    the snapshot is fixed.
+    builds no model.
 
     Args:
         session: An injected read-only sync session; not owned here.
         saver: The bootstrapped LangGraph checkpointer (opaque), for the gate reads.
         focus: The focused portfolio, or ``None`` for a fund-wide question.
-        question: The adviser's natural-language question (reserved).
 
     Returns:
         A compact grounded-context string — never empty (at minimum the fund summary).
@@ -47,8 +43,8 @@ def build_context(
         f"portfolios: {len(portfolios)} · pending gates: {len(gates)}",
     ]
     for gate in gates[:5]:
-        pf = _short(gate.portfolio_id) if gate.portfolio_id else "fund"
-        lines.append(f"  gate #{_short(gate.run_id)} · pf {pf} · asof {gate.asof}")
+        pf = short_id(gate.portfolio_id) if gate.portfolio_id else "fund"
+        lines.append(f"  gate #{short_id(gate.run_id)} · pf {pf} · asof {gate.asof}")
     if focus is not None:
         lines.extend(_focus_lines(session, focus))
     return "\n".join(lines)
@@ -59,7 +55,7 @@ def _focus_lines(session: Any, focus: uuid.UUID) -> list[str]:
     state = observe.portfolio_state(session, focus)
     summary = observe.performance_summary(session, focus)
     lines = [
-        f"FOCUS portfolio {_short(focus)}",
+        f"FOCUS portfolio {short_id(focus)}",
         f"  drift L1 {state.drift_l1:.4f} · "
         f"{len(state.current)} held → {len(state.target)} target",
         f"  returns: max {_fmt_pct(summary.returns.get('max'))} · "
@@ -79,9 +75,17 @@ def _fmt_pct(value: float | None) -> str:
     return f"{value:+.2%}" if value is not None else "n/a"
 
 
-def _short(value: Any) -> str:
-    """First hex group of a UUID (or its string) — matches the view's compact id."""
+def short_id(value: Any) -> str:
+    """Return the compact id the cockpit shows for a UUID.
+
+    Args:
+        value: A UUID, or any value whose string form is split.
+
+    Returns:
+        The text before the first ``-`` of ``str(value)``; the whole string when it
+        has no ``-``.
+    """
     return str(value).split("-", 1)[0]
 
 
-__all__ = ["build_context"]
+__all__ = ["build_context", "short_id"]

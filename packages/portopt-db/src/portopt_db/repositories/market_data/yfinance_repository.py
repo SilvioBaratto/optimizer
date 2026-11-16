@@ -154,7 +154,7 @@ class YFinanceRepository(
         )
         return [_price_bar(row) for row in rows]
 
-    def newest_close_per_instrument(self, start: date, end: date) -> list[date]:
+    def newest_close_dates(self, start: date, end: date) -> list[date]:
         """Return each instrument's newest bar date with a close inside a window.
 
         Args:

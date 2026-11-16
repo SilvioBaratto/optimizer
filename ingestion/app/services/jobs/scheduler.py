@@ -288,7 +288,7 @@ def _failure_reason(exc: BaseException) -> str:
 def _report_db_unavailable(
     label: str, job_svc: BackgroundJobService, exc: DatabaseUnavailableError
 ) -> None:
-    """Log one line and count a step the open circuit breaker stopped.
+    """Log one line and count a step the circuit breaker stopped.
 
     The refusal is expected while the database is down, and each step of a
     pipeline can meet it, so a traceback per step would bury the line that
@@ -331,8 +331,8 @@ def _mark_job_failed(
 
     The error text lands in the ``error`` column and the failure webhook, which
     otherwise only know the status. Used on error paths, where a failing write
-    must not replace the original error or abort the pipeline. While the circuit
-    breaker is open the write is refused before it reaches the database, and the
+    must not replace the original error or abort the pipeline. When the circuit
+    breaker refuses the write, which happens before it reaches the database, the
     row stays active until the orphan reaper, or the orphan reconciliation at the
     next worker start, fails it after its heartbeat lease has lapsed.
     """
@@ -355,7 +355,7 @@ def _report_refused_status_write(
     job_id: str,
     refused: DatabaseUnavailableError,
 ) -> None:
-    """Log and count a failed-status write the open circuit breaker refused.
+    """Log and count a failed-status write the circuit breaker refused.
 
     The row stays ``running``, or ``pending`` when its ``running`` write was
     refused too, until the orphan reaper or the orphan reconciliation at the next

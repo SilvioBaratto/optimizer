@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from fund import observe
-from fund.ask_context import _short, build_context
+from fund.ask_context import build_context, short_id
 
 if TYPE_CHECKING:
     from fund.observe import RunSummary
@@ -324,7 +324,7 @@ def _names_gate_run(turn: str, session: Any, saver: Any) -> bool:
     if not tokens:
         return False
     return any(
-        _short(gate.run_id).startswith(token)
+        short_id(gate.run_id).startswith(token)
         for gate in observe.pending_hitl(session, saver, None)
         for token in tokens
     )
@@ -369,7 +369,7 @@ def _resolve_gate(
         focused = [gate for gate in gates if gate.portfolio_id == focus]
         if not focused:
             prompt = (
-                f"no gate is paused for portfolio {_short(focus)}; "
+                f"no gate is paused for portfolio {short_id(focus)}; "
                 + _gate_prompt(verb, gates)
             )
             return TargetResolution("ambiguous", None, tuple(gates), prompt)
@@ -386,9 +386,9 @@ def _id_tokens(turn: str) -> list[str]:
 
 def _gate_ids(gate: RunSummary) -> list[str]:
     """The short ids a gate answers to: its run id and its portfolio id, if any."""
-    ids = [_short(gate.run_id)]
+    ids = [short_id(gate.run_id)]
     if gate.portfolio_id is not None:
-        ids.append(_short(gate.portfolio_id))
+        ids.append(short_id(gate.portfolio_id))
     return ids
 
 
@@ -430,15 +430,15 @@ def _resolved_gate(verb: str, gate: RunSummary) -> TargetResolution:
     """A ``resolved`` resolution for a resume ``verb`` against ``gate``."""
     action = ResolvedAction(verb, gate.run_id, gate.portfolio_id, None)
     return TargetResolution(
-        "resolved", action, (), f"{verb} gate #{_short(gate.run_id)}"
+        "resolved", action, (), f"{verb} gate #{short_id(gate.run_id)}"
     )
 
 
 def _gate_prompt(verb: str, gates: list[RunSummary]) -> str:
     """The disambiguation follow-up listing the candidate gates for ``verb``."""
     listed = " or ".join(
-        f"#{_short(gate.run_id)} "
-        f"({_short(gate.portfolio_id) if gate.portfolio_id else 'fund'})"
+        f"#{short_id(gate.run_id)} "
+        f"({short_id(gate.portfolio_id) if gate.portfolio_id else 'fund'})"
         for gate in gates
     )
     return f"which gate to {verb} — {listed}?"
@@ -485,7 +485,7 @@ def _resolved_portfolio_scope(verb: str, portfolio_id: uuid.UUID) -> TargetResol
     """A ``resolved`` portfolio-scope freeze / re-arm of ``portfolio_id``."""
     action = ResolvedAction(verb, None, portfolio_id, "portfolio")
     return TargetResolution(
-        "resolved", action, (), f"{verb} portfolio {_short(portfolio_id)}"
+        "resolved", action, (), f"{verb} portfolio {short_id(portfolio_id)}"
     )
 
 
@@ -514,7 +514,7 @@ def _resolve_rebalance(
         )
     action = ResolvedAction("run", None, target, None)
     return TargetResolution(
-        "resolved", action, (), f"run a rebalance for {_short(target)}"
+        "resolved", action, (), f"run a rebalance for {short_id(target)}"
     )
 
 
@@ -530,7 +530,7 @@ def _named_portfolios(turn: str, session: Any) -> tuple[list[uuid.UUID], list[st
     named: list[uuid.UUID] = []
     stale: list[str] = []
     for token in tokens:
-        hits = [pid for pid in known if _short(pid).startswith(token)]
+        hits = [pid for pid in known if short_id(pid).startswith(token)]
         if not hits:
             stale.append(token)
         named.extend(pid for pid in hits if pid not in named)

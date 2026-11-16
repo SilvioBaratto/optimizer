@@ -226,7 +226,8 @@ def test_module_declares_no_agent_stack_imports():
 def test_newest_nav_dates_reads_the_portfolio_newest_first_up_to_the_bound(
     db_session,
 ):
-    """Dates come newest first, capped at ``limit``, bounded by ``on_or_before``."""
+    """Test ``NavHistoryRepository.newest_nav_dates``: dates come newest first, capped
+    at ``limit``, bounded by ``on_or_before``."""
     repo = NavHistoryRepository(db_session)
     days = [dt.date(2026, 10, d) for d in (1, 2, 5, 6)]
     repo.upsert_navs([_row(_PID, day, 100.0 + i) for i, day in enumerate(days)])

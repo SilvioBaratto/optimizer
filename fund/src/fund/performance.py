@@ -3,10 +3,9 @@
 The compute core behind the oversight TUI's "how are we doing?" question. It
 reconstructs the paper portfolio's FX-normalized NAV time series, computes
 multi-horizon returns + risk metrics versus the mandate benchmark, and marks each
-holding to market. Reads ``paper_orders`` / ``positions`` / ``price_history`` /
-``fx_rates`` from an injected session and FX-converts listing-currency prices to
-the mandate base currency via ``optimizer.fx`` (the only package allowed to do so
-in the fund).
+holding to market. Reads ``paper_orders`` / ``nav_history`` / ``instruments`` /
+``price_history`` / ``fx_rates`` from an injected session and FX-converts
+listing-currency prices to the mandate base currency via ``optimizer.fx``.
 
 Agent-stack-free: imports ``optimizer`` / ``skfolio`` (allowed) but never the
 deep-agent stack (``deepagents`` / ``langgraph``), so the daily NAV-mark scheduler
@@ -933,9 +932,9 @@ def build_nav_series(
 
     NAV is **gross** of paper execution costs: shares are reconstructed from the
     fill-bar *close*, so NAV at the fill equals the deployed base notional. The
-    slippage and commission the paper fill modelled (``tools.orders``, default
-    ~5 bps and ~1 bps) are intentionally excluded — this tracks deployed capital,
-    not a cost-adjusted book.
+    slippage and commission the paper fill modelled (``fund.pricing.price_ticket``;
+    ``place_orders`` defaults to 5 and 1 bps) are intentionally excluded — this
+    tracks deployed capital, not a cost-adjusted book.
 
     Args:
         portfolio_id: Portfolio whose paper book to reconstruct.

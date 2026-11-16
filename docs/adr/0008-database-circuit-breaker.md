@@ -200,7 +200,7 @@ Not guarded: the breaker neither counts these paths' failures nor refuses them.
   services (`docker-compose.yml:123`, `227`).
 - `DatabaseManager.initialize`'s direct `engine.connect()` test (`engine.py:127`,
   `171-178`), called by `init_db` (`ingestion/app/database.py:64`,
-  `fund/src/fund/worker.py:296`). In ingestion's default `development` environment
+  `fund/src/fund/worker.py:279`). In ingestion's default `development` environment
   `init_db` logs the error and returns (`ingestion/app/database.py:81-84`,
   `ingestion/app/config.py:358`).
 - `_require_migrated_schema`, `inspect(engine).has_table`:

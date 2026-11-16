@@ -610,7 +610,8 @@ def _allocation(
 def test_newest_stock_pct_reads_each_fund_newest_allocation_on_or_before(
     db_session,
 ) -> None:
-    """The newest row on or before the bar answers, even when its share is NULL."""
+    """Test ``ETFMetadataRepository.newest_stock_pct``: the newest row on or before the
+    bar answers, even when its share is NULL."""
     repo = ETFMetadataRepository(db_session)
     dated = _etf(db_session, "MIX.DE")
     unreported = _etf(db_session, "NUL.DE")

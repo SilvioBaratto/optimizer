@@ -359,6 +359,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **portopt-db: `newest_close_per_instrument` is renamed `newest_close_dates`** on the
+  `PriceReader` port and on `YFinanceRepository`, since it returns bar dates, not
+  closes. `fund.observe` calls the new name; a caller of the old name gets an
+  `AttributeError`. The statement it runs is the same.
+- **fund, ingestion, docs: names, docstrings and tests that say what the code does.**
+  `fund.ask_context.short_id` is the one definition of the compact id that
+  `fund.tui.ask` and the cockpit views that show one (through `_short` in
+  `tui/_views/shell.py`) use, `build_context` no longer takes the `question` it never
+  read, `fill_shortfalls` and the paper venue's quote lookup share one helper, and
+  `_cost_params_match` names its tolerances (same values). Docstrings now say that a
+  re-run of a stored paper ticket with other cost params is refused as far as the
+  ticket's stored lines show (the commission of a line whose commission base is 0 is
+  not compared), that `fund.performance` reads `nav_history` and `instruments`
+  rather than `positions` and that the fund worker runs the daily NAV mark; three
+  ingestion docstrings no longer tie a refusal to an open breaker, since a half-open
+  one refuses too. `docs/WRITE-PATH-AUDIT.md` describes the `exchanges.name`
+  constraint the model and migrations have and points rows 2-10 and 12 at the
+  modules that now hold their upserts. Fourteen repository-method tests name the
+  method in their docstrings, the two re-stamp tests are one, and the heartbeat test
+  waits for its pulses instead of sleeping a fixed 0.4 s.
 - **ingestion, ci: messages that say what the code does.** While its failure count is at
   or above its limit inside a back-off window, an external-source breaker refuses with
   `<service> circuit breaker open: failure count N, limit M, inside its back-off
@@ -375,11 +395,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `criterion` marker gets. `scripts/ci/traceability.py check` exits 1, naming the file,
   when a `defects` cell of a trace CSV holds anything but positive issue numbers in
   plain digits without leading zeros; it used to accept 0, negative numbers and leading
-  zeros, and to fail on a non-integer without naming the file. The other source
-  changes keep behaviour: the rate-limit jitter bounds of
+  zeros, and to fail on a non-integer without naming the file. These source changes
+  keep behaviour: the rate-limit jitter bounds of
   `retry_with_backoff` are named constants with the same values, and
   `UniverseRepository.get_instrument_by_yfinance_ticker` and `instrument_classes_for`
-  share one sort-key tuple that compiles to the same SQL.
+  share one sort-key tuple that compiles to the same SQL. Renamed private names and
+  tests, and reworded docstrings and comments, change no behaviour either.
 - **ingestion: the requests `Trading212Client` sends go through `retry_with_backoff` and a
   circuit breaker.** A 408, a 429 or a 5xx answer, and a `requests` failure that is not an
   HTTP error, such as a timeout, are passed to the breaker and retried while attempts
@@ -557,7 +578,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `OrderRepository.filled_tickets` and `latest_filled_ticket` (`FilledTicket`) and
   `NavHistoryRepository.newest_nav_dates`, `fund.agents.graph_failures` calls
   `AgentRunRepository.insert_run_if_absent`, `fund.observe` calls
-  `YFinanceRepository.newest_close_per_instrument` through the `PriceReader` port, and
+  `YFinanceRepository.newest_close_dates` through the `PriceReader` port, and
   `fund.tools.eligibility` calls `UniverseRepository.instrument_classes_for`
   (`InstrumentClass`) through the `UniverseReader` port and
   `ETFMetadataRepository.newest_stock_pct`. Each method runs the statement the module

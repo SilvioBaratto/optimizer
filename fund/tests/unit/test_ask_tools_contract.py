@@ -471,7 +471,7 @@ def test_a_focused_conversation_lists_and_snapshots_only_its_portfolio(
     ]
     assert tools["fund_snapshot"].invoke({}) == '["line one", "line two"]'
     assert calls["pending_hitl"] == ((SAVER, None), {})
-    assert calls["build_context"] == ((SAVER, PID, ""), {})
+    assert calls["build_context"] == ((SAVER, PID), {})
 
 
 # ------------------------------------------------------------ the fund-wide view
@@ -493,7 +493,7 @@ def test_the_fund_wide_view_reads_and_lists_every_portfolio(monkeypatch) -> None
     assert calls["performance_summary"][0] == (OTHER,)
     assert tools["list_portfolios"].invoke({}) == f'["{PID}", "{OTHER}"]'
     assert len(json.loads(tools["pending_gates"].invoke({}))) == 2
-    assert calls["build_context"] == ((SAVER, None, ""), {})
+    assert calls["build_context"] == ((SAVER, None), {})
 
 
 @pytest.mark.parametrize(

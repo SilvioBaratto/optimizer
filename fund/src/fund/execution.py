@@ -33,6 +33,12 @@ _EXISTS_WITH_OTHER_COSTS = (
     "distinct key for a what-if with different "
     "notional/slippage/commission"
 )
+# A stored ticket's cost params are floats read back from the row and its JSON
+# lines, so a re-run's params are matched within a tolerance, not for equality.
+_COST_TOLERANCE = 1e-9
+# The stored commission rate is recomputed by a division, so its relative tolerance
+# is looser.
+_COMMISSION_RATE_REL_TOLERANCE = 1e-6
 
 
 @dataclass(frozen=True)
@@ -131,8 +137,8 @@ class PaperVenue:
     ticket for that key is returned (``idempotent: true``), re-stamped as the
     portfolio's newest when a later ticket exists, and the ``UNIQUE`` key
     ``uq_paper_order_key`` is the backstop. The cost params are not part of the key,
-    so a re-run with other ones is refused rather than answered with a ticket priced
-    differently.
+    so a re-run with other ones is refused, as far as the stored ticket's lines show,
+    rather than answered with a ticket priced differently.
 
     Args:
         fill_quotes: Looks up the fill quote of each held name; ``place_orders``
@@ -151,22 +157,23 @@ class PaperVenue:
 
         Returns:
             The new or stored ticket, or a refusal when the stored ticket for the key
-            was priced with other cost params or every weight is zero or dust.
+            was priced with other cost params, as far as its stored lines show, or
+            every weight is zero or dust.
 
         Raises:
             LookupError: A held name cannot fill (from the quote source).
         """
-        whash = weights_hash(dict(request.weights))
+        key_hash = weights_hash(dict(request.weights))
         repo = OrderRepository(session)
         existing = repo.get_by_key(
-            portfolio_id=request.portfolio_id, asof=request.asof, weights_hash=whash
+            portfolio_id=request.portfolio_id, asof=request.asof, weights_hash=key_hash
         )
         if existing is not None:
             return _replay(repo, existing, request)
         held = held_weights(request.weights)
         if not held:
             return PlacedOrder.refused("no non-zero weights to place")
-        return self._place_new(session, repo, request, held, whash)
+        return self._place_new(session, repo, request, held, key_hash)
 
     def _place_new(
         self,
@@ -174,7 +181,7 @@ class PaperVenue:
         repo: OrderRepository,
         request: OrderRequest,
         held: dict[str, float],
-        whash: str,
+        key_hash: str,
     ) -> PlacedOrder:
         prior = repo.latest_on_or_before(request.portfolio_id, request.asof)
         prior_weights = (
@@ -187,7 +194,7 @@ class PaperVenue:
         order = repo.create(
             portfolio_id=request.portfolio_id,
             asof=request.asof,
-            weights_hash=whash,
+            weights_hash=key_hash,
             weights={k: float(v) for k, v in request.weights.items()},
             fill_date=min(quote.date for quote in quotes.values()),
             lines=[dict(line) for line in priced.lines],
@@ -231,19 +238,31 @@ def _cost_params_match(
     compares them (with a float tolerance) against the request. Commission is a
     fraction of the line's *traded* notional; tickets stored before turnover
     pricing carry no ``traded_notional`` and were charged on the full line notional.
+    A line whose commission base (that traded or full notional) is 0 gives no rate to
+    recompute, so its commission is not compared.
     """
-    if not math.isclose(order.notional, notional, rel_tol=1e-9, abs_tol=1e-9):
+    if not math.isclose(
+        order.notional, notional, rel_tol=_COST_TOLERANCE, abs_tol=_COST_TOLERANCE
+    ):
         return False
     for line in order.lines:
         if not math.isclose(
-            line.get("slippage_bps", 0.0), slippage_bps, rel_tol=1e-9, abs_tol=1e-9
+            line.get("slippage_bps", 0.0),
+            slippage_bps,
+            rel_tol=_COST_TOLERANCE,
+            abs_tol=_COST_TOLERANCE,
         ):
             return False
-        ln = line.get("traded_notional", line.get("notional", 0.0))
-        if ln:
-            stored_comm_bps = line["commission"] / abs(ln) * BPS_PER_UNIT
+        commission_base = line.get("traded_notional", line.get("notional", 0.0))
+        if commission_base:
+            stored_commission_bps = (
+                line["commission"] / abs(commission_base) * BPS_PER_UNIT
+            )
             if not math.isclose(
-                stored_comm_bps, commission_bps, rel_tol=1e-6, abs_tol=1e-9
+                stored_commission_bps,
+                commission_bps,
+                rel_tol=_COMMISSION_RATE_REL_TOLERANCE,
+                abs_tol=_COST_TOLERANCE,
             ):
                 return False
     return True

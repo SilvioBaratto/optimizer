@@ -337,10 +337,11 @@ def test_price_bars_for_keeps_a_bar_whose_close_is_null(db_session: Session) -> 
     ]
 
 
-def test_newest_close_per_instrument_reads_each_instrument_newest_closed_bar(
+def test_newest_close_dates_reads_each_instrument_newest_closed_bar(
     db_session: Session,
 ) -> None:
-    """One date per instrument with a close in the window; a NULL close is skipped."""
+    """Test ``YFinanceRepository.newest_close_dates``: one date per instrument with a
+    close in the window; a NULL close is skipped."""
     early, late, blank, stale = (
         _instrument(db_session, ticker) for ticker in ("EARLY", "LATE", "BLANK", "OLD")
     )
@@ -353,9 +354,7 @@ def test_newest_close_per_instrument_reads_each_instrument_newest_closed_bar(
     _add_close(db_session, stale, dt.date(2026, 2, 27), "1")
     repository = YFinanceRepository(db_session)
 
-    dates = repository.newest_close_per_instrument(
-        dt.date(2026, 3, 1), dt.date(2026, 3, 6)
-    )
+    dates = repository.newest_close_dates(dt.date(2026, 3, 1), dt.date(2026, 3, 6))
 
     assert sorted(dates) == [
         dt.date(2026, 3, 3),
@@ -363,18 +362,16 @@ def test_newest_close_per_instrument_reads_each_instrument_newest_closed_bar(
         dt.date(2026, 3, 5),
     ]
     assert (
-        repository.newest_close_per_instrument(
-            dt.date(2026, 4, 1), dt.date(2026, 4, 30)
-        )
-        == []
+        repository.newest_close_dates(dt.date(2026, 4, 1), dt.date(2026, 4, 30)) == []
     )
 
 
 def test_instrument_classes_for_lists_every_row_live_listing_first(
     db_session: Session,
 ) -> None:
-    """Each row carrying a symbol is listed, live before delisted, newest delisting
-    first; other symbols are left out."""
+    """Test ``UniverseRepository.instrument_classes_for``: each row carrying a symbol is
+    listed, live before delisted, newest delisting first; other symbols are left
+    out."""
     newer_delisting = _instrument(
         db_session, "VUSA1", yfinance_ticker="VUSA.L", delisted_at=dt.date(2025, 6, 1)
     )

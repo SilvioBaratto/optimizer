@@ -123,7 +123,7 @@ class PriceReader(Protocol):
     """Instrument, profile and daily-bar reads.
 
     Each read is keyed by Yahoo symbol or by instrument, except
-    :meth:`newest_close_per_instrument`, which spans every instrument.
+    :meth:`newest_close_dates`, which spans every instrument.
     """
 
     def instrument_for(self, yfinance_ticker: str) -> InstrumentSummary | None:
@@ -172,9 +172,7 @@ class PriceReader(Protocol):
         """
         ...
 
-    def newest_close_per_instrument(
-        self, start: dt.date, end: dt.date
-    ) -> list[dt.date]:
+    def newest_close_dates(self, start: dt.date, end: dt.date) -> list[dt.date]:
         """Return each instrument's newest bar date with a close inside a window.
 
         Args:
