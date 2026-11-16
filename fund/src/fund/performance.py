@@ -16,8 +16,7 @@ repositories, which the reading functions import when called; the ``fund.audit``
 package loads langgraph only on demand, and ``test_performance_nav.py`` imports this
 module and each module it names in an import statement in a fresh interpreter to
 check that none of them loads the agent stack. Degrades gracefully:
-short/empty/absent history yields an empty series or ``None`` fields, never a
-fabricated number.
+short/empty/absent history yields an empty series or ``None`` fields.
 """
 
 from __future__ import annotations

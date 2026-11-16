@@ -508,30 +508,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fund.tools.eligibility` calls `UniverseRepository.instrument_classes_for`
   (`InstrumentClass`) through the `UniverseReader` port and
   `ETFMetadataRepository.newest_stock_pct`. Each method runs the statement the module
-  ran before, with the same parameters, on the session the caller passes. None of the
-  methods commits; the callers that committed after the inline statement still do. Code
-  that read columns of ORM rows or entities now reads them from the returned values
-  instead: frozen dataclasses with the same field names, or, for the fund stock shares,
-  a mapping of instrument id to share. `fund.performance`'s private ticket helpers, for
-  example, hand `FilledTicket` values instead of `PaperOrder` rows to the code that
-  reads a ticket's id, fill date, notional and lines. The one change in a stored value
-  is that `fail_active_slots_of` takes the `finished_at` and `updated_at` stamp of the
-  slots it fails just after the session opens instead of just before. `performance.py`
-  may now import the `fund.audit` repositories: the static import scan in
-  `test_performance_nav.py` bars only the `deepagents`, `langgraph`, `langchain` and
-  `fund.agents` prefixes for it (it still bars `fund.audit` too for `attribution.py`). A
-  new fresh-interpreter probe imports `fund.performance` and every module it names in an
-  import statement, and fails if any of them loads a module with one of those four
-  prefixes. A new guard, `fund/tests/unit/hygiene/test_no_orm_outside_repositories.py`,
-  counts `sqlalchemy` `select`/`insert`/`update`/`delete`/`text` calls bound by import,
-  `.execute`, `.query` and `.add_all` calls, `.scalar`/`.scalars` calls with a
-  positional argument, and `.get(Model, ...)`/`.add(Model(...))` calls with a model
-  imported by name from `portopt_db.models`, in every module under `fund/src/fund`
-  except `fund/audit/*repository.py`. It fails on a call its allowlist
-  `orm_baseline.txt` does not hold and on an entry the tree no longer matches; its
-  docstring lists the forms it does not detect. The guard found 36 calls under 34 keys;
-  the allowlist now holds 11 calls under 9 keys: `fund.tools.universe` (`list_universe`,
-  `_investable`, `uninvestable_reasons`), the Ask tools' `SET TRANSACTION READ ONLY` in
+  ran before, on the session the caller passes, with the same parameters except the time
+  stamp noted below. None of the methods commits; the callers that committed after the
+  inline statement still do. Code that read columns of ORM rows or entities now reads
+  them from the returned values instead: frozen dataclasses with the same field names,
+  or, for the fund stock shares, a mapping of instrument id to share.
+  `fund.performance`'s private ticket helpers, for example, hand `FilledTicket` values
+  instead of `PaperOrder` rows to the code that reads a ticket's id, fill date, notional
+  and lines. The one change in a stored value is that `fail_active_slots_of` takes the
+  `finished_at` and `updated_at` stamp of the slots it fails just after the session
+  opens instead of just before. `performance.py` may now import the `fund.audit`
+  repositories: the static import scan in `test_performance_nav.py` bars only the
+  `deepagents`, `langgraph`, `langchain` and `fund.agents` prefixes for it (it still
+  bars `fund.audit` too for `attribution.py`). A new fresh-interpreter probe imports
+  `fund.performance` and every module it names in an import statement, and fails if any
+  of them loads a module with one of those four prefixes. A new guard,
+  `fund/tests/unit/hygiene/test_no_orm_outside_repositories.py`, counts `sqlalchemy`
+  `select`/`insert`/`update`/`delete`/`text` calls bound by import, `.execute`, `.query`
+  and `.add_all` calls, `.scalar`/`.scalars` calls with a positional argument, and
+  `.get(Model, ...)`/`.add(Model(...))` calls with a model imported by name from
+  `portopt_db.models`, in every module under `fund/src/fund` except
+  `fund/audit/*repository.py`. It fails on a call its allowlist `orm_baseline.txt` does
+  not hold and on an entry the tree no longer matches; its docstring lists the forms it
+  does not detect. The guard found 36 calls under 34 keys; the allowlist now holds 11
+  calls under 9 keys: `fund.tools.universe` (`list_universe`, `_investable`,
+  `uninvestable_reasons`), the Ask tools' `SET TRANSACTION READ ONLY` in
   `fund.agents.ask_agent`, and the psycopg schema bootstrap in `fund.audit.persistence`.
   The complexity ratchet's long-function baselines are lowered for
   `run_scheduled_nav_mark` (56 to 47 lines) and `build_nav_series` (118 to 107), and

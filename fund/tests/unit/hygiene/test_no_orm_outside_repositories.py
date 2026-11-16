@@ -159,7 +159,8 @@ def _call_kind(node: ast.Call, bindings: _Bindings) -> str | None:
 def _collect(
     node: ast.AST, scope: tuple[str, ...], bindings: _Bindings, sites: list[str]
 ) -> None:
-    """Append ``qualified name::kind`` for every statement call under ``node``."""
+    """Append ``qualified name::kind`` for each call under ``node`` that
+    ``_call_kind`` recognises."""
     for child in ast.iter_child_nodes(node):
         if isinstance(child, _ScopeNode):
             _collect(child, (*scope, child.name), bindings, sites)
@@ -172,11 +173,13 @@ def _collect(
 
 
 def find_orm_sites(src_root: Path) -> Counter[str]:
-    """Count the statement calls in every non-repository module under ``src_root``.
+    """Count the statement calls in the non-repository modules of ``src_root/fund``.
 
     Args:
-        src_root: The directory that holds the top-level ``fund`` package; every
-            ``.py`` file under ``src_root/fund`` at any depth is scanned.
+        src_root: The directory that holds the top-level ``fund`` package; each
+            ``.py`` file under ``src_root/fund`` at any depth is scanned, except the
+            files directly under ``src_root/fund/audit`` whose name ends in
+            ``repository.py``.
 
     Returns:
         ``<module>::<qualified name>::<kind>`` keys with how often each occurs;

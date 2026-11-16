@@ -20,8 +20,8 @@ are the exception's exception and do **not** commit, their callers own the commi
 Liveness is a **heartbeat lease**, not a host/PID identity check: a claim is
 reaped only once ``last_heartbeat_at`` is NULL or older than the lease TTL, with
 **no** ``worker_host``/``worker_pid`` clause. Those columns serve observability and
-:meth:`fail_active_slots_of`, which ``fund.worker`` calls before the daemon exits.
-Run exactly one daemon per DB.
+:meth:`fail_active_slots_of`, which ``fund.worker`` calls on a forced exit (a
+timed-out drain or a dead scheduler thread). Run exactly one daemon per DB.
 """
 
 from __future__ import annotations

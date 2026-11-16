@@ -1,8 +1,9 @@
 """``OrderRepository`` reads of filled tickets and the ``created_at`` re-stamp.
 
-The ticket reads return :class:`FilledTicket` values ranked oldest to newest by fill
-bar, decision bar, ``created_at`` and id. The re-stamp writes through the caller's
-session without committing.
+``filled_tickets`` returns :class:`FilledTicket` values ranked oldest to newest by
+fill bar, decision bar, ``created_at`` and id; ``latest_filled_ticket`` returns the
+last of that ranking, or ``None``. The re-stamp writes through the caller's session
+without committing.
 """
 
 from __future__ import annotations
@@ -125,7 +126,7 @@ def test_latest_filled_ticket_is_the_last_of_the_ranked_tickets(db_session):
 
 
 def test_a_filled_ticket_is_frozen(db_session):
-    """A ``FilledTicket``'s fields cannot be reassigned."""
+    """Reassigning a ``FilledTicket`` field raises ``FrozenInstanceError``."""
     _seed(db_session)
     ticket = OrderRepository(db_session).filled_tickets(_PID, filled_through=None)[0]
 

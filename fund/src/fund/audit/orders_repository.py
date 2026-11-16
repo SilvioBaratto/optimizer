@@ -71,7 +71,7 @@ def _filled_ticket(order: PaperOrder) -> FilledTicket:
 def _ticket_rank() -> tuple[Any, ...]:
     """Sort keys that rank paper tickets from oldest to newest, with no ties.
 
-    Tickets for the same decision bar share ``asof`` and ``fill_date`` but may carry
+    Tickets for the same decision bar can share ``asof`` and ``fill_date`` yet carry
     different weights (a re-run after a reject, a sweep plus a manual run), so those
     two keys alone leave their order to the database. ``created_at`` then ``id``
     make the newest ticket supersede the others deterministically. NAV and the
@@ -227,7 +227,7 @@ class OrderRepository(RepositoryBase):
         Args:
             portfolio_id: Portfolio to query.
             filled_through: Inclusive upper bound on ``fill_date``; ``None`` reads
-                every ticket.
+                every ticket of the portfolio.
 
         Returns:
             The tickets in rank order; empty when none matches.
@@ -243,7 +243,7 @@ class OrderRepository(RepositoryBase):
         Args:
             portfolio_id: Portfolio to query.
             filled_through: Inclusive upper bound on ``fill_date``; ``None`` reads
-                every ticket.
+                every ticket of the portfolio.
 
         Returns:
             The newest ticket, or ``None`` when none matches.
