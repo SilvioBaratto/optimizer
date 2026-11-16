@@ -181,10 +181,10 @@ def _resolve_exclusions(criteria: dict[str, Any] | None) -> frozenset[GicsSector
         ) from None
 
 
-def _gics_sector(prices: PriceReader, ticker: str) -> GicsSector | None:
+def _gics_sector(catalog: PriceReader, ticker: str) -> GicsSector | None:
     """The GICS sector of ``ticker`` from its stored profile, or ``None`` if unknown."""
-    instrument = prices.instrument_for(ticker)
-    profile = None if instrument is None else prices.profile_for(instrument.id)
+    instrument = catalog.instrument_for(ticker)
+    profile = None if instrument is None else catalog.profile_for(instrument.id)
     if profile is None or not profile.sector:
         return None
     label = re.sub(r"[^a-z]+", "_", profile.sector.lower()).strip("_")
@@ -215,10 +215,10 @@ def esg_barred(
         ``{ticker: sector value or "unclassified"}`` for every ticker that may not be
         held; absent for the rest.
     """
-    prices = price_reader(session)
+    catalog = price_reader(session)
     barred: dict[str, str] = {}
     for ticker in tickers:
-        sector = _gics_sector(prices, ticker)
+        sector = _gics_sector(catalog, ticker)
         if sector is None:
             barred[ticker] = UNCLASSIFIED
         elif sector in exclusions:

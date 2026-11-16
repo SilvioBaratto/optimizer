@@ -540,9 +540,7 @@ def make_fund_snapshot_tool(ctx: AskToolContext) -> BaseTool:
     def fund_snapshot() -> str:
         """Summarize the fund now: portfolios, pending gates, the focused portfolio."""
         return ctx.read(
-            lambda s: ask_context.build_context(
-                s, ctx.saver, ctx.focus, ""
-            ).splitlines()
+            lambda s: ask_context.build_context(s, ctx.saver, ctx.focus).splitlines()
         )
 
     return fund_snapshot
