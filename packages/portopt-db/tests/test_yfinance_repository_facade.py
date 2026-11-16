@@ -242,6 +242,8 @@ _HOME_MODULES: dict[str, str] = {
     "upsert_dividends": "prices_repository",
     "upsert_price_history": "prices_repository",
     "upsert_splits": "prices_repository",
+    "get_staleness_info": "staleness_repository",
+    "get_staleness_info_bulk": "staleness_repository",
 }
 
 
