@@ -16,6 +16,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from _fake_clock import FakeClock
 from sqlalchemy import make_url, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
@@ -41,28 +42,14 @@ _TERMINATE_WAIT_MS = 5_000
 _MakeManager = Callable[..., DatabaseManager]
 
 
-class _Clock:
-    """Monotonic fake clock the test moves by hand."""
-
-    def __init__(self) -> None:
-        self.now = 1_000.0
-
-    def __call__(self) -> float:
-        return self.now
-
-    def advance(self, seconds: float) -> None:
-        """Move the clock forward by ``seconds``."""
-        self.now += seconds
-
-
 @pytest.fixture
-def clock() -> _Clock:
+def clock() -> FakeClock:
     """A fresh fake clock per test."""
-    return _Clock()
+    return FakeClock()
 
 
 @pytest.fixture
-def make_manager(clock: _Clock) -> Iterator[_MakeManager]:
+def make_manager(clock: FakeClock) -> Iterator[_MakeManager]:
     """Build managers whose breakers open after two failures; close them after."""
     managers: list[DatabaseManager] = []
 
@@ -143,7 +130,7 @@ def test_a_refused_connect_counts_and_opens_the_breaker(
 
 
 def test_a_killed_backend_counts_opens_the_breaker_and_a_probe_recovers(
-    pg_url: str, pg_engine: Engine, make_manager: _MakeManager, clock: _Clock
+    pg_url: str, pg_engine: Engine, make_manager: _MakeManager, clock: FakeClock
 ) -> None:
     """A backend terminated mid-session fails its next statement as a lost connection."""
     manager = make_manager(pg_url)

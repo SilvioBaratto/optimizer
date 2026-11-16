@@ -18,67 +18,85 @@ from portopt_db.repositories import market_data
 from portopt_db.repositories.market_data import yfinance_repository
 from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
-_SEQ = "collections.abc.Sequence"
-_YF = "portopt_db.models.market_data.yfinance_data."
-_UNI = "portopt_db.models.universe.universe."
-_PORTS = "portopt_db.ports."
+_SEQUENCE = "collections.abc.Sequence"
+_YFINANCE_MODELS = "portopt_db.models.market_data.yfinance_data."
+_UNIVERSE_MODELS = "portopt_db.models.universe.universe."
+_PORTS_MODULE = "portopt_db.ports."
 
 _DEVELOPMENT_SIGNATURES: dict[str, str] = {
     "__init__": "(self, session: sqlalchemy.orm.session.Session)",
     "get_benchmark_coverage": (
         "(self, tickers: list[str]) -> dict[str, tuple[int, datetime.date | None]]"
     ),
-    "get_dividends": f"(self, instrument_id: uuid.UUID) -> {_SEQ}[{_YF}Dividend]",
+    "get_dividends": (
+        f"(self, instrument_id: uuid.UUID) -> {_SEQUENCE}[{_YFINANCE_MODELS}Dividend]"
+    ),
     "get_financial_statements": (
         "(self, instrument_id: uuid.UUID, statement_type: str | None = None, "
-        f"period_type: str | None = None) -> {_SEQ}[{_YF}FinancialStatement]"
+        "period_type: str | None = None) -> "
+        f"{_SEQUENCE}[{_YFINANCE_MODELS}FinancialStatement]"
     ),
     "get_insider_transactions": (
-        f"(self, instrument_id: uuid.UUID) -> {_SEQ}[{_YF}InsiderTransaction]"
+        "(self, instrument_id: uuid.UUID) -> "
+        f"{_SEQUENCE}[{_YFINANCE_MODELS}InsiderTransaction]"
     ),
     "get_institutional_holders": (
-        f"(self, instrument_id: uuid.UUID) -> {_SEQ}[{_YF}InstitutionalHolder]"
+        "(self, instrument_id: uuid.UUID) -> "
+        f"{_SEQUENCE}[{_YFINANCE_MODELS}InstitutionalHolder]"
     ),
     "get_instrument_by_yfinance_ticker": (
-        f"(self, yfinance_ticker: str) -> {_UNI}Instrument | None"
+        f"(self, yfinance_ticker: str) -> {_UNIVERSE_MODELS}Instrument | None"
     ),
     "get_instruments_with_yfinance_ticker": (
-        f"(self, *, today: datetime.date | None = None) -> {_SEQ}[{_UNI}Instrument]"
+        "(self, *, today: datetime.date | None = None) -> "
+        f"{_SEQUENCE}[{_UNIVERSE_MODELS}Instrument]"
     ),
     "get_mutualfund_holders": (
-        f"(self, instrument_id: uuid.UUID) -> {_SEQ}[{_YF}MutualFundHolder]"
+        "(self, instrument_id: uuid.UUID) -> "
+        f"{_SEQUENCE}[{_YFINANCE_MODELS}MutualFundHolder]"
     ),
-    "get_news": f"(self, instrument_id: uuid.UUID) -> {_SEQ}[{_YF}TickerNews]",
+    "get_news": (
+        f"(self, instrument_id: uuid.UUID) -> {_SEQUENCE}[{_YFINANCE_MODELS}TickerNews]"
+    ),
     "get_oldest_price_date": "(self, instrument_id: uuid.UUID) -> datetime.date | None",
     "get_options_as_of": "(self, instrument_id: uuid.UUID) -> datetime.date | None",
     "get_options_as_of_bulk": (
-        f"(self, instrument_ids: {_SEQ}[uuid.UUID]) -> dict[uuid.UUID, datetime.date]"
+        f"(self, instrument_ids: {_SEQUENCE}[uuid.UUID]) "
+        "-> dict[uuid.UUID, datetime.date]"
     ),
     "get_price_history": (
         "(self, instrument_id: uuid.UUID, "
         "start_date: datetime.date | None = None, "
         "end_date: datetime.date | None = None, limit: int | None = None, "
-        f"ascending: bool = False) -> {_SEQ}[{_YF}PriceHistory]"
+        f"ascending: bool = False) -> {_SEQUENCE}[{_YFINANCE_MODELS}PriceHistory]"
     ),
     "get_price_targets": (
-        f"(self, instrument_id: uuid.UUID) -> {_YF}AnalystPriceTarget | None"
+        "(self, instrument_id: uuid.UUID) -> "
+        f"{_YFINANCE_MODELS}AnalystPriceTarget | None"
     ),
-    "get_profile": f"(self, instrument_id: uuid.UUID) -> {_YF}TickerProfile | None",
+    "get_profile": (
+        f"(self, instrument_id: uuid.UUID) -> {_YFINANCE_MODELS}TickerProfile | None"
+    ),
     "get_recommendations": (
-        f"(self, instrument_id: uuid.UUID) -> {_SEQ}[{_YF}AnalystRecommendation]"
+        "(self, instrument_id: uuid.UUID) -> "
+        f"{_SEQUENCE}[{_YFINANCE_MODELS}AnalystRecommendation]"
     ),
     "get_scraped_news_uuids": (
-        f"(self, instrument_id: uuid.UUID, news_uuids: {_SEQ}[str]) -> set[str]"
+        f"(self, instrument_id: uuid.UUID, news_uuids: {_SEQUENCE}[str]) -> set[str]"
     ),
-    "get_sectors_by_yfinance_ticker": f"(self, tickers: {_SEQ}[str]) -> dict[str, str]",
-    "get_splits": f"(self, instrument_id: uuid.UUID) -> {_SEQ}[{_YF}StockSplit]",
+    "get_sectors_by_yfinance_ticker": (
+        f"(self, tickers: {_SEQUENCE}[str]) -> dict[str, str]"
+    ),
+    "get_splits": (
+        f"(self, instrument_id: uuid.UUID) -> {_SEQUENCE}[{_YFINANCE_MODELS}StockSplit]"
+    ),
     "get_staleness_info": "(self, instrument_id: uuid.UUID) -> dict[str, typing.Any]",
     "get_staleness_info_bulk": (
-        f"(self, instrument_ids: {_SEQ}[uuid.UUID])"
+        f"(self, instrument_ids: {_SEQUENCE}[uuid.UUID])"
         " -> dict[uuid.UUID, dict[str, typing.Any]]"
     ),
     "instrument_for": (
-        f"(self, yfinance_ticker: str) -> {_PORTS}InstrumentSummary | None"
+        f"(self, yfinance_ticker: str) -> {_PORTS_MODULE}InstrumentSummary | None"
     ),
     "newest_close_per_instrument": (
         "(self, start: datetime.date, end: datetime.date) -> list[datetime.date]"
@@ -87,9 +105,11 @@ _DEVELOPMENT_SIGNATURES: dict[str, str] = {
         "(self, instrument_id: uuid.UUID, "
         "start_date: datetime.date | None = None, "
         "end_date: datetime.date | None = None, limit: int | None = None, "
-        f"ascending: bool = False) -> list[{_PORTS}PriceBar]"
+        f"ascending: bool = False) -> list[{_PORTS_MODULE}PriceBar]"
     ),
-    "profile_for": f"(self, instrument_id: uuid.UUID) -> {_PORTS}ProfileSummary | None",
+    "profile_for": (
+        f"(self, instrument_id: uuid.UUID) -> {_PORTS_MODULE}ProfileSummary | None"
+    ),
     "prune_option_snapshots": "(self, instrument_id: uuid.UUID, *, keep: int) -> int",
     "prune_ticker_news": (
         "(self, older_than: datetime.datetime | datetime.date, *, "

@@ -152,8 +152,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defines three `runtime_checkable` protocols and the frozen dataclasses they return:
   `PriceReader` (`instrument_for`, `profile_for` and `price_bars_for`, returning
   `InstrumentSummary`, `ProfileSummary` and `PriceBar`), `FxRateReader` (`rates_for`,
-  returning `FxRatePoint`) and `UniverseReader` (`get_t212_untradeable_tickers` and
-  `get_t212_unevaluated_tickers`, returning lists of Yahoo symbols).
+  returning `FxRatePoint`) and `UniverseReader` (`get_t212_untradeable_tickers`,
+  returning a list of Yahoo symbols, or `None` when the overlay has evaluated no row,
+  and `get_t212_unevaluated_tickers`, returning a list of Yahoo symbols).
   `YFinanceRepository`, `FxRatesRepository` and `UniverseRepository` implement them. The
   four new repository methods call `get_instrument_by_yfinance_ticker`, `get_profile`,
   `get_price_history` and `get_rates` and copy the rows into the dataclasses, with the
@@ -591,8 +592,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measured on a copy, made ruff format wrap enough lines to push that function past
   its complexity ratchet baseline or the 30-line limit, so those 34 keep their
   literals. Apart from the 12 `truncate` calls, the moved code is the code that was
-  there before. The constants, helpers and function that ingestion and this package's
-  tests import from `yfinance_repository` are re-exported from it.
+  there before, except that the `get_benchmark_coverage` docstring no longer names its
+  callers and `get_instrument_by_yfinance_ticker` takes its sort keys from a
+  module-level tuple it shares with `instrument_classes_for`. The constants, helpers
+  and function that ingestion and this package's tests import from
+  `yfinance_repository` are re-exported from it.
   `upsert_financial_statements` and `upsert_dividends` now log under the
   `fundamentals_repository` and `prices_repository` logger names. The ratchet baseline
   entries of the moved functions now use the new keys, with the values they had.

@@ -18,6 +18,7 @@ from contextlib import suppress
 from unittest.mock import MagicMock, patch
 
 import pytest
+from _fake_clock import FakeClock
 from sqlalchemy import text
 from sqlalchemy.exc import (
     DataError,
@@ -49,20 +50,6 @@ _THRESHOLD = 5
 _WAIT_S = 5.0
 
 
-class _Clock:
-    """Monotonic fake clock the test moves by hand."""
-
-    def __init__(self) -> None:
-        self.now = 1_000.0
-
-    def __call__(self) -> float:
-        return self.now
-
-    def advance(self, seconds: float) -> None:
-        """Move the clock forward by ``seconds``."""
-        self.now += seconds
-
-
 class _FakeOrig(Exception):
     """Stands in for a psycopg2 error: a message and an optional SQLSTATE."""
 
@@ -92,7 +79,7 @@ def _connect_refused() -> OperationalError:
 
 
 def _breaker(
-    clock: _Clock, threshold: int = _THRESHOLD, timeout: float = _TIMEOUT_S
+    clock: FakeClock, threshold: int = _THRESHOLD, timeout: float = _TIMEOUT_S
 ) -> DbCircuitBreaker:
     return DbCircuitBreaker(
         BreakerConfig(failure_threshold=threshold, reset_timeout_s=timeout),
@@ -106,7 +93,7 @@ def _trip(breaker: DbCircuitBreaker, times: int = _THRESHOLD) -> None:
         breaker.record_failure(_connect_refused())
 
 
-def _half_open(breaker: DbCircuitBreaker, clock: _Clock) -> ProbeTicket:
+def _half_open(breaker: DbCircuitBreaker, clock: FakeClock) -> ProbeTicket:
     """Open the breaker, wait out the timeout and admit the probe."""
     _trip(breaker)
     clock.advance(_TIMEOUT_S)
@@ -214,13 +201,32 @@ def test_only_connectivity_failures_count_toward_opening(
     make_error: Callable[[], BaseException], expected: str
 ) -> None:
     """A slow query, a lock wait or a constraint must never open the breaker."""
-    breaker = _breaker(_Clock(), threshold=1)
+    breaker = _breaker(FakeClock(), threshold=1)
 
     breaker.before_call()
     breaker.record_failure(make_error())
 
     counted = breaker.state is BreakerState.OPEN
     assert (_COUNTED if counted else _NOT_COUNTED) == expected
+
+
+@pytest.mark.criterion("REQ-DB-002")
+@pytest.mark.criterion("REQ-DB-003")
+def test_an_invalidated_error_with_a_connection_sqlstate_counts_once() -> None:
+    """An error that steps 2 and 3 of the classification both match adds one, not two.
+
+    Step 2 matches its ``connection_invalidated`` flag and step 3 its SQLSTATE 08006.
+    Added one short of the threshold it leaves the breaker closed, and the next
+    counted failure opens it.
+    """
+    breaker = _breaker(FakeClock())
+    _trip(breaker, _THRESHOLD - 2)
+
+    breaker.record_failure(_driver_error(OperationalError, "08006", invalidated=True))
+    assert breaker.state is BreakerState.CLOSED
+
+    _trip(breaker, 1)
+    assert breaker.state is BreakerState.OPEN
 
 
 _RESETS = "resets"
@@ -259,7 +265,7 @@ def test_only_an_error_with_a_sqlstate_proves_the_server_answered(
     make_error: Callable[[], BaseException], expected: str
 ) -> None:
     """A SQLSTATE resets the count; these errors without one prove nothing."""
-    breaker = _breaker(_Clock())
+    breaker = _breaker(FakeClock())
     _trip(breaker, _THRESHOLD - 1)
 
     breaker.record_failure(make_error())
@@ -274,7 +280,7 @@ def test_only_an_error_with_a_sqlstate_proves_the_server_answered(
 
 def test_starts_closed_and_admits_calls_without_a_ticket() -> None:
     """A fresh breaker is closed, refuses nothing and issues no probe ticket."""
-    breaker = _breaker(_Clock())
+    breaker = _breaker(FakeClock())
 
     ticket = breaker.before_call()
 
@@ -286,7 +292,7 @@ def test_starts_closed_and_admits_calls_without_a_ticket() -> None:
 @pytest.mark.criterion("REQ-DB-002")
 def test_opens_after_threshold_consecutive_counted_failures() -> None:
     """The threshold-th consecutive connectivity failure opens it, not one earlier."""
-    breaker = _breaker(_Clock())
+    breaker = _breaker(FakeClock())
 
     _trip(breaker, _THRESHOLD - 1)
     assert breaker.state is BreakerState.CLOSED
@@ -298,7 +304,7 @@ def test_opens_after_threshold_consecutive_counted_failures() -> None:
 @pytest.mark.criterion("REQ-DB-002")
 def test_a_success_resets_the_failure_count() -> None:
     """Failures separated by a success are not consecutive."""
-    breaker = _breaker(_Clock())
+    breaker = _breaker(FakeClock())
 
     _trip(breaker, _THRESHOLD - 1)
     breaker.before_call()
@@ -311,7 +317,7 @@ def test_a_success_resets_the_failure_count() -> None:
 @pytest.mark.criterion("REQ-DB-002")
 def test_open_refuses_until_the_reset_timeout_elapses() -> None:
     """Open refuses every call until the reset timeout has passed."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     _trip(breaker)
 
@@ -324,7 +330,7 @@ def test_open_refuses_until_the_reset_timeout_elapses() -> None:
 
 def test_refusal_names_when_the_next_attempt_is_due() -> None:
     """The refusal tells the reader how long until the next attempt."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     _trip(breaker)
     clock.advance(10.0)
@@ -338,7 +344,7 @@ def test_refusal_names_when_the_next_attempt_is_due() -> None:
 @pytest.mark.criterion("REQ-DB-002")
 def test_after_the_timeout_exactly_one_probe_is_admitted_with_a_ticket() -> None:
     """Once the timeout passes one probe goes through and the next caller waits."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     _trip(breaker)
     clock.advance(_TIMEOUT_S)
@@ -353,7 +359,7 @@ def test_after_the_timeout_exactly_one_probe_is_admitted_with_a_ticket() -> None
 
 def test_refusal_peeks_without_admitting_the_probe() -> None:
     """``refusal`` reports without taking the probe slot or changing the state."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     _trip(breaker)
     clock.advance(_TIMEOUT_S)
@@ -367,7 +373,7 @@ def test_refusal_peeks_without_admitting_the_probe() -> None:
 @pytest.mark.criterion("REQ-DB-002")
 def test_probe_success_closes_the_breaker_and_resets_the_count() -> None:
     """A successful probe closes the breaker with a clean failure count."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     ticket = _half_open(breaker, clock)
 
@@ -381,7 +387,7 @@ def test_probe_success_closes_the_breaker_and_resets_the_count() -> None:
 @pytest.mark.criterion("REQ-DB-002")
 def test_probe_failure_reopens_for_a_full_cooldown_from_the_failure() -> None:
     """A failed probe reopens, and the cooldown restarts at the failure."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     ticket = _half_open(breaker, clock)
     clock.advance(7.0)
@@ -411,7 +417,7 @@ def test_probe_answered_by_the_database_closes_the_breaker(
     answer: DBAPIError,
 ) -> None:
     """The server answered the probe, so connectivity is proven."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     ticket = _half_open(breaker, clock)
 
@@ -434,7 +440,7 @@ def test_inconclusive_probe_releases_the_slot_for_the_next_caller(
     inconclusive: BaseException,
 ) -> None:
     """A probe that ended without a database verdict frees the slot, once."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     ticket = _half_open(breaker, clock)
 
@@ -448,7 +454,7 @@ def test_inconclusive_probe_releases_the_slot_for_the_next_caller(
 
 def test_outcomes_without_the_probe_ticket_never_settle_the_probe() -> None:
     """A session admitted before the breaker opened cannot free or decide the probe."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     ticket = _half_open(breaker, clock)
 
@@ -465,7 +471,7 @@ def test_outcomes_without_the_probe_ticket_never_settle_the_probe() -> None:
 
 def test_a_stale_ticket_from_an_earlier_probe_settles_nothing() -> None:
     """Only the ticket of the probe in flight counts; an older one is ignored."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     first = _half_open(breaker, clock)
     breaker.record_failure(ValueError("first probe proved nothing"), first)
@@ -481,7 +487,7 @@ def test_a_stale_ticket_from_an_earlier_probe_settles_nothing() -> None:
 
 def test_outcomes_landing_while_open_change_nothing() -> None:
     """A session admitted before the breaker opened neither closes it nor extends it."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     _trip(breaker)
 
@@ -497,7 +503,7 @@ def test_outcomes_landing_while_open_change_nothing() -> None:
 
 def test_db_circuit_breaker_satisfies_the_protocol() -> None:
     """The default implementation is a ``CircuitBreaker``."""
-    assert isinstance(_breaker(_Clock()), CircuitBreaker)
+    assert isinstance(_breaker(FakeClock()), CircuitBreaker)
 
 
 # --- thread safety ---------------------------------------------------------------
@@ -506,7 +512,7 @@ def test_db_circuit_breaker_satisfies_the_protocol() -> None:
 @pytest.mark.criterion("REQ-DB-002")
 def test_two_threads_racing_for_the_probe_admit_exactly_one() -> None:
     """Two callers that race for the probe slot: one wins, one is refused."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     _trip(breaker)
     clock.advance(_TIMEOUT_S)
@@ -536,7 +542,7 @@ def test_two_threads_racing_for_the_probe_admit_exactly_one() -> None:
 
 def test_a_second_caller_is_refused_while_the_probe_runs() -> None:
     """While the probe is still running a second caller is turned away."""
-    clock = _Clock()
+    clock = FakeClock()
     breaker = _breaker(clock)
     _trip(breaker)
     clock.advance(_TIMEOUT_S)
@@ -707,7 +713,7 @@ class _SqliteConfig(DbConfig):
         return {}
 
 
-def _ready_manager(clock: _Clock) -> tuple[DatabaseManager, MagicMock]:
+def _ready_manager(clock: FakeClock) -> tuple[DatabaseManager, MagicMock]:
     """A manager that looks initialized and hands out one mock session."""
     mgr = DatabaseManager(DbConfig(url=_URL), breaker=_breaker(clock))
     session = MagicMock()
@@ -716,7 +722,7 @@ def _ready_manager(clock: _Clock) -> tuple[DatabaseManager, MagicMock]:
     return mgr, session
 
 
-def _probing_manager(clock: _Clock) -> tuple[DatabaseManager, MagicMock]:
+def _probing_manager(clock: FakeClock) -> tuple[DatabaseManager, MagicMock]:
     """A ready manager whose breaker has opened and waited out its timeout."""
     mgr, session = _ready_manager(clock)
     _trip(mgr.breaker)  # type: ignore[arg-type]
@@ -724,7 +730,7 @@ def _probing_manager(clock: _Clock) -> tuple[DatabaseManager, MagicMock]:
     return mgr, session
 
 
-def _unreachable_manager(tmp_path, clock: _Clock) -> DatabaseManager:
+def _unreachable_manager(tmp_path, clock: FakeClock) -> DatabaseManager:
     """A real SQLite engine whose every connect fails: the file's folder is missing."""
     url = f"sqlite:///{tmp_path / 'missing' / 'db.sqlite'}"
     return DatabaseManager(_SqliteConfig(url=url), breaker=_breaker(clock))
@@ -733,7 +739,7 @@ def _unreachable_manager(tmp_path, clock: _Clock) -> DatabaseManager:
 @pytest.mark.criterion("REQ-DB-004")
 def test_open_breaker_refuses_a_session_without_touching_the_engine() -> None:
     """An open breaker refuses before any session is built."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, _ = _ready_manager(clock)
     _trip(mgr.breaker)  # type: ignore[arg-type]
     factory = mgr._session_factory
@@ -750,7 +756,7 @@ def test_unreachable_database_opens_the_breaker_then_stops_connecting(
     tmp_path,
 ) -> None:
     """Failed connects open the breaker; after that no engine is built."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr = _unreachable_manager(tmp_path, clock)
     for _ in range(_THRESHOLD):
         with pytest.raises(OperationalError), mgr.get_session() as session:
@@ -769,7 +775,7 @@ def test_unreachable_database_opens_the_breaker_then_stops_connecting(
 
 def test_a_closed_breaker_leaves_the_connection_lazy() -> None:
     """Only the probe connects early; a normal session opens on first use."""
-    mgr, session = _ready_manager(_Clock())
+    mgr, session = _ready_manager(FakeClock())
 
     with mgr.get_session():
         pass
@@ -779,7 +785,7 @@ def test_a_closed_breaker_leaves_the_connection_lazy() -> None:
 
 def test_a_body_that_completes_is_recorded_as_one_success() -> None:
     """A session whose body completes records exactly one success."""
-    mgr, _ = _ready_manager(_Clock())
+    mgr, _ = _ready_manager(FakeClock())
 
     with (
         patch.object(mgr.breaker, "record_success") as success,
@@ -794,7 +800,7 @@ def test_a_body_that_completes_is_recorded_as_one_success() -> None:
 
 def test_a_connectivity_failure_in_the_body_is_recorded_once() -> None:
     """The connection opens lazily inside the body, so that is where it fails."""
-    mgr, session = _ready_manager(_Clock())
+    mgr, session = _ready_manager(FakeClock())
     error = _connect_refused()
 
     with (
@@ -813,7 +819,7 @@ def test_a_connectivity_failure_in_the_body_is_recorded_once() -> None:
 
 def test_a_failing_rollback_still_leaves_the_outcome_recorded() -> None:
     """The outcome is recorded before a rollback that may itself fail."""
-    mgr, session = _ready_manager(_Clock())
+    mgr, session = _ready_manager(FakeClock())
     _trip(mgr.breaker, _THRESHOLD - 1)  # type: ignore[arg-type]
     session.rollback.side_effect = _connect_refused()
 
@@ -826,7 +832,7 @@ def test_a_failing_rollback_still_leaves_the_outcome_recorded() -> None:
 @pytest.mark.criterion("REQ-DB-004")
 def test_threshold_failures_through_get_session_open_the_breaker() -> None:
     """Connectivity failures raised in session bodies open the breaker."""
-    mgr, _ = _ready_manager(_Clock())
+    mgr, _ = _ready_manager(FakeClock())
 
     for _ in range(_THRESHOLD):
         with pytest.raises(OperationalError), mgr.get_session():
@@ -838,7 +844,7 @@ def test_threshold_failures_through_get_session_open_the_breaker() -> None:
 @pytest.mark.criterion("REQ-DB-003")
 def test_statement_timeouts_through_get_session_never_open_the_breaker() -> None:
     """Statement timeouts on a healthy database never open the breaker."""
-    mgr, _ = _ready_manager(_Clock())
+    mgr, _ = _ready_manager(FakeClock())
 
     for _ in range(_THRESHOLD * 2):
         with pytest.raises(OperationalError), mgr.get_session():
@@ -849,7 +855,7 @@ def test_statement_timeouts_through_get_session_never_open_the_breaker() -> None
 
 def test_probe_is_settled_by_its_connect_before_the_body_runs() -> None:
     """The probe connects before the body and is decided there, not at exit."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, session = _probing_manager(clock)
     seen_at_connect: list[BreakerState] = []
     session.connection.side_effect = lambda: seen_at_connect.append(mgr.breaker.state)
@@ -862,7 +868,7 @@ def test_probe_is_settled_by_its_connect_before_the_body_runs() -> None:
 
 def test_probe_whose_connect_proves_nothing_does_not_close() -> None:
     """No evidence, no recovery: the slot is freed and the breaker stays half-open."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, session = _probing_manager(clock)
     session.connection.side_effect = ValueError("not a database answer")
     ran: list[bool] = []
@@ -878,7 +884,7 @@ def test_probe_whose_connect_proves_nothing_does_not_close() -> None:
 
 def test_probe_whose_connect_fails_reopens_for_a_full_cooldown() -> None:
     """A probe that cannot connect reopens the breaker; its body never runs."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, session = _probing_manager(clock)
     session.connection.side_effect = _connect_refused()
 
@@ -894,7 +900,7 @@ def test_probe_whose_connect_fails_reopens_for_a_full_cooldown() -> None:
 
 def test_a_probe_body_cannot_turn_a_failed_connect_into_a_success() -> None:
     """A body that would swallow the connection error never gets the chance."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, session = _probing_manager(clock)
     session.connection.side_effect = _connect_refused()
     swallowed: list[bool] = []
@@ -909,7 +915,7 @@ def test_a_probe_body_cannot_turn_a_failed_connect_into_a_success() -> None:
 
 def test_a_long_probe_session_does_not_hold_other_sessions_back() -> None:
     """Once the probe has connected, other sessions run while it is still open."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, _ = _probing_manager(clock)
     inside, finish = threading.Event(), threading.Event()
 
@@ -934,7 +940,7 @@ def test_a_long_probe_session_does_not_hold_other_sessions_back() -> None:
 
 def test_a_second_session_is_refused_while_the_probe_connects() -> None:
     """Until the probe's connect returns, every other session is turned away."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, session = _probing_manager(clock)
     connecting, finish = threading.Event(), threading.Event()
 
@@ -972,7 +978,7 @@ def test_a_probe_body_error_after_a_good_connect_leaves_it_closed(
     raised: Exception,
 ) -> None:
     """After the connect has decided the probe, the body is an ordinary session."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, _ = _probing_manager(clock)
 
     with pytest.raises(type(raised)), mgr.get_session():
@@ -983,7 +989,7 @@ def test_a_probe_body_error_after_a_good_connect_leaves_it_closed(
 
 def test_an_abandoned_probe_session_leaves_nothing_stuck() -> None:
     """A probe context closed without being exited still closes its session."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, session = _probing_manager(clock)
     context = mgr.get_session()
     context.__enter__()
@@ -996,7 +1002,7 @@ def test_an_abandoned_probe_session_leaves_nothing_stuck() -> None:
 
 def test_probe_refused_by_a_closed_manager_frees_the_slot() -> None:
     """A probe that a closed manager refuses frees the slot."""
-    clock = _Clock()
+    clock = FakeClock()
     mgr, _ = _probing_manager(clock)
     mgr.close()
 
@@ -1055,7 +1061,7 @@ def test_manager_accepts_any_breaker_that_satisfies_the_protocol() -> None:
 
 def test_health_check_reports_false_while_the_breaker_is_open() -> None:
     """The health check reads an open breaker as unhealthy."""
-    mgr, _ = _ready_manager(_Clock())
+    mgr, _ = _ready_manager(FakeClock())
     _trip(mgr.breaker)  # type: ignore[arg-type]
 
     assert mgr.health_check() is False

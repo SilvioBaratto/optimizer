@@ -1,4 +1,8 @@
-"""Turn yfinance values into column values for the yfinance repositories."""
+"""Turn yfinance values into column values, and shape rows for ``ON CONFLICT`` upserts.
+
+``_refreshable_columns`` picks the columns an upsert may overwrite, and
+``_last_wins`` keeps the last of the rows in a batch that share a conflict key.
+"""
 
 import math
 from datetime import date, datetime, timezone
