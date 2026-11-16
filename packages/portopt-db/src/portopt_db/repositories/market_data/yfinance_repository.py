@@ -1,17 +1,24 @@
-"""Repository for yfinance data access with PostgreSQL upsert support."""
+"""YFinanceRepository aggregates and the modules that hold them.
 
-import logging
+- profile, financial statements, share counts, SEC filings: fundamentals_repository
+- price history, dividends, stock splits: prices_repository
+- estimates, earnings, analyst actions, recommendations, targets: analyst_repository
+- institutional, mutual-fund and major holders, insiders: ownership_repository
+- ticker news: news_repository
+- option chains: options_repository
+- staleness readers: staleness_repository
+- instrument lookups by Yahoo symbol: universe.universe_repository
+- PriceReader port DTOs: this module
+"""
+
 from collections.abc import Sequence
-from datetime import date, timedelta
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import and_, exists, func, select
-from sqlalchemy.orm import Session, aliased, joinedload
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
-from portopt_db.models.market_data.yfinance_data import (
-    PriceHistory,
-)
-from portopt_db.models.universe.pinned_instrument import PinnedInstrument
+from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Instrument
 from portopt_db.ports import InstrumentSummary, PriceBar, ProfileSummary
 
@@ -57,12 +64,11 @@ from portopt_db.repositories.market_data.staleness_repository import (
     statement_staleness_key as statement_staleness_key,
 )
 
-logger = logging.getLogger(__name__)
-
-
-# A delisted instrument that Yahoo has priced nothing for in this long is no
-# longer worth a request in every sweep.
-DORMANT_AFTER_DAYS = 365
+# Re-exported: it was public here before the lookup that reads it moved.
+from portopt_db.repositories.universe.universe_repository import (
+    DORMANT_AFTER_DAYS as DORMANT_AFTER_DAYS,
+)
+from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
 
 def _optional_float(value: float | None) -> float | None:
@@ -87,8 +93,8 @@ def _price_bar(row: PriceHistory) -> PriceBar:
 
 
 # The aggregate repositories are base classes, not attributes, so ``self`` in
-# their methods is the facade instance: tests that replace ``_upsert`` on a
-# facade instance still see every aggregate's writes.
+# their methods is the facade instance: a test that replaces ``_upsert`` on a
+# facade instance captures the rows the aggregates' upserts pass to it.
 class YFinanceRepository(
     PricesRepository,
     FundamentalsRepository,
@@ -103,10 +109,6 @@ class YFinanceRepository(
     def __init__(self, session: Session):
         super().__init__(session)
 
-    # ------------------------------------------------------------------
-    # Ticker Profile
-    # ------------------------------------------------------------------
-
     def profile_for(self, instrument_id: UUID) -> ProfileSummary | None:
         """Return the profile :meth:`get_profile` reads, as a DTO.
 
@@ -120,10 +122,6 @@ class YFinanceRepository(
         if profile is None:
             return None
         return ProfileSummary(sector=profile.sector, long_name=profile.long_name)
-
-    # ------------------------------------------------------------------
-    # Price History
-    # ------------------------------------------------------------------
 
     def price_bars_for(
         self,
@@ -178,95 +176,41 @@ class YFinanceRepository(
         )
         return list(self.session.execute(stmt).scalars())
 
-    # ------------------------------------------------------------------
-    # Instrument queries (used by yfinance_data endpoint)
-    # ------------------------------------------------------------------
-
     def get_instruments_with_yfinance_ticker(
         self, *, today: date | None = None
     ) -> Sequence[Instrument]:
-        """Return the instruments to ingest: those with a non-empty yfinance_ticker.
-
-        A delisted row whose symbol is now carried by an active row (the old side
-        of a venue transfer) is left out, so one symbol is never fetched and
-        stored under two instrument ids. A delisted row with no active successor
-        stays, because ``delisted_at`` records when a universe build stopped
-        seeing a name, not when it stopped trading. It leaves once it has been
-        delisted for ``DORMANT_AFTER_DAYS`` and has no stored bar from that
-        period, i.e. Yahoo has priced nothing for it since; a pinned symbol never
-        leaves. Its stored history stays. The exchange is eager-loaded.
+        """Return what :meth:`UniverseRepository.get_instruments_with_yfinance_ticker` does.
 
         Args:
             today: Reference date for the dormancy cutoff; defaults to the
                 current date.
         """
-        cutoff = (today or date.today()) - timedelta(days=DORMANT_AFTER_DAYS)
-        successor = aliased(Instrument)
-        superseded = and_(
-            Instrument.delisted_at.is_not(None),
-            exists().where(
-                successor.yfinance_ticker == Instrument.yfinance_ticker,
-                successor.delisted_at.is_(None),
-            ),
-        )
-        dormant = and_(
-            Instrument.delisted_at.is_not(None),
-            Instrument.delisted_at < cutoff,
-            ~exists().where(
-                PriceHistory.instrument_id == Instrument.id,
-                PriceHistory.date >= cutoff,
-            ),
-            ~exists().where(PinnedInstrument.ticker == Instrument.yfinance_ticker),
-        )
-        return (
-            self.session.execute(
-                select(Instrument)
-                .options(joinedload(Instrument.exchange))
-                .where(Instrument.yfinance_ticker.isnot(None))
-                .where(Instrument.yfinance_ticker != "")
-                .where(~superseded)
-                .where(~dormant)
-            )
-            .scalars()
-            .unique()
-            .all()
+        return UniverseRepository(self.session).get_instruments_with_yfinance_ticker(
+            today=today
         )
 
     def get_instrument_by_yfinance_ticker(
         self, yfinance_ticker: str
     ) -> Instrument | None:
-        """Return the instrument for a yfinance_ticker, with exchange eager-loaded.
-
-        ``instruments`` is unique on ``(ticker, exchange)`` and ``yfinance_ticker``
-        is indexed but not unique, so a symbol that moved venues leaves a delisted
-        row beside its active one. The active listing wins; among several
-        candidates the most recently delisted (or, for active rows, the most
-        recently created) does, so the result is deterministic and a genuinely
-        delisted holding still resolves.
+        """Return what :meth:`UniverseRepository.get_instrument_by_yfinance_ticker` does.
 
         Args:
             yfinance_ticker: The Yahoo Finance symbol to look up.
-
-        Returns:
-            The chosen instrument, or ``None`` when no row has that symbol.
         """
-        return (
-            self.session.execute(
-                select(Instrument)
-                .options(joinedload(Instrument.exchange))
-                .where(Instrument.yfinance_ticker == yfinance_ticker)
-                .order_by(
-                    Instrument.delisted_at.is_(None).desc(),
-                    Instrument.delisted_at.desc(),
-                    Instrument.created_at.desc(),
-                    Instrument.ticker,
-                    Instrument.id,
-                )
-                .limit(1)
-            )
-            .scalars()
-            .first()
+        return UniverseRepository(self.session).get_instrument_by_yfinance_ticker(
+            yfinance_ticker
         )
+
+    def get_benchmark_coverage(
+        self,
+        tickers: list[str],
+    ) -> dict[str, tuple[int, date | None]]:
+        """Return what :meth:`UniverseRepository.get_benchmark_coverage` does.
+
+        Args:
+            tickers: Yahoo Finance symbols to report on.
+        """
+        return UniverseRepository(self.session).get_benchmark_coverage(tickers)
 
     def instrument_for(self, yfinance_ticker: str) -> InstrumentSummary | None:
         """Return the row :meth:`get_instrument_by_yfinance_ticker` picks, as a DTO.
@@ -287,32 +231,3 @@ class YFinanceRepository(
             currency_code=instrument.currency_code,
             delisted_at=instrument.delisted_at,
         )
-
-    def get_benchmark_coverage(
-        self,
-        tickers: list[str],
-    ) -> dict[str, tuple[int, date | None]]:
-        """Return ``{ticker: (price_row_count, latest_price_date)}``.
-
-        Tickers without an instrument row (or with zero prices) come back as
-        ``(0, None)``. Drives the startup bootstrap and the scheduler's
-        reference-index refresh, which re-seed anything missing or stale.
-        """
-        if not tickers:
-            return {}
-
-        stmt = (
-            select(
-                Instrument.yfinance_ticker,
-                func.count(PriceHistory.id).label("price_rows"),
-                func.max(PriceHistory.date).label("latest"),
-            )
-            .outerjoin(PriceHistory, PriceHistory.instrument_id == Instrument.id)
-            .where(Instrument.yfinance_ticker.in_(tickers))
-            .group_by(Instrument.yfinance_ticker)
-        )
-        rows = self.session.execute(stmt).all()
-        coverage: dict[str, tuple[int, date | None]] = dict.fromkeys(tickers, (0, None))
-        for ticker, count, latest in rows:
-            coverage[ticker] = (int(count or 0), latest)
-        return coverage
