@@ -1,9 +1,9 @@
 """Fund daemon entrypoint: ``python -m fund.worker``.
 
 The wiring counterpart to ``fund.scheduler`` (which holds the testable steps).
-This module builds and drives the long-lived process that owns the fund's
-scheduled work — the weekly rebalance sweep, the 15-minute drift monitor, and the
-orphan reaper — mirroring ``ingestion/app/worker.py`` with the fund deltas.
+This module builds and drives the long-lived process that owns the fund's scheduled
+work (the weekly rebalance sweep, the 15-minute drift monitor, the daily NAV mark and
+its re-check, the orphan reaper), mirroring ``ingestion/app/worker.py`` with deltas.
 
 Boot sequence (``main``):
 

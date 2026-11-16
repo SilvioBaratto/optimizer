@@ -4,10 +4,11 @@ The single read model both frontends use: the CLI ``status``/``report`` commands
 the TUI's four panels are thin wrappers over these functions. It constructs **no**
 LLM and imports **no** agent stack at module load — ``import fund.observe`` drags in
 no ``deepagents`` / ``langchain`` / ``langgraph`` (asserted by a subprocess guard).
-The repositories it reads through live under ``fund.audit`` (whose package
-``__init__`` pulls the LangGraph persistence bootstrap), so they are imported lazily
-**inside** the functions, mirroring ``fund.agents.graph``'s lazy builders — the bare
-import stays clean, the call path still routes through the single-source repos.
+The repositories it reads through live under ``fund.audit``, whose package
+``__init__`` resolves the LangGraph persistence names lazily (a PEP 562
+``__getattr__``); they are imported **inside** the functions as well, mirroring
+``fund.agents.graph``'s lazy builders — the bare import stays clean, the call path
+still routes through the single-source repos.
 
 Every function takes an injected sync ``Session`` (the caller — CLI/TUI — owns the
 transaction; these read paths never ``commit``). Where a run's transcript or a
