@@ -188,7 +188,9 @@ under its table that show an id, and of the traceability check and its wiring. T
 `docs/requirements.md` holds the ids, of the form `REQ-<AREA>-NNN`, and a test cites one
 with the `criterion(id)` pytest marker. Tests written before the registry were tagged
 only where they assert one of the registered requirements, so most tests cite no id.
-That is a known non-compliance (standard 1.3).
+Of the fixes made before the `defect` marker existed, only the regression test for
+issue 1125 carries one, so the other fixes of that time are not linked to their issues
+in the trace. Both are known non-compliances (standard 1.3).
 
 Corrective action in place: the `lint` CI job collects the four suites with
 `--traceability-out` and runs `scripts/ci/traceability.py check`, which fails when a
