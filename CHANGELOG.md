@@ -141,7 +141,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   but no `REQ-` id, and uploads the four files as the `traceability` artifact. The
   `scope-N` and `global-N` labels that ingestion and portopt-db tests already carried in
   the `criterion` marker stay in the CSV and are not checked. Tests written before the
-  registry are not retro-tagged. Running a suite's pytest config now needs `scripts/ci`
+  registry were tagged only where they assert one of the 34 requirements, so most tests
+  cite no id. Running a suite's pytest config now needs `scripts/ci`
   from the checkout: without it, pytest stops because it cannot import `traceability`.
 - **portopt-db: read ports for the repository reads `fund` runs.** `portopt_db.ports`
   defines three `runtime_checkable` protocols and the frozen dataclasses they return:

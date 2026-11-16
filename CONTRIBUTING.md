@@ -186,8 +186,9 @@ Standard 6.6 asks every test to cite the requirement ID it verifies. Here requir
 IDs are bound to tests of the critical functions in `docs/test-plan.md`, of the items
 under its table that show an id, and of the traceability check itself. The registry
 `docs/requirements.md` holds the ids, of the form `REQ-<AREA>-NNN`, and a test cites one
-with the `criterion(id)` pytest marker. Tests written before the registry are not
-retro-tagged, so most tests cite no id. That is a known non-compliance (standard 1.3).
+with the `criterion(id)` pytest marker. Tests written before the registry were tagged
+only where they assert one of the registered requirements, so most tests cite no id.
+That is a known non-compliance (standard 1.3).
 
 Corrective action in place: the `lint` CI job collects the four suites with
 `--traceability-out` and runs `scripts/ci/traceability.py check`, which fails when a

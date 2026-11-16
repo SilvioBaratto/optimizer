@@ -18,7 +18,8 @@ design decision it answers.
   risk of `docs/test-plan.md` in brackets. A cell cannot hold a `|`.
 - Requirements are registered for the critical functions of `docs/test-plan.md`, for the
   items under its table that show an id, and for the check itself. Tests written before
-  the registry are not retro-tagged; `CONTRIBUTING.md` records that deviation.
+  the registry were tagged only where they assert one of these requirements, so most
+  tests cite no id; `CONTRIBUTING.md` records that deviation.
 - Do not invent an id outside this table.
 
 | id | statement | module | standard |

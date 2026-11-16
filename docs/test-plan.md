@@ -71,13 +71,13 @@ Also critical and tested:
 
 ## Test case identification
 
-A test case is identified by its pytest node id, `path::Class::test_name`. A test that
-covers a registered requirement also cites the requirement's `REQ-<AREA>-NNN` id from
-`docs/requirements.md` with `@pytest.mark.criterion("REQ-...")`. Requirements are
-registered for the critical functions above, for the items under the table that show an
-id, and for the traceability check itself. Tests written before the registry are not
-retro-tagged, so most tests cite no id. That is a recorded deviation from standard 6.6
-(see `CONTRIBUTING.md`).
+A test case is identified by its pytest node id, `path::Class::test_name`. A test can
+also cite a requirement of `docs/requirements.md` by its `REQ-<AREA>-NNN` id with
+`@pytest.mark.criterion("REQ-...")`. Requirements are registered for the critical
+functions above, for the items under the table that show an id, and for the traceability
+check itself. Tests written before the registry were tagged only where they assert one of
+those requirements, so most tests cite no id. That is a recorded deviation from standard
+6.6 (see `CONTRIBUTING.md`).
 
 The `lint` CI job collects the four suites with `--traceability-out` and runs
 `scripts/ci/traceability.py check`. It fails when a registered requirement has no test,
@@ -107,8 +107,8 @@ that fails without the change and names the function it guards. The regression t
 carries `@pytest.mark.defect(<issue>)` beside the `criterion` id of the requirement it
 guards, so the trace links the defect to its test, its requirement and, through the
 registry row, its module; the check fails on a `defect` marker on a test that cites no
-`REQ-` id. Issue 1125 is linked this way (REQ-ING-009). Fixes made before the marker
-existed are not retro-tagged.
+`REQ-` id. Issue 1125 is linked this way (REQ-ING-009); no other fix made before the
+marker existed carries one.
 
 Coverage is checked on every CI build against floors of 90 (library, `portopt-db`) and 80
 (`ingestion`, `fund`), against a standard goal of 75.
