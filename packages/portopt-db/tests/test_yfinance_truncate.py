@@ -1,8 +1,8 @@
 """``truncate`` cuts text to the width the model declares for the column.
 
-The yfinance repositories used to pass each width as a literal; ``truncate`` reads it
-from ``Model.__table__.c[column].type.length`` instead, so a migration that widens a
-column cannot leave a stale literal cutting values shorter than the column allows.
+``truncate`` reads the width from ``Model.__table__.c[column].type.length``, so where
+a repository calls it, a migration that widens a column widens the cut with it; a
+literal width would keep cutting at the old length.
 """
 
 from __future__ import annotations

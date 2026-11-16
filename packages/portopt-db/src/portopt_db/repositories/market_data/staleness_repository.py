@@ -1,4 +1,4 @@
-"""Repository for when each yfinance category was last stored per instrument."""
+"""Repository for an instrument's stored price dates and category write stamps."""
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -127,7 +127,7 @@ def _statement_staleness(
 
 
 class StalenessRepository(RepositoryBase):
-    """Stored price dates and last write per yfinance category of an instrument."""
+    """Price date range and category last-write stamps for incremental fetches."""
 
     def get_staleness_info(self, instrument_id: UUID) -> dict[str, Any]:
         """Return staleness metadata for incremental fetch decisions.

@@ -22,7 +22,7 @@ from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Instrument
 from portopt_db.ports import InstrumentSummary, PriceBar, ProfileSummary
 
-# Re-exported: tests import these helpers from this module.
+# ``as`` re-exports: tests import these helpers from this module.
 from portopt_db.repositories.market_data._mapping import _safe_date as _safe_date
 from portopt_db.repositories.market_data._mapping import _safe_float as _safe_float
 from portopt_db.repositories.market_data._mapping import _safe_int as _safe_int
@@ -35,7 +35,7 @@ from portopt_db.repositories.market_data.fundamentals_repository import (
 from portopt_db.repositories.market_data.news_repository import NewsRepository
 from portopt_db.repositories.market_data.options_repository import OptionsRepository
 
-# Re-exported: tests import it from this module.
+# ``as`` re-export: a test imports it from this module.
 from portopt_db.repositories.market_data.ownership_repository import (
     _SENTINEL_DATE as _SENTINEL_DATE,
 )
@@ -44,7 +44,7 @@ from portopt_db.repositories.market_data.ownership_repository import (
 )
 from portopt_db.repositories.market_data.prices_repository import PricesRepository
 
-# Re-exported: ingestion imports these from this module.
+# ``as`` re-exports: ingestion imports these names from this module.
 from portopt_db.repositories.market_data.staleness_repository import (
     FINANCIAL_STATEMENT_GROUPS as FINANCIAL_STATEMENT_GROUPS,
 )
@@ -64,7 +64,7 @@ from portopt_db.repositories.market_data.staleness_repository import (
     statement_staleness_key as statement_staleness_key,
 )
 
-# Re-exported: it was public here before the lookup that reads it moved.
+# ``as`` re-export: it was public here before the lookup that reads it moved.
 from portopt_db.repositories.universe.universe_repository import (
     DORMANT_AFTER_DAYS as DORMANT_AFTER_DAYS,
 )

@@ -537,6 +537,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The complexity ratchet's long-function baselines are lowered for
   `run_scheduled_nav_mark` (56 to 47 lines) and `build_nav_series` (118 to 107), and
   `_fail_in_flight_slots`, now within the limit, is dropped from them.
+- **db**: `YFinanceRepository` is split into seven repositories in
+  `portopt_db/repositories/market_data/`: `PricesRepository`, `FundamentalsRepository`,
+  `AnalystRepository`, `OwnershipRepository`, `NewsRepository`, `OptionsRepository` and
+  `StalenessRepository`. `YFinanceRepository` subclasses the seven and keeps its 53
+  public methods with the signatures they had; `test_yfinance_repository_facade.py`
+  compares them with a snapshot taken before the split. The lookups by Yahoo symbol
+  (`get_instruments_with_yfinance_ticker`, `get_instrument_by_yfinance_ticker`,
+  `get_benchmark_coverage`) and `DORMANT_AFTER_DAYS` move to `UniverseRepository`, and
+  `YFinanceRepository` forwards those three calls to it. The four `PriceReader` methods
+  stay on `YFinanceRepository`. The row-mapping helpers move to `_mapping.py`, whose new
+  `truncate(model, column, value)` reads a string column's width from the model; it
+  replaces 12 of the 48 literal widths, and the other 36 keep theirs (34 because the
+  longer call would grow a function past its complexity ratchet baseline or the 30-line
+  limit, 2 because no model width matches). Apart from those 12 calls the moved code is
+  the code that was there before. The names ingestion and this package's tests import
+  from `yfinance_repository` are re-exported there. `upsert_financial_statements` and
+  `upsert_dividends` now log under the `fundamentals_repository` and `prices_repository`
+  logger names. The ratchet baselines of the moved functions move to their new keys with
+  the same values.
 
 ### Removed
 

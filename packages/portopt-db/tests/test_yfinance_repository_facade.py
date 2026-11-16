@@ -196,7 +196,7 @@ _MODULE_NAMES_TO_KEEP = (
 
 _MARKET_DATA = "portopt_db.repositories.market_data."
 
-# Where each moved public method is defined; the facade reaches it by inheritance.
+# The module that defines each public method the facade inherits.
 _HOME_MODULES: dict[str, str] = {
     "get_price_targets": "analyst_repository",
     "get_recommendations": "analyst_repository",
