@@ -164,10 +164,12 @@ until the constraint (and the matching migration) is added.
   **unnamed** `UNIQUE (name)` constraint, and the initial revision creates the
   table that way. Migration
   `alembic/versions/c3d4e5f6a7b8_align_exchanges_with_orm.py:86` creates
-  **`uq_exchanges_name`** only when it converts a table that has an
-  `exchange_name` column and no constraint of that name. `save_exchange`
-  conflicts on the column, so it works under either name; a write that names
-  the constraint as its conflict target would not.
+  **`uq_exchanges_name`** when it converts a table not yet in the ORM shape
+  (such as a legacy one with an `exchange_name` column) and finds no
+  constraint of that name; on a table the initial revision created, it returns
+  before that step. `save_exchange` conflicts on the column, so it works under
+  either name; a write that names the constraint as its conflict target would
+  not.
 - **`instruments.yfinance_ticker`** — `ix_instrument_yfinance_ticker`
   (`models/universe/universe.py:106`) is a plain, **non-unique** `Index`. It
   cannot be an `ON CONFLICT` target. No write path in this audit currently

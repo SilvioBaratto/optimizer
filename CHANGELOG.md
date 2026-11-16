@@ -363,6 +363,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PriceReader` port and on `YFinanceRepository`, since it returns bar dates, not
   closes. `fund.observe` calls the new name; a caller of the old name gets an
   `AttributeError`. The statement it runs is the same.
+- **fund, ingestion, docs: names, docstrings and tests that say what the code does.**
+  `fund.ask_context.short_id` is the public form of the compact-id helper
+  `fund.tui.ask` imports, `build_context` no longer takes the `question` it never
+  read, `fill_shortfalls` and the paper venue's quote lookup share one helper, and
+  `_cost_params_match` names its tolerances (same values). Docstrings now say that a
+  re-run of a stored paper ticket with other cost params is refused as far as the
+  ticket's stored lines show (the commission of a line whose traded notional is 0 is
+  not compared), that `fund.performance` reads `nav_history` and `instruments`
+  rather than `positions` and that the fund worker runs the daily NAV mark; three
+  ingestion docstrings no longer tie a refusal to an open breaker, since a half-open
+  one refuses too. `docs/WRITE-PATH-AUDIT.md` describes
+  the `exchanges.name` constraint the model and migrations have. Fourteen
+  repository-method tests name the method in their docstrings, the two re-stamp
+  tests are one, and the heartbeat test waits for its pulses instead of sleeping a
+  fixed 0.4 s.
 - **ingestion, ci: messages that say what the code does.** While its failure count is at
   or above its limit inside a back-off window, an external-source breaker refuses with
   `<service> circuit breaker open: failure count N, limit M, inside its back-off
