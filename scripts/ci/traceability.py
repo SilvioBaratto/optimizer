@@ -7,16 +7,19 @@ definition of the CSV and of a requirement id:
 * a pytest plugin. A suite's config puts ``scripts/ci`` on its ``pythonpath`` and
   loads it with ``-p traceability``; ``--traceability-out=PATH`` then writes one CSV
   row per (``criterion`` id, collected test), carrying the issue numbers of the
-  test's ``defect`` markers;
+  test's ``defect`` markers, plus one row with an empty id for a test that has
+  ``defect`` markers and no ``criterion`` marker;
 * ``traceability.py check --requirements docs/requirements.md --csv A.csv
   [--csv B.csv ...]``, which exits 1 when a registered requirement has no test, a
-  test cites a ``REQ-`` id the registry does not list, or a test carries a
-  ``defect`` marker but no ``REQ-`` id.
+  test cites a ``REQ-`` id the registry does not list, a test carries a ``defect``
+  marker but no ``REQ-`` id, or an input cannot be read or parsed.
 
 An id is a requirement id when it starts with ``REQ-``. The ingestion and
 portopt-db suites also tag tests with acceptance-criterion labels such as
-``scope-3`` through the same ``criterion`` marker; the CSV keeps those rows and the
-check ignores them. pytest is imported for type hints only.
+``scope-3`` through the same ``criterion`` marker; the CSV keeps those rows, and
+the check does not look the labels up in the registry. A ``defect`` marker on a test
+whose only ids are such labels is still a hole. pytest is imported for type hints
+only.
 """
 
 from __future__ import annotations
@@ -151,22 +154,28 @@ def read_csv(path: Path) -> list[TraceRow]:
 
     Raises:
         OSError: ``path`` cannot be opened.
-        ValueError: The header is not ``req_id,nodeid,module,defects``, or a
-            ``defects`` cell holds something other than issue numbers.
+        ValueError: The header is not ``req_id,nodeid,module,defects``, a
+            ``defects`` cell holds something other than issue numbers, or the csv
+            reader rejects the file.
     """
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
-        if tuple(reader.fieldnames or ()) != _CSV_FIELDS:
-            raise ValueError(f"{path}: expected the columns {','.join(_CSV_FIELDS)}")
-        return [
-            TraceRow(
-                record["req_id"] or "",
-                record["nodeid"] or "",
-                record["module"] or "",
-                tuple(int(issue) for issue in (record["defects"] or "").split()),
-            )
-            for record in reader
-        ]
+        try:
+            if tuple(reader.fieldnames or ()) != _CSV_FIELDS:
+                columns = ",".join(_CSV_FIELDS)
+                raise ValueError(f"{path}: expected the columns {columns}")
+            return [_trace_row(record) for record in reader]
+        except csv.Error as error:
+            raise ValueError(f"{path}: {error}") from error
+
+
+def _trace_row(record: dict[str, str | None]) -> TraceRow:
+    return TraceRow(
+        record["req_id"] or "",
+        record["nodeid"] or "",
+        record["module"] or "",
+        tuple(int(issue) for issue in (record["defects"] or "").split()),
+    )
 
 
 def parse_registry(text: str) -> list[Requirement]:
@@ -255,8 +264,9 @@ def find_holes(
     Returns:
         One message per registered id that no row cites, per row that cites a
         ``REQ-`` id the registry does not list, and per issue of a test that has no
-        ``REQ-`` id; empty when the matrix is complete. Rows whose id does not
-        start with ``REQ-`` are not judged.
+        ``REQ-`` id; empty when the matrix is complete. An id that does not start
+        with ``REQ-`` is not looked up in the registry, but the ``defect`` issues
+        on its row still count against a test that has no ``REQ-`` id.
     """
     registered = {requirement.req_id for requirement in requirements}
     cited = {row.req_id for row in rows}

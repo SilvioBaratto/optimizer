@@ -84,6 +84,18 @@ def _trace(tmp_path: Path, rows: str, name: str = "trace.csv") -> Path:
     return path
 
 
+_NO_TABLE = "# Requirements\n\n| id | text |\n|---|---|\n"
+_BROKEN_TABLES = [
+    ("", "no requirement rows"),
+    ("| REQ-FUND-001 | A statement. | `m.py` |\n", "4 cells"),
+    ("| REQ-FUND-1 | A statement. | `m.py` | 6.2 |\n", "REQ-FUND-1"),
+    ("| REQ-WEB-001 | A statement. | `m.py` | 6.2 |\n", "REQ-WEB-001"),
+    ("| REQ-FUND-001 |  | `m.py` | 6.2 |\n", "empty"),
+    (_row("REQ-FUND-001") + _row("REQ-FUND-001"), "twice"),
+]
+_BROKEN_IDS = ["empty", "short-row", "short-number", "unknown-area", "blank", "dup"]
+
+
 def _check(registry: Path, *csvs: Path) -> int:
     argv = ["check", "--requirements", str(registry)]
     for path in csvs:
@@ -236,18 +248,7 @@ class TestParseRegistry:
         assert requirements[0].module == "fund/src/fund/tools/risk.py"
         assert requirements[0].standard == "6.2"
 
-    @pytest.mark.parametrize(
-        ("rows", "message"),
-        [
-            ("", "no requirement rows"),
-            ("| REQ-FUND-001 | A statement. | `m.py` |\n", "4 cells"),
-            ("| REQ-FUND-1 | A statement. | `m.py` | 6.2 |\n", "REQ-FUND-1"),
-            ("| REQ-WEB-001 | A statement. | `m.py` | 6.2 |\n", "REQ-WEB-001"),
-            ("| REQ-FUND-001 |  | `m.py` | 6.2 |\n", "empty"),
-            (_row("REQ-FUND-001") + _row("REQ-FUND-001"), "twice"),
-        ],
-        ids=["empty", "short-row", "short-number", "unknown-area", "blank", "dup"],
-    )
+    @pytest.mark.parametrize(("rows", "message"), _BROKEN_TABLES, ids=_BROKEN_IDS)
     def test_a_broken_table_is_refused(
         self, tmp_path: Path, rows: str, message: str
     ) -> None:
@@ -263,7 +264,7 @@ class TestParseRegistry:
         module = _load()
 
         with pytest.raises(module.RegistryError, match="no requirements table"):
-            module.parse_registry("# Requirements\n\n| id | text |\n|---|---|\n")
+            module.parse_registry(_NO_TABLE)
 
 
 @pytest.mark.criterion("REQ-OPS-001")
@@ -383,22 +384,52 @@ class TestCheckCommand:
         assert _check(registry, _trace(tmp_path, rows)) == 1
         assert capsys.readouterr().err.strip()
 
-    @pytest.mark.parametrize(
-        "rows",
-        ["", "| REQ-FUND-1 | A statement. | `m.py` | 6.2 |\n"],
-        ids=["empty", "short-number"],
-    )
-    def test_a_broken_registry_exits_one(self, tmp_path: Path, rows: str) -> None:
-        """An empty or malformed table fails the check, it does not pass vacuously."""
+    @pytest.mark.parametrize(("rows", "message"), _BROKEN_TABLES, ids=_BROKEN_IDS)
+    def test_a_broken_registry_exits_one(
+        self,
+        tmp_path: Path,
+        rows: str,
+        message: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A broken table fails the check with the parser's reason, never vacuously."""
         trace = _trace(tmp_path, "REQ-FUND-001,tests/a.py::t,fund/tests/a.py,\n")
 
         assert _check(_registry(tmp_path, rows), trace) == 1
+        assert message in capsys.readouterr().err
+
+    def test_a_registry_without_the_table_exits_one(self, tmp_path: Path) -> None:
+        """A renamed table header fails the check instead of reading as empty."""
+        registry = tmp_path / "requirements.md"
+        registry.write_text(_NO_TABLE)
+        trace = _trace(tmp_path, "REQ-FUND-001,tests/a.py::t,fund/tests/a.py,\n")
+
+        assert _check(registry, trace) == 1
 
     def test_a_missing_csv_exits_one(self, tmp_path: Path) -> None:
         """A suite whose collection pass wrote nothing is not an empty suite."""
         registry = _registry(tmp_path, _row("REQ-FUND-001"))
 
         assert _check(registry, tmp_path / "absent.csv") == 1
+
+    def test_a_csv_with_other_columns_exits_one(self, tmp_path: Path) -> None:
+        """A file another tool wrote is refused, not read as an empty matrix."""
+        registry = _registry(tmp_path, _row("REQ-FUND-001"))
+        other = tmp_path / "other.csv"
+        other.write_text("id,test\nREQ-FUND-001,tests/a.py::t\n")
+
+        assert _check(registry, other) == 1
+
+    def test_a_malformed_csv_exits_one_with_a_message(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A file the csv reader rejects ends in a ``traceability:`` line."""
+        registry = _registry(tmp_path, _row("REQ-FUND-001"))
+        oversized = "x" * (csv.field_size_limit() + 1)
+        trace = _trace(tmp_path, f"REQ-FUND-001,{oversized},fund/tests/a.py,\n")
+
+        assert _check(registry, trace) == 1
+        assert capsys.readouterr().err.startswith("traceability: ")
 
     def test_a_missing_argument_is_a_usage_error(self, tmp_path: Path) -> None:
         """``--csv`` is required; argparse exits 2."""
