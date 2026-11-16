@@ -544,18 +544,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public methods with the signatures they had; `test_yfinance_repository_facade.py`
   compares them with a snapshot taken before the split. The lookups by Yahoo symbol
   (`get_instruments_with_yfinance_ticker`, `get_instrument_by_yfinance_ticker`,
-  `get_benchmark_coverage`) and `DORMANT_AFTER_DAYS` move to `UniverseRepository`, and
-  `YFinanceRepository` forwards those three calls to it. The four `PriceReader` methods
-  stay on `YFinanceRepository`. The row-mapping helpers move to `_mapping.py`, whose new
-  `truncate(model, column, value)` reads a string column's width from the model; it
-  replaces 12 of the 48 literal widths, and the other 36 keep theirs (34 because the
-  longer call would grow a function past its complexity ratchet baseline or the 30-line
-  limit, 2 because no model width matches). Apart from those 12 calls the moved code is
-  the code that was there before. The names ingestion and this package's tests import
-  from `yfinance_repository` are re-exported there. `upsert_financial_statements` and
-  `upsert_dividends` now log under the `fundamentals_repository` and `prices_repository`
-  logger names. The ratchet baselines of the moved functions move to their new keys with
-  the same values.
+  `get_benchmark_coverage`) move to `UniverseRepository`, and `YFinanceRepository`
+  forwards those three calls to it; `DORMANT_AFTER_DAYS` moves to the
+  `universe_repository` module. The four `PriceReader` methods are still defined in
+  `yfinance_repository.py`. `_safe_val`, `_safe_int`, `_safe_float`,
+  `_safe_percent_as_fraction`, `_safe_str`, `_safe_date`, `_strip_nul`,
+  `_refreshable_columns` and `_last_wins` move to `_mapping.py`, whose new
+  `truncate(model, column, value)` reads a string column's width from the model.
+  `truncate` replaces 12 of the 48 literal widths passed to `_safe_str`. Of the other
+  36, 2 keep their literal because no model width matches it (`SecFiling.url` has no
+  length, and the insider-purchase label has no column). The remaining 34 sit in eight
+  functions (`upsert_profile`, `upsert_profile_extras`, `upsert_analyst_actions`,
+  `upsert_sec_filings`, `upsert_financial_statements`, `upsert_insider_transactions`,
+  `upsert_insider_roster`, `upsert_news`): converting every such call in one of them,
+  measured on a copy, made ruff format wrap enough lines to push that function past
+  its complexity ratchet baseline or the 30-line limit, so those 34 keep their
+  literals. Apart from the 12 `truncate` calls, the moved code is the code that was
+  there before. The constants, helpers and function that ingestion and this package's
+  tests import from `yfinance_repository` are re-exported from it.
+  `upsert_financial_statements` and `upsert_dividends` now log under the
+  `fundamentals_repository` and `prices_repository` logger names. The ratchet baseline
+  entries of the moved functions now use the new keys, with the values they had.
 
 ### Removed
 

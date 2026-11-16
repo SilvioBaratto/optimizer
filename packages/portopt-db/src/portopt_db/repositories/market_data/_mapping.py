@@ -147,9 +147,10 @@ def _safe_date(v: Any) -> date | None:
 def truncate(model: type[Base], column: str, value: Any) -> str | None:
     """Convert ``value`` with ``_safe_str`` and cut it to the column's length.
 
-    Equivalent to ``_safe_str(value, width)`` where ``width`` is the ``String``
-    length ``model`` declares for ``column``, so a migration that changes the
-    width changes the cut with it.
+    Equivalent to ``_safe_str(value, width)``, where ``width`` is the length of
+    the type ``model`` declares for ``column``, or ``None`` when that type is not
+    a ``String`` or has no length; a change to the model's column width therefore
+    changes the cut with it.
 
     Args:
         model: Mapped class whose table holds the column.

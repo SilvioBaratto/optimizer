@@ -3,8 +3,8 @@
 ``_DEVELOPMENT_SIGNATURES`` holds ``str(inspect.signature(...))`` of the constructor
 and of each public method as they were on ``development`` at ed851bbc, before the
 class was split into one repository per aggregate. Ingestion and fund call the
-facade, so a dropped, renamed or re-typed method is a consumer break even while the
-aggregate repositories' own tests pass.
+facade, so these tests fail when a method is dropped, renamed or re-typed on it, or
+when a name they import from ``yfinance_repository`` stops resolving there.
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ _DEVELOPMENT_SIGNATURES: dict[str, str] = {
 }
 
 # The public names ``yfinance_repository`` defined on ``development``, except
-# ``logger``, and the private helpers this package's tests import from it.
+# ``logger``, and the private names this package's tests import from it.
 _MODULE_NAMES_TO_KEEP = (
     "DORMANT_AFTER_DAYS",
     "FINANCIAL_STATEMENT_GROUPS",

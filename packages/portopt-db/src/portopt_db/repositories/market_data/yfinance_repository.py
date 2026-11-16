@@ -7,8 +7,8 @@
 - ticker news: news_repository
 - option chains: options_repository
 - staleness readers: staleness_repository
-- instrument lookups by Yahoo symbol: universe.universe_repository
-- PriceReader port DTOs: this module
+- instrument lookups by Yahoo symbol: universe.universe_repository, forwarded here
+- the four methods of the PriceReader port (portopt_db.ports): this module
 """
 
 from collections.abc import Sequence
@@ -179,7 +179,9 @@ class YFinanceRepository(
     def get_instruments_with_yfinance_ticker(
         self, *, today: date | None = None
     ) -> Sequence[Instrument]:
-        """Return what :meth:`UniverseRepository.get_instruments_with_yfinance_ticker` does.
+        """Forward to the UniverseRepository method of the same name.
+
+        See :meth:`UniverseRepository.get_instruments_with_yfinance_ticker`.
 
         Args:
             today: Reference date for the dormancy cutoff; defaults to the
@@ -192,7 +194,9 @@ class YFinanceRepository(
     def get_instrument_by_yfinance_ticker(
         self, yfinance_ticker: str
     ) -> Instrument | None:
-        """Return what :meth:`UniverseRepository.get_instrument_by_yfinance_ticker` does.
+        """Forward to the UniverseRepository method of the same name.
+
+        See :meth:`UniverseRepository.get_instrument_by_yfinance_ticker`.
 
         Args:
             yfinance_ticker: The Yahoo Finance symbol to look up.
@@ -205,7 +209,9 @@ class YFinanceRepository(
         self,
         tickers: list[str],
     ) -> dict[str, tuple[int, date | None]]:
-        """Return what :meth:`UniverseRepository.get_benchmark_coverage` does.
+        """Forward to the UniverseRepository method of the same name.
+
+        See :meth:`UniverseRepository.get_benchmark_coverage`.
 
         Args:
             tickers: Yahoo Finance symbols to report on.

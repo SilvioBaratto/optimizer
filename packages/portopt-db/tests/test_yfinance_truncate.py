@@ -1,8 +1,8 @@
 """``truncate`` cuts text to the width the model declares for the column.
 
 ``truncate`` reads the width from ``Model.__table__.c[column].type.length``, so where
-a repository calls it, a migration that widens a column widens the cut with it; a
-literal width would keep cutting at the old length.
+a repository calls it, a change to the model's column width changes the cut with it;
+a literal width would keep cutting at the old length.
 """
 
 from __future__ import annotations

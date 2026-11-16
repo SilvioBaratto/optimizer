@@ -1,8 +1,8 @@
 """Instrument lookups by Yahoo symbol, on ``UniverseRepository`` and the facade.
 
-The three lookups moved from ``YFinanceRepository`` to ``UniverseRepository``;
-``YFinanceRepository`` keeps the same three methods for its callers and forwards
-them, so both must answer alike on the same session.
+The three lookups moved from ``YFinanceRepository`` to ``UniverseRepository``.
+``YFinanceRepository`` keeps the three methods, with their signatures, and forwards
+each call, so both must answer alike on one session.
 """
 
 from __future__ import annotations
@@ -42,7 +42,10 @@ def _bar(session: Session, instrument: Instrument, day: dt.date) -> None:
 
 
 def test_symbol_lookup_prefers_the_active_listing(db_session: Session) -> None:
-    """Of a delisted and an active row sharing a symbol, the active one wins."""
+    """Test ``UniverseRepository.get_instrument_by_yfinance_ticker``.
+
+    Of a delisted and an active row sharing a symbol, the active one wins.
+    """
     _instrument(db_session, "OLD", "VUSA.L", delisted_at=dt.date(2025, 1, 2))
     active = _instrument(db_session, "VUSA", "VUSA.L")
 
@@ -53,7 +56,10 @@ def test_symbol_lookup_prefers_the_active_listing(db_session: Session) -> None:
 
 
 def test_ingest_list_leaves_out_a_superseded_listing(db_session: Session) -> None:
-    """A delisted row whose symbol an active row now carries is not fetched."""
+    """Test ``UniverseRepository.get_instruments_with_yfinance_ticker``.
+
+    A delisted row whose symbol an active row now carries is left out.
+    """
     _instrument(db_session, "OLD", "VUSA.L", delisted_at=dt.date(2025, 1, 2))
     active = _instrument(db_session, "VUSA", "VUSA.L")
 
@@ -67,7 +73,11 @@ def test_ingest_list_leaves_out_a_superseded_listing(db_session: Session) -> Non
 def test_benchmark_coverage_counts_bars_and_reports_the_latest(
     db_session: Session,
 ) -> None:
-    """A priced symbol reports its bar count and newest date; an unknown one ``(0, None)``."""
+    """Test ``UniverseRepository.get_benchmark_coverage``.
+
+    A priced symbol reports its bar count and newest date; an unknown symbol
+    reports ``(0, None)``.
+    """
     spy = _instrument(db_session, "SPY", "SPY")
     _bar(db_session, spy, dt.date(2026, 11, 12))
     _bar(db_session, spy, dt.date(2026, 11, 13))
@@ -78,7 +88,10 @@ def test_benchmark_coverage_counts_bars_and_reports_the_latest(
 
 
 def test_facade_lookups_answer_like_universe_repository(db_session: Session) -> None:
-    """``YFinanceRepository`` returns what ``UniverseRepository`` returns for each lookup."""
+    """Test the three lookup forwarders of ``YFinanceRepository``.
+
+    Each returns what the ``UniverseRepository`` method of the same name returns.
+    """
     _instrument(db_session, "OLD", "VUSA.L", delisted_at=dt.date(2025, 1, 2))
     _instrument(db_session, "VUSA", "VUSA.L")
     spy = _instrument(db_session, "SPY", "SPY")
