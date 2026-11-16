@@ -157,8 +157,8 @@ def read_csv(path: Path) -> list[TraceRow]:
         OSError: ``path`` cannot be opened.
         ValueError: The header is not ``req_id,nodeid,module,defects``, a
             ``defects`` cell holds something other than positive issue numbers in
-            plain digits, or the csv reader rejects the file. The message starts
-            with ``path``.
+            plain digits without leading zeros, or the csv reader rejects the file.
+            The message starts with ``path``.
     """
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
@@ -178,7 +178,8 @@ def _trace_row(record: dict[str, str | None], path: Path) -> TraceRow:
     # other cell was not written by it and must not link a test to an issue.
     if not all(_ISSUE_NUMBER.fullmatch(issue) for issue in issues):
         raise ValueError(
-            f"{path}: the defects cell {cell!r} is not a list of positive issue numbers"
+            f"{path}: the defects cell {cell!r} is not a list of positive issue "
+            "numbers in plain digits without leading zeros"
         )
     return TraceRow(
         record["req_id"] or "",

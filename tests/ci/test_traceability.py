@@ -100,8 +100,15 @@ _BROKEN_TABLES = [
     (_row("REQ-FUND-001") + _row("REQ-FUND-001"), "twice"),
 ]
 _BROKEN_IDS = ["empty", "short-row", "short-number", "unknown-area", "blank", "dup"]
-_BAD_DEFECTS = ["0", "-3", "abc", "1.5", "1125 x"]
-_BAD_DEFECT_IDS = ["zero", "negative", "text", "fraction", "one-bad-of-two"]
+_BAD_DEFECTS = ["0", "-3", "abc", "1.5", "1125 x", "01125"]
+_BAD_DEFECT_IDS = [
+    "zero",
+    "negative",
+    "text",
+    "fraction",
+    "one-bad-of-two",
+    "leading-zero",
+]
 
 
 def _check(registry: Path, *csvs: Path) -> int:
@@ -244,7 +251,7 @@ class TestCsv:
     def test_a_defects_cell_without_positive_issue_numbers_is_refused(
         self, tmp_path: Path, cell: str
     ) -> None:
-        """0, a negative or a non-integer is refused with an error naming the file."""
+        """0, a negative, a non-integer or a leading zero fails, naming the file."""
         path = _trace(tmp_path, f"REQ-FUND-001,tests/a.py::t,fund/tests/a.py,{cell}\n")
 
         with pytest.raises(ValueError, match=re.escape(str(path))):
