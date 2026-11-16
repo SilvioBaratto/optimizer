@@ -53,9 +53,9 @@ _HTTP_429_IN_TEXT = re.compile(
 )
 
 # A rate-limited error leaves the long wait to the breaker on_rate_limit trips, where
-# one is passed, so this sleep only staggers threads: at most 1 s on the first try,
+# one is passed, so the retry's own sleep only staggers threads: its upper bound starts
+# at the base and doubles per attempt up to the cap.
 _RATE_LIMIT_JITTER_BASE_SECONDS = 1.0
-# then doubling per attempt up to a 10 s ceiling.
 _RATE_LIMIT_JITTER_CAP_SECONDS = 10.0
 
 

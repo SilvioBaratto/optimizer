@@ -9,8 +9,8 @@ class CircuitOpenError(RuntimeError):
     """The breaker refused a call: window open, count at ``max_attempts`` or more.
 
     What counts as a failure is up to the code that calls ``trigger()``, so the
-    message, built in ``check()``, names the open breaker and its failure count,
-    not a cause.
+    message, built in ``check()``, names the open breaker, its failure count and
+    its limit, not a cause.
 
     A ``RuntimeError`` subclass so callers that already catch the generic error
     keep working, while resilience wrappers can tell a refused call from any
@@ -33,7 +33,7 @@ class CircuitBreaker:
     Args:
         service_name: Human-readable name used in error messages.
         max_attempts: Failure count at which ``check()`` raises
-            ``RuntimeError`` instead of sleeping, for as long as the current
+            ``CircuitOpenError`` instead of sleeping, for as long as the current
             back-off window is open.
         base_wait_minutes: Scaling factor for the back-off formula.
         max_wait_minutes: Upper bound on a single back-off window. Uncapped,
@@ -98,9 +98,9 @@ class CircuitBreaker:
             if self._active and now < self._until:
                 if self._attempt >= self.max_attempts:
                     raise CircuitOpenError(
-                        f"{self.service_name} circuit breaker open with "
-                        f"{self._attempt} failures counted; calls are refused until "
-                        "its back-off window ends."
+                        f"{self.service_name} circuit breaker open: failure count "
+                        f"{self._attempt}, limit {self.max_attempts}, inside its "
+                        "back-off window."
                     )
                 should_wait = True
                 wait_time = self._until - now

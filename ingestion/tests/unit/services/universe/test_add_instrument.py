@@ -632,7 +632,8 @@ class TestUnreachableTrading212Catalogue:
         "unreachable",
         [
             CircuitOpenError(
-                "Trading 212 circuit breaker open with 5 failures counted"
+                "Trading 212 circuit breaker open: failure count 5, limit 5, inside "
+                "its back-off window."
             ),
             requests.exceptions.ConnectionError("refused"),
         ],
