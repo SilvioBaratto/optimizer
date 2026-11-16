@@ -537,6 +537,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The complexity ratchet's long-function baselines are lowered for
   `run_scheduled_nav_mark` (56 to 47 lines) and `build_nav_series` (118 to 107), and
   `_fail_in_flight_slots`, now within the limit, is dropped from them.
+- **db**: `YFinanceRepository` is split into seven repositories in
+  `portopt_db/repositories/market_data/`: `PricesRepository`, `FundamentalsRepository`,
+  `AnalystRepository`, `OwnershipRepository`, `NewsRepository`, `OptionsRepository` and
+  `StalenessRepository`. `YFinanceRepository` subclasses the seven and keeps its 53
+  public methods with the signatures they had; `test_yfinance_repository_facade.py`
+  compares them with a snapshot taken before the split. The lookups by Yahoo symbol
+  (`get_instruments_with_yfinance_ticker`, `get_instrument_by_yfinance_ticker`,
+  `get_benchmark_coverage`) move to `UniverseRepository`, and `YFinanceRepository`
+  forwards those three calls to it; `DORMANT_AFTER_DAYS` moves to the
+  `universe_repository` module. The four `PriceReader` methods are still defined in
+  `yfinance_repository.py`. `_safe_val`, `_safe_int`, `_safe_float`,
+  `_safe_percent_as_fraction`, `_safe_str`, `_safe_date`, `_strip_nul`,
+  `_refreshable_columns` and `_last_wins` move to `_mapping.py`, whose new
+  `truncate(model, column, value)` reads a string column's width from the model.
+  `truncate` replaces 12 of the 48 literal widths passed to `_safe_str`. Of the other
+  36, 2 keep their literal because no model width matches it (`SecFiling.url` has no
+  length, and the insider-purchase label has no column). The remaining 34 sit in eight
+  functions (`upsert_profile`, `upsert_profile_extras`, `upsert_analyst_actions`,
+  `upsert_sec_filings`, `upsert_financial_statements`, `upsert_insider_transactions`,
+  `upsert_insider_roster`, `upsert_news`): converting every such call in one of them,
+  measured on a copy, made ruff format wrap enough lines to push that function past
+  its complexity ratchet baseline or the 30-line limit, so those 34 keep their
+  literals. Apart from the 12 `truncate` calls, the moved code is the code that was
+  there before. The constants, helpers and function that ingestion and this package's
+  tests import from `yfinance_repository` are re-exported from it.
+  `upsert_financial_statements` and `upsert_dividends` now log under the
+  `fundamentals_repository` and `prices_repository` logger names. The ratchet baseline
+  entries of the moved functions now use the new keys, with the values they had.
 
 ### Removed
 

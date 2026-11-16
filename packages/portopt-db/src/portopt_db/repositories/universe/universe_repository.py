@@ -4,7 +4,7 @@ import logging
 import uuid as uuid_mod
 from collections import defaultdict
 from collections.abc import Collection, Sequence
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -19,9 +19,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, aliased, joinedload
 
-from portopt_db.models.market_data.yfinance_data import TickerProfile
+from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
 from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.ports import InstrumentClass
@@ -31,6 +31,10 @@ from portopt_db.repositories.universe.pinned_instrument_repository import (
 from portopt_db.repository import RepositoryBase
 
 logger = logging.getLogger(__name__)
+
+# A delisted instrument that Yahoo has priced nothing for in this long is no
+# longer worth a request in every sweep.
+DORMANT_AFTER_DAYS = 365
 
 
 def _row_is_pinned() -> Any:
@@ -55,6 +59,8 @@ def _row_is_pinned() -> Any:
 
 
 class UniverseRepository(RepositoryBase):
+    """Exchanges and instruments of the universe, and lookups over them."""
+
     def __init__(self, session: Session):
         super().__init__(session)
 
@@ -713,3 +719,118 @@ class UniverseRepository(RepositoryBase):
             .scalars()
             .all()
         )
+
+    def get_instruments_with_yfinance_ticker(
+        self, *, today: date | None = None
+    ) -> Sequence[Instrument]:
+        """Return the instruments to ingest: those with a non-empty yfinance_ticker.
+
+        A delisted row whose symbol is now carried by an active row (the old side
+        of a venue transfer) is left out, so one symbol is never fetched and
+        stored under two instrument ids. A delisted row with no active successor
+        stays, because ``delisted_at`` records when a universe build stopped
+        seeing a name, not when it stopped trading. It leaves once it has been
+        delisted for ``DORMANT_AFTER_DAYS`` and has no stored bar from that
+        period, i.e. Yahoo has priced nothing for it since; a pinned symbol never
+        leaves. Its stored history stays. The exchange is eager-loaded.
+
+        Args:
+            today: Reference date for the dormancy cutoff; defaults to the
+                current date.
+        """
+        cutoff = (today or date.today()) - timedelta(days=DORMANT_AFTER_DAYS)
+        successor = aliased(Instrument)
+        superseded = and_(
+            Instrument.delisted_at.is_not(None),
+            exists().where(
+                successor.yfinance_ticker == Instrument.yfinance_ticker,
+                successor.delisted_at.is_(None),
+            ),
+        )
+        dormant = and_(
+            Instrument.delisted_at.is_not(None),
+            Instrument.delisted_at < cutoff,
+            ~exists().where(
+                PriceHistory.instrument_id == Instrument.id,
+                PriceHistory.date >= cutoff,
+            ),
+            ~exists().where(PinnedInstrument.ticker == Instrument.yfinance_ticker),
+        )
+        return (
+            self.session.execute(
+                select(Instrument)
+                .options(joinedload(Instrument.exchange))
+                .where(Instrument.yfinance_ticker.isnot(None))
+                .where(Instrument.yfinance_ticker != "")
+                .where(~superseded)
+                .where(~dormant)
+            )
+            .scalars()
+            .unique()
+            .all()
+        )
+
+    def get_instrument_by_yfinance_ticker(
+        self, yfinance_ticker: str
+    ) -> Instrument | None:
+        """Return the instrument for a yfinance_ticker, with exchange eager-loaded.
+
+        ``instruments`` is unique on ``(ticker, exchange)`` and ``yfinance_ticker``
+        is indexed but not unique, so a symbol that moved venues leaves a delisted
+        row beside its active one. The active listing wins; among several
+        candidates the most recently delisted (or, for active rows, the most
+        recently created) does, so the result is deterministic and a genuinely
+        delisted holding still resolves.
+
+        Args:
+            yfinance_ticker: The Yahoo Finance symbol to look up.
+
+        Returns:
+            The chosen instrument, or ``None`` when no row has that symbol.
+        """
+        return (
+            self.session.execute(
+                select(Instrument)
+                .options(joinedload(Instrument.exchange))
+                .where(Instrument.yfinance_ticker == yfinance_ticker)
+                .order_by(
+                    Instrument.delisted_at.is_(None).desc(),
+                    Instrument.delisted_at.desc(),
+                    Instrument.created_at.desc(),
+                    Instrument.ticker,
+                    Instrument.id,
+                )
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+
+    def get_benchmark_coverage(
+        self,
+        tickers: list[str],
+    ) -> dict[str, tuple[int, date | None]]:
+        """Return ``{ticker: (price_row_count, latest_price_date)}``.
+
+        Tickers without an instrument row (or with zero prices) come back as
+        ``(0, None)``. Drives the startup bootstrap and the scheduler's
+        reference-index refresh, which re-seed anything missing or stale.
+        """
+        if not tickers:
+            return {}
+
+        stmt = (
+            select(
+                Instrument.yfinance_ticker,
+                func.count(PriceHistory.id).label("price_rows"),
+                func.max(PriceHistory.date).label("latest"),
+            )
+            .outerjoin(PriceHistory, PriceHistory.instrument_id == Instrument.id)
+            .where(Instrument.yfinance_ticker.in_(tickers))
+            .group_by(Instrument.yfinance_ticker)
+        )
+        rows = self.session.execute(stmt).all()
+        coverage: dict[str, tuple[int, date | None]] = dict.fromkeys(tickers, (0, None))
+        for ticker, count, latest in rows:
+            coverage[ticker] = (int(count or 0), latest)
+        return coverage
