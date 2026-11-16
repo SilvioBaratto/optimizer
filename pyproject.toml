@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portopt-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Portfolio optimization library built on skfolio and scikit-learn"
 readme = "README.md"
 license = {text = "PolyForm-Noncommercial-1.0.0"}

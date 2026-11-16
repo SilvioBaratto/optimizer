@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-16
+
+> **Upgrading from 0.1.0.** Library users: `optimizer.pipeline` is gone (compose runs from
+> the primitives; `build_portfolio_pipeline` now lives in `optimizer.pre_selection`), several
+> `optimizer.factors` configs validate at construction and reject inputs that used to be
+> ignored, and `CPCVConfig` purges and embargoes by default; the two BREAKING sections
+> below list each change. Running the stack with Docker: `docker-compose.yml` now pins the
+> project name to `optimizer`, so a checkout under another directory name needs the steps in
+> the **Fixed** entry on that pin before it upgrades.
+
 > **Most entries below concern the repository's ingestion service (`ingestion/`,
 > formerly `api/`) and its tooling.** The exceptions are the library breaking
 > changes in **Removed (BREAKING — library)** and **Changed (BREAKING — library)**
@@ -869,5 +879,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **universe**: Investability screening with hysteresis-based entry/exit thresholds
 - **factors**: Factor construction, standardization, composite scoring, stock selection, regime tilts, validation, mimicking portfolios, integration with optimization
 
-[Unreleased]: https://github.com/SilvioBaratto/optimizer/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/SilvioBaratto/optimizer/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/SilvioBaratto/optimizer/releases/tag/v0.2.0
 [0.1.0]: https://github.com/SilvioBaratto/optimizer/releases/tag/v0.1.0

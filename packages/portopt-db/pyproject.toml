@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portopt-db"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared SQLAlchemy models, repositories, engine and Alembic migrations for the portopt Postgres database."
 readme = "README.md"
 # 3.12 floor: matches the workspace (pandas==3.0.5 requires Python>=3.12).
