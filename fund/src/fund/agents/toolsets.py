@@ -80,6 +80,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from fund.config import FundConfig
+    from fund.execution import ExecutionVenue
     from fund.schemas import ConstraintSet
     from fund.tools.eligibility import Eligibility
 
@@ -165,7 +166,8 @@ class RunContext:
     ``place_orders`` on its own default. ``eligible`` is the portfolio's resolved
     allowlist, bound from the *current* mandate at every construction (run, resume
     and the adviser edit) and never chosen by the model; ``None`` means the mandate
-    sets no allowlist, so no tool restricts tickers.
+    sets no allowlist, so no tool restricts tickers. ``venue`` is where
+    ``place_orders`` places the ticket; ``None`` keeps the paper venue.
     """
 
     session: Session
@@ -184,6 +186,7 @@ class RunContext:
     base_currency: str | None = None
     notional: float | None = None
     eligible: Eligibility | None = None
+    venue: ExecutionVenue | None = None
     # Held for the whole body of every bound tool: the parallel tool calls of one
     # model turn run on worker threads, but ``session`` is not thread-safe.
     lock: threading.RLock = field(
@@ -806,21 +809,27 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
                 f"{_describe_breaches(recheck['data']['violations'])}; send the "
                 "proposal back to the allocator"
             )
-    sizing = {} if ctx.notional is None else {"notional": ctx.notional}
-    result = _tools.place_orders(
-        ctx.session,
-        ctx.asof,
-        audited,
-        ctx.portfolio_id,
-        base_currency=ctx.base_currency,
-        **sizing,
-    )
+    result = _place_ticket(ctx, audited)
     data = result.get("data") if result.get("ok") else None
     # Log once, on the real placement; the idempotent HITL re-run does not
     # double-log (mirrors the profiler's save_profile).
     if data is not None and not data.get("idempotent", False):
         _append_executor_decision(ctx, data)
     return result
+
+
+def _place_ticket(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
+    """Hand ``weights`` to the frozen ``place_orders``, sized and routed by ``ctx``."""
+    sizing = {} if ctx.notional is None else {"notional": ctx.notional}
+    return _tools.place_orders(
+        ctx.session,
+        ctx.asof,
+        weights,
+        ctx.portfolio_id,
+        base_currency=ctx.base_currency,
+        venue=ctx.venue,
+        **sizing,
+    )
 
 
 def place_audited_orders(ctx: RunContext) -> ToolResult:
