@@ -6,10 +6,19 @@ design decision it answers.
 
 - Ids have the form `REQ-<AREA>-NNN`, where `AREA` is `CORE`, `DB`, `ING`, `FUND` or `OPS`
   and `NNN` is a three-digit number that is never reused.
-- A test binds to a requirement with `@pytest.mark.criterion("REQ-...")`.
-- A check in CI will fail when a registered requirement has no test, or when a test cites
-  an id that is not registered. It is not built yet; until it is, this registry is filled
-  in by hand and the gap is recorded as a deviation in `CONTRIBUTING.md`.
+- A test binds to a requirement with `@pytest.mark.criterion("REQ-...")`. A regression
+  test also names the GitHub issue it guards with `@pytest.mark.defect(<issue>)`.
+- The `lint` CI job runs `scripts/ci/traceability.py check` against this table. It fails
+  when a registered requirement has no test, a test cites a `REQ-` id the table does not
+  list, or a test carries a `defect` marker but no `REQ-` id. The `scope-N` and
+  `global-N` labels that some ingestion and portopt-db tests carry in the same marker are
+  not requirement ids, and the check skips them.
+- `module` is the repository path of the code the statement is about. `standard` is the
+  clause of the code standard the row answers, followed, where the row guards one, by the
+  risk of `docs/test-plan.md` in brackets. A cell cannot hold a `|`.
+- Requirements are registered for the critical functions of `docs/test-plan.md`, for the
+  items under its table that show an id, and for the check itself. Tests written before
+  the registry are not retro-tagged; `CONTRIBUTING.md` records that deviation.
 - Do not invent an id outside this table.
 
 | id | statement | module | standard |

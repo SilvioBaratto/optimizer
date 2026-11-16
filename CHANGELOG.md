@@ -126,6 +126,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Requirement traceability (standard 6.6).** `docs/requirements.md` registers 34
+  requirements, `REQ-<AREA>-NNN`, each one statement about one module that the tests
+  citing it assert: the critical functions of `docs/test-plan.md`, the secret-hiding
+  `repr`s, the irreversible-migration reasons, the first-run universe bootstrap and the
+  traceability check itself. A test cites a requirement with the `criterion(id)` marker,
+  now registered in all four suites, and a new `defect(issue)` marker links a regression
+  test to its GitHub issue; issue 1125 is linked this way. `scripts/ci/traceability.py`
+  is both a pytest plugin and the `check` command. Each suite's pytest config puts
+  `scripts/ci` on its `pythonpath` and loads the plugin with `-p traceability`, which adds
+  `--traceability-out=PATH`: one CSV row per (`criterion` id, collected test). The `lint`
+  job collects the four suites with it, fails when a registered requirement has no test,
+  a test cites a `REQ-` id the registry does not list or a test carries a `defect` marker
+  but no `REQ-` id, and uploads the four files as the `traceability` artifact. The
+  `scope-N` and `global-N` labels that ingestion and portopt-db tests already carried in
+  the `criterion` marker stay in the CSV and are not checked. Tests written before the
+  registry are not retro-tagged. Running a suite's pytest config now needs `scripts/ci`
+  from the checkout: without it, pytest stops because it cannot import `traceability`.
 - **portopt-db: read ports for the repository reads `fund` runs.** `portopt_db.ports`
   defines three `runtime_checkable` protocols and the frozen dataclasses they return:
   `PriceReader` (`instrument_for`, `profile_for` and `price_bars_for`, returning
