@@ -198,6 +198,14 @@ _MARKET_DATA = "portopt_db.repositories.market_data."
 
 # Where each moved public method is defined; the facade reaches it by inheritance.
 _HOME_MODULES: dict[str, str] = {
+    "get_financial_statements": "fundamentals_repository",
+    "get_profile": "fundamentals_repository",
+    "get_sectors_by_yfinance_ticker": "fundamentals_repository",
+    "upsert_financial_statements": "fundamentals_repository",
+    "upsert_profile": "fundamentals_repository",
+    "upsert_profile_extras": "fundamentals_repository",
+    "upsert_sec_filings": "fundamentals_repository",
+    "upsert_shares_outstanding": "fundamentals_repository",
     "get_dividends": "prices_repository",
     "get_oldest_price_date": "prices_repository",
     "get_price_history": "prices_repository",
