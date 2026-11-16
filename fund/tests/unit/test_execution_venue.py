@@ -45,7 +45,7 @@ class _FakeVenue:
 
 
 class TestPlaceOrdersDelegatesToTheVenue:
-    """``place_orders(venue=...)`` reaches an injected venue unchanged."""
+    """``place_orders(venue=...)`` hands its request to the injected venue."""
 
     def test_the_venue_receives_the_normalised_request(self) -> None:
         """The request carries the coerced ids and dates and the cost model."""

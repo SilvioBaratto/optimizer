@@ -1,10 +1,10 @@
 """``fund.performance``: NAV inputs are loaded once; the NAV maths need no session.
 
 ``build_nav_series`` is ``load_nav_inputs`` (the reads, the FX-coverage guard and the
-dropped-benchmark warning) followed by the pure ``compute_nav``. The golden series
-were printed by ``build_nav_series`` at commit ``afe2dba5``, before the split, over
-the panel, FX rates and tickets ``_seed_nav_book`` builds; the composed path must
-reproduce them to the last bit.
+dropped-benchmark warning) followed by the session-free ``compute_nav``. The golden
+series were printed by ``build_nav_series`` at commit ``afe2dba5``, before the split,
+over the panel, FX rates and tickets ``_seed_nav_book`` builds; the composed path
+must reproduce them to the last bit.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ class TestComputeNav:
         ]
 
     def test_since_bounds_the_emitted_bars(self) -> None:
-        """Bars before ``since`` are marked from the same shares but not emitted."""
+        """Bars before ``since`` are left out of the series."""
         points = compute_nav(_hand_built(since=_day(1)))
 
         assert [point.date for point in points] == [_day(1), _day(3)]

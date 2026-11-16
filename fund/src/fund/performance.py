@@ -1056,10 +1056,11 @@ def _nav_fx_rates(
     first_fill: dt.date,
     asof: dt.date | None,
 ) -> pd.DataFrame:
-    """FX rates for the quoted currencies, checked to cover every holding's currency.
+    """FX rates for the quoted currencies, checked against the holdings' currencies.
 
     Raises:
-        FxCoverageError: A holding's currency has no FX rate under ``base_currency``.
+        FxCoverageError: A holding's foreign currency has no rate column under
+            ``base_currency``.
     """
     quotes = sorted({_major_currency(code) for code in currency_map.values()})
     fx_rates = _load_fx_rates_frame(
@@ -1115,7 +1116,7 @@ def _emitted_benchmark(
 
 
 def compute_nav(inputs: NavInputs) -> NavSeries:
-    """Mark the NAV series of ``inputs`` without a session or any read.
+    """Mark the NAV series of ``inputs`` without a session or a database read.
 
     The maths of :func:`build_nav_series`: shares from each ticket's lines, the
     chain-linked scale of each ticket (:func:`_chain_links`), then one point per bar

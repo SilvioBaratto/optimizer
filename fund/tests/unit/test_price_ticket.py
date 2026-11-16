@@ -5,7 +5,7 @@ pin the exact lines and totals of three tickets: the literals were printed by
 ``place_orders`` at commit ``afe2dba5`` (before pricing moved out of it) over the
 price panel and FX rates ``_seed_golden_panel`` builds. ``price_ticket`` fed the
 same quotes, and ``place_orders`` over the same panel, must reproduce them to the
-last bit, so the move cannot have changed a number.
+last bit, which shows the move changed no number in them.
 """
 
 from __future__ import annotations

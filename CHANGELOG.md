@@ -565,6 +565,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `upsert_financial_statements` and `upsert_dividends` now log under the
   `fundamentals_repository` and `prices_repository` logger names. The ratchet baseline
   entries of the moved functions now use the new keys, with the values they had.
+- **fund**: paper-ticket pricing and the NAV maths run apart from the database, and
+  `place_orders` places through an execution venue. `fund/pricing.py` holds the paper
+  cost model with no session: `CostModel`, `BPS_PER_UNIT` (`10_000.0`, which replaces
+  the six `1e4` literals of `fund/tools/orders.py`), `FillQuote`, `TicketLine`,
+  `PricedTicket`, `price_ticket`, and `held_weights` and `DUST_WEIGHT` (formerly
+  `_held` and `_DUST_WEIGHT` in `fund/tools/orders.py`). `fund/execution.py` adds the
+  `ExecutionVenue` protocol, `OrderRequest`, `PlacedOrder` (a ticket or a refusal),
+  `FillQuoteSource` and `PaperVenue`, which runs what `place_orders` ran inline after
+  checking its arguments: the stored-ticket lookup by weights hash, the cost-param
+  guard, the re-stamp of a returned ticket, the dust check, the pricing and the
+  `paper_orders` insert. `_cost_params_match`, `_ticket_from_row` and `_make_newest`
+  move there. `place_orders` keeps its parameters, error texts and the order of its
+  early exits, and gains an optional keyword-only `venue` (default `None`, the paper
+  venue). `RunContext` gains `venue` (default `None`), which the bound `place_orders`
+  tool passes on. `_next_close` and `_base_close` stay in `fund/tools/orders.py`,
+  beside a new `_fill_quotes` that calls them, and `place_orders` builds the paper
+  venue with `_fill_quotes` on each call that passes no venue, so tests that replace
+  `orders._next_close` still reach the fill. In `fund.performance`,
+  `build_nav_series` keeps its signature and is now `load_nav_inputs` (the reads,
+  the FX-coverage guard and the warning about a benchmark left out; `None` when
+  there is nothing to mark) followed by `compute_nav`, which takes a `NavInputs` and
+  no session. `test_price_ticket.py` and `test_performance_nav_inputs.py` hold
+  tickets and NAV series printed by the code before this change, and the new code
+  reproduces them exactly. The complexity ratchet drops `place_orders` and
+  `build_nav_series` from its baselines and lowers `_place_orders_impl` from 49 to
+  41 lines.
 
 ### Removed
 

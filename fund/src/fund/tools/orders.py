@@ -254,9 +254,10 @@ def place_orders(
         ``ok`` with the venue's ticket; the paper venue's carries ``order_id``,
         ``fill_date``, per-``lines`` fills for the held names, cost totals and the
         ``idempotent`` flag. ``err`` on empty ``weights`` or the venue's refusal or
-        failure; the paper venue fails on all-zero ``weights``, an unknown held
-        ticker, a held ticker with no fill bar after ``asof``, or a held foreign
-        listing with no FX rate for its fill bar.
+        failure. The paper venue refuses all-zero ``weights`` and a re-run of a
+        stored key with other cost params, and fails on an unknown held ticker, a held
+        ticker with no fill bar after ``asof``, or a held foreign listing with no FX
+        rate for its fill bar.
     """
     if not weights:
         return err("no weights to place")
