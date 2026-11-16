@@ -359,6 +359,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **ingestion, ci: messages that say what the code does.** An external-source breaker
+  refuses with `<service> circuit breaker open with N failures counted; calls are
+  refused until its back-off window ends.` instead of `<service> rate limit persists
+  after N attempts. ...`, because what counts as a failure is up to the code that
+  trips it. The log line for a failed-status write the database breaker refused, and
+  the help text of `jobs_failed_status_refused_total`, now say that once the row's lease
+  has expired, an orphan reap (the periodic one or the one at worker start) that the
+  breaker lets reach the database fails it; they used to say only "once the database
+  answers". The description of `FRED_RETRY_BASE_DELAY_SECONDS` says how a wait is
+  drawn and that a flagged error sleeps a short jitter this base does not scale.
+  `scripts/ci/traceability.py check` exits 1, naming the file, when a `defects` cell
+  of a trace CSV holds anything but positive issue numbers in plain digits; it used to
+  accept 0 and negative numbers, and to fail on a non-integer without naming the file.
+  The other source changes keep behaviour: the rate-limit jitter bounds of
+  `retry_with_backoff` are named constants with the same values, and
+  `UniverseRepository.get_instrument_by_yfinance_ticker` and `instrument_classes_for`
+  share one sort-key tuple that compiles to the same SQL.
 - **ingestion: the requests `Trading212Client` sends go through `retry_with_backoff` and a
   circuit breaker.** A 408, a 429 or a 5xx answer, and a `requests` failure that is not an
   HTTP error, such as a timeout, are passed to the breaker and retried while attempts
