@@ -14,3 +14,4 @@ design decision it answers.
 
 | id | statement | module | standard |
 |---|---|---|---|
+| REQ-OPS-001 | `traceability.py check` exits 1 when a registered requirement has no test, a test cites a `REQ-` id the registry does not list, a test carries a `defect` marker but no `REQ-` id, the registry table is empty or has a malformed row, or a trace CSV is missing, and exits 0 on a complete matrix; `--traceability-out` writes one row per (`criterion` id, collected test). | `scripts/ci/traceability.py` | 6.6 |

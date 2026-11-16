@@ -48,9 +48,13 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-p no:cacheprovider"
+# The traceability plugin (`--traceability-out`) is one file in scripts/ci, outside
+# every package, shared by the four suites; this path lets `-p traceability` load it.
+pythonpath = ["../../scripts/ci"]
+addopts = "-p no:cacheprovider -p traceability"
 markers = [
     "criterion: tag a test with the spec criterion it covers",
+    "defect(issue): link this regression test to GitHub issue <issue>",
     "integration: needs a real PostgreSQL server (PORTOPT_TEST_DATABASE_URL)",
 ]
 
