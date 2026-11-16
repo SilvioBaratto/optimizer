@@ -135,7 +135,7 @@ How the breakers count (paths from the repository root):
   (`ingestion/app/services/macro/scrapers/fred_scraper.py:186-194, 244-248`). Of the other
   request errors, the FRED, Trading Economics and Il Sole clients pass to `trigger()`
   those that `is_transient_network_error` flags
-  (`ingestion/app/services/infrastructure/retry.py:172-174`;
+  (`ingestion/app/services/infrastructure/retry.py:185-187`;
   `ingestion/app/services/macro/scrapers/fred_scraper.py:183-184`,
   `ingestion/app/services/macro/scrapers/tradingeconomics_scraper.py:865-866`,
   `ingestion/app/services/macro/scrapers/ilsole_scraper.py:155-156`). Trading Economics
@@ -143,7 +143,7 @@ How the breakers count (paths from the repository root):
   (`ingestion/app/services/macro/scrapers/tradingeconomics_scraper.py:478, 660, 835`). Any
   other request error of those three clients is not passed to `trigger()`; when attempts
   remain, the retry helper sleeps a jittered backoff before the next attempt
-  (`ingestion/app/services/infrastructure/retry.py:181-183`).
+  (`ingestion/app/services/infrastructure/retry.py:194-196`).
 - Window sizes, jitter and backoff: see
   `ingestion/app/services/infrastructure/circuit_breaker.py`,
   `ingestion/app/services/infrastructure/retry.py` and the client modules.

@@ -319,9 +319,12 @@ class Settings(BaseSettings):
         allow_inf_nan=False,
         alias="FRED_RETRY_BASE_DELAY_SECONDS",
         description=(
-            "Base of the jittered exponential backoff between FRED attempts. An "
-            "error that is_transient_network_error flags waits on the FRED circuit "
-            "breaker instead."
+            "Base of the full-jitter exponential backoff between FRED attempts: each "
+            "wait is drawn from 0 to the smaller of FRED_RETRY_MAX_DELAY_SECONDS and "
+            "base * 2**attempt. An error that is_transient_network_error flags trips "
+            "the FRED circuit breaker instead; when attempts remain it sleeps a short "
+            "jitter this base does not scale, then the next attempt waits on the "
+            "breaker."
         ),
     )
     fred_retry_max_delay_seconds: float = Field(

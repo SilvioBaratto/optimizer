@@ -337,6 +337,33 @@ class TestGetInternal:
             c._get("/p")
         assert mock_get.call_count == 2
 
+    def test_a_read_timeout_is_retried_after_the_first_breaker_window(self, mock_get):
+        """A ``ReadTimeout`` trips the breaker; the retry waits out its 2 s window."""
+        mock_get.queue(
+            [
+                requests.exceptions.ReadTimeout("read timed out"),
+                _mock_response({"ok": True}),
+            ]
+        )
+        c = _make_client()
+
+        assert c._get("/p") == {"ok": True}
+        assert _gaps(mock_get.sent_at) == [pytest.approx(2)]
+
+    def test_a_body_that_is_not_json_is_retried_then_raised(self, mock_get):
+        """An undecodable 200 counts on the breaker each time; the last is raised."""
+        not_json = _mock_response(None)
+        not_json.json.side_effect = requests.exceptions.JSONDecodeError(
+            "Expecting value", "<html>", 0
+        )
+        mock_get.queue([not_json, not_json])
+        c = _make_client(max_retries=2)
+
+        with pytest.raises(requests.exceptions.JSONDecodeError):
+            c._get("/p")
+        assert mock_get.call_count == 2
+        assert c.breaker.attempt_count == 2
+
     def test_handles_429_with_retry_after_header(self, mock_get):
         """A 429's ``Retry-After`` is the wait before the next request."""
         mock_get.queue(

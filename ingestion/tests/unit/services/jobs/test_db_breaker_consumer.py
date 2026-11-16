@@ -1,11 +1,12 @@
 """The ingestion daemon's handling of an open database circuit breaker.
 
 Validates ``app.services.jobs.scheduler._run_step``, ``_mark_job_failed`` and
-``run_orphan_reaper``, the ``portopt_db_breaker_state`` gauge and the
-``jobs_db_unavailable_total`` and ``jobs_failed_status_refused_total`` counters in
-``app.metrics``, and the binding in ``app.worker._serve_metrics``. The engines are
-real SQLite engines: one whose every connect fails, one that works until the test
-opens its breaker. The breakers run on a fake clock, so no test sleeps.
+``run_orphan_reaper``, the parallel sweep ``_run_bulk_yfinance_fetch_parallel`` of
+``app.services.market_data.yfinance_data_service``, the ``portopt_db_breaker_state``
+gauge and the ``jobs_db_unavailable_total`` and ``jobs_failed_status_refused_total``
+counters in ``app.metrics``, and the binding in ``app.worker._serve_metrics``. The
+engines are real SQLite engines: one whose every connect fails, one that works until
+the test opens its breaker. The breakers run on a fake clock, so no test sleeps.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import logging
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,6 +24,7 @@ from portopt_db.engine import DatabaseManager
 from portopt_db.models import BackgroundJob, BackgroundJobError
 from portopt_db.resilience import (
     BreakerConfig,
+    BreakerState,
     DatabaseUnavailableError,
     DbCircuitBreaker,
 )
@@ -33,11 +36,16 @@ from app import worker as worker_module
 from app.repositories.jobs.background_job_repository import BackgroundJobRepository
 from app.services.jobs import scheduler
 from app.services.jobs.background_job import BackgroundJobService
+from app.services.market_data import yfinance_data_service
 
 _THRESHOLD = 2
 _TIMEOUT_S = 30.0
 _SCHEDULER_LOGGER = "app.services.jobs.scheduler"
 _JOBS_LOGGER = "app.services.jobs.background_job"
+_REAP_CONDITION = (
+    "once the lease has expired, an orphan reap the breaker lets reach the database "
+    "fails the row"
+)
 
 
 class _Clock:
@@ -180,7 +188,7 @@ def test_breaker_opening_mid_step_leaves_the_row_for_the_orphan_reaper(
     errors = [r.getMessage() for r in records if r.levelno >= logging.ERROR]
     assert len(errors) == 2
     assert "database unavailable" in errors[0]
-    assert "orphan reaper" in errors[1]
+    assert errors[1].endswith(_REAP_CONDITION)
     assert _unavailable_count(domain) == before + 1
     assert _refused_status_count(domain) == refused_before + 1
 
@@ -233,7 +241,7 @@ def test_a_refused_failed_status_write_is_logged_and_counted_when_it_happens(
 
     records = _scheduler_records(caplog)
     assert len(records) == 1
-    assert "orphan reaper" in records[0].getMessage()
+    assert records[0].getMessage().endswith(_REAP_CONDITION)
     assert records[0].exc_info is None
     assert _refused_status_count(domain) == before + 1
 
@@ -316,6 +324,61 @@ def test_reaper_tick_skips_quietly_while_the_breaker_is_open(
     assert len(records) == 1
     assert "database unavailable" in records[0].getMessage()
     assert records[0].exc_info is None
+
+
+def _listing(ticker: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        yfinance_ticker=ticker,
+        exchange_name="NASDAQ",
+        currency_code="USD",
+    )
+
+
+@pytest.mark.criterion("REQ-DB-004")
+def test_a_parallel_yfinance_sweep_opens_the_breaker_and_still_completes(
+    reachable: DatabaseManager,
+) -> None:
+    """Lost connections in the first tickers open it; the rest are refused unfetched.
+
+    A ticker refused by the open breaker becomes that ticker's error, and the sweep
+    still reports itself completed. Tickers admitted before it opened finish their
+    own fetch, so up to one per extra worker is fetched past the threshold.
+    """
+    tickers = [f"T{number}" for number in range(6)]
+    workers = 2
+    repo = MagicMock()
+    repo.get_instruments_with_yfinance_ticker.return_value = [
+        _listing(ticker) for ticker in tickers
+    ]
+    service = MagicMock()
+    service.fetch_and_store.side_effect = OperationalError(
+        None, None, Exception("connection refused")
+    )
+    progress = MagicMock()
+
+    with (
+        patch.object(yfinance_data_service, "YFinanceRepository", return_value=repo),
+        patch.object(
+            yfinance_data_service, "YFinanceDataService", return_value=service
+        ),
+        patch("app.database.database_manager", reachable),
+    ):
+        result = yfinance_data_service._run_bulk_yfinance_fetch_parallel(
+            SimpleNamespace(period="5y", mode="full"),
+            MagicMock(),
+            on_progress=progress,
+            workers=workers,
+        )
+
+    fetched = service.fetch_and_store.call_count
+    final = progress.call_args.kwargs
+    refused = [error for error in final["errors"] if "database unavailable" in error]
+    assert reachable.breaker.state is BreakerState.OPEN
+    assert _THRESHOLD <= fetched <= _THRESHOLD + workers - 1
+    assert len(refused) == len(tickers) - fetched
+    assert result["error_count"] == len(tickers)
+    assert final["status"] == "completed"
 
 
 def test_breaker_state_gauge_reports_zero_one_two(

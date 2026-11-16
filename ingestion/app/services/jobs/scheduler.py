@@ -364,8 +364,8 @@ def _report_refused_status_write(
     happens.
     """
     logger.error(
-        "%s: could not record failed status (job %s), %s; the orphan reaper "
-        "fails the row once the database answers again",
+        "%s: could not record failed status (job %s), %s; once the lease has expired, "
+        "an orphan reap the breaker lets reach the database fails the row",
         label,
         job_id,
         refused,

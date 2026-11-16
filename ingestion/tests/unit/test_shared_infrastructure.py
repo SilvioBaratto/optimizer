@@ -43,7 +43,7 @@ class TestCircuitBreaker:
             service_name="TestService", max_attempts=1, base_wait_minutes=2.0
         )
         cb.trigger()
-        with pytest.raises(RuntimeError, match="TestService rate limit persists"):
+        with pytest.raises(RuntimeError, match="TestService circuit breaker open"):
             cb.check()
 
     def test_reset_decrements(self):
@@ -213,7 +213,7 @@ class TestCircuitBreakerRecovery:
         cb = CircuitBreaker(service_name="svc", max_attempts=3)
         self._latch(cb, fake_clock)
 
-        with pytest.raises(RuntimeError, match="svc rate limit persists"):
+        with pytest.raises(RuntimeError, match="svc circuit breaker open"):
             cb.check()
 
         fake_clock.now = cb._until + 1.0
@@ -242,7 +242,7 @@ class TestCircuitBreakerRecovery:
         cb.trigger()
 
         assert cb.attempt_count == cb.max_attempts
-        with pytest.raises(RuntimeError, match="svc rate limit persists"):
+        with pytest.raises(RuntimeError, match="svc circuit breaker open"):
             cb.check()
 
     def test_backoff_window_is_capped(self, fake_clock):

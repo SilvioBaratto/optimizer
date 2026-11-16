@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 class CircuitOpenError(RuntimeError):
     """The breaker refused a call: window open, count at ``max_attempts`` or more.
 
-    What counts as a failure is up to the code that calls ``trigger()``. The
-    message, built in ``check()``, says the rate limit persists whatever the
-    failures were.
+    What counts as a failure is up to the code that calls ``trigger()``, so the
+    message, built in ``check()``, names the open breaker and its failure count,
+    not a cause.
 
     A ``RuntimeError`` subclass so callers that already catch the generic error
     keep working, while resilience wrappers can tell a refused call from any
@@ -98,9 +98,9 @@ class CircuitBreaker:
             if self._active and now < self._until:
                 if self._attempt >= self.max_attempts:
                     raise CircuitOpenError(
-                        f"{self.service_name} rate limit persists after "
-                        f"{self._attempt} attempts. Backing off until cooldown "
-                        "elapses, then retrying."
+                        f"{self.service_name} circuit breaker open with "
+                        f"{self._attempt} failures counted; calls are refused until "
+                        "its back-off window ends."
                     )
                 should_wait = True
                 wait_time = self._until - now

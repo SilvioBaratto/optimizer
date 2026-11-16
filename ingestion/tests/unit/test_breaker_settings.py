@@ -78,10 +78,10 @@ class TestSettingsFields:
         ("env_name", "default"),
         [*_ATTEMPT_DEFAULTS.items(), *_SECONDS_DEFAULTS.items()],
     )
-    def test_defaults_are_the_values_the_clients_were_built_with(
+    def test_an_unset_knob_takes_its_listed_default(
         self, env_name: str, default: float
     ) -> None:
-        """Unset, a knob takes the number its client used; the T212 breaker is new."""
+        """Unset, the field equals the default listed for its variable."""
         assert getattr(Settings(_env_file=None), _field(env_name)) == default
 
     @pytest.mark.parametrize("env_name", list(_ATTEMPT_DEFAULTS))
@@ -138,10 +138,10 @@ class TestBuildBreaker:
         assert build_breaker(service, config).max_attempts == 3
 
     @pytest.mark.parametrize(("service", "env_name"), list(_BREAKER_VARS.items()))
-    def test_the_default_breaker_size_is_unchanged(
+    def test_a_breaker_from_default_settings_has_the_listed_max_attempts(
         self, service: ExternalService, env_name: str
     ) -> None:
-        """The scraper breakers keep their old counts; the new T212 one opens at 5."""
+        """Its ``max_attempts`` equals its variable's entry in ``_ATTEMPT_DEFAULTS``."""
         breaker = build_breaker(service, Settings(_env_file=None))
 
         assert breaker.max_attempts == _ATTEMPT_DEFAULTS[env_name]

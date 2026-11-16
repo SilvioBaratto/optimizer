@@ -54,8 +54,8 @@ jobs_db_unavailable_total = Counter(
 
 jobs_failed_status_refused_total = Counter(
     "jobs_failed_status_refused_total",
-    "Failed-status writes the open database circuit breaker refused; the orphan "
-    "reaper fails those rows once the database answers",
+    "Failed-status writes the open database breaker refused; once a row's lease has "
+    "expired, an orphan reap the breaker lets reach the database fails it",
     ["domain"],
 )
 
