@@ -339,7 +339,7 @@ def _listing(ticker: str) -> SimpleNamespace:
 def test_a_parallel_yfinance_sweep_opens_the_breaker_and_still_completes(
     reachable: DatabaseManager,
 ) -> None:
-    """Lost connections in the first tickers open it; the rest are refused unfetched.
+    """Statement-less ``OperationalError``s open it; the rest are refused unfetched.
 
     A ticker refused by the open breaker becomes that ticker's error, and the sweep
     still reports itself completed. Tickers admitted before it opened finish their

@@ -107,7 +107,7 @@ class TestCircuitBreaker:
         assert second_wait == 2 * first_wait
 
     # ------------------------------------------------------------------
-    # Uncovered branch: lines 57-58 — cooldown-elapsed half-open decay
+    # check() once the cooldown has elapsed: the half-open decay
     # ------------------------------------------------------------------
 
     def test_check_when_cooldown_elapsed_clears_active_and_decrements_attempt(self):
@@ -124,7 +124,7 @@ class TestCircuitBreaker:
             mock_time.time.return_value = cb._until + 1.0
 
             # check() must NOT raise, must NOT sleep, and must enter the
-            # half-open decay branch (lines 57-58).
+            # half-open decay branch.
             cb.check()
 
         mock_time.sleep.assert_not_called()
@@ -132,7 +132,7 @@ class TestCircuitBreaker:
         assert cb.is_active is False
 
     # ------------------------------------------------------------------
-    # Uncovered branch: lines 76-77 — is_active expiry-clearing
+    # is_active once the window has elapsed: it clears the flag
     # ------------------------------------------------------------------
 
     def test_is_active_when_time_past_until_clears_and_returns_false(self):
@@ -175,7 +175,7 @@ class TestCircuitBreaker:
         t2.join()
 
         # First trigger arms the breaker; all subsequent calls inside the same
-        # active window are no-ops (guard at line 19-22).  With two threads
+        # active window are no-ops (trigger()'s open-window guard).  With two threads
         # firing simultaneously exactly ONE trigger may land before the guard
         # is set, meaning attempt_count must be <= 2, not 20.
         assert cb.attempt_count <= 2
@@ -565,15 +565,15 @@ class TestRetryWithBackoff:
         assert action.call_count == 2
 
     # ------------------------------------------------------------------
-    # Uncovered branch: line 106 False path — on_rate_limit is None
+    # A rate-limited error with on_rate_limit=None
     # ------------------------------------------------------------------
 
     @patch("app.services.infrastructure.retry._full_jitter", return_value=0.0)
     def test_rate_limit_error_with_no_on_rate_limit_callback_returns_none(
         self, _mock_jitter
     ):
-        # is_rate_limit_error fires, but on_rate_limit=None — line 106 False
-        # branch must be taken without AttributeError or crash.
+        # is_rate_limit_error fires, but on_rate_limit=None — the callback is
+        # skipped without AttributeError or crash.
         action = MagicMock(
             side_effect=requests.exceptions.HTTPError("429 Too Many Requests")
         )

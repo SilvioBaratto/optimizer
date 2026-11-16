@@ -379,11 +379,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `criterion` marker gets. `scripts/ci/traceability.py check` exits 1, naming the file,
   when a `defects` cell of a trace CSV holds anything but positive issue numbers in
   plain digits without leading zeros; it used to accept 0, negative numbers and leading
-  zeros, and to fail on a non-integer without naming the file. The other source
-  changes keep behaviour: the rate-limit jitter bounds of
+  zeros, and to fail on a non-integer without naming the file. These source changes
+  keep behaviour: the rate-limit jitter bounds of
   `retry_with_backoff` are named constants with the same values, and
   `UniverseRepository.get_instrument_by_yfinance_ticker` and `instrument_classes_for`
-  share one sort-key tuple that compiles to the same SQL.
+  share one sort-key tuple that compiles to the same SQL. Renamed private names and
+  tests, and reworded docstrings and comments, change no behaviour either.
 - **ingestion: the requests `Trading212Client` sends go through `retry_with_backoff` and a
   circuit breaker.** A 408, a 429 or a 5xx answer, and a `requests` failure that is not an
   HTTP error, such as a timeout, are passed to the breaker and retried while attempts
