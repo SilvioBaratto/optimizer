@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from portopt_db.config import DbConfig
 
 _SENTINEL = "S3NTINEL"
 
 
+@pytest.mark.criterion("REQ-DB-005")
 def test_db_config_repr_hides_the_password() -> None:
     """Neither ``repr`` nor ``str`` of a config shows the URL's password."""
     config = DbConfig(url="postgresql://user:" + _SENTINEL + "@host/db")

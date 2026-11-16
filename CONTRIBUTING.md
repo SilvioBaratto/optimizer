@@ -182,16 +182,34 @@ Use conventional commit style:
 
 ## Test traceability (documented deviation from standard 6.6)
 
-Standard 6.6 asks every test to cite the requirement ID it verifies. This
-repository's requirement registry (`docs/requirements.md`) is still empty, so most tests
-name only the code they cover in their docstring. That is a known non-compliance (standard 1.3).
+Standard 6.6 asks every test to cite the requirement ID it verifies. Here requirement
+IDs are bound to tests of the critical functions in `docs/test-plan.md`, of the items
+under its table that show an id, and of the traceability check and its wiring. The registry
+`docs/requirements.md` holds the ids, of the form `REQ-<AREA>-NNN`, and a test cites one
+with the `criterion(id)` pytest marker. Tests written before the registry were tagged
+only where they assert one of the registered requirements, so most tests cite no id.
+That is a known non-compliance (standard 1.3).
 
-Corrective action: a registry of requirement IDs (`docs/requirements.md`, ids of the
-form `REQ-<AREA>-NNN`), the `criterion(id)` pytest marker on the tests of each
-critical function, and a CI step that fails when a registered requirement has no
-test or a marker cites an unknown id. Until it lands, a new regression test names
-the function it guards in its docstring and the fix is described in the
-`CHANGELOG.md` entry. Do not invent ids outside the registry.
+Corrective action in place: the `lint` CI job collects the four suites with
+`--traceability-out` and runs `scripts/ci/traceability.py check`, which fails when a
+registered requirement has no test, a test cites a `REQ-` id the registry does not
+list, or a test carries a `defect(issue)` marker but no `REQ-` id. A new test for a
+critical function cites the requirement it asserts, with a new registry row when none
+fits, and a regression test for a GitHub issue also carries `defect(<issue>)`. Do not
+invent ids outside the registry, or issue numbers.
+
+To run the check locally, from the repository root:
+
+```bash
+TRACE="$PWD/.tmp/traceability"
+uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/core.csv"
+(cd ingestion && uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/ingestion.csv")
+(cd packages/portopt-db && uv run pytest --collect-only -qqq --traceability-out="$TRACE/portopt-db.csv")
+(cd fund && uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/fund.csv")
+uv run python scripts/ci/traceability.py check --requirements docs/requirements.md \
+  --csv "$TRACE/core.csv" --csv "$TRACE/ingestion.csv" \
+  --csv "$TRACE/portopt-db.csv" --csv "$TRACE/fund.csv"
+```
 
 ## Questions?
 

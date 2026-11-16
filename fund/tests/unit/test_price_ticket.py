@@ -55,6 +55,7 @@ class TestCostModel:
         assert BPS_PER_UNIT == 10_000.0
         assert BPS_PER_UNIT == 1e4
 
+    @pytest.mark.criterion("REQ-FUND-009")
     def test_buy_pays_slippage_up(self) -> None:
         """A buy fills above the close and buys its shares at that price."""
         priced = price_ticket(
@@ -66,6 +67,7 @@ class TestCostModel:
         assert line["effective_price"] == 100.0 * (1.0 + 5.0 / 1e4)
         assert line["shares"] == 50_000.0 / (100.0 * (1.0 + 5.0 / 1e4))
 
+    @pytest.mark.criterion("REQ-FUND-009")
     def test_sell_receives_less(self) -> None:
         """A trim of a long is a sell and fills below the close."""
         priced = price_ticket(
@@ -77,6 +79,7 @@ class TestCostModel:
         assert line["effective_price"] < line["fill_price"]
         assert line["effective_price"] == 100.0 * (1.0 - 5.0 / 1e4)
 
+    @pytest.mark.criterion("REQ-FUND-009")
     def test_unchanged_name_fills_at_the_close(self) -> None:
         """A name held at its prior weight pays no slippage and fills at the close."""
         priced = price_ticket(
@@ -88,6 +91,7 @@ class TestCostModel:
         assert line["shares"] == 50_000.0 / 100.0
         assert line["slippage_cost"] == 0.0
 
+    @pytest.mark.criterion("REQ-FUND-009")
     def test_commission_applies_only_to_traded_notional(self) -> None:
         """Commission is charged on the move from the prior weight, not the line."""
         priced = price_ticket(
@@ -104,6 +108,7 @@ class TestCostModel:
             assert line["notional"] != line["traded_notional"]
         assert math.isclose(priced.total_commission, 20_000.0 * 1.0 / 1e4)
 
+    @pytest.mark.criterion("REQ-FUND-009")
     def test_zero_traded_notional_costs_nothing(self) -> None:
         """A ticket that equals the prior one has zero cost totals."""
         priced = price_ticket(
@@ -117,6 +122,7 @@ class TestCostModel:
         assert priced.total_commission == 0.0
         assert priced.total_slippage_cost == 0.0
 
+    @pytest.mark.criterion("REQ-FUND-009")
     def test_dropped_name_adds_exit_cost_but_no_line(self) -> None:
         """A prior name missing from the target is charged its sale, with no line."""
         priced = price_ticket(

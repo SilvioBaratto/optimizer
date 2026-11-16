@@ -106,12 +106,14 @@ def _seed_catalogue(session) -> None:
     _seed(session, "GONENOPX.X", priced=False, delisted_at=_ASOF)
 
 
+@pytest.mark.criterion("REQ-FUND-005")
 def test_an_empty_allowlist_is_unrestricted(db_session) -> None:
     _seed_catalogue(db_session)
 
     assert resolve_eligibility(db_session, (), _ASOF) is None
 
 
+@pytest.mark.criterion("REQ-FUND-005")
 def test_every_investable_name_is_allowed_in_mandate_order(db_session) -> None:
     _seed_catalogue(db_session)
 
@@ -120,6 +122,7 @@ def test_every_investable_name_is_allowed_in_mandate_order(db_session) -> None:
     assert result == Eligibility(allowed=("ELIG.B", "ELIG.A"), barred=())
 
 
+@pytest.mark.criterion("REQ-FUND-005")
 def test_each_bar_carries_its_reason_and_keeps_mandate_order(db_session) -> None:
     _seed_catalogue(db_session)
 
@@ -138,6 +141,7 @@ def test_each_bar_carries_its_reason_and_keeps_mandate_order(db_session) -> None
     )
 
 
+@pytest.mark.criterion("REQ-FUND-005")
 def test_a_delisted_unpriced_name_is_reported_as_delisted(db_session) -> None:
     _seed_catalogue(db_session)
 
@@ -147,6 +151,7 @@ def test_a_delisted_unpriced_name_is_reported_as_delisted(db_session) -> None:
     assert result.barred == (("GONENOPX.X", "delisted"),)
 
 
+@pytest.mark.criterion("REQ-FUND-005")
 def test_delisting_is_judged_on_the_bar_not_on_today(db_session) -> None:
     _seed_catalogue(db_session)
 
@@ -159,6 +164,7 @@ def test_delisting_is_judged_on_the_bar_not_on_today(db_session) -> None:
     assert before.barred == (("LATE.X", "delisted"),)
 
 
+@pytest.mark.criterion("REQ-FUND-005")
 def test_prices_after_the_bar_do_not_make_a_name_priced(db_session) -> None:
     _seed_catalogue(db_session)
 
@@ -180,6 +186,7 @@ def test_the_allowlist_is_normalised_whatever_the_mandate_validators_did(
     assert result == Eligibility(allowed=("ELIG.A", "ELIG.B"), barred=())
 
 
+@pytest.mark.criterion("REQ-FUND-005")
 def test_an_allowlist_of_only_blanks_is_unrestricted(db_session) -> None:
     assert resolve_eligibility(db_session, ("", "   "), _ASOF) is None
 
@@ -280,6 +287,7 @@ def _esg_constraint_set(*sectors: GicsSector):
     )
 
 
+@pytest.mark.criterion("REQ-FUND-006")
 def test_a_stock_in_an_excluded_sector_is_barred_with_the_sector(db_session) -> None:
     _seed_stock(db_session, "OIL.S", sector="Energy")
 
@@ -295,6 +303,7 @@ def test_a_stock_in_an_excluded_sector_is_barred_with_the_sector(db_session) -> 
     assert result.barred == (("OIL.S", "esg:energy"),)
 
 
+@pytest.mark.criterion("REQ-FUND-006")
 def test_a_stock_with_no_sector_is_barred_as_unclassified(db_session) -> None:
     _seed_stock(db_session, "NOPROFILE.S", sector=None, profile=False)
     _seed_stock(db_session, "BLANK.S", sector=None)
@@ -313,6 +322,7 @@ def test_a_stock_with_no_sector_is_barred_as_unclassified(db_session) -> None:
     )
 
 
+@pytest.mark.criterion("REQ-FUND-006")
 def test_a_stock_with_a_sector_outside_the_eleven_labels_fails_closed(
     db_session,
 ) -> None:
@@ -329,6 +339,7 @@ def test_a_stock_with_a_sector_outside_the_eleven_labels_fails_closed(
     assert result.barred == (("ODD.S", "esg_unclassified"),)
 
 
+@pytest.mark.criterion("REQ-FUND-006")
 def test_a_stock_outside_every_exclusion_passes(db_session) -> None:
     _seed_stock(db_session, "TECH.S", sector="Technology")
     _seed_stock(db_session, "OIL.S", sector="Energy")
@@ -384,6 +395,7 @@ def test_without_a_constraint_set_nothing_gets_an_esg_reason(db_session) -> None
     assert result.allowed == ("OIL.S",)
 
 
+@pytest.mark.criterion("REQ-FUND-006")
 def test_a_data_bar_takes_precedence_over_an_esg_bar(db_session) -> None:
     _seed_stock(db_session, "OIL.S", sector="Energy")
     _seed(db_session, "GONEOIL.S", instrument_type="STOCK", delisted_at=_ASOF)
@@ -535,6 +547,7 @@ def test_the_realestate_spelling_counts_as_real_estate(db_session) -> None:
         (1.06, "esg_unclassified"),
     ],
 )
+@pytest.mark.criterion("REQ-FUND-007")
 def test_a_snapshot_must_sum_to_one_within_five_points(
     db_session, total, outcome
 ) -> None:
@@ -554,6 +567,7 @@ def test_a_snapshot_must_sum_to_one_within_five_points(
     ("age_days", "outcome"),
     [(179, "allowed"), (180, "allowed"), (181, "esg_unclassified")],
 )
+@pytest.mark.criterion("REQ-FUND-007")
 def test_a_snapshot_older_than_the_max_age_is_stale(
     db_session, age_days, outcome
 ) -> None:
@@ -629,6 +643,7 @@ def test_a_label_outside_the_eleven_sectors_fails_closed(db_session) -> None:
     assert result.barred == (("FUND.E", "esg_unclassified"),)
 
 
+@pytest.mark.criterion("REQ-FUND-007")
 def test_an_etf_with_no_snapshot_at_all_is_unclassified(db_session) -> None:
     _seed(db_session, "FUND.E")
 
@@ -637,6 +652,7 @@ def test_an_etf_with_no_snapshot_at_all_is_unclassified(db_session) -> None:
     assert result.barred == (("FUND.E", "esg_unclassified"),)
 
 
+@pytest.mark.criterion("REQ-FUND-007")
 def test_a_commodity_etf_passes_whatever_its_stored_collateral_looks_like(
     db_session,
 ) -> None:
@@ -672,6 +688,7 @@ def test_a_commodity_etf_passes_whatever_its_stored_collateral_looks_like(
         ("equity", "government", "esg_unclassified"),
     ],
 )
+@pytest.mark.criterion("REQ-FUND-007")
 def test_only_government_type_bond_funds_pass_without_a_snapshot(
     db_session, asset_class, fi_subclass, outcome
 ) -> None:
@@ -691,6 +708,7 @@ def test_a_corporate_bond_fund_with_a_clean_snapshot_passes(db_session) -> None:
     assert _outcome(result) == "allowed"
 
 
+@pytest.mark.criterion("REQ-FUND-007")
 def test_a_government_bond_fund_is_not_judged_by_its_snapshot(db_session) -> None:
     _seed(db_session, "GOV.E", asset_class="fixed_income", fi_subclass="government")
     _seed_sectors(db_session, "GOV.E", {"energy": 0.5, "utilities": 0.5})
@@ -724,6 +742,7 @@ def test_without_exclusions_or_a_constraint_set_no_etf_is_screened(db_session) -
     assert unset.allowed == ("FUND.E",)
 
 
+@pytest.mark.criterion("REQ-FUND-007")
 def test_a_data_bar_takes_precedence_over_the_etf_look_through(db_session) -> None:
     _seed(db_session, "GONE.E", delisted_at=_ASOF)
     _seed_sectors(db_session, "GONE.E", {"energy": 1.0})
@@ -783,6 +802,7 @@ def test_the_fund_snapshots_are_read_in_one_batch(db_session) -> None:
     assert small == large
 
 
+@pytest.mark.criterion("REQ-FUND-007")
 def test_the_look_through_max_age_defaults_to_half_a_year_and_reads_the_env() -> None:
     default = load_config(env={}, load_dotenv_file=False)
     overridden = load_config(
@@ -796,6 +816,7 @@ def test_the_look_through_max_age_defaults_to_half_a_year_and_reads_the_env() ->
 # --- the violation records the risk gate and the cockpit read-out share ---------
 
 
+@pytest.mark.criterion("REQ-FUND-004")
 def test_not_eligible_violations_name_every_held_outside_ticker_and_reason() -> None:
     from fund.tools.eligibility import not_eligible_violations
 
@@ -811,6 +832,7 @@ def test_not_eligible_violations_name_every_held_outside_ticker_and_reason() -> 
     ]
 
 
+@pytest.mark.criterion("REQ-FUND-004")
 def test_not_eligible_violations_ignore_solver_dust_and_zero_weights() -> None:
     from fund.tools.eligibility import not_eligible_violations
 
@@ -819,6 +841,7 @@ def test_not_eligible_violations_ignore_solver_dust_and_zero_weights() -> None:
     assert not_eligible_violations(eligibility, {"A": 1.0, "Z": 1e-9, "Y": 0.0}) == []
 
 
+@pytest.mark.criterion("REQ-FUND-004")
 def test_not_eligible_violations_are_empty_without_an_allowlist() -> None:
     from fund.tools.eligibility import not_eligible_violations
 
@@ -840,6 +863,7 @@ def _seed_tradeable_catalogue(session) -> None:
     _seed(session, "OFF2.T", tradeable=False)
 
 
+@pytest.mark.criterion("REQ-FUND-008")
 def test_tradeable_only_is_off_by_default_whatever_the_flags_say(db_session) -> None:
     _seed_tradeable_catalogue(db_session)
 
@@ -848,6 +872,7 @@ def test_tradeable_only_is_off_by_default_whatever_the_flags_say(db_session) -> 
     assert result == Eligibility(allowed=("ON.T", "OFF.T", "NEW.T"), barred=())
 
 
+@pytest.mark.criterion("REQ-FUND-008")
 def test_tradeable_only_bars_an_explicit_false_and_keeps_true_and_unevaluated(
     db_session,
 ) -> None:
@@ -928,6 +953,7 @@ def test_tradeable_only_composes_with_the_allowlist(db_session) -> None:
     }
 
 
+@pytest.mark.criterion("REQ-FUND-008")
 def test_a_data_bar_takes_precedence_over_the_tradeable_bar(db_session) -> None:
     _seed(db_session, "GONE.T", delisted_at=_ASOF, tradeable=False)
     _seed(db_session, "NOPX.T", priced=False, tradeable=False)
@@ -949,6 +975,7 @@ def test_a_data_bar_takes_precedence_over_the_tradeable_bar(db_session) -> None:
     )
 
 
+@pytest.mark.criterion("REQ-FUND-006")
 def test_both_conditions_must_hold_under_an_esg_exclusion(db_session) -> None:
     """An untradeable name keeps its tradeable reason and is not ESG-screened."""
     _seed_stock(db_session, "OIL.OFF", sector="Energy")
@@ -986,6 +1013,7 @@ def test_both_conditions_must_hold_under_an_esg_exclusion(db_session) -> None:
     )
 
 
+@pytest.mark.criterion("REQ-FUND-008")
 def test_tradeable_only_keeps_the_full_allowlist_with_a_note_when_nothing_is_evaluated(
     db_session,
 ) -> None:
@@ -1003,6 +1031,7 @@ def test_tradeable_only_keeps_the_full_allowlist_with_a_note_when_nothing_is_eva
     assert "Trading 212" in result.notes[0]
 
 
+@pytest.mark.criterion("REQ-FUND-008")
 def test_tradeable_only_bars_everything_when_the_overlay_matched_nothing(
     db_session,
 ) -> None:

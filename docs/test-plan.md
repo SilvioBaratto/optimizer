@@ -29,25 +29,33 @@ Ordered by what a failure costs. Each maps to the critical functions below.
 
 ## Critical functions
 
-| Function | Why it is critical | Unit tests | Integration tests |
-|---|---|---|---|
-| `risk_check` | Gate between a proposal and an order (risk 1) | `fund/tests/unit/test_risk.py`, `fund/tests/unit/test_rolling_loss_gate.py`, `fund/tests/unit/test_toolsets.py` | |
-| `place_orders` | Writes the paper ticket, idempotently (risk 1) | `fund/tests/unit/test_orders_reapprove.py`, `fund/tests/unit/test_tool_savepoint_recovery.py` | |
-| `build_nav_series` | Marks the portfolio value (risk 1) | `fund/tests/unit/test_performance_nav.py`, `fund/tests/unit/test_performance_nav_chain.py` | |
-| `resolve_mandate_eligibility` | Bars instruments outside the mandate (risk 1) | `fund/tests/unit/test_eligibility.py`, `fund/tests/unit/test_eligible_universe_e2e.py` | |
-| `fund_drift_monitor` | Daily job that watches every portfolio (risk 3) | `fund/tests/unit/test_scheduler_steps.py`, `fund/tests/unit/test_worker.py`, `fund/tests/unit/test_fund_job_repo.py` | `fund/tests/integration/test_fund_job_claim_race.py` |
-| `_upsert` | Every repository write goes through it (risk 2) | `packages/portopt-db/tests/test_upsert_constraint_names.py` | `packages/portopt-db/tests/integration/test_upsert_postgres.py`, `packages/portopt-db/tests/integration/test_upsert_constraints_exist_in_db.py` |
-| `_fetch_and_store` | The per-instrument sweep (risks 2, 3) | `ingestion/tests/unit/test_fetch_and_store_error_paths.py`, `ingestion/tests/unit/test_run_category.py`, `ingestion/tests/unit/test_fetch_plan.py`, `ingestion/tests/unit/test_price_policy.py`, `ingestion/tests/unit/test_yfinance_data_service_savepoints.py`, `ingestion/tests/unit/test_market_data_service_branches.py`, `ingestion/tests/unit/test_empty_fetch_memory.py` | |
-| `DbCircuitBreaker` | Refuses new sessions to a dead database and decides when to try again (risk 3) | `packages/portopt-db/tests/test_db_circuit_breaker.py`, `ingestion/tests/unit/services/jobs/test_db_breaker_consumer.py`, `fund/tests/unit/test_tui_db_breaker.py` | `packages/portopt-db/tests/integration/test_circuit_breaker_postgres.py` |
-| `retry_with_backoff` | Retries calls to external sources (risks 3, 4) | `ingestion/tests/unit/test_shared_infrastructure.py`, `ingestion/tests/unit/test_retry_exhaustion_logging.py`, `ingestion/tests/unit/test_breaker_settings.py`, `ingestion/tests/unit/test_trading212_client.py` | |
-| `benjamini_hochberg` | Factor significance (risk 5) | `tests/factors/test_validation.py` | |
+The last column names the requirements of `docs/requirements.md` registered for the
+function; the tests that cite one carry its id in a `criterion` marker.
+
+| Function | Why it is critical | Unit tests | Integration tests | Requirement ids |
+|---|---|---|---|---|
+| `risk_check` | Gate between a proposal and an order (risk 1) | `fund/tests/unit/test_risk.py`, `fund/tests/unit/test_rolling_loss_gate.py`, `fund/tests/unit/test_toolsets.py` | | REQ-FUND-001, REQ-FUND-002, REQ-FUND-003 |
+| `place_orders`, `price_ticket`, `PaperVenue` | Prices and writes the paper ticket, idempotently (risk 1) | `fund/tests/unit/test_orders_reapprove.py`, `fund/tests/unit/test_tool_savepoint_recovery.py`, `fund/tests/unit/test_price_ticket.py`, `fund/tests/unit/test_execution_venue.py` | | REQ-FUND-009, REQ-FUND-010, REQ-FUND-011 |
+| `build_nav_series`, `compute_nav` | Marks the portfolio value (risk 1) | `fund/tests/unit/test_performance_nav.py`, `fund/tests/unit/test_performance_nav_chain.py`, `fund/tests/unit/test_performance_nav_inputs.py` | | REQ-FUND-012, REQ-FUND-013 |
+| `resolve_mandate_eligibility` | Bars instruments outside the mandate (risk 1) | `fund/tests/unit/test_eligibility.py`, `fund/tests/unit/test_eligible_universe_e2e.py` | | REQ-FUND-004, REQ-FUND-005, REQ-FUND-006, REQ-FUND-007, REQ-FUND-008 |
+| `fund_drift_monitor` | Daily job that watches every portfolio (risk 3) | `fund/tests/unit/test_scheduler_steps.py`, `fund/tests/unit/test_worker.py`, `fund/tests/unit/test_fund_job_repo.py` | `fund/tests/integration/test_fund_job_claim_race.py` | REQ-FUND-014, REQ-FUND-015, REQ-FUND-016 |
+| `_upsert` | Every repository write goes through it (risk 2) | `packages/portopt-db/tests/test_upsert_constraint_names.py` | `packages/portopt-db/tests/integration/test_upsert_postgres.py`, `packages/portopt-db/tests/integration/test_upsert_constraints_exist_in_db.py` | REQ-DB-001 |
+| `_fetch_and_store` | The per-instrument sweep (risks 2, 3) | `ingestion/tests/unit/test_fetch_and_store_error_paths.py`, `ingestion/tests/unit/test_run_category.py`, `ingestion/tests/unit/test_fetch_plan.py`, `ingestion/tests/unit/test_price_policy.py`, `ingestion/tests/unit/test_yfinance_data_service_savepoints.py`, `ingestion/tests/unit/test_market_data_service_branches.py`, `ingestion/tests/unit/test_empty_fetch_memory.py` | | REQ-ING-001, REQ-ING-002, REQ-ING-003 |
+| `DbCircuitBreaker` | Refuses new sessions to a dead database and decides when to try again (risk 3) | `packages/portopt-db/tests/test_db_circuit_breaker.py`, `ingestion/tests/unit/services/jobs/test_db_breaker_consumer.py`, `fund/tests/unit/test_tui_db_breaker.py` | `packages/portopt-db/tests/integration/test_circuit_breaker_postgres.py` | REQ-DB-002, REQ-DB-003, REQ-DB-004 |
+| `retry_with_backoff` | Retries calls to external sources (risks 3, 4) | `ingestion/tests/unit/test_shared_infrastructure.py`, `ingestion/tests/unit/test_retry_exhaustion_logging.py`, `ingestion/tests/unit/test_breaker_settings.py`, `ingestion/tests/unit/test_trading212_client.py` | | REQ-ING-004, REQ-ING-005, REQ-ING-006, REQ-ING-007 |
+| `benjamini_hochberg` | Factor significance (risk 5) | `tests/factors/test_validation.py` | | REQ-CORE-001 |
 
 Also critical and tested:
 
 - The append-only audit trail (`human_audit_log`): `packages/portopt-db/tests/integration/test_audit_log_triggers.py`.
+  No requirement id.
 - Secrets kept out of `repr`: `fund/tests/unit/test_config_secrets_not_in_repr.py`,
   `ingestion/tests/unit/test_settings_repr.py`, `packages/portopt-db/tests/test_db_config_repr.py`.
+  REQ-FUND-017, REQ-ING-008, REQ-DB-005.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
+  REQ-DB-006.
+- A fresh install builds its universe on the first daily run (issue 1125):
+  `ingestion/tests/unit/test_scheduler_universe_bootstrap.py`. REQ-ING-009.
 
 ## Test levels
 
@@ -63,11 +71,21 @@ Also critical and tested:
 
 ## Test case identification
 
-A test case is identified by `REQ-<AREA>-NNN` ids registered in `docs/requirements.md` and
-bound with `@pytest.mark.criterion("REQ-...")`. No test carries one yet. That is a recorded
-deviation from standard 6.6 (see `CONTRIBUTING.md`). Until the registry is filled and the CI
-check exists, a test is identified by its pytest node id, `path::Class::test_name`, and its
-docstring names the code it validates.
+A test case is identified by its pytest node id, `path::Class::test_name`. A test can
+also cite a requirement of `docs/requirements.md` by its `REQ-<AREA>-NNN` id with
+`@pytest.mark.criterion("REQ-...")`. Requirements are registered for the critical
+functions above, for the items under the table that show an id, and for the traceability
+check and its wiring (REQ-OPS-001, REQ-OPS-002). Tests written before the registry were
+tagged only where they assert one of those requirements, so most tests cite no id. That
+is a recorded deviation from standard 6.6 (see `CONTRIBUTING.md`).
+
+The `lint` CI job collects the four suites with `--traceability-out` and runs
+`scripts/ci/traceability.py check`. It fails when a registered requirement has no test,
+when a test cites a `REQ-` id the registry does not list, or when a test carries a
+`defect` marker but no `REQ-` id. The job uploads the four CSV files as the
+`traceability` artifact of the run. Each file has one row per (`criterion` id, test),
+and one row with an empty id for a test that carries a `defect` marker and no
+`criterion` marker.
 
 Each test follows the template of standard 6.4 in code form: the fixtures are the
 preconditions, the calls are the actions, the assertions are the expected results and a green
@@ -87,9 +105,12 @@ run is the pass criterion. The test suite is the test-case repository.
 ## Defects
 
 Defects are GitHub issues. A fix pull request closes its issue and adds a regression test
-that fails without the change and names the function it guards. Linking the test to the
-issue automatically (a `defect(issue)` marker and a CI report) is part of the traceability
-work that also fills the registry above.
+that fails without the change and names the function it guards. The regression test also
+carries `@pytest.mark.defect(<issue>)` beside the `criterion` id of the requirement it
+guards, so the trace links the defect to its test, its requirement and, through the
+registry row, its module; the check fails on a `defect` marker on a test that cites no
+`REQ-` id. Issue 1125 is linked this way (REQ-ING-009); no other fix made before the
+marker existed carries one.
 
 Coverage is checked on every CI build against floors of 90 (library, `portopt-db`) and 80
 (`ingestion`, `fund`), against a standard goal of 75.

@@ -217,7 +217,12 @@ reportAssignmentType = "warning"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+# The traceability plugin (`--traceability-out`) is one file in scripts/ci, outside
+# every package, shared by the four suites; this path lets `-p traceability` load it.
+pythonpath = ["scripts/ci"]
+addopts = "-v --tb=short -p traceability"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "criterion(id): cite requirement <id> of docs/requirements.md (a REQ- id) or an acceptance-criterion label",
+    "defect(issue): link this regression test to GitHub issue <issue>",
 ]

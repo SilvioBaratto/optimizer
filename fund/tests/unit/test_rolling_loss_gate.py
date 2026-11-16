@@ -44,6 +44,7 @@ def _full_drawdown(bars: np.ndarray) -> float:
     return float(-get_drawdowns(bars, compounded=True).min())
 
 
+@pytest.mark.criterion("REQ-FUND-003")
 class TestWorstWindowDrawdown:
     """``worst_window_drawdown`` is the worst decline inside any window of bars."""
 
@@ -109,6 +110,7 @@ class TestWorstWindowDrawdown:
         assert 0.0 <= worst <= _full_drawdown(bars) + 1e-12
 
 
+@pytest.mark.criterion("REQ-FUND-002")
 class TestZeroLossTolerance:
     """A client who tolerates no loss is named, not reported as a limit-0 breach."""
 

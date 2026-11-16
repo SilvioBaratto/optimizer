@@ -11,6 +11,7 @@ from app.config import Settings
 _SENTINEL = "S3NTINEL"
 
 
+@pytest.mark.criterion("REQ-ING-008")
 def test_settings_repr_hides_every_secret(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

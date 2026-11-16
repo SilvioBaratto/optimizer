@@ -95,6 +95,7 @@ def _yf_client() -> MagicMock:
     return yf
 
 
+@pytest.mark.criterion("REQ-ING-003")
 def test_failed_category_write_does_not_abort_later_categories(db_session) -> None:
     """A failing holders write is reported once and later categories still land."""
     inst = _instrument(db_session)
@@ -119,6 +120,7 @@ def test_failed_category_write_does_not_abort_later_categories(db_session) -> No
     assert state["aborted"] is False
 
 
+@pytest.mark.criterion("REQ-ING-003")
 def test_failed_etf_write_rolls_back_the_whole_etf_snapshot(db_session) -> None:
     """A failing ETF holdings write leaves no half-written metadata snapshot."""
     from portopt_db.repositories.market_data.etf_metadata_repository import (
@@ -158,6 +160,7 @@ def test_failed_etf_write_rolls_back_the_whole_etf_snapshot(db_session) -> None:
     assert etf_repo.get_asset_classes(inst.id) is None
 
 
+@pytest.mark.criterion("REQ-ING-003")
 def test_failed_write_error_text_is_bounded_and_keeps_the_cause(
     db_session, caplog
 ) -> None:

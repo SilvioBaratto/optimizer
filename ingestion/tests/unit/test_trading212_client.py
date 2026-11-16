@@ -780,6 +780,7 @@ class TestMissingCredentials:
         ]
 
 
+@pytest.mark.criterion("REQ-ING-006")
 class TestRetryAfterWait:
     """``_rate_limit_wait`` reads ``Retry-After`` as whole seconds, capped, or 0."""
 
