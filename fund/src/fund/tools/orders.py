@@ -1,43 +1,59 @@
 """``place_orders``: idempotent paper execution, the last allocator node.
 
-Turns a target-weight vector into a **simulated** order ticket (SPEC D5): each
-line fills at the **next close strictly after** the decision bar ``asof`` (D30 —
-no look-ahead), adjusted by a simple slippage + commission model, and the ticket
-is persisted to ``paper_orders``. Costs are charged on the **traded** notional —
-the move from the previous ticket's target weights to this one (exits included) —
-not on the whole target book.
+Turns a target-weight vector into an ``OrderRequest`` and hands it to an execution
+venue (``fund.execution``), the paper venue unless the caller passes another. The
+paper venue makes a **simulated** order ticket (SPEC D5): each line fills at the
+**next close strictly after** the decision bar ``asof`` (D30 — no look-ahead), found
+by ``_fill_quotes`` in this module, priced by ``fund.pricing.price_ticket`` with a
+simple slippage + commission model, and the venue persists the ticket to
+``paper_orders``. Costs are charged on the **traded** notional — the move from the
+target weights of the portfolio's newest ticket decided on or before ``asof`` to this
+one (exits included) — not on the whole target book.
 
 The write must be **idempotent**: ``place_orders`` sits behind ``interrupt_on``
 (HITL), and on ``Command(resume=…)`` the interrupting node re-runs from the top
 (SPEC D3), so a second call with the same ``(portfolio_id, asof, weights)`` must
-not double-place. The tool looks the ticket up by that key first and returns the
-stored one (``idempotent: true``) instead of writing again; the DB-level
+not double-place. The paper venue looks the ticket up by that key first. When the
+stored ticket was priced with the requested notional, slippage and commission (as
+far as its stored lines show, compared within a float tolerance) it returns that
+ticket (``idempotent: true``) instead of writing again; when any of the three
+differs it refuses the call, since the key holds no cost params. The DB-level
 ``UNIQUE(portfolio_id, asof, weights_hash)`` is the backstop.
 
-Contract (via ``tool_envelope``):
+Contract (via ``tool_envelope``), with the paper venue, in the order the checks run
+(the last two run ticker by ticker). The checks after the stored-ticket one apply
+only to a key with no stored ticket:
 
 * empty ``weights`` ⇒ ``{ok: false, error}``;
-* a held ticker (weight above ``_DUST_WEIGHT``) with no instrument row, or no close
-  strictly after ``asof`` (no fill bar), ⇒ ``{ok: false, error}`` — a paper ticket
-  must fill every line it carries. A zero or dust weight is no order: it gets no
-  line and needs no fill bar or FX rate, though it stays in the stored ``weights``;
+* a stored ticket for the same ``(portfolio_id, asof, weights)`` key priced with a
+  different notional, slippage or commission ⇒ ``{ok: false, error}`` — a what-if
+  with other cost params needs a distinct key;
 * weights that are all zero or dust ⇒ ``{ok: false, error}`` — nothing to place;
-* a listing quoted in a foreign currency with no FX rate on or just before its fill
-  bar ⇒ ``{ok: false, error}`` — ``shares`` must be a base-currency notional over a
-  base-currency price, never a unit-mixed ratio;
-* every other failure is caught by the envelope and returned as ``{ok: false}``.
+* a held ticker (weight of magnitude above ``fund.pricing.DUST_WEIGHT``) with no
+  instrument row, or no close strictly after ``asof`` (no fill bar), ⇒
+  ``{ok: false, error}`` — a paper ticket must fill every line it carries. A zero or
+  dust weight is no order: it gets no line and needs no fill bar or FX rate, though
+  it stays in the stored ``weights``;
+* given a ``base_currency``, a held listing quoted in another currency (a minor unit
+  such as ``GBp`` counts as its major currency, a listing with no unit as the base)
+  with no FX rate dated from ``_FX_LOOKBACK_DAYS`` days before its fill bar up to
+  that bar ⇒ ``{ok: false, error}`` — ``shares`` must be a base-currency notional
+  over a base-currency price. Without a ``base_currency`` no FX rate is read and
+  ``shares`` is computed from the price as quoted;
+* any other ``Exception`` is caught by the envelope and returned as
+  ``{ok: false, error}``.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import math
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from fund.audit.orders_repository import OrderRepository, weights_hash
+from fund.execution import OrderRequest, PaperVenue
+from fund.pricing import CostModel, FillQuote, held_weights
 from fund.readers import fx_rate_reader, price_reader
 from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 
@@ -47,6 +63,8 @@ if TYPE_CHECKING:
     from portopt_db.ports import FxRateReader, PriceReader
     from sqlalchemy.orm import Session
 
+    from fund.execution import ExecutionVenue
+
 # Simple paper-execution cost model (D30): flat notional the weights scale, and
 # constant bps for slippage/commission. VWAP/Almgren-Chriss come later (needs
 # intraday). These params are NOT part of the idempotency key (which is
@@ -55,9 +73,6 @@ if TYPE_CHECKING:
 # e.g. a distinct portfolio_id) rather than silently re-priced from the stored
 # ticket.
 _DEFAULT_NOTIONAL = 100_000.0
-# The optimiser returns exact zeros and solver residue for names it does not hold; a
-# weight this small is no order and must not need a fill bar of its own.
-_DUST_WEIGHT = 1e-6
 _DEFAULT_SLIPPAGE_BPS = 5.0
 _DEFAULT_COMMISSION_BPS = 1.0
 
@@ -73,15 +88,6 @@ class _Fill:
     date: dt.date
     close: float
     unit: str | None
-
-
-def _held(weights: Mapping[str, float]) -> dict[str, float]:
-    """The weights that carry an order: everything above ``_DUST_WEIGHT``.
-
-    Written as ``not <=`` rather than ``>`` so a NaN weight stays held and fails
-    loudly downstream instead of being dropped as dust.
-    """
-    return {t: w for t, w in weights.items() if not abs(w) <= _DUST_WEIGHT}
 
 
 def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
@@ -171,7 +177,7 @@ def fill_shortfalls(
     """
     prices, fx_rates = price_reader(session), fx_rate_reader(session)
     shortfalls: list[str] = []
-    names = _held(tickers) if isinstance(tickers, Mapping) else tickers
+    names = held_weights(tickers) if isinstance(tickers, Mapping) else tickers
     for ticker in names:
         try:
             fill = _next_close(prices, ticker, asof)
@@ -182,72 +188,37 @@ def fill_shortfalls(
     return shortfalls
 
 
-def _cost_params_match(
-    order: Any,
-    *,
-    notional: float,
-    slippage_bps: float,
-    commission_bps: float,
-) -> bool:
-    """Whether a stored ticket was priced with the requested cost params.
+def _fill_quotes(
+    session: Session,
+    tickers: Iterable[str],
+    asof: dt.date,
+    base_currency: str | None,
+) -> dict[str, FillQuote]:
+    """Look up where each of ``tickers`` fills: its next close after ``asof``.
 
-    The idempotency key is weights-only (SPEC D3 / ``uq_paper_order_key``), so
-    the per-call cost params are NOT in the key. This guards against silently
-    returning a ticket priced with *different* params than requested: it
-    reconstructs the stored slippage/commission from the persisted lines and
-    compares them (with a float tolerance) against the request. Commission is a
-    fraction of the line's *traded* notional; tickets stored before turnover
-    pricing carry no ``traded_notional`` and were charged on the full line notional.
+    Each quote carries the close as quoted and as a price per share in
+    ``base_currency``; without a base currency the quoted close is used as given.
+
+    Raises:
+        LookupError: A ticker has no instrument row or no close strictly after
+            ``asof``, or (given ``base_currency``) a foreign listing has no FX rate
+            for its fill bar.
     """
-    if not math.isclose(order.notional, notional, rel_tol=1e-9, abs_tol=1e-9):
-        return False
-    for line in order.lines:
-        if not math.isclose(
-            line.get("slippage_bps", 0.0), slippage_bps, rel_tol=1e-9, abs_tol=1e-9
-        ):
-            return False
-        ln = line.get("traded_notional", line.get("notional", 0.0))
-        if ln:
-            stored_comm_bps = line["commission"] / abs(ln) * 1e4
-            if not math.isclose(
-                stored_comm_bps, commission_bps, rel_tol=1e-6, abs_tol=1e-9
-            ):
-                return False
-    return True
-
-
-def _ticket_from_row(order: Any, *, idempotent: bool) -> dict[str, Any]:
-    """Render a persisted ``PaperOrder`` row as the JSON-serialisable ticket."""
-    return {
-        "order_id": str(order.id),
-        "portfolio_id": str(order.portfolio_id),
-        "asof": order.asof.isoformat(),
-        "fill_date": order.fill_date.isoformat(),
-        "weights_hash": order.weights_hash,
-        "weights": order.weights,
-        "notional": order.notional,
-        "lines": order.lines,
-        "total_commission": order.total_commission,
-        "total_slippage_cost": order.total_slippage_cost,
-        "status": order.status,
-        "idempotent": idempotent,
-    }
-
-
-def _make_newest(repo: OrderRepository, portfolio_id: uuid.UUID, order: Any) -> None:
-    """Re-stamp ``order`` as the portfolio's newest ticket when a later one exists.
-
-    The current book is the newest ticket, ranked by ``created_at`` after the decision
-    and fill bars. Approving weights that equal an older ticket of the same bar hands
-    that ticket back, and left alone the ticket placed in between would keep ranking
-    as the book (NAV, drift) while the positions snapshot points at the old one. The
-    stamp is written in SQL on the database clock, like every other ticket's, and the
-    row is left untouched when it already is the newest.
-    """
-    newest = repo.latest_for_portfolio(portfolio_id)
-    if newest is None or newest.id == order.id:
-        return
-    repo.restamp_created_at(order.id)
+    prices, fx_rates = price_reader(session), fx_rate_reader(session)
+    quotes: dict[str, FillQuote] = {}
+    for ticker in tickers:
+        fill = _next_close(prices, ticker, asof)
+        # Shares divide a base-currency notional, so the price must be one too. Without
+        # a base currency (a what-if) the quote is used as given.
+        base_price = (
+            _base_close(fx_rates, fill, ticker, base_currency)
+            if base_currency is not None
+            else fill.close
+        )
+        quotes[ticker] = FillQuote(
+            date=fill.date, price=fill.close, base_price=base_price, unit=fill.unit
+        )
+    return quotes
 
 
 @tool_envelope
@@ -261,17 +232,19 @@ def place_orders(
     notional: float = _DEFAULT_NOTIONAL,
     slippage_bps: float = _DEFAULT_SLIPPAGE_BPS,
     commission_bps: float = _DEFAULT_COMMISSION_BPS,
+    venue: ExecutionVenue | None = None,
 ) -> ToolResult:
-    """Place (or return) the idempotent paper ticket for ``weights`` as of ``asof``.
+    """Place (or return) the ticket for ``weights`` as of ``asof`` on a venue.
 
-    A stored ticket returned for the same key becomes the portfolio's newest again, so
+    The venue is the paper venue unless ``venue`` names another. On the paper venue a
+    stored ticket returned for the same key becomes the portfolio's newest again, so
     re-approving weights that equal an older ticket of the bar puts the book back on
     that ticket instead of the one placed after it.
 
     Args:
         session: A sync ``portopt_db`` session (D1); the tool does not own it.
-        asof: The decision bar; fills land at the next close strictly after it
-            (no look-ahead). Accepts a ``date`` or an ISO ``YYYY-MM-DD`` string.
+        asof: The decision bar; paper fills land at the next close strictly after
+            it (no look-ahead). Accepts a ``date`` or an ISO ``YYYY-MM-DD`` string.
         weights: Target ``{ticker: weight}`` vector (from the optimizer).
         portfolio_id: Owning portfolio; part of the idempotency key.
         base_currency: The mandate's base currency, in which each line's ``shares``
@@ -285,130 +258,39 @@ def place_orders(
             part of the idempotency key — overrides apply only to a fresh key.
         commission_bps: Per-fill commission in basis points of traded notional.
             Not part of the idempotency key — overrides apply only to a fresh key.
+        venue: Where the ticket is placed. ``None`` is the paper venue, which fills
+            each held name at its next close after ``asof`` and stores the ticket in
+            ``paper_orders``, or returns the matching ticket stored for the key.
 
     Returns:
-        ``ok`` with the order ticket (``order_id``, ``fill_date``, per-``lines``
-        fills for the held names, cost totals, ``idempotent`` flag). ``err`` on empty
-        or all-zero ``weights``, an unknown held ticker, a held ticker with no fill bar
-        after ``asof``, or a held foreign listing with no FX rate for its fill bar.
+        ``ok`` with the venue's ticket; the paper venue's carries ``order_id``,
+        ``fill_date``, per-``lines`` fills for the held names, cost totals and the
+        ``idempotent`` flag. ``err`` on empty ``weights`` or the venue's refusal or
+        failure. The paper venue refuses a re-run of a stored key with other cost
+        params and, for a key with no stored ticket, weights that are all zero or
+        dust; it fails on an unknown held ticker, a held ticker with no fill bar
+        after ``asof`` or, given ``base_currency``, a held listing in another
+        currency with no FX rate in the look-back window ending on its fill bar.
     """
     if not weights:
         return err("no weights to place")
 
     end_date = coerce_date(asof)
     pid = _coerce_uuid(portfolio_id)
-    whash = weights_hash(weights)
-
-    repo = OrderRepository(session)
-    existing = repo.get_by_key(portfolio_id=pid, asof=end_date, weights_hash=whash)
-    if existing is not None:
-        if _cost_params_match(
-            existing,
-            notional=notional,
-            slippage_bps=slippage_bps,
-            commission_bps=commission_bps,
-        ):
-            # HITL re-run (D3): the ticket already exists priced with the same
-            # params — return it, don't re-place.
-            _make_newest(repo, pid, existing)
-            return ok(_ticket_from_row(existing, idempotent=True))
-        # Same weights-only key but different cost params: the stored ticket was
-        # priced differently, so returning it would misreport the request.
-        return err(
-            "a paper ticket already exists for this (portfolio, asof, weights) "
-            "with different cost params; re-run with the placed params, or use a "
-            "distinct key for a what-if with different "
-            "notional/slippage/commission"
-        )
-
-    held = _held(weights)
-    if not held:
-        return err("no non-zero weights to place")
-
-    prior = repo.latest_on_or_before(pid, end_date)
-    prior_weights = (
-        {ticker: float(w) for ticker, w in prior.weights.items()} if prior else {}
-    )
-
-    prices, fx_rates = price_reader(session), fx_rate_reader(session)
-    lines: list[dict[str, Any]] = []
-    total_commission = 0.0
-    total_slippage_cost = 0.0
-    fill_dates: list[dt.date] = []
-
-    for ticker, weight in held.items():
-        fill = _next_close(prices, ticker, end_date)
-        fill_date, fill_price = fill.date, fill.close
-        fill_dates.append(fill_date)
-        # Shares divide a base-currency notional, so the price must be one too. Without
-        # a base currency (a what-if) the quote is used as given.
-        base_price = (
-            _base_close(fx_rates, fill, ticker, base_currency)
-            if base_currency is not None
-            else fill_price
-        )
-
-        line_notional = weight * notional
-        # Only the move away from what is already held trades; holding a name at
-        # an unchanged weight costs nothing.
-        traded_notional = (weight - prior_weights.get(ticker, 0.0)) * notional
-        commission = abs(traded_notional) * commission_bps / 1e4
-        slippage_cost = abs(traded_notional) * slippage_bps / 1e4
-        # Direction comes from the trade, not the target's sign: a trim of a long is
-        # a sell, and an unchanged name fills at the raw close.
-        direction = (traded_notional > 0) - (traded_notional < 0)
-        slippage_factor = 1.0 + direction * slippage_bps / 1e4
-        effective_price = fill_price * slippage_factor
-        effective_base_price = base_price * slippage_factor
-        # The carried part of the book is valued at the close; only the traded part
-        # pays (buys) or gives up (sells) the slippage.
-        shares = (
-            (line_notional - traded_notional) / base_price
-            + traded_notional / effective_base_price
-            if base_price and effective_base_price
-            else 0.0
-        )
-
-        total_commission += commission
-        total_slippage_cost += slippage_cost
-        lines.append(
-            {
-                "ticker": ticker,
-                "weight": float(weight),
-                "fill_date": fill_date.isoformat(),
-                "currency": fill.unit,
-                "fill_price": fill_price,
-                "fill_price_base": base_price,
-                "effective_price": effective_price,
-                "slippage_bps": slippage_bps,
-                "notional": line_notional,
-                "traded_notional": traded_notional,
-                "shares": shares,
-                "commission": commission,
-                "slippage_cost": slippage_cost,
-            }
-        )
-
-    # A name dropped from the target is sold out, but gets no ticket line: lines
-    # become the held book (positions, NAV), so a zero-weight line would resurrect it.
-    for ticker, prior_weight in prior_weights.items():
-        if ticker not in held:
-            exit_notional = abs(prior_weight * notional)
-            total_commission += exit_notional * commission_bps / 1e4
-            total_slippage_cost += exit_notional * slippage_bps / 1e4
-
-    order = repo.create(
+    request = OrderRequest(
         portfolio_id=pid,
         asof=end_date,
-        weights_hash=whash,
-        weights={k: float(v) for k, v in weights.items()},
-        fill_date=min(fill_dates),
-        lines=lines,
+        weights=weights,
+        base_currency=base_currency,
+        costs=CostModel(slippage_bps=slippage_bps, commission_bps=commission_bps),
         notional=notional,
-        total_commission=total_commission,
-        total_slippage_cost=total_slippage_cost,
     )
-    return ok(_ticket_from_row(order, idempotent=False))
+    placed = (venue if venue is not None else PaperVenue(_fill_quotes)).place(
+        session, request
+    )
+    if placed.refusal is not None:
+        return err(placed.refusal)
+    return ok(placed.ticket)
 
 
 __all__ = ["fill_shortfalls", "place_orders"]

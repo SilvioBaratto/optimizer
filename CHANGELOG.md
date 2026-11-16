@@ -324,6 +324,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fresh baseline from the current measurement, so a deleted or emptied baseline
   file in a diff deserves a reviewer's attention. A source root that is missing
   fails the check instead of measuring nothing.
+- **fund: execution venues, paper-ticket pricing without a session, and NAV marking
+  without a session.** `fund.pricing` (`BPS_PER_UNIT`, `DUST_WEIGHT`, `CostModel`,
+  `FillQuote`, `TicketLine`, `PricedTicket`, `held_weights`, `price_ticket`) and
+  `fund.execution` (`ExecutionVenue`, `OrderRequest`, `PlacedOrder`,
+  `FillQuoteSource`, `PaperVenue`) are new modules. `place_orders` takes an optional
+  keyword-only `venue` and `RunContext` has a `venue` field; both default to `None`,
+  the paper venue, so a non-paper venue can be passed in without editing the tool.
+  `fund.performance` adds `load_nav_inputs`, `compute_nav`, `NavInputs` and
+  `NavSeries`.
 
 ### Changed
 
@@ -565,6 +574,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `upsert_financial_statements` and `upsert_dividends` now log under the
   `fundamentals_repository` and `prices_repository` logger names. The ratchet baseline
   entries of the moved functions now use the new keys, with the values they had.
+- **fund**: `place_orders` places its ticket through an execution venue, by default
+  `PaperVenue`, which prices the ticket through `fund.pricing.price_ticket`, and
+  `build_nav_series` is now `load_nav_inputs` followed by `compute_nav`. The six
+  `1e4` literals of `fund/tools/orders.py` are `BPS_PER_UNIT` in the code that moved
+  to `fund/pricing.py` (five) and `fund/execution.py` (one), and `_held` and
+  `_DUST_WEIGHT` are now `fund.pricing.held_weights` and `DUST_WEIGHT`. `PaperVenue`
+  runs what `place_orders` ran inline after checking its arguments: the stored-ticket
+  lookup by weights hash, the cost-param guard, the re-stamp of a returned ticket, the
+  dust check, the pricing and the `paper_orders` insert. `_cost_params_match`,
+  `_ticket_from_row` and `_make_newest` move to `fund/execution.py`. `place_orders`
+  keeps its existing parameters, its error texts and the order of its early exits, and
+  the bound `place_orders` tool passes `RunContext.venue` on. `_next_close` and
+  `_base_close` stay in `fund/tools/orders.py`, beside a new `_fill_quotes` that calls
+  them, and `place_orders` builds the paper venue with `_fill_quotes` on each call
+  that passes no venue, so tests that replace `orders._next_close` still reach the
+  fill. `load_nav_inputs` reads the tickets, closes and FX rates, applies the currency
+  and FX-coverage guards, converts the closes into the base-currency mark frame and
+  picks the benchmark column, with a warning when the benchmark is left out; it
+  returns `None` when there is nothing to mark. `compute_nav` takes that `NavInputs`
+  and no session and marks it: shares from the ticket lines, the chain links and the
+  per-bar marks. `test_price_ticket.py` and `test_performance_nav_inputs.py` hold
+  tickets and NAV series printed by the code before this change, and the new code
+  reproduces them exactly. The complexity ratchet drops `place_orders` and
+  `build_nav_series` from its baselines and lowers `_place_orders_impl` from 49 to
+  41 lines.
 
 ### Removed
 
