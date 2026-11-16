@@ -340,7 +340,8 @@ def test_price_bars_for_keeps_a_bar_whose_close_is_null(db_session: Session) -> 
 def test_newest_close_dates_reads_each_instrument_newest_closed_bar(
     db_session: Session,
 ) -> None:
-    """One date per instrument with a close in the window; a NULL close is skipped."""
+    """Test ``YFinanceRepository.newest_close_dates``: one date per instrument with a
+    close in the window; a NULL close is skipped."""
     early, late, blank, stale = (
         _instrument(db_session, ticker) for ticker in ("EARLY", "LATE", "BLANK", "OLD")
     )
@@ -368,8 +369,9 @@ def test_newest_close_dates_reads_each_instrument_newest_closed_bar(
 def test_instrument_classes_for_lists_every_row_live_listing_first(
     db_session: Session,
 ) -> None:
-    """Each row carrying a symbol is listed, live before delisted, newest delisting
-    first; other symbols are left out."""
+    """Test ``UniverseRepository.instrument_classes_for``: each row carrying a symbol is
+    listed, live before delisted, newest delisting first; other symbols are left
+    out."""
     newer_delisting = _instrument(
         db_session, "VUSA1", yfinance_ticker="VUSA.L", delisted_at=dt.date(2025, 6, 1)
     )

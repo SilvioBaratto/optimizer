@@ -29,9 +29,11 @@ function, nested function or lambda:
 It does not detect: a constructor reached any other way (a re-bound name such as
 ``sel = select``, ``getattr``, a parameter, ``sa.sql.select`` through a submodule
 attribute); ``.get`` or ``.add`` whose argument is a variable, an attribute such as
-``models.AgentRun``, or a model class not imported by name; ``session.merge``,
-``session.delete``, ``session.refresh``, ``session.flush``, ``session.commit`` and
-``session.rollback``; ``exec_driver_sql`` and ``pandas.read_sql``; SQL a lazy-loaded
+``models.AgentRun``, a model class not imported by name, or passed by keyword
+(``.get(entity=Model, ...)``); ``session.merge``, ``session.delete``,
+``session.refresh``, ``session.flush``, ``session.commit``, ``session.rollback`` and
+``session.bulk_save_objects``; ``cursor.executemany``; ``exec_driver_sql``,
+``pandas.read_sql`` and ``DataFrame.to_sql``; SQL a lazy-loaded
 relationship emits; a call made by code outside ``fund/src/fund``, such as a
 ``portopt_db`` repository. When a statement is built in one function and run in
 another, each detected call is keyed under the function it sits in. A docstring or

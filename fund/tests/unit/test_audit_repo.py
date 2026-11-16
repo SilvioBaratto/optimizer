@@ -719,7 +719,8 @@ def _snapshot_failed_run(session) -> tuple[dict, list[dict]]:
 
 
 def test_insert_run_if_absent_recreates_a_rolled_back_run(committing_session):
-    """The run and its decisions come back from their snapshots; the caller commits."""
+    """Test ``AgentRunRepository.insert_run_if_absent``: the run and its decisions come
+    back from their snapshots; the caller commits."""
     snapshot, decisions = _snapshot_failed_run(committing_session)
     assert committing_session.get(AgentRun, snapshot["id"]) is None
 
@@ -736,7 +737,8 @@ def test_insert_run_if_absent_recreates_a_rolled_back_run(committing_session):
 
 
 def test_insert_run_if_absent_leaves_a_recorded_run_as_it_is(committing_session):
-    """A run already on record keeps its row and gains no decision."""
+    """Test ``AgentRunRepository.insert_run_if_absent``: a run already on record keeps
+    its row and gains no decision."""
     snapshot, decisions = _snapshot_failed_run(committing_session)
     repo = AgentRunRepository(committing_session)
     repo.insert_run_if_absent(snapshot, decisions[:1])

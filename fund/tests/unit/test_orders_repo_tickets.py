@@ -84,8 +84,9 @@ def _seed(session) -> list[PaperOrder]:
 
 
 def test_filled_tickets_rank_oldest_first_by_fill_asof_and_created_at(db_session):
-    """The portfolio's tickets come back in rank order; the last carries its stored
-    fill date, notional, ``created_at`` and lines."""
+    """Test ``OrderRepository.filled_tickets``: the portfolio's tickets come back in
+    rank order; the last carries its stored fill date, notional, ``created_at`` and
+    lines."""
     orders = _seed(db_session)
 
     tickets = OrderRepository(db_session).filled_tickets(_PID, filled_through=None)
@@ -99,7 +100,8 @@ def test_filled_tickets_rank_oldest_first_by_fill_asof_and_created_at(db_session
 
 
 def test_filled_tickets_stop_at_the_inclusive_fill_bound(db_session):
-    """``filled_through`` keeps tickets filled on or before it."""
+    """Test ``OrderRepository.filled_tickets``: ``filled_through`` keeps tickets filled
+    on or before it."""
     orders = _seed(db_session)
     repo = OrderRepository(db_session)
 
@@ -110,7 +112,8 @@ def test_filled_tickets_stop_at_the_inclusive_fill_bound(db_session):
 
 
 def test_latest_filled_ticket_is_the_last_of_the_ranked_tickets(db_session):
-    """The newest ticket is the one the ascending read ends with."""
+    """Test ``OrderRepository.latest_filled_ticket``: the newest ticket is the one the
+    ascending read ends with."""
     orders = _seed(db_session)
     repo = OrderRepository(db_session)
 
@@ -135,19 +138,28 @@ def test_a_filled_ticket_is_frozen(db_session):
 
 
 def test_restamp_created_at_makes_an_older_ticket_the_newest(committing_session):
-    """The stamp moves the ticket to the end of the rank, and a rollback undoes it."""
+    """Test ``OrderRepository.restamp_created_at``: the database-clock stamp moves the
+    ticket to the end of the fill rank and makes it the newest by ``created_at``; the
+    caller owns the commit, so a rollback undoes both."""
     orders = _seed(committing_session)
     restamped, newest = orders[2].id, orders[-1].id
+    newest_created = orders[0].id
     committing_session.commit()
     repo = OrderRepository(committing_session)
 
     repo.restamp_created_at(restamped)
     committing_session.expire_all()
     latest = repo.latest_filled_ticket(_PID, filled_through=None)
+    latest_created = repo.latest_for_portfolio(_PID)
+    latest_created_id = None if latest_created is None else latest_created.id
     committing_session.rollback()
     restored = repo.latest_filled_ticket(_PID, filled_through=None)
+    restored_created = repo.latest_for_portfolio(_PID)
 
     assert latest is not None
     assert latest.id == restamped
+    assert latest_created_id == restamped
     assert restored is not None
     assert restored.id == newest
+    assert restored_created is not None
+    assert restored_created.id == newest_created
