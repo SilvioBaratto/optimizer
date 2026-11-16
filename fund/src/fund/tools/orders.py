@@ -37,10 +37,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from portopt_db.base import ClockTimestamp
-from portopt_db.models import PaperOrder
-from sqlalchemy import update
-
 from fund.audit.orders_repository import OrderRepository, weights_hash
 from fund.readers import fx_rate_reader, price_reader
 from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
@@ -251,12 +247,7 @@ def _make_newest(repo: OrderRepository, portfolio_id: uuid.UUID, order: Any) -> 
     newest = repo.latest_for_portfolio(portfolio_id)
     if newest is None or newest.id == order.id:
         return
-    repo.session.execute(
-        update(PaperOrder)
-        .where(PaperOrder.id == order.id)
-        .values(created_at=ClockTimestamp())
-        .execution_options(synchronize_session=False)
-    )
+    repo.restamp_created_at(order.id)
 
 
 @tool_envelope

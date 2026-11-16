@@ -1243,10 +1243,8 @@ def resolution_key(
         GateMovedError: ``expected_gate`` is set and the run now waits at a different
             gate.
     """
-    from portopt_db.models import HumanAuditLog
-    from sqlalchemy import select
-
     from fund import observe
+    from fund.audit.human_audit_repository import HumanAuditLogRepository
     from fund.audit.repository import AgentRunRepository
 
     rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
@@ -1261,14 +1259,7 @@ def resolution_key(
                 "reopen it and review the new orders before deciding"
             )
         return f"{rid}:{action}:{gate}"
-    logged = session.execute(
-        select(HumanAuditLog.idempotency_key)
-        .where(HumanAuditLog.run_id == rid)
-        .where(HumanAuditLog.action == action)
-        .where(HumanAuditLog.idempotency_key.is_not(None))
-        .order_by(HumanAuditLog.created_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    logged = HumanAuditLogRepository(session).latest_idempotency_key(rid, action)
     return logged or f"{rid}:{action}"
 
 

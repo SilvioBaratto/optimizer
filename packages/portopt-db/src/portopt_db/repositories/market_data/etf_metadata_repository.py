@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -496,6 +496,41 @@ class ETFMetadataRepository(RepositoryBase):
             .order_by(ETFAssetClass.as_of.desc())
             .limit(1)
         ).scalar_one_or_none()
+
+    def newest_stock_pct(
+        self, instrument_ids: Collection[uuid.UUID], *, on_or_before: dt.date
+    ) -> dict[uuid.UUID, float | None]:
+        """Return each fund's stock share from its newest allocation up to a date.
+
+        The newest row answers even when its ``stock_pct`` is NULL, so an older row
+        never stands in for a share the latest report left out.
+
+        Args:
+            instrument_ids: The funds to read; an empty collection matches no row.
+            on_or_before: Inclusive upper bound on the allocation's ``as_of``.
+
+        Returns:
+            Instrument id to its newest row's ``stock_pct`` as a ``float``, or
+            ``None`` when that row stores none. A fund with no row on or before the
+            date is absent.
+        """
+        rows = self.session.execute(
+            select(
+                ETFAssetClass.instrument_id,
+                ETFAssetClass.as_of,
+                ETFAssetClass.stock_pct,
+            )
+            .where(
+                ETFAssetClass.instrument_id.in_(list(instrument_ids)),
+                ETFAssetClass.as_of <= on_or_before,
+            )
+            .order_by(ETFAssetClass.as_of.desc())
+        ).all()
+        shares: dict[uuid.UUID, float | None] = {}
+        for instrument_id, _, stock_pct in rows:
+            if instrument_id not in shares:
+                shares[instrument_id] = None if stock_pct is None else float(stock_pct)
+        return shares
 
     def get_latest_sector_weights(
         self,

@@ -85,6 +85,25 @@ class PriceBar:
 
 
 @dataclass(frozen=True)
+class InstrumentClass:
+    """The ``instruments`` columns that classify one listing of a Yahoo symbol.
+
+    Attributes:
+        yfinance_ticker: The Yahoo symbol the row carries.
+        id: The row's primary key.
+        instrument_type: ``instruments.instrument_type`` as stored, or ``None``.
+        asset_class: ``instruments.asset_class`` as stored.
+        fi_subclass: ``instruments.fi_subclass`` as stored, or ``None``.
+    """
+
+    yfinance_ticker: str
+    id: uuid.UUID
+    instrument_type: str | None
+    asset_class: str
+    fi_subclass: str | None
+
+
+@dataclass(frozen=True)
 class FxRatePoint:
     """One daily rate, expressed in the base currency the caller asked for.
 
@@ -101,7 +120,11 @@ class FxRatePoint:
 
 @runtime_checkable
 class PriceReader(Protocol):
-    """Instrument, profile and daily-bar reads keyed by Yahoo symbol or instrument."""
+    """Instrument, profile and daily-bar reads.
+
+    Each read is keyed by Yahoo symbol or by instrument, except
+    :meth:`newest_close_per_instrument`, which spans every instrument.
+    """
 
     def instrument_for(self, yfinance_ticker: str) -> InstrumentSummary | None:
         """Return the instrument listed under ``yfinance_ticker``.
@@ -149,6 +172,21 @@ class PriceReader(Protocol):
         """
         ...
 
+    def newest_close_per_instrument(
+        self, start: dt.date, end: dt.date
+    ) -> list[dt.date]:
+        """Return each instrument's newest bar date with a close inside a window.
+
+        Args:
+            start: Inclusive lower bound on the bar date.
+            end: Inclusive upper bound on the bar date.
+
+        Returns:
+            One date per instrument with a non-NULL close in the window, in no
+            guaranteed order; empty when no instrument has one.
+        """
+        ...
+
 
 @runtime_checkable
 class FxRateReader(Protocol):
@@ -177,7 +215,23 @@ class FxRateReader(Protocol):
 
 @runtime_checkable
 class UniverseReader(Protocol):
-    """Reads of the Trading 212 tradability overlay on the instrument universe."""
+    """Reads of the instrument universe: classification and the Trading 212 overlay."""
+
+    def instrument_classes_for(self, tickers: Collection[str]) -> list[InstrumentClass]:
+        """Return the classification of every row that carries one of ``tickers``.
+
+        A symbol that moved venues leaves a delisted row beside its live one, so a
+        symbol can have several entries.
+
+        Args:
+            tickers: Yahoo symbols to look up; an empty collection matches no row.
+
+        Returns:
+            One entry per matching row, sorted by these keys in turn: not delisted
+            before delisted, newer ``delisted_at`` first, newer ``created_at``
+            first, then ``ticker`` and ``id``; empty when no row matches.
+        """
+        ...
 
     def get_t212_untradeable_tickers(
         self, tickers: Collection[str] | None = None
@@ -209,6 +263,7 @@ class UniverseReader(Protocol):
 __all__ = [
     "FxRatePoint",
     "FxRateReader",
+    "InstrumentClass",
     "InstrumentSummary",
     "PriceBar",
     "PriceReader",

@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from fund.audit import FUND_JOB_TYPES, FundJobRepository
+from fund.audit.fund_job_repository import StartedJob
 
 
 @pytest.fixture
@@ -530,3 +531,142 @@ def test_reap_orphans_stamps_the_wall_clock_moment_on_failed_slots(
     job_session.expire_all()
 
     assert _naive(repo.get(stale.id).finished_at) == _naive(_WALL_CLOCK)
+
+
+# --- fail_active_slots_of: the slots one process holds ----------------------
+
+
+def _insert_owned_job(
+    session, *, job_type: str, status: str, pid: int, host: str
+) -> BackgroundJob:
+    job = BackgroundJob(
+        job_type=job_type,
+        status=status,
+        started_at=datetime.now(UTC),
+        last_heartbeat_at=datetime.now(UTC),
+        worker_pid=pid,
+        worker_host=host,
+    )
+    session.add(job)
+    session.flush()
+    return job
+
+
+def test_fail_active_slots_of_fails_only_that_process_active_fund_slots(job_session):
+    """``fail_active_slots_of`` fails the matching slot and spares another PID, host,
+    job type and a terminal row."""
+    owned = _insert_owned_job(
+        job_session, job_type="fund_nav_mark", status="running", pid=7, host="me"
+    )
+    # One active row per job_type is all the partial unique index allows.
+    spared = [
+        _insert_owned_job(
+            job_session,
+            job_type="fund_rebalance_sweep",
+            status="running",
+            pid=8,
+            host="me",
+        ),
+        _insert_owned_job(
+            job_session,
+            job_type="fund_drift_monitor",
+            status="running",
+            pid=7,
+            host="you",
+        ),
+        _insert_owned_job(
+            job_session, job_type="daily_pipeline", status="running", pid=7, host="me"
+        ),
+        _insert_owned_job(
+            job_session, job_type="fund_nav_mark", status="completed", pid=7, host="me"
+        ),
+    ]
+    repo = FundJobRepository(job_session)
+
+    failed = repo.fail_active_slots_of(7, "me", error="abandoned at shutdown")
+
+    job_session.expire_all()
+    assert failed == 1
+    row = repo.get(owned.id)
+    assert (row.status, row.error) == ("failed", "abandoned at shutdown")
+    assert row.finished_at is not None
+    assert [repo.get(job.id).status for job in spared] == [
+        "running",
+        "running",
+        "running",
+        "completed",
+    ]
+
+
+def test_fail_active_slots_of_leaves_the_commit_to_its_caller(job_session):
+    """A rollback after ``fail_active_slots_of`` restores the slot's status."""
+    owned = _insert_owned_job(
+        job_session, job_type="fund_drift_monitor", status="pending", pid=7, host="me"
+    )
+    job_session.commit()
+
+    FundJobRepository(job_session).fail_active_slots_of(7, "me", error="drain")
+    job_session.rollback()
+
+    assert FundJobRepository(job_session).get(owned.id).status == "pending"
+
+
+# --- jobs_started_since: rows started at or after a cutoff --------------------
+
+
+def test_jobs_started_since_returns_the_asked_types_started_on_or_after_the_cutoff(
+    job_session,
+):
+    """``jobs_started_since`` filters on job type and an inclusive start bound."""
+    cutoff = datetime(2026, 11, 13, tzinfo=UTC)
+    rows = [
+        ("yfinance_fetch", "completed", cutoff + timedelta(hours=6), True),
+        ("fund_nav_mark", "running", cutoff, False),
+        ("yfinance_fetch", "failed", cutoff - timedelta(minutes=1), True),
+        ("daily_pipeline", "completed", cutoff + timedelta(hours=7), True),
+    ]
+    for job_type, status, started, finished in rows:
+        job_session.add(
+            BackgroundJob(
+                job_type=job_type,
+                status=status,
+                started_at=started,
+                finished_at=started + timedelta(minutes=5) if finished else None,
+            )
+        )
+    job_session.flush()
+
+    started = FundJobRepository(job_session).jobs_started_since(
+        ("yfinance_fetch", "fund_nav_mark"), cutoff
+    )
+
+    assert all(isinstance(job, StartedJob) for job in started)
+    assert sorted(
+        (
+            job.job_type,
+            job.status,
+            _naive(job.started_at),
+            job.finished_at and _naive(job.finished_at),
+        )
+        for job in started
+    ) == [
+        ("fund_nav_mark", "running", _naive(cutoff), None),
+        (
+            "yfinance_fetch",
+            "completed",
+            _naive(cutoff + timedelta(hours=6)),
+            _naive(cutoff + timedelta(hours=6, minutes=5)),
+        ),
+    ]
+
+
+def test_started_job_is_a_frozen_value():
+    """``StartedJob`` refuses attribute assignment."""
+    job = StartedJob(
+        job_type="fund_nav_mark",
+        status="completed",
+        started_at=datetime(2026, 11, 13, tzinfo=UTC),
+        finished_at=None,
+    )
+    with pytest.raises(AttributeError):
+        job.status = "failed"  # type: ignore[misc]

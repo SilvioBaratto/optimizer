@@ -9,10 +9,14 @@ the mandate base currency via ``optimizer.fx`` (the only package allowed to do s
 in the fund).
 
 Agent-stack-free: imports ``optimizer`` / ``skfolio`` (allowed) but never the
-deep-agent stack (``deepagents`` / ``langgraph``) nor ``fund.audit`` — so the
-daily NAV-mark scheduler step can lazy-import it without pulling that weight into
-a bare ``import fund.scheduler``. Degrades gracefully: short/empty/absent history
-yields an empty series or ``None`` fields, never a fabricated number.
+deep-agent stack (``deepagents`` / ``langgraph``), so the daily NAV-mark scheduler
+step can lazy-import it without pulling that weight into a bare
+``import fund.scheduler``. Tickets and NAV dates are read through the ``fund.audit``
+repositories, which the reading functions import when called; the ``fund.audit``
+package loads langgraph only on demand, and ``test_performance_nav.py`` imports this
+module and each module it names in an import statement in a fresh interpreter to
+check that none of them loads the agent stack. Degrades gracefully:
+short/empty/absent history yields an empty series or ``None`` fields.
 """
 
 from __future__ import annotations
@@ -23,12 +27,15 @@ import logging
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
 
 from fund.periods import periods_per_year
+
+if TYPE_CHECKING:
+    from fund.audit.orders_repository import FilledTicket
 
 logger = logging.getLogger(__name__)
 
@@ -663,24 +670,6 @@ def _as_date(value: Any) -> dt.date | None:
     return None
 
 
-def _ticket_order_columns(paper_order: Any) -> tuple[Any, ...]:
-    """Sort keys that rank paper tickets from oldest to newest, with no ties.
-
-    Tickets for the same decision bar share ``asof`` and ``fill_date`` but may carry
-    different weights (a re-run after a reject, a sweep plus a manual run), so those
-    two keys alone leave their order to the database. ``created_at`` then ``id``
-    make the newest ticket supersede the others deterministically; NAV reads the
-    ascending order and the holdings table the descending one, so both follow the
-    same ticket.
-    """
-    return (
-        paper_order.fill_date,
-        paper_order.asof,
-        paper_order.created_at,
-        paper_order.id,
-    )
-
-
 def _ticket_book(
     ticket: Any, base_prices: pd.DataFrame
 ) -> dict[str, tuple[float, dt.date, float]]:
@@ -943,18 +932,7 @@ def build_nav_series(
             has no resolvable price currency at all — marking would silently mix
             currencies, so it fails loud instead.
     """
-    from portopt_db.models.orders.paper_order import PaperOrder
-    from sqlalchemy import select
-
-    tickets = list(
-        session.execute(
-            select(PaperOrder)
-            .where(PaperOrder.portfolio_id == portfolio_id)
-            .order_by(*_ticket_order_columns(PaperOrder))
-        )
-        .scalars()
-        .all()
-    )
+    tickets = _tickets_through(session, portfolio_id, None)
     if not tickets:
         return []
 
@@ -1340,30 +1318,24 @@ def _series_returns(
     return r1d, _window(30), _window(365)
 
 
-def _active_ticket(session: Any, portfolio_id: uuid.UUID, asof: dt.date | None) -> Any:
+def _active_ticket(
+    session: Any, portfolio_id: uuid.UUID, asof: dt.date | None
+) -> FilledTicket | None:
     """The latest paper ticket filled at or before ``asof`` (``None`` when absent)."""
-    from portopt_db.models.orders.paper_order import PaperOrder
-    from sqlalchemy import select
+    from fund.audit.orders_repository import OrderRepository
 
-    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
-    if asof is not None:
-        stmt = stmt.where(PaperOrder.fill_date <= asof)
-    stmt = stmt.order_by(*(c.desc() for c in _ticket_order_columns(PaperOrder)))
-    return session.execute(stmt).scalars().first()
+    return OrderRepository(session).latest_filled_ticket(
+        portfolio_id, filled_through=asof
+    )
 
 
 def _tickets_through(
     session: Any, portfolio_id: uuid.UUID, asof: dt.date | None
-) -> list[Any]:
+) -> list[FilledTicket]:
     """Every paper ticket filled at or before ``asof``, oldest first (the NAV chain)."""
-    from portopt_db.models.orders.paper_order import PaperOrder
-    from sqlalchemy import select
+    from fund.audit.orders_repository import OrderRepository
 
-    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
-    if asof is not None:
-        stmt = stmt.where(PaperOrder.fill_date <= asof)
-    stmt = stmt.order_by(*_ticket_order_columns(PaperOrder))
-    return list(session.execute(stmt).scalars().all())
+    return OrderRepository(session).filled_tickets(portfolio_id, filled_through=asof)
 
 
 def _ticket_lines(ticket: Any) -> tuple[list[str], dict[str, dict[str, Any]]]:
@@ -1499,17 +1471,14 @@ def _nav_last_interval(
 
     Returns:
         ``(prior date, last date)`` of the last NAV step; ``None`` with fewer than two
-        persisted points or a NAV that lags ``last_bar`` (callers then use the
-        holdings' own last two bars).
+        persisted points on or before ``asof`` or a NAV that lags ``last_bar`` (the
+        caller then falls back to the holdings' own last two bars, when there are
+        two).
     """
-    from portopt_db.models import NavHistory
-    from sqlalchemy import select
+    from fund.audit.nav_history_repository import NavHistoryRepository
 
-    stmt = select(NavHistory.date).where(NavHistory.portfolio_id == portfolio_id)
-    if asof is not None:
-        stmt = stmt.where(NavHistory.date <= asof)
-    dates = list(
-        session.execute(stmt.order_by(NavHistory.date.desc()).limit(2)).scalars()
+    dates = NavHistoryRepository(session).newest_nav_dates(
+        portfolio_id, on_or_before=asof, limit=2
     )
     if len(dates) < 2 or dates[0] < last_bar:
         return None

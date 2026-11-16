@@ -391,7 +391,7 @@ _DECISION_BAR_LAGGING_SHARE = 0.1
 
 
 def default_decision_bar(session: Any, *, today: dt.date | None = None) -> dt.date:
-    """The newest decision bar whose next close is already stored for the universe.
+    """Choose the decision bar from the stored closes of recently priced instruments.
 
     ``place_orders`` fills at the first close strictly after the decision bar (D30),
     so a bar equal to the wall-clock date (or to the last stored bar) has nothing to
@@ -408,20 +408,14 @@ def default_decision_bar(session: Any, *, today: dt.date | None = None) -> dt.da
     Returns:
         The decision bar, or ``today`` when no recent price data is stored.
     """
-    from portopt_db.models.market_data.yfinance_data import PriceHistory
-    from sqlalchemy import func, select
+    from fund.readers import price_reader
 
     day = today if today is not None else dt.datetime.now(dt.UTC).date()
-    stmt = (
-        select(func.max(PriceHistory.date))
-        .where(
-            PriceHistory.close.is_not(None),
-            PriceHistory.date >= day - dt.timedelta(days=_DECISION_BAR_LOOKBACK_DAYS),
-            PriceHistory.date <= day,
+    latest = sorted(
+        price_reader(session).newest_close_per_instrument(
+            day - dt.timedelta(days=_DECISION_BAR_LOOKBACK_DAYS), day
         )
-        .group_by(PriceHistory.instrument_id)
     )
-    latest: list[dt.date] = sorted(session.execute(stmt).scalars())
     if not latest:
         return day
     reached = latest[int(len(latest) * _DECISION_BAR_LAGGING_SHARE)]

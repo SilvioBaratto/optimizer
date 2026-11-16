@@ -1117,6 +1117,28 @@ class YFinanceRepository(RepositoryBase):
         )
         return [_price_bar(row) for row in rows]
 
+    def newest_close_per_instrument(self, start: date, end: date) -> list[date]:
+        """Return each instrument's newest bar date with a close inside a window.
+
+        Args:
+            start: Inclusive lower bound on the bar date.
+            end: Inclusive upper bound on the bar date.
+
+        Returns:
+            One date per instrument with a non-NULL close in the window, in no
+            guaranteed order; empty when no instrument has one.
+        """
+        stmt = (
+            select(func.max(PriceHistory.date))
+            .where(
+                PriceHistory.close.is_not(None),
+                PriceHistory.date >= start,
+                PriceHistory.date <= end,
+            )
+            .group_by(PriceHistory.instrument_id)
+        )
+        return list(self.session.execute(stmt).scalars())
+
     # ------------------------------------------------------------------
     # Financial Statements
     # ------------------------------------------------------------------

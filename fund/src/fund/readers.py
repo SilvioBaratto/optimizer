@@ -37,7 +37,7 @@ def fx_rate_reader(session: Session) -> FxRateReader:
 
 
 def universe_reader(session: Session) -> UniverseReader:
-    """Return the Trading 212 overlay reader over ``session``.
+    """Return the instrument classification and Trading 212 overlay reader.
 
     Args:
         session: The open ``portopt_db`` session the reader queries.

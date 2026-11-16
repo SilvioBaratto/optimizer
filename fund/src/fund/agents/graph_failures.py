@@ -140,8 +140,9 @@ def record_failed_round(session: Any, exc: BaseException) -> bool:
     this re-creates the run and its decisions from the snapshot the exception carries,
     so the failure stays visible and the drift monitor's cooldown (which counts
     ``failed`` among the outcomes nobody acted on) still applies. It also hands back a
-    first-round gate that :func:`_finalize_failed` could not. Best effort: never
-    raises, and a run that already exists (the caller committed after all) is left as
+    first-round gate that :func:`_finalize_failed` could not. Best effort: an
+    exception while handing back the gate or writing the run is logged instead of
+    raised, and a run that already exists (the caller committed after all) is left as
     it is.
 
     Args:
@@ -155,16 +156,13 @@ def record_failed_round(session: Any, exc: BaseException) -> bool:
     failed = failed_round_of(exc)
     if failed is None:
         return False
-    from portopt_db.models import AgentDecision, AgentRun
+    from fund.audit.repository import AgentRunRepository
 
     if failed.gate_portfolio_id is not None:
         _hand_back_first_round(session, failed.gate_portfolio_id)
     try:
         with _own_session(session) as own:
-            if own.get(AgentRun, failed.run["id"]) is None:
-                own.add(AgentRun(**failed.run))
-                own.flush()
-                own.add_all(AgentDecision(**row) for row in failed.decisions)
+            AgentRunRepository(own).insert_run_if_absent(failed.run, failed.decisions)
             own.commit()
     except Exception:
         _log.exception("could not record failed fund run %s", failed.run.get("id"))

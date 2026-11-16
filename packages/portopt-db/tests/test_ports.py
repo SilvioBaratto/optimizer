@@ -28,6 +28,7 @@ from portopt_db.models.universe.universe import Instrument
 from portopt_db.ports import (
     FxRatePoint,
     FxRateReader,
+    InstrumentClass,
     InstrumentSummary,
     PriceBar,
     PriceReader,
@@ -284,6 +285,96 @@ def test_price_bars_for_reads_the_same_bars_as_get_price_history(
     assert [(bar.date, bar.close) for bar in bars] == [
         (row.date, float(row.close)) for row in rows if row.close is not None
     ]
+
+
+def _add_close(
+    session: Session, instrument: Instrument, day: dt.date, close: str | None
+) -> None:
+    add_and_flush(
+        session,
+        PriceHistory(
+            instrument_id=instrument.id,
+            date=day,
+            close=None if close is None else Decimal(close),
+        ),
+    )
+
+
+def test_newest_close_per_instrument_reads_each_instrument_newest_closed_bar(
+    db_session: Session,
+) -> None:
+    """One date per instrument with a close in the window; a NULL close is skipped."""
+    early, late, blank, stale = (
+        _instrument(db_session, ticker) for ticker in ("EARLY", "LATE", "BLANK", "OLD")
+    )
+    _add_close(db_session, early, dt.date(2026, 3, 2), "1")
+    _add_close(db_session, early, dt.date(2026, 3, 4), "1")
+    _add_close(db_session, late, dt.date(2026, 3, 5), "1")
+    _add_close(db_session, late, dt.date(2026, 3, 9), "1")
+    _add_close(db_session, blank, dt.date(2026, 3, 3), "1")
+    _add_close(db_session, blank, dt.date(2026, 3, 5), None)
+    _add_close(db_session, stale, dt.date(2026, 2, 27), "1")
+    repository = YFinanceRepository(db_session)
+
+    dates = repository.newest_close_per_instrument(
+        dt.date(2026, 3, 1), dt.date(2026, 3, 6)
+    )
+
+    assert sorted(dates) == [
+        dt.date(2026, 3, 3),
+        dt.date(2026, 3, 4),
+        dt.date(2026, 3, 5),
+    ]
+    assert (
+        repository.newest_close_per_instrument(
+            dt.date(2026, 4, 1), dt.date(2026, 4, 30)
+        )
+        == []
+    )
+
+
+def test_instrument_classes_for_lists_every_row_live_listing_first(
+    db_session: Session,
+) -> None:
+    """Each row carrying a symbol is listed, live before delisted, newest delisting
+    first; other symbols are left out."""
+    newer_delisting = _instrument(
+        db_session, "VUSA1", yfinance_ticker="VUSA.L", delisted_at=dt.date(2025, 6, 1)
+    )
+    live = _instrument(db_session, "VUSA2", yfinance_ticker="VUSA.L")
+    older_delisting = _instrument(
+        db_session, "VUSA3", yfinance_ticker="VUSA.L", delisted_at=dt.date(2024, 1, 2)
+    )
+    live.asset_class = "equity"
+    live.fi_subclass = None
+    other = _instrument(db_session, "IGLT", yfinance_ticker="IGLT.L")
+    other.asset_class = "fixed_income"
+    other.fi_subclass = "government"
+    _instrument(db_session, "SKIP", yfinance_ticker="SKIP.L")
+    db_session.flush()
+    repository = UniverseRepository(db_session)
+
+    classes = repository.instrument_classes_for(["VUSA.L", "IGLT.L", "NONE.L"])
+
+    assert [
+        (c.yfinance_ticker, c.id) for c in classes if c.yfinance_ticker == "VUSA.L"
+    ] == [
+        ("VUSA.L", live.id),
+        ("VUSA.L", newer_delisting.id),
+        ("VUSA.L", older_delisting.id),
+    ]
+    assert (
+        InstrumentClass(
+            yfinance_ticker="IGLT.L",
+            id=other.id,
+            instrument_type="ETF",
+            asset_class="fixed_income",
+            fi_subclass="government",
+        )
+        in classes
+    )
+    assert len(classes) == 4
+    assert repository.instrument_classes_for([]) == []
 
 
 def _add_rate(session: Session, base: str, quote: str, day: dt.date, rate: str) -> None:

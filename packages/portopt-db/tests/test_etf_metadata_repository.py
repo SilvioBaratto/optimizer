@@ -589,3 +589,44 @@ class TestGetLatestSectorWeights:
         snap = SectorSnapshot(as_of=_AS_OF, weights={"energy": 1.0})
         with pytest.raises(AttributeError):
             snap.as_of = dt.date(2026, 1, 1)  # type: ignore[misc]
+
+
+def _allocation(
+    repo: ETFMetadataRepository,
+    instrument: Instrument,
+    as_of: dt.date,
+    stock_pct: float | None,
+) -> None:
+    repo.upsert_asset_classes(
+        instrument.id,
+        as_of,
+        stock_pct=stock_pct,
+        bond_pct=None,
+        cash_pct=None,
+        other_pct=None,
+    )
+
+
+def test_newest_stock_pct_reads_each_fund_newest_allocation_on_or_before(
+    db_session,
+) -> None:
+    """The newest row on or before the bar answers, even when its share is NULL."""
+    repo = ETFMetadataRepository(db_session)
+    dated = _etf(db_session, "MIX.DE")
+    unreported = _etf(db_session, "NUL.DE")
+    later_only = _etf(db_session, "NEW.DE")
+    _allocation(repo, dated, dt.date(2026, 6, 1), 0.2)
+    _allocation(repo, dated, dt.date(2026, 7, 1), 0.35)
+    _allocation(repo, dated, dt.date(2026, 9, 1), 0.9)
+    _allocation(repo, unreported, dt.date(2026, 5, 1), 0.4)
+    _allocation(repo, unreported, dt.date(2026, 7, 1), None)
+    _allocation(repo, later_only, dt.date(2026, 8, 1), 0.5)
+    db_session.flush()
+
+    shares = repo.newest_stock_pct(
+        [dated.id, unreported.id, later_only.id], on_or_before=dt.date(2026, 7, 15)
+    )
+
+    assert shares == {dated.id: pytest.approx(0.35), unreported.id: None}
+    assert isinstance(shares[dated.id], float)
+    assert repo.newest_stock_pct([], on_or_before=dt.date(2026, 7, 15)) == {}
