@@ -47,6 +47,29 @@ jobs:
       - run: uv run ruff check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ scripts/
       - run: uv run ruff format --check packages/portopt-core/optimizer/ tests/ ingestion/ fund/ packages/portopt-db/ scripts/
       - run: uv run python scripts/ci/check_complexity_ratchet.py
+      # Standard 6.6: a test cites its requirement with the `criterion` marker. A
+      # collection-only pass of each suite writes its trace, and the check fails when a
+      # requirement of docs/requirements.md has no test or a test cites an id the
+      # registry does not list. It runs inside `lint` because branch protection requires
+      # that job by name; a job of its own would block no merge until it was added there.
+      - name: Requirement traceability
+        env:
+          TRACE: ${{ runner.temp }}/traceability
+        run: |
+          uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/core.csv"
+          (cd ingestion && uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/ingestion.csv")
+          (cd packages/portopt-db && uv run pytest --collect-only -qqq --traceability-out="$TRACE/portopt-db.csv")
+          (cd fund && uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/fund.csv")
+          uv run python scripts/ci/traceability.py check --requirements docs/requirements.md \
+            --csv "$TRACE/core.csv" --csv "$TRACE/ingestion.csv" \
+            --csv "$TRACE/portopt-db.csv" --csv "$TRACE/fund.csv"
+      - name: Upload the traceability matrix
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: traceability
+          path: ${{ runner.temp }}/traceability/
+          if-no-files-found: warn
       # The entrypoints run inside the images and the installers on user machines.
       - run: shellcheck $(git ls-files '*.sh') scripts/optimizer
       # pip-audit the resolved third-party set. The three editable workspace

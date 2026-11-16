@@ -26,10 +26,12 @@ from typing import Any
 
 import pytest
 import tomllib
+import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _REPO_ROOT / "scripts" / "ci" / "traceability.py"
 _REGISTRY = _REPO_ROOT / "docs" / "requirements.md"
+_CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
 _HEADER = "| id | statement | module | standard |\n|---|---|---|---|\n"
 _CSV_HEADER = "req_id,nodeid,module,defects\n"
 _SUITE_DIRS = ("", "ingestion", "packages/portopt-db", "fund")
@@ -484,8 +486,9 @@ def _suite_options(suite: str) -> dict[str, str]:
     if ini.is_file():
         parser = configparser.ConfigParser()
         parser.read(ini, encoding="utf-8")
-        return {key: parser.get("pytest", key) for key in ("addopts", "pythonpath")} | {
-            "markers": parser.get("pytest", "markers")
+        return {
+            key: parser.get("pytest", key)
+            for key in ("addopts", "pythonpath", "markers")
         }
     options = tomllib.loads((directory / "pyproject.toml").read_text(encoding="utf-8"))
     ini_options = options["tool"]["pytest"]["ini_options"]
@@ -513,10 +516,37 @@ def test_every_suite_config_loads_the_plugin_and_registers_both_markers(
 
 @pytest.mark.criterion("REQ-OPS-001")
 def test_the_committed_registry_parses_and_names_existing_modules() -> None:
-    """Every registered module path exists, so a rename cannot leave a stale row."""
+    """Every registered module path exists, so moving or deleting one fails here."""
     requirements = _load().parse_registry(_REGISTRY.read_text(encoding="utf-8"))
 
     missing = [r.module for r in requirements if not (_REPO_ROOT / r.module).exists()]
 
     assert requirements
     assert missing == []
+
+
+@pytest.mark.criterion("REQ-OPS-001")
+def test_the_lint_job_collects_each_suite_and_checks_the_merged_trace() -> None:
+    """A hole fails ``lint``, a required check, and the four files are uploaded."""
+    workflow = yaml.safe_load(_CI_WORKFLOW.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["lint"]["steps"]
+    (step,) = [s for s in steps if "traceability.py check" in s.get("run", "")]
+    lines = step["run"].splitlines()
+    trace_names = {
+        "": "core",
+        "ingestion": "ingestion",
+        "packages/portopt-db": "portopt-db",
+        "fund": "fund",
+    }
+
+    for suite, name in trace_names.items():
+        output = f'--traceability-out="$TRACE/{name}.csv"'
+        (collect,) = [line for line in lines if output in line]
+        assert "--collect-only" in collect
+        assert (f"cd {suite} &&" in collect) is bool(suite)
+        assert f'--csv "$TRACE/{name}.csv"' in step["run"]
+    (upload,) = [
+        s for s in steps if s.get("uses", "").startswith("actions/upload-artifact@")
+    ]
+    assert step["env"]["TRACE"] == "${{ runner.temp }}/traceability"
+    assert upload["with"]["path"].rstrip("/") == step["env"]["TRACE"]
