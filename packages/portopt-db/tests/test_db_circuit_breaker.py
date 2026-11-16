@@ -209,6 +209,7 @@ _CLASSIFICATION_CASES: list[tuple[str, Callable[[], BaseException], str]] = [
     [(make, expected) for _, make, expected in _CLASSIFICATION_CASES],
     ids=[case_id for case_id, _, _ in _CLASSIFICATION_CASES],
 )
+@pytest.mark.criterion("REQ-DB-003")
 def test_only_connectivity_failures_count_toward_opening(
     make_error: Callable[[], BaseException], expected: str
 ) -> None:
@@ -282,6 +283,7 @@ def test_starts_closed_and_admits_calls_without_a_ticket() -> None:
     assert breaker.refusal() is None
 
 
+@pytest.mark.criterion("REQ-DB-002")
 def test_opens_after_threshold_consecutive_counted_failures() -> None:
     """The threshold-th consecutive connectivity failure opens it, not one earlier."""
     breaker = _breaker(_Clock())
@@ -293,6 +295,7 @@ def test_opens_after_threshold_consecutive_counted_failures() -> None:
     assert breaker.state is BreakerState.OPEN
 
 
+@pytest.mark.criterion("REQ-DB-002")
 def test_a_success_resets_the_failure_count() -> None:
     """Failures separated by a success are not consecutive."""
     breaker = _breaker(_Clock())
@@ -305,6 +308,7 @@ def test_a_success_resets_the_failure_count() -> None:
     assert breaker.state is BreakerState.CLOSED
 
 
+@pytest.mark.criterion("REQ-DB-002")
 def test_open_refuses_until_the_reset_timeout_elapses() -> None:
     """Open refuses every call until the reset timeout has passed."""
     clock = _Clock()
@@ -331,6 +335,7 @@ def test_refusal_names_when_the_next_attempt_is_due() -> None:
     assert "20 s" in str(refusal)
 
 
+@pytest.mark.criterion("REQ-DB-002")
 def test_after_the_timeout_exactly_one_probe_is_admitted_with_a_ticket() -> None:
     """Once the timeout passes one probe goes through and the next caller waits."""
     clock = _Clock()
@@ -359,6 +364,7 @@ def test_refusal_peeks_without_admitting_the_probe() -> None:
     assert breaker.refusal() is not None
 
 
+@pytest.mark.criterion("REQ-DB-002")
 def test_probe_success_closes_the_breaker_and_resets_the_count() -> None:
     """A successful probe closes the breaker with a clean failure count."""
     clock = _Clock()
@@ -372,6 +378,7 @@ def test_probe_success_closes_the_breaker_and_resets_the_count() -> None:
     assert breaker.state is BreakerState.CLOSED
 
 
+@pytest.mark.criterion("REQ-DB-002")
 def test_probe_failure_reopens_for_a_full_cooldown_from_the_failure() -> None:
     """A failed probe reopens, and the cooldown restarts at the failure."""
     clock = _Clock()
@@ -495,6 +502,7 @@ def test_db_circuit_breaker_satisfies_the_protocol() -> None:
 # --- thread safety ---------------------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-DB-002")
 def test_two_threads_racing_for_the_probe_admit_exactly_one() -> None:
     """Two callers that race for the probe slot: one wins, one is refused."""
     clock = _Clock()
@@ -721,6 +729,7 @@ def _unreachable_manager(tmp_path, clock: _Clock) -> DatabaseManager:
     return DatabaseManager(_SqliteConfig(url=url), breaker=_breaker(clock))
 
 
+@pytest.mark.criterion("REQ-DB-004")
 def test_open_breaker_refuses_a_session_without_touching_the_engine() -> None:
     """An open breaker refuses before any session is built."""
     clock = _Clock()
@@ -735,6 +744,7 @@ def test_open_breaker_refuses_a_session_without_touching_the_engine() -> None:
     factory.assert_not_called()
 
 
+@pytest.mark.criterion("REQ-DB-004")
 def test_unreachable_database_opens_the_breaker_then_stops_connecting(
     tmp_path,
 ) -> None:
@@ -812,6 +822,7 @@ def test_a_failing_rollback_still_leaves_the_outcome_recorded() -> None:
     assert mgr.breaker.state is BreakerState.OPEN
 
 
+@pytest.mark.criterion("REQ-DB-004")
 def test_threshold_failures_through_get_session_open_the_breaker() -> None:
     """Connectivity failures raised in session bodies open the breaker."""
     mgr, _ = _ready_manager(_Clock())
@@ -823,6 +834,7 @@ def test_threshold_failures_through_get_session_open_the_breaker() -> None:
     assert mgr.breaker.state is BreakerState.OPEN
 
 
+@pytest.mark.criterion("REQ-DB-003")
 def test_statement_timeouts_through_get_session_never_open_the_breaker() -> None:
     """Statement timeouts on a healthy database never open the breaker."""
     mgr, _ = _ready_manager(_Clock())

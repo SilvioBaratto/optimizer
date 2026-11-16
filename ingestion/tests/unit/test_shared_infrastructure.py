@@ -200,6 +200,7 @@ def fake_clock():
         yield clock
 
 
+@pytest.mark.criterion("REQ-ING-007")
 class TestCircuitBreakerRecovery:
     def _latch(self, cb: CircuitBreaker, clock: _FakeClock) -> None:
         """Drive the breaker to ``max_attempts`` the way sustained failures do."""
@@ -467,6 +468,7 @@ class TestTransientErrorDetection:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-ING-004")
 class TestRetryWithBackoff:
     @patch("app.services.infrastructure.retry._full_jitter", return_value=0.0)
     def test_returns_on_first_success(self, _mock_jitter):

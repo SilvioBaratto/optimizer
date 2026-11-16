@@ -9,6 +9,8 @@ from __future__ import annotations
 import dataclasses
 import re
 
+import pytest
+
 from fund.config import FundConfig
 
 _SECRET_FIELD = re.compile(r"(api_key|api_token|secret|password)$|^database_url$")
@@ -39,11 +41,13 @@ _EXPECTED_SECRET_FIELDS = frozenset(
 )
 
 
+@pytest.mark.criterion("REQ-FUND-017")
 def test_secret_field_regex_matches_exactly_the_known_secrets() -> None:
     """Pin the secret field set the repr test covers; add new secret fields here."""
     assert set(_secret_names()) == _EXPECTED_SECRET_FIELDS
 
 
+@pytest.mark.criterion("REQ-FUND-017")
 def test_repr_hides_every_secret_field() -> None:
     """No secret field value appears in ``repr`` or ``str`` of a populated config."""
     names = _secret_names()

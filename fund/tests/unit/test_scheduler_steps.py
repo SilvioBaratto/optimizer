@@ -715,6 +715,7 @@ def test_drift_monitor_default_decision_bar_leaves_a_fill_bar_for_place_orders(
 # --- run_drift_monitor ------------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_enqueues_only_breached(session_factory, monkeypatch):
     _seed_mandate(
         session_factory, PID_A, cron=False, drift=True, threshold=0.1
@@ -743,6 +744,7 @@ def test_drift_monitor_enqueues_only_breached(session_factory, monkeypatch):
     assert _job_rows(session_factory, "fund_drift_monitor")[0].status == "completed"
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_skips_already_paused(session_factory, monkeypatch):
     _seed_mandate(session_factory, PID_A, cron=False, drift=True, threshold=0.1)
     _seed_paused_run(session_factory, PID_A)  # already awaiting HITL
@@ -764,6 +766,7 @@ def test_drift_monitor_skips_already_paused(session_factory, monkeypatch):
     assert driven == []  # breached but already paused → skipped (no stacking)
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_ignores_a_proposal_no_adviser_approved(
     session_factory, monkeypatch
 ):
@@ -815,6 +818,7 @@ def _seed_drifted_invested_portfolio(
     )
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_does_not_rerun_a_never_approved_rejected_portfolio(
     session_factory, monkeypatch
 ):
@@ -849,6 +853,7 @@ def test_drift_monitor_does_not_rerun_a_never_approved_rejected_portfolio(
     assert driven == []
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_waits_out_the_cooldown_after_a_rejected_rebalance(
     session_factory, monkeypatch
 ):
@@ -866,6 +871,7 @@ def test_drift_monitor_waits_out_the_cooldown_after_a_rejected_rebalance(
     assert driven == []  # the adviser's rejection is not overridden on the next tick
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_retries_once_the_cooldown_has_elapsed(
     session_factory, monkeypatch
 ):
@@ -1218,6 +1224,7 @@ def test_sweep_marks_slot_failed_on_infra_error(session_factory, monkeypatch):
     assert _job_rows(session_factory, "fund_rebalance_sweep")[0].status == "failed"
 
 
+@pytest.mark.criterion("REQ-FUND-015")
 def test_drift_monitor_skips_when_slot_busy(session_factory, monkeypatch):
     with session_factory() as session:
         FundJobRepository(session).claim_or_create("fund_drift_monitor")  # occupy
@@ -1229,6 +1236,7 @@ def test_drift_monitor_skips_when_slot_busy(session_factory, monkeypatch):
     assert ok is False
 
 
+@pytest.mark.criterion("REQ-FUND-015")
 def test_drift_monitor_marks_slot_failed_on_infra_error(session_factory, monkeypatch):
     _seed_mandate(session_factory, PID_A, cron=False, drift=True)
     monkeypatch.setattr(
@@ -1438,6 +1446,7 @@ def test_aborted_sweep_does_not_commit_partial_work_with_the_failed_mark(
     assert _run_portfolios(session_factory) == set()
 
 
+@pytest.mark.criterion("REQ-FUND-015")
 def test_drift_monitor_survives_a_portfolio_that_poisons_the_session(
     session_factory, monkeypatch
 ):
@@ -1469,6 +1478,7 @@ def _arrange_drift_breach(
     monkeypatch.setattr(observe, "reprofile_status", _not_due)
 
 
+@pytest.mark.criterion("REQ-FUND-015")
 def test_drift_monitor_rolls_back_a_failed_portfolio_and_keeps_the_others(
     session_factory, monkeypatch
 ):

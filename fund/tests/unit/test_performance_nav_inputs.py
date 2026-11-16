@@ -65,6 +65,7 @@ def _hand_built(
     )
 
 
+@pytest.mark.criterion("REQ-FUND-012")
 class TestComputeNav:
     """``compute_nav`` marks a hand-built book without a session."""
 
@@ -278,6 +279,7 @@ def _as_points(rows) -> list[NavPoint]:
 _GOLDEN = (_GOLDEN_WITH_CAPITAL, _GOLDEN_SINCE, _GOLDEN_THROUGH_ASOF)
 
 
+@pytest.mark.criterion("REQ-FUND-013")
 class TestGoldenNavSeries:
     """The composed ``build_nav_series`` reproduces the series from before the split."""
 
@@ -316,6 +318,7 @@ class TestGoldenNavSeries:
 class TestLoadNavInputs:
     """``load_nav_inputs`` reads the book, guards its currencies and warns."""
 
+    @pytest.mark.criterion("REQ-FUND-013")
     def test_no_tickets_means_nothing_to_mark(self, db_session) -> None:
         """A portfolio with no filled ticket loads no inputs."""
         assert (
@@ -323,6 +326,7 @@ class TestLoadNavInputs:
             is None
         )
 
+    @pytest.mark.criterion("REQ-FUND-013")
     def test_a_holding_without_a_currency_fails_loud(self, db_session) -> None:
         """A held listing with no price currency raises ``FxCoverageError``."""
         _seed_listing(db_session, "ZZZ", 50.0, None)

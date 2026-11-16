@@ -25,6 +25,7 @@ def _retry_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
     return [record for record in caplog.records if record.name == _LOGGER]
 
 
+@pytest.mark.criterion("REQ-ING-005")
 def test_exhaustion_logs_the_last_exception(caplog: pytest.LogCaptureFixture) -> None:
     """After the last failed attempt one WARNING names the exception."""
     with (
@@ -40,6 +41,7 @@ def test_exhaustion_logs_the_last_exception(caplog: pytest.LogCaptureFixture) ->
     assert "RuntimeError: boom" in records[0].getMessage()
 
 
+@pytest.mark.criterion("REQ-ING-005")
 def test_exhaustion_by_rate_limit_logs_the_last_exception(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -58,6 +60,8 @@ def test_exhaustion_by_rate_limit_logs_the_last_exception(
     assert "RuntimeError: boom" in records[0].getMessage()
 
 
+@pytest.mark.criterion("REQ-ING-005")
+@pytest.mark.criterion("REQ-ING-004")
 def test_exhaustion_by_invalid_result_logs_the_reason(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -74,6 +78,7 @@ def test_exhaustion_by_invalid_result_logs_the_reason(
     assert "is_valid" in records[0].getMessage()
 
 
+@pytest.mark.criterion("REQ-ING-005")
 def test_invalid_result_after_an_earlier_exception_is_not_blamed_on_it(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -98,6 +103,7 @@ def test_invalid_result_after_an_earlier_exception_is_not_blamed_on_it(
     assert "is_valid" in records[0].getMessage()
 
 
+@pytest.mark.criterion("REQ-ING-005")
 def test_exhaustion_log_does_not_leak_a_credential_from_the_exception_url(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -125,6 +131,7 @@ def test_exhaustion_log_does_not_leak_a_credential_from_the_exception_url(
     assert "api_key=***" in rendered
 
 
+@pytest.mark.criterion("REQ-ING-005")
 def test_zero_retries_makes_no_attempt_and_logs_nothing(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -136,6 +143,7 @@ def test_zero_retries_makes_no_attempt_and_logs_nothing(
     assert _retry_records(caplog) == []
 
 
+@pytest.mark.criterion("REQ-ING-005")
 def test_success_logs_nothing(caplog: pytest.LogCaptureFixture) -> None:
     """A first-try success leaves no record."""
     with caplog.at_level(logging.DEBUG, logger=_LOGGER):

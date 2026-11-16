@@ -44,6 +44,7 @@ class _FakeVenue:
         return self.answer
 
 
+@pytest.mark.criterion("REQ-FUND-011")
 class TestPlaceOrdersDelegatesToTheVenue:
     """``place_orders(venue=...)`` hands its request to the injected venue."""
 
@@ -195,6 +196,7 @@ def _ticket_count(db_session) -> int:
     return db_session.execute(select(func.count()).select_from(PaperOrder)).scalar_one()
 
 
+@pytest.mark.criterion("REQ-FUND-010")
 class TestPaperVenue:
     """The paper venue over an injected quote source."""
 

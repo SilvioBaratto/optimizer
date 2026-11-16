@@ -117,6 +117,7 @@ def test_fund_job_repository_exported_from_audit():
 # --- claim_or_create (atomic slot) ------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-016")
 def test_claim_or_create_returns_uuid_then_none_for_double_claim(job_session):
     repo = FundJobRepository(job_session)
 
@@ -186,6 +187,7 @@ def test_distinct_job_types_get_independent_slots(job_session):
     assert sweep != monitor
 
 
+@pytest.mark.criterion("REQ-FUND-016")
 def test_claim_or_create_reopens_slot_after_finalize(job_session):
     repo = FundJobRepository(job_session)
 
@@ -290,6 +292,7 @@ def test_mark_done_returns_false_for_unknown_job(job_session):
 # --- reap_orphans (heartbeat lease) -----------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-016")
 def test_reap_orphans_fails_stale_and_null_leaves_fresh(job_session):
     repo = FundJobRepository(job_session)
     fresh = _insert_job(

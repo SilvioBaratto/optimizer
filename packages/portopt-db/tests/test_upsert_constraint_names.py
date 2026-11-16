@@ -8,11 +8,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
 from _upsert_sites import collect_upsert_sites, constraint_problems
 
 _KNOWN_SITE_COUNT = 37
 
 
+@pytest.mark.criterion("REQ-DB-001")
 def test_scan_finds_every_known_upsert_site() -> None:
     """The count pins the scan itself: a refactor that hides sites must fail here.
 
@@ -22,11 +24,13 @@ def test_scan_finds_every_known_upsert_site() -> None:
     assert len(collect_upsert_sites()) == _KNOWN_SITE_COUNT
 
 
+@pytest.mark.criterion("REQ-DB-001")
 def test_every_conflict_constraint_is_a_unique_or_primary_key_constraint() -> None:
     """No site names a constraint its model does not declare."""
     assert constraint_problems(collect_upsert_sites()) == []
 
 
+@pytest.mark.criterion("REQ-DB-001")
 def test_a_misspelled_constraint_name_is_reported() -> None:
     """The check can fail: a site with a wrong name yields a problem line."""
     site = collect_upsert_sites()[0]
