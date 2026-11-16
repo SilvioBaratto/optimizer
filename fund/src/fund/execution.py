@@ -59,7 +59,7 @@ class OrderRequest:
 
 @dataclass(frozen=True)
 class PlacedOrder:
-    """What a venue did with a request: the ticket it holds for it, or why none.
+    """What a venue did with a request: the ticket for it, or why it placed none.
 
     Attributes:
         ticket: The JSON-serialisable ticket, newly placed or returned for a re-run;

@@ -13,18 +13,24 @@ target book.
 The write must be **idempotent**: ``place_orders`` sits behind ``interrupt_on``
 (HITL), and on ``Command(resume=…)`` the interrupting node re-runs from the top
 (SPEC D3), so a second call with the same ``(portfolio_id, asof, weights)`` must
-not double-place. The paper venue looks the ticket up by that key first and returns
-the stored one (``idempotent: true``) instead of writing again; the DB-level
-``UNIQUE(portfolio_id, asof, weights_hash)`` is the backstop.
+not double-place. The paper venue looks the ticket up by that key first. When the
+stored ticket was priced with the requested notional, slippage and commission
+(compared within a float tolerance) it returns that ticket (``idempotent: true``)
+instead of writing again; when any of the three differs it refuses the call, since
+the key holds no cost params. The DB-level ``UNIQUE(portfolio_id, asof,
+weights_hash)`` is the backstop.
 
 Contract (via ``tool_envelope``), with the paper venue:
 
 * empty ``weights`` ⇒ ``{ok: false, error}``;
-* a held ticker (weight above ``fund.pricing.DUST_WEIGHT``) with no instrument row,
-  or no close strictly after ``asof`` (no fill bar), ⇒ ``{ok: false, error}`` — a
-  paper ticket must fill every line it carries. A zero or dust weight is no order: it
-  gets no line and needs no fill bar or FX rate, though it stays in the stored
-  ``weights``;
+* a stored ticket for the same ``(portfolio_id, asof, weights)`` key priced with a
+  different notional, slippage or commission ⇒ ``{ok: false, error}`` — a what-if
+  with other cost params needs a distinct key;
+* a held ticker (weight of magnitude above ``fund.pricing.DUST_WEIGHT``) with no
+  instrument row, or no close strictly after ``asof`` (no fill bar), ⇒
+  ``{ok: false, error}`` — a paper ticket must fill every line it carries. A zero or
+  dust weight is no order: it gets no line and needs no fill bar or FX rate, though
+  it stays in the stored ``weights``;
 * weights that are all zero or dust ⇒ ``{ok: false, error}`` — nothing to place;
 * a listing quoted in a foreign currency with no FX rate on or just before its fill
   bar ⇒ ``{ok: false, error}`` — ``shares`` must be a base-currency notional over a

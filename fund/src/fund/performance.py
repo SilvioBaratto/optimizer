@@ -90,19 +90,20 @@ NavSeries: TypeAlias = list[NavPoint]
 
 @dataclass(frozen=True, eq=False)
 class NavInputs:
-    """What :func:`compute_nav` marks, as :func:`load_nav_inputs` read it.
+    """The tickets, base-currency marks and settings :func:`compute_nav` marks from.
 
     ``eq=False``: a ``DataFrame`` has no single truth value to compare by.
 
     Attributes:
-        tickets: Every filled paper ticket of the portfolio, oldest first.
-        base_prices: Base-currency mark frame (see :func:`_carried_base_prices`).
-        benchmark: Benchmark column emitted beside NAV; ``None`` when no benchmark was
-            given or it was left out of the series.
+        tickets: The filled paper tickets to mark, oldest first.
+        base_prices: Base-currency marks, bars by ticker (see
+            :func:`_carried_base_prices`).
+        benchmark: Column of ``base_prices`` whose value on each emitted bar is that
+            point's benchmark level (``None`` where the value is NaN); ``None`` emits
+            no benchmark level.
         capital: Mandate capital the first ticket is denominated in; ``None`` keeps the
             ticket's own notional.
-        since: Lower date bound on the emitted points; ``None`` emits from the first
-            fill.
+        since: Lower date bound on the emitted points; ``None`` sets no bound.
     """
 
     tickets: tuple[FilledTicket, ...]
@@ -912,6 +913,10 @@ def build_nav_series(
 ) -> list[NavPoint]:
     """Reconstruct the paper portfolio's NAV series, marked to market in base ccy.
 
+    The composition of :func:`load_nav_inputs`, which reads the tickets, closes and
+    FX rates and turns the closes into the base-currency mark frame, and
+    :func:`compute_nav`, which marks the tickets on that frame.
+
     Shares are re-derived forward from ``paper_orders.lines`` (no look-ahead: a
     fill counts from its ``fill_date``) as ``notional_base / price_base@fill``,
     with ``price_base`` FX-converted from listing currency via ``optimizer.fx``.
@@ -982,10 +987,15 @@ def load_nav_inputs(
     since: dt.date | None = None,
     capital: float | None = None,
 ) -> NavInputs | None:
-    """Read what :func:`compute_nav` needs to mark the portfolio's NAV series.
+    """Load and prepare what :func:`compute_nav` needs to mark the portfolio's NAV.
 
-    Holds the reads of :func:`build_nav_series`, its FX-coverage guard and its warning
-    about a benchmark left out of the series; the arguments mean what they mean there.
+    Reads the portfolio's filled tickets, the closes of their listings and of the
+    benchmark, and the FX rates; applies the currency and FX-coverage guards; converts
+    the closes into the base-currency mark frame (:func:`_carried_base_prices`: the FX
+    conversion, a closed market's last close carried over gaps, and bars left unpriced
+    where the rate is stale); and picks the benchmark column to emit, with a warning
+    when the benchmark is left out. The arguments mean what they mean in
+    :func:`build_nav_series`.
 
     Returns:
         The inputs, or ``None`` when there is nothing to mark: no filled ticket, or no
@@ -1118,14 +1128,15 @@ def _emitted_benchmark(
 def compute_nav(inputs: NavInputs) -> NavSeries:
     """Mark the NAV series of ``inputs`` without a session or a database read.
 
-    The maths of :func:`build_nav_series`: shares from each ticket's lines, the
-    chain-linked scale of each ticket (:func:`_chain_links`), then one point per bar
-    the active book can be marked on. The per-line warnings of :func:`_ticket_shares`
-    are logged here.
+    The marking maths: each ticket's shares from its lines and the base-currency price
+    on each line's fill bar, the chain-linked scale and cash of each ticket
+    (:func:`_chain_links`), then a point for each bar on or after both ``since`` and
+    the fill of the first ticket with a priced line, when the active book can be
+    marked on it. The per-line warnings of :func:`_ticket_shares` are logged here.
 
     Returns:
         NAV points ordered by date; empty when no ticket line has a base-currency
-        price at its fill or no bar on or after ``since`` can be marked.
+        price at its fill, or when no such bar can be marked.
     """
     priced = [
         (

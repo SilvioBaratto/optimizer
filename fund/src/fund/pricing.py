@@ -88,7 +88,7 @@ class PricedTicket:
 
 
 def held_weights(weights: Mapping[str, float]) -> dict[str, float]:
-    """Return the weights that carry an order: everything above ``DUST_WEIGHT``.
+    """Return the weights that carry an order: those of magnitude above ``DUST_WEIGHT``.
 
     Written as ``not <=`` rather than ``>`` so a NaN weight stays held and fails
     loudly downstream instead of being dropped as dust.

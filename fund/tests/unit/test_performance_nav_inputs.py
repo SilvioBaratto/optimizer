@@ -1,10 +1,11 @@
-"""``fund.performance``: NAV inputs are loaded once; the NAV maths need no session.
+"""``fund.performance``: NAV inputs are prepared once; marking them needs no session.
 
-``build_nav_series`` is ``load_nav_inputs`` (the reads, the FX-coverage guard and the
-dropped-benchmark warning) followed by the session-free ``compute_nav``. The golden
-series were printed by ``build_nav_series`` at commit ``afe2dba5``, before the split,
-over the panel, FX rates and tickets ``_seed_nav_book`` builds; the composed path
-must reproduce them to the last bit.
+``build_nav_series`` is ``load_nav_inputs`` (the reads, the currency and FX-coverage
+guards, the base-currency mark frame, and the benchmark column with its warning)
+followed by ``compute_nav``, which marks the tickets on that frame without a
+session. The golden series were printed by ``build_nav_series`` at commit
+``afe2dba5``, before the split, over the panel, FX rates and tickets
+``_seed_nav_book`` builds; the composed path must reproduce them to the last bit.
 """
 
 from __future__ import annotations
@@ -313,7 +314,7 @@ class TestGoldenNavSeries:
 
 
 class TestLoadNavInputs:
-    """``load_nav_inputs`` keeps the reads, the guards and the warning."""
+    """``load_nav_inputs`` reads the book, guards its currencies and warns."""
 
     def test_no_tickets_means_nothing_to_mark(self, db_session) -> None:
         """A portfolio with no filled ticket loads no inputs."""
