@@ -42,6 +42,7 @@ _REQUIREMENT_ID = re.compile(r"REQ-(?:CORE|DB|ING|FUND|OPS)-\d{3}")
 _TABLE_HEADER = ("id", "statement", "module", "standard")
 _SEPARATOR_CELL = re.compile(r":?-{3,}:?")
 _CSV_FIELDS = ("req_id", "nodeid", "module", "defects")
+_ISSUE_NUMBER = re.compile(r"[1-9][0-9]*")
 _CRITERION = "criterion"
 _DEFECT = "defect"
 _EXIT_OK = 0
@@ -155,8 +156,9 @@ def read_csv(path: Path) -> list[TraceRow]:
     Raises:
         OSError: ``path`` cannot be opened.
         ValueError: The header is not ``req_id,nodeid,module,defects``, a
-            ``defects`` cell holds something other than issue numbers, or the csv
-            reader rejects the file.
+            ``defects`` cell holds something other than positive issue numbers in
+            plain digits, or the csv reader rejects the file. The message starts
+            with ``path``.
     """
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
@@ -164,17 +166,25 @@ def read_csv(path: Path) -> list[TraceRow]:
             if tuple(reader.fieldnames or ()) != _CSV_FIELDS:
                 columns = ",".join(_CSV_FIELDS)
                 raise ValueError(f"{path}: expected the columns {columns}")
-            return [_trace_row(record) for record in reader]
+            return [_trace_row(record, path) for record in reader]
         except csv.Error as error:
             raise ValueError(f"{path}: {error}") from error
 
 
-def _trace_row(record: dict[str, str | None]) -> TraceRow:
+def _trace_row(record: dict[str, str | None], path: Path) -> TraceRow:
+    cell = record["defects"] or ""
+    issues = cell.split()
+    # The plugin writes only numbers ``_issue`` accepted, in plain digits, so any
+    # other cell was not written by it and must not link a test to an issue.
+    if not all(_ISSUE_NUMBER.fullmatch(issue) for issue in issues):
+        raise ValueError(
+            f"{path}: the defects cell {cell!r} is not a list of positive issue numbers"
+        )
     return TraceRow(
         record["req_id"] or "",
         record["nodeid"] or "",
         record["module"] or "",
-        tuple(int(issue) for issue in (record["defects"] or "").split()),
+        tuple(int(issue) for issue in issues),
     )
 
 
@@ -246,7 +256,7 @@ def _is_requirement_id(value: str) -> bool:
     return value.startswith(_REQUIREMENT_PREFIX)
 
 
-def _test(row: TraceRow) -> str:
+def _test_label(row: TraceRow) -> str:
     """The test as ``<file from the repository root>::<name>``."""
     _, separator, name = row.nodeid.partition("::")
     return f"{row.module}{separator}{name}"
@@ -275,7 +285,7 @@ def find_holes(
         for req_id in sorted(registered - cited)
     ]
     holes += [
-        f"{_test(row)} cites {row.req_id}, which the registry does not list"
+        f"{_test_label(row)} cites {row.req_id}, which the registry does not list"
         for row in rows
         if _is_requirement_id(row.req_id) and row.req_id not in registered
     ]
@@ -291,7 +301,7 @@ def _unlinked_defects(rows: Sequence[TraceRow]) -> list[str]:
         if row.defects and (row.module, row.nodeid) not in linked:
             unlinked.setdefault((row.module, row.nodeid), row)
     return [
-        f"{_test(row)} carries defect {issue} but cites no requirement id"
+        f"{_test_label(row)} carries defect {issue} but cites no requirement id"
         for row in unlinked.values()
         for issue in row.defects
     ]
@@ -347,7 +357,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--traceability-out",
         metavar="CSV",
         default=None,
-        help="write one row per (criterion id, collected test) to this CSV file",
+        help=(
+            "write one row per (criterion id, collected test), plus one row with an "
+            "empty id per test with defect markers and no criterion marker, to this "
+            "CSV file"
+        ),
     )
 
 
