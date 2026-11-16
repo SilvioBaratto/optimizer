@@ -216,8 +216,8 @@ def test_an_invalidated_error_with_a_connection_sqlstate_counts_once() -> None:
     """An error that steps 2 and 3 of the classification both match adds one, not two.
 
     Step 2 matches its ``connection_invalidated`` flag and step 3 its SQLSTATE 08006.
-    Added one short of the threshold it leaves the breaker closed, and the next
-    counted failure opens it.
+    Added at two short of the threshold, it brings the count to one short and leaves
+    the breaker closed, and the next counted failure opens it.
     """
     breaker = _breaker(FakeClock())
     _trip(breaker, _THRESHOLD - 2)
