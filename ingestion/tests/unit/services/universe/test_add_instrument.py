@@ -631,7 +631,10 @@ class TestUnreachableTrading212Catalogue:
     @pytest.mark.parametrize(
         "unreachable",
         [
-            CircuitOpenError("Trading 212 rate limit persists after 5 attempts."),
+            CircuitOpenError(
+                "Trading 212 circuit breaker open: failure count 5, limit 5, inside "
+                "its back-off window."
+            ),
             requests.exceptions.ConnectionError("refused"),
         ],
         ids=["breaker_open", "connection_error"],

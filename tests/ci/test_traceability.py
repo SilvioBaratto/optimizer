@@ -1,11 +1,12 @@
 """The requirement traceability check: tests cite registered ids, and every id has one.
 
 Validates ``scripts/ci/traceability.py``: ``collect`` and the pytest plugin that
-writes one CSV row per (``criterion`` id, collected test), ``parse_registry`` over the
-table in ``docs/requirements.md``, ``find_holes`` and the ``check`` command the lint
-job runs. The unit tests use hand-built items, registries and CSV files in a
-temporary directory; the committed registry and the four suite configs are read
-only by the tests that say so.
+writes one CSV row per (``criterion`` id, collected test), plus one row with an empty
+id per test with ``defect`` markers and no ``criterion`` marker, ``read_csv``,
+``parse_registry`` over the table in ``docs/requirements.md``, ``find_holes`` and the
+``check`` command the lint job runs. The unit tests use hand-built items, registries
+and CSV files in a temporary directory; the committed registry, the four suite
+configs and ``.github/workflows/ci.yml`` are read only by the tests that say so.
 """
 
 from __future__ import annotations
@@ -99,6 +100,15 @@ _BROKEN_TABLES = [
     (_row("REQ-FUND-001") + _row("REQ-FUND-001"), "twice"),
 ]
 _BROKEN_IDS = ["empty", "short-row", "short-number", "unknown-area", "blank", "dup"]
+_BAD_DEFECTS = ["0", "-3", "abc", "1.5", "1125 x", "01125"]
+_BAD_DEFECT_IDS = [
+    "zero",
+    "negative",
+    "text",
+    "fraction",
+    "one-bad-of-two",
+    "leading-zero",
+]
 
 
 def _check(registry: Path, *csvs: Path) -> int:
@@ -235,6 +245,16 @@ class TestCsv:
         path.write_text("id,test\nREQ-FUND-001,tests/a.py::t\n")
 
         with pytest.raises(ValueError, match="columns"):
+            _load().read_csv(path)
+
+    @pytest.mark.parametrize("cell", _BAD_DEFECTS, ids=_BAD_DEFECT_IDS)
+    def test_a_defects_cell_without_positive_issue_numbers_is_refused(
+        self, tmp_path: Path, cell: str
+    ) -> None:
+        """0, a negative, a non-integer or a leading zero fails, naming the file."""
+        path = _trace(tmp_path, f"REQ-FUND-001,tests/a.py::t,fund/tests/a.py,{cell}\n")
+
+        with pytest.raises(ValueError, match=re.escape(str(path))):
             _load().read_csv(path)
 
 
@@ -435,6 +455,17 @@ class TestCheckCommand:
 
         assert _check(registry, trace) == 1
         assert capsys.readouterr().err.startswith("traceability: ")
+
+    @pytest.mark.parametrize("cell", _BAD_DEFECTS, ids=_BAD_DEFECT_IDS)
+    def test_a_bad_defects_cell_exits_one_naming_the_file(
+        self, tmp_path: Path, cell: str, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A trace whose ids are complete still fails on an unusable issue number."""
+        registry = _registry(tmp_path, _row("REQ-FUND-001"))
+        trace = _trace(tmp_path, f"REQ-FUND-001,tests/a.py::t,fund/tests/a.py,{cell}\n")
+
+        assert _check(registry, trace) == 1
+        assert str(trace) in capsys.readouterr().err
 
     def test_a_missing_argument_is_a_usage_error(self, tmp_path: Path) -> None:
         """``--csv`` is required; argparse exits 2."""

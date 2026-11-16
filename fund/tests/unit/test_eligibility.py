@@ -976,6 +976,7 @@ def test_a_data_bar_takes_precedence_over_the_tradeable_bar(db_session) -> None:
 
 
 @pytest.mark.criterion("REQ-FUND-006")
+@pytest.mark.criterion("REQ-FUND-008")
 def test_both_conditions_must_hold_under_an_esg_exclusion(db_session) -> None:
     """An untradeable name keeps its tradeable reason and is not ESG-screened."""
     _seed_stock(db_session, "OIL.OFF", sector="Energy")

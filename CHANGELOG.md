@@ -152,8 +152,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defines three `runtime_checkable` protocols and the frozen dataclasses they return:
   `PriceReader` (`instrument_for`, `profile_for` and `price_bars_for`, returning
   `InstrumentSummary`, `ProfileSummary` and `PriceBar`), `FxRateReader` (`rates_for`,
-  returning `FxRatePoint`) and `UniverseReader` (`get_t212_untradeable_tickers` and
-  `get_t212_unevaluated_tickers`, returning lists of Yahoo symbols).
+  returning `FxRatePoint`) and `UniverseReader` (`get_t212_untradeable_tickers`,
+  returning a list of Yahoo symbols, or `None` when the overlay has evaluated no row,
+  and `get_t212_unevaluated_tickers`, returning a list of Yahoo symbols).
   `YFinanceRepository`, `FxRatesRepository` and `UniverseRepository` implement them. The
   four new repository methods call `get_instrument_by_yfinance_ticker`, `get_profile`,
   `get_price_history` and `get_rates` and copy the rows into the dataclasses, with the
@@ -358,6 +359,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **ingestion, ci: messages that say what the code does.** While its failure count is at
+  or above its limit inside a back-off window, an external-source breaker refuses with
+  `<service> circuit breaker open: failure count N, limit M, inside its back-off
+  window.` instead of `<service> rate limit persists after N attempts. ...`, because
+  what counts as a failure is up to the code that trips it. The log line for a
+  failed-status write the database breaker refused, and the help text of
+  `jobs_failed_status_refused_total`, now say that once the row's lease has expired, an
+  orphan reap (the periodic one or the one at worker start) that the breaker lets reach
+  the database fails it; they used to give "once the database answers" as the
+  condition. The description of `FRED_RETRY_BASE_DELAY_SECONDS` says how a wait is
+  drawn, and that a flagged error sleeps a short jitter this base does not scale before
+  the next attempt goes through the breaker's check. The `--traceability-out` help text
+  now also names the row with an empty id that a test with `defect` markers and no
+  `criterion` marker gets. `scripts/ci/traceability.py check` exits 1, naming the file,
+  when a `defects` cell of a trace CSV holds anything but positive issue numbers in
+  plain digits without leading zeros; it used to accept 0, negative numbers and leading
+  zeros, and to fail on a non-integer without naming the file. The other source
+  changes keep behaviour: the rate-limit jitter bounds of
+  `retry_with_backoff` are named constants with the same values, and
+  `UniverseRepository.get_instrument_by_yfinance_ticker` and `instrument_classes_for`
+  share one sort-key tuple that compiles to the same SQL.
 - **ingestion: the requests `Trading212Client` sends go through `retry_with_backoff` and a
   circuit breaker.** A 408, a 429 or a 5xx answer, and a `requests` failure that is not an
   HTTP error, such as a timeout, are passed to the breaker and retried while attempts
@@ -591,8 +613,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measured on a copy, made ruff format wrap enough lines to push that function past
   its complexity ratchet baseline or the 30-line limit, so those 34 keep their
   literals. Apart from the 12 `truncate` calls, the moved code is the code that was
-  there before. The constants, helpers and function that ingestion and this package's
-  tests import from `yfinance_repository` are re-exported from it.
+  there before, except that the `get_benchmark_coverage` docstring no longer names its
+  callers and `get_instrument_by_yfinance_ticker` takes its sort keys from a
+  module-level tuple it shares with `instrument_classes_for`. The constants, helpers
+  and function that ingestion and this package's tests import from
+  `yfinance_repository` are re-exported from it.
   `upsert_financial_statements` and `upsert_dividends` now log under the
   `fundamentals_repository` and `prices_repository` logger names. The ratchet baseline
   entries of the moved functions now use the new keys, with the values they had.

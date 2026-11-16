@@ -126,6 +126,24 @@ def test_ports_return_no_orm_entities() -> None:
     assert orm_hits == []
 
 
+def test_the_hint_walk_visits_every_port_method_and_the_dto_fields() -> None:
+    """The walk the two hint tests share is not empty, so their checks are not vacuous.
+
+    It yields every port method and reaches ``PriceBar`` and the types of its fields.
+    """
+    walked = list(_port_hints())
+    reached = {
+        candidate for _, _, hint in walked for candidate in _reachable_types(hint)
+    }
+
+    assert {method for method, _, _ in walked} == {
+        f"{port.__name__}.{name}"
+        for port, _ in _PORT_ADAPTERS
+        for name in _port_methods(port)
+    }
+    assert {PriceBar, dt.date, float, int, str} <= reached
+
+
 def test_ports_return_only_builtins_and_frozen_dataclasses() -> None:
     """A port returns builtins, stdlib value types and frozen dataclasses only."""
     offenders = []
@@ -274,16 +292,21 @@ def test_price_bars_for_carries_every_column_as_floats(db_session: Session) -> N
 def test_price_bars_for_reads_the_same_bars_as_get_price_history(
     db_session: Session, window: dict[str, typing.Any]
 ) -> None:
-    """The bars follow ``get_price_history``'s window, order and limit."""
+    """The bars follow ``get_price_history``'s window, order and limit.
+
+    The newest seeded bar has a NULL close, so a window that holds it compares it too.
+    """
     instrument = _instrument(db_session, "AAA")
     _seed_bars(db_session, instrument, 4)
+    _add_close(db_session, instrument, dt.date(2026, 1, 5), None)
     repository = YFinanceRepository(db_session)
 
     bars = repository.price_bars_for(instrument.id, **window)
 
     rows = repository.get_price_history(instrument.id, **window)
+    assert rows
     assert [(bar.date, bar.close) for bar in bars] == [
-        (row.date, float(row.close)) for row in rows if row.close is not None
+        (row.date, None if row.close is None else float(row.close)) for row in rows
     ]
 
 
@@ -298,6 +321,20 @@ def _add_close(
             close=None if close is None else Decimal(close),
         ),
     )
+
+
+def test_price_bars_for_keeps_a_bar_whose_close_is_null(db_session: Session) -> None:
+    """A stored bar without a close comes back with ``close`` ``None``."""
+    instrument = _instrument(db_session, "AAA")
+    _seed_bars(db_session, instrument, 1)
+    _add_close(db_session, instrument, dt.date(2026, 1, 2), None)
+
+    bars = YFinanceRepository(db_session).price_bars_for(instrument.id, ascending=True)
+
+    assert [(bar.date, bar.close) for bar in bars] == [
+        (dt.date(2026, 1, 1), 10.0),
+        (dt.date(2026, 1, 2), None),
+    ]
 
 
 def test_newest_close_per_instrument_reads_each_instrument_newest_closed_bar(

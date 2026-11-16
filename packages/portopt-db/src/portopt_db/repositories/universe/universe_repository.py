@@ -36,6 +36,16 @@ logger = logging.getLogger(__name__)
 # longer worth a request in every sweep.
 DORMANT_AFTER_DAYS = 365
 
+# The order get_instrument_by_yfinance_ticker picks a listing by. instrument_classes_for
+# sorts by it too, so its first row per symbol is the listing that lookup returns.
+_LISTING_PREFERENCE = (
+    Instrument.delisted_at.is_(None).desc(),
+    Instrument.delisted_at.desc(),
+    Instrument.created_at.desc(),
+    Instrument.ticker,
+    Instrument.id,
+)
+
 
 def _row_is_pinned() -> Any:
     """Correlated predicate: the instrument row being written is pinned.
@@ -536,13 +546,7 @@ class UniverseRepository(RepositoryBase):
                 Instrument.fi_subclass,
             )
             .where(Instrument.yfinance_ticker.in_(list(tickers)))
-            .order_by(
-                Instrument.delisted_at.is_(None).desc(),
-                Instrument.delisted_at.desc(),
-                Instrument.created_at.desc(),
-                Instrument.ticker,
-                Instrument.id,
-            )
+            .order_by(*_LISTING_PREFERENCE)
         ).all()
         # The IN already drops NULL symbols; the condition narrows the column type.
         return [
@@ -793,13 +797,7 @@ class UniverseRepository(RepositoryBase):
                 select(Instrument)
                 .options(joinedload(Instrument.exchange))
                 .where(Instrument.yfinance_ticker == yfinance_ticker)
-                .order_by(
-                    Instrument.delisted_at.is_(None).desc(),
-                    Instrument.delisted_at.desc(),
-                    Instrument.created_at.desc(),
-                    Instrument.ticker,
-                    Instrument.id,
-                )
+                .order_by(*_LISTING_PREFERENCE)
                 .limit(1)
             )
             .scalars()
@@ -813,8 +811,7 @@ class UniverseRepository(RepositoryBase):
         """Return ``{ticker: (price_row_count, latest_price_date)}``.
 
         Tickers without an instrument row (or with zero prices) come back as
-        ``(0, None)``. Drives the startup bootstrap and the scheduler's
-        reference-index refresh, which re-seed anything missing or stale.
+        ``(0, None)``; an empty ``tickers`` returns an empty dict.
         """
         if not tickers:
             return {}

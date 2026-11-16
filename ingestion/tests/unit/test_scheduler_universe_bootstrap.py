@@ -174,7 +174,7 @@ class TestEmptyUniverseBootstrap:
 
     @pytest.mark.criterion("REQ-ING-009")
     def test_an_interrupt_during_the_build_still_propagates(self):
-        """Ctrl-C and SystemExit are not build failures and must not be swallowed."""
+        """A keyboard interrupt is not a build failure: it propagates."""
         with pytest.raises(KeyboardInterrupt):
             _run_pipeline(empty=True, universe_result=KeyboardInterrupt())
 

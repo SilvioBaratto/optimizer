@@ -85,7 +85,7 @@ def test_rate_limit_still_trips_the_breaker_before_raising() -> None:
 def test_breaker_refusing_every_attempt_counts_as_lost() -> None:
     isin = PropertyMock(return_value="US123")
     client, breaker = _metadata(isin)
-    breaker.check.side_effect = RuntimeError("rate limit persists")
+    breaker.check.side_effect = RuntimeError("circuit breaker open")
 
     with pytest.raises(RequestLostError):
         client.fetch_isin("AAPL", raise_on_lost=True)

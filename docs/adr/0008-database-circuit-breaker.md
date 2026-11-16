@@ -75,7 +75,7 @@ and lock timeouts, and integrity, programming and data errors that the server re
 with a SQLSTATE, fall under step 5 unless SQLAlchemy marked them invalidated. The same
 classes raised during a statement without a SQLSTATE, such as psycopg2's client-side
 `can't adapt type`, fall under step 6
-(`packages/portopt-db/tests/test_db_circuit_breaker.py:238-246`). The installed psycopg2
+(`packages/portopt-db/tests/test_db_circuit_breaker.py:244-252`). The installed psycopg2
 dialect marks an error invalidated when the connection is closed, or when the first line
 of its message contains one of the libpq and SSL disconnect messages it lists with no
 double quote before it, such as `terminating connection`, `closed the connection` or
@@ -169,16 +169,16 @@ Consumers that handle a refusal on purpose:
   log call at 298); the step runs again at its next scheduled time, unless its row is
   still active (see [Known limits](#known-limits)).
 - Counters `jobs_db_unavailable_total{domain}` for a stopped step
-  (`ingestion/app/metrics.py:46`, `scheduler.py:303`) and
+  (`ingestion/app/metrics.py:49`, `scheduler.py:303`) and
   `jobs_failed_status_refused_total{domain}` for a refused failed-status write
-  (`ingestion/app/metrics.py:52`, `scheduler.py:346-347`, `352-377`).
+  (`ingestion/app/metrics.py:55`, `scheduler.py:346-347`, `352-377`).
 - A failed-status write that lands for a refused step starts `db_unavailable:`
   (`scheduler.py:82`, `281-285`).
 - A refused progress write or heartbeat is dropped with a WARNING without a traceback
   (`ingestion/app/services/jobs/background_job.py:29-39`, `236-238`, `377`); a refused
   reaper tick logs a WARNING (`scheduler.py:1108-1109`).
 - Gauge `portopt_db_breaker_state`, 0 closed, 1 open, 2 half-open, read at each scrape
-  (`ingestion/app/metrics.py:59-80`), bound at `ingestion/app/worker.py:97`.
+  (`ingestion/app/metrics.py:62-83`), bound at `ingestion/app/worker.py:97`.
 - Cockpit gate: each poll tick (default 2.0 s, `fund/src/fund/tui/app.py:236`) re-reads
   the breaker (`app.py:476`, `fund/src/fund/tui/_mixins/dbgate.py:99-107`), and
   `check_action` disables the `DB_WRITE_ACTIONS` bindings while the gate is shut
@@ -202,7 +202,7 @@ Not guarded: the breaker neither counts these paths' failures nor refuses them.
   `171-178`), called by `init_db` (`ingestion/app/database.py:64`,
   `fund/src/fund/worker.py:296`). In ingestion's default `development` environment
   `init_db` logs the error and returns (`ingestion/app/database.py:81-84`,
-  `ingestion/app/config.py:289`).
+  `ingestion/app/config.py:358`).
 - `_require_migrated_schema`, `inspect(engine).has_table`:
   `ingestion/app/database.py:45-57`.
 - APScheduler job stores on the manager's engine: `scheduler.py:1268` (started at 1283),
@@ -228,8 +228,12 @@ Not guarded: the breaker neither counts these paths' failures nor refuses them.
 
 - What the cockpit's other six views (Posture, Deliberation, Decisions, Mandate, Audit,
   Ask) show while the breaker is open.
-- Whether the breaker opens during a parallel yfinance sweep (see the clean-exit
-  consequence above).
+- Whether the breaker opens during a parallel yfinance sweep against PostgreSQL (see the
+  clean-exit consequence above). On SQLite, with each ticker's fetch raising a
+  statement-less `OperationalError`, it opens, the tickers that start after it are
+  refused and the sweep still reports itself completed
+  (`test_a_parallel_yfinance_sweep_opens_the_breaker_and_still_completes` in
+  `ingestion/tests/unit/services/jobs/test_db_breaker_consumer.py`).
 - What the ingestion CLI does after a failed `init_db`.
 - Whether ingestion steps other than the yfinance sweep absorb a refusal in their own code.
 - When the fund worker's breaker opens. Its job store is on the same engine
