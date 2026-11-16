@@ -69,7 +69,7 @@
   "fund/src/fund/tools/mandate.py::mandate_breaches": 50,
   "fund/src/fund/tools/moments.py::estimate_moments": 62,
   "fund/src/fund/tools/optimize.py::optimize_portfolio": 59,
-  "fund/src/fund/tools/orders.py::place_orders": 117,
+  "fund/src/fund/tools/orders.py::place_orders": 57,
   "fund/src/fund/tools/prices.py::load_price_frame": 57,
   "fund/src/fund/tools/regime.py::get_regime_stats": 44,
   "fund/src/fund/tools/risk.py::backtest": 104,

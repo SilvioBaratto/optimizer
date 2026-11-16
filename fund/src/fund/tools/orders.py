@@ -17,10 +17,11 @@ stored one (``idempotent: true``) instead of writing again; the DB-level
 Contract (via ``tool_envelope``):
 
 * empty ``weights`` ⇒ ``{ok: false, error}``;
-* a held ticker (weight above ``_DUST_WEIGHT``) with no instrument row, or no close
-  strictly after ``asof`` (no fill bar), ⇒ ``{ok: false, error}`` — a paper ticket
-  must fill every line it carries. A zero or dust weight is no order: it gets no
-  line and needs no fill bar or FX rate, though it stays in the stored ``weights``;
+* a held ticker (weight above ``fund.pricing.DUST_WEIGHT``) with no instrument row,
+  or no close strictly after ``asof`` (no fill bar), ⇒ ``{ok: false, error}`` — a
+  paper ticket must fill every line it carries. A zero or dust weight is no order: it
+  gets no line and needs no fill bar or FX rate, though it stays in the stored
+  ``weights``;
 * weights that are all zero or dust ⇒ ``{ok: false, error}`` — nothing to place;
 * a listing quoted in a foreign currency with no FX rate on or just before its fill
   bar ⇒ ``{ok: false, error}`` — ``shares`` must be a base-currency notional over a
@@ -38,6 +39,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from fund.audit.orders_repository import OrderRepository, weights_hash
+from fund.pricing import (
+    BPS_PER_UNIT,
+    CostModel,
+    FillQuote,
+    held_weights,
+    price_ticket,
+)
 from fund.readers import fx_rate_reader, price_reader
 from fund.tools._base import ToolResult, coerce_date, err, ok, tool_envelope
 
@@ -55,9 +63,6 @@ if TYPE_CHECKING:
 # e.g. a distinct portfolio_id) rather than silently re-priced from the stored
 # ticket.
 _DEFAULT_NOTIONAL = 100_000.0
-# The optimiser returns exact zeros and solver residue for names it does not hold; a
-# weight this small is no order and must not need a fill bar of its own.
-_DUST_WEIGHT = 1e-6
 _DEFAULT_SLIPPAGE_BPS = 5.0
 _DEFAULT_COMMISSION_BPS = 1.0
 
@@ -73,15 +78,6 @@ class _Fill:
     date: dt.date
     close: float
     unit: str | None
-
-
-def _held(weights: Mapping[str, float]) -> dict[str, float]:
-    """The weights that carry an order: everything above ``_DUST_WEIGHT``.
-
-    Written as ``not <=`` rather than ``>`` so a NaN weight stays held and fails
-    loudly downstream instead of being dropped as dust.
-    """
-    return {t: w for t, w in weights.items() if not abs(w) <= _DUST_WEIGHT}
 
 
 def _coerce_uuid(portfolio_id: uuid.UUID | str) -> uuid.UUID:
@@ -171,7 +167,7 @@ def fill_shortfalls(
     """
     prices, fx_rates = price_reader(session), fx_rate_reader(session)
     shortfalls: list[str] = []
-    names = _held(tickers) if isinstance(tickers, Mapping) else tickers
+    names = held_weights(tickers) if isinstance(tickers, Mapping) else tickers
     for ticker in names:
         try:
             fill = _next_close(prices, ticker, asof)
@@ -180,6 +176,39 @@ def fill_shortfalls(
         except LookupError as exc:
             shortfalls.append(str(exc))
     return shortfalls
+
+
+def _fill_quotes(
+    session: Session,
+    tickers: Iterable[str],
+    asof: dt.date,
+    base_currency: str | None,
+) -> dict[str, FillQuote]:
+    """Look up where each of ``tickers`` fills: its next close after ``asof``.
+
+    Each quote carries the close as quoted and as a price per share in
+    ``base_currency``; without a base currency the quoted close is used as given.
+
+    Raises:
+        LookupError: A ticker has no instrument row or no close strictly after
+            ``asof``, or (given ``base_currency``) a foreign listing has no FX rate
+            for its fill bar.
+    """
+    prices, fx_rates = price_reader(session), fx_rate_reader(session)
+    quotes: dict[str, FillQuote] = {}
+    for ticker in tickers:
+        fill = _next_close(prices, ticker, asof)
+        # Shares divide a base-currency notional, so the price must be one too. Without
+        # a base currency (a what-if) the quote is used as given.
+        base_price = (
+            _base_close(fx_rates, fill, ticker, base_currency)
+            if base_currency is not None
+            else fill.close
+        )
+        quotes[ticker] = FillQuote(
+            date=fill.date, price=fill.close, base_price=base_price, unit=fill.unit
+        )
+    return quotes
 
 
 def _cost_params_match(
@@ -208,7 +237,7 @@ def _cost_params_match(
             return False
         ln = line.get("traded_notional", line.get("notional", 0.0))
         if ln:
-            stored_comm_bps = line["commission"] / abs(ln) * 1e4
+            stored_comm_bps = line["commission"] / abs(ln) * BPS_PER_UNIT
             if not math.isclose(
                 stored_comm_bps, commission_bps, rel_tol=1e-6, abs_tol=1e-9
             ):
@@ -321,7 +350,7 @@ def place_orders(
             "notional/slippage/commission"
         )
 
-    held = _held(weights)
+    held = held_weights(weights)
     if not held:
         return err("no non-zero weights to place")
 
@@ -329,84 +358,24 @@ def place_orders(
     prior_weights = (
         {ticker: float(w) for ticker, w in prior.weights.items()} if prior else {}
     )
-
-    prices, fx_rates = price_reader(session), fx_rate_reader(session)
-    lines: list[dict[str, Any]] = []
-    total_commission = 0.0
-    total_slippage_cost = 0.0
-    fill_dates: list[dt.date] = []
-
-    for ticker, weight in held.items():
-        fill = _next_close(prices, ticker, end_date)
-        fill_date, fill_price = fill.date, fill.close
-        fill_dates.append(fill_date)
-        # Shares divide a base-currency notional, so the price must be one too. Without
-        # a base currency (a what-if) the quote is used as given.
-        base_price = (
-            _base_close(fx_rates, fill, ticker, base_currency)
-            if base_currency is not None
-            else fill_price
-        )
-
-        line_notional = weight * notional
-        # Only the move away from what is already held trades; holding a name at
-        # an unchanged weight costs nothing.
-        traded_notional = (weight - prior_weights.get(ticker, 0.0)) * notional
-        commission = abs(traded_notional) * commission_bps / 1e4
-        slippage_cost = abs(traded_notional) * slippage_bps / 1e4
-        # Direction comes from the trade, not the target's sign: a trim of a long is
-        # a sell, and an unchanged name fills at the raw close.
-        direction = (traded_notional > 0) - (traded_notional < 0)
-        slippage_factor = 1.0 + direction * slippage_bps / 1e4
-        effective_price = fill_price * slippage_factor
-        effective_base_price = base_price * slippage_factor
-        # The carried part of the book is valued at the close; only the traded part
-        # pays (buys) or gives up (sells) the slippage.
-        shares = (
-            (line_notional - traded_notional) / base_price
-            + traded_notional / effective_base_price
-            if base_price and effective_base_price
-            else 0.0
-        )
-
-        total_commission += commission
-        total_slippage_cost += slippage_cost
-        lines.append(
-            {
-                "ticker": ticker,
-                "weight": float(weight),
-                "fill_date": fill_date.isoformat(),
-                "currency": fill.unit,
-                "fill_price": fill_price,
-                "fill_price_base": base_price,
-                "effective_price": effective_price,
-                "slippage_bps": slippage_bps,
-                "notional": line_notional,
-                "traded_notional": traded_notional,
-                "shares": shares,
-                "commission": commission,
-                "slippage_cost": slippage_cost,
-            }
-        )
-
-    # A name dropped from the target is sold out, but gets no ticket line: lines
-    # become the held book (positions, NAV), so a zero-weight line would resurrect it.
-    for ticker, prior_weight in prior_weights.items():
-        if ticker not in held:
-            exit_notional = abs(prior_weight * notional)
-            total_commission += exit_notional * commission_bps / 1e4
-            total_slippage_cost += exit_notional * slippage_bps / 1e4
-
+    quotes = _fill_quotes(session, held, end_date, base_currency)
+    priced = price_ticket(
+        held,
+        prior_weights,
+        quotes,
+        notional,
+        CostModel(slippage_bps=slippage_bps, commission_bps=commission_bps),
+    )
     order = repo.create(
         portfolio_id=pid,
         asof=end_date,
         weights_hash=whash,
         weights={k: float(v) for k, v in weights.items()},
-        fill_date=min(fill_dates),
-        lines=lines,
+        fill_date=min(quote.date for quote in quotes.values()),
+        lines=[dict(line) for line in priced.lines],
         notional=notional,
-        total_commission=total_commission,
-        total_slippage_cost=total_slippage_cost,
+        total_commission=priced.total_commission,
+        total_slippage_cost=priced.total_slippage_cost,
     )
     return ok(_ticket_from_row(order, idempotent=False))
 
