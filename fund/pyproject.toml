@@ -98,7 +98,7 @@ pythonpath = ["../scripts/ci"]
 addopts = "-p traceability"
 markers = [
     "integration: needs a scratch Postgres FUND_TEST_DATABASE_URL (skipped otherwise)",
-    "criterion(id): bind this test to requirement <id> of docs/requirements.md",
+    "criterion(id): cite requirement <id> of docs/requirements.md (a REQ- id) or an acceptance-criterion label",
     "defect(issue): link this regression test to GitHub issue <issue>",
 ]
 

@@ -321,6 +321,7 @@ def test_reap_orphans_fails_stale_and_null_leaves_fresh(job_session):
     assert repo.get(fresh.id).finished_at is None
 
 
+@pytest.mark.criterion("REQ-FUND-016")
 def test_reap_orphans_ignores_non_fund_jobs(job_session):
     repo = FundJobRepository(job_session)
     ingestion_job = _insert_job(

@@ -395,6 +395,7 @@ def test_without_a_constraint_set_nothing_gets_an_esg_reason(db_session) -> None
     assert result.allowed == ("OIL.S",)
 
 
+@pytest.mark.criterion("REQ-FUND-006")
 def test_a_data_bar_takes_precedence_over_an_esg_bar(db_session) -> None:
     _seed_stock(db_session, "OIL.S", sector="Energy")
     _seed(db_session, "GONEOIL.S", instrument_type="STOCK", delisted_at=_ASOF)
@@ -651,6 +652,7 @@ def test_an_etf_with_no_snapshot_at_all_is_unclassified(db_session) -> None:
     assert result.barred == (("FUND.E", "esg_unclassified"),)
 
 
+@pytest.mark.criterion("REQ-FUND-007")
 def test_a_commodity_etf_passes_whatever_its_stored_collateral_looks_like(
     db_session,
 ) -> None:
@@ -686,6 +688,7 @@ def test_a_commodity_etf_passes_whatever_its_stored_collateral_looks_like(
         ("equity", "government", "esg_unclassified"),
     ],
 )
+@pytest.mark.criterion("REQ-FUND-007")
 def test_only_government_type_bond_funds_pass_without_a_snapshot(
     db_session, asset_class, fi_subclass, outcome
 ) -> None:
@@ -705,6 +708,7 @@ def test_a_corporate_bond_fund_with_a_clean_snapshot_passes(db_session) -> None:
     assert _outcome(result) == "allowed"
 
 
+@pytest.mark.criterion("REQ-FUND-007")
 def test_a_government_bond_fund_is_not_judged_by_its_snapshot(db_session) -> None:
     _seed(db_session, "GOV.E", asset_class="fixed_income", fi_subclass="government")
     _seed_sectors(db_session, "GOV.E", {"energy": 0.5, "utilities": 0.5})
@@ -738,6 +742,7 @@ def test_without_exclusions_or_a_constraint_set_no_etf_is_screened(db_session) -
     assert unset.allowed == ("FUND.E",)
 
 
+@pytest.mark.criterion("REQ-FUND-007")
 def test_a_data_bar_takes_precedence_over_the_etf_look_through(db_session) -> None:
     _seed(db_session, "GONE.E", delisted_at=_ASOF)
     _seed_sectors(db_session, "GONE.E", {"energy": 1.0})
@@ -948,6 +953,7 @@ def test_tradeable_only_composes_with_the_allowlist(db_session) -> None:
     }
 
 
+@pytest.mark.criterion("REQ-FUND-008")
 def test_a_data_bar_takes_precedence_over_the_tradeable_bar(db_session) -> None:
     _seed(db_session, "GONE.T", delisted_at=_ASOF, tradeable=False)
     _seed(db_session, "NOPX.T", priced=False, tradeable=False)
@@ -969,6 +975,7 @@ def test_a_data_bar_takes_precedence_over_the_tradeable_bar(db_session) -> None:
     )
 
 
+@pytest.mark.criterion("REQ-FUND-006")
 def test_both_conditions_must_hold_under_an_esg_exclusion(db_session) -> None:
     """An untradeable name keeps its tradeable reason and is not ESG-screened."""
     _seed_stock(db_session, "OIL.OFF", sector="Energy")

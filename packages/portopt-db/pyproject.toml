@@ -53,7 +53,7 @@ testpaths = ["tests"]
 pythonpath = ["../../scripts/ci"]
 addopts = "-p no:cacheprovider -p traceability"
 markers = [
-    "criterion: tag a test with the spec criterion it covers",
+    "criterion(id): cite requirement <id> of docs/requirements.md (a REQ- id) or an acceptance-criterion label",
     "defect(issue): link this regression test to GitHub issue <issue>",
     "integration: needs a real PostgreSQL server (PORTOPT_TEST_DATABASE_URL)",
 ]

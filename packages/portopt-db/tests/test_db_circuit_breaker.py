@@ -406,6 +406,7 @@ def test_probe_failure_reopens_for_a_full_cooldown_from_the_failure() -> None:
     ],
     ids=["integrity", "statement-timeout", "lock-timeout"],
 )
+@pytest.mark.criterion("REQ-DB-002")
 def test_probe_answered_by_the_database_closes_the_breaker(
     answer: DBAPIError,
 ) -> None:

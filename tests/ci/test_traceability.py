@@ -35,6 +35,11 @@ _CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
 _HEADER = "| id | statement | module | standard |\n|---|---|---|---|\n"
 _CSV_HEADER = "req_id,nodeid,module,defects\n"
 _SUITE_DIRS = ("", "ingestion", "packages/portopt-db", "fund")
+_CRITERION_HELP = (
+    "criterion(id): cite requirement <id> of docs/requirements.md (a REQ- id)"
+    " or an acceptance-criterion label"
+)
+_DEFECT_HELP = "defect(issue): link this regression test to GitHub issue <issue>"
 
 
 @functools.cache
@@ -314,7 +319,7 @@ class TestFindHoles:
             "fund/tests/a.py::t1 cites REQ-FUND-009, which the registry does not list"
         ]
 
-    def test_an_id_that_is_not_a_requirement_id_is_ignored(self) -> None:
+    def test_a_label_that_is_not_a_requirement_id_is_not_looked_up(self) -> None:
         """Acceptance-criterion labels such as ``scope-3`` share the marker."""
         holes = _load().find_holes(
             self._requirements("REQ-FUND-001"),
@@ -530,22 +535,22 @@ def _suite_options(suite: str) -> dict[str, str]:
     }
 
 
-@pytest.mark.criterion("REQ-OPS-001")
+@pytest.mark.criterion("REQ-OPS-002")
 @pytest.mark.parametrize("suite", _SUITE_DIRS, ids=lambda s: s or "portopt-core")
 def test_every_suite_config_loads_the_plugin_and_registers_both_markers(
     suite: str,
 ) -> None:
-    """The four suites load the one plugin file from ``scripts/ci`` by its name."""
+    """The four suites load the one plugin file and describe the markers alike."""
     options = _suite_options(suite)
 
     assert "-p traceability" in options["addopts"]
     (path,) = options["pythonpath"].split()
     assert (_REPO_ROOT / suite / path).resolve() == _SCRIPT.parent
-    assert "criterion(" in options["markers"] or "criterion:" in options["markers"]
-    assert "defect(issue)" in options["markers"]
+    assert _CRITERION_HELP in options["markers"]
+    assert _DEFECT_HELP in options["markers"]
 
 
-@pytest.mark.criterion("REQ-OPS-001")
+@pytest.mark.criterion("REQ-OPS-002")
 def test_the_committed_registry_parses_and_names_existing_modules() -> None:
     """Every registered module path exists, so moving or deleting one fails here."""
     requirements = _load().parse_registry(_REGISTRY.read_text(encoding="utf-8"))
@@ -556,7 +561,7 @@ def test_the_committed_registry_parses_and_names_existing_modules() -> None:
     assert missing == []
 
 
-@pytest.mark.criterion("REQ-OPS-001")
+@pytest.mark.criterion("REQ-OPS-002")
 def test_the_lint_job_collects_each_suite_and_checks_the_merged_trace() -> None:
     """A hole fails ``lint``, a required check, and the four files are uploaded."""
     workflow = yaml.safe_load(_CI_WORKFLOW.read_text(encoding="utf-8"))

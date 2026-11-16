@@ -172,6 +172,7 @@ class TestEmptyUniverseBootstrap:
             r.exc_info and "screener down" in str(r.exc_info[1]) for r in caplog.records
         )
 
+    @pytest.mark.criterion("REQ-ING-009")
     def test_an_interrupt_during_the_build_still_propagates(self):
         """Ctrl-C and SystemExit are not build failures and must not be swallowed."""
         with pytest.raises(KeyboardInterrupt):
