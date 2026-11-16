@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Callable, Generator
@@ -1326,21 +1327,27 @@ def test_heartbeat_keeps_pulsing_after_a_failed_pulse(session_factory, monkeypat
         repo.mark_running(job_id)
 
     calls: list[uuid.UUID] = []
+    five_pulses = threading.Event()
     original = FundJobRepository.update_heartbeat
 
     def _flaky(self, jid):
         calls.append(jid)
+        if len(calls) >= 5:
+            five_pulses.set()
         if len(calls) == 2:
             raise RuntimeError("connection reset")  # one transient DB blip
         return original(self, jid)
 
     monkeypatch.setattr(FundJobRepository, "update_heartbeat", _flaky)
 
+    # Each pulse commits to a file-backed SQLite database, so on a loaded machine five
+    # pulses can outlast a fixed sleep; wait for them instead, with a cap.
     with _heartbeat(job_id, cadence=0.02, session_factory=session_factory):
-        time.sleep(0.4)
+        reached = five_pulses.wait(timeout=10.0)
 
     # A dead pulse thread would leave the lease unrenewed past the blip and let the
     # reaper fail a step that is still running.
+    assert reached
     assert len(calls) >= 5
 
 
