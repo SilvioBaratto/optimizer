@@ -126,17 +126,17 @@ until the constraint (and the matching migration) is added.
 | # | Site (file:line) | Table | Natural key | Mechanism | Verdict |
 |---|---|---|---|---|---|
 | 1 | `repositories/_shared/base.py:33` | — | — | `_upsert()` definition (not a write; listed so the row count reconciles with the stated 26 `_upsert(` hits) | n/a |
-| 2 | `repositories/market_data/yfinance_repository.py:223` | `ticker_profiles` | `instrument_id` | `_upsert` on `uq_ticker_profile_instrument` | idempotent |
-| 3 | `repositories/market_data/yfinance_repository.py:285` | `price_history` | `(instrument_id, date)` | `_upsert` on `uq_price_history_instrument_date` | idempotent |
-| 4 | `repositories/market_data/yfinance_repository.py:351` | `financial_statements` | `(instrument_id, statement_type, period_type, period_date, line_item)` | `_upsert` on `uq_financial_statement_row` | idempotent |
-| 5 | `repositories/market_data/yfinance_repository.py:396` | `dividends` | `(instrument_id, date)` | `_upsert` on `uq_dividend_instrument_date` | idempotent |
-| 6 | `repositories/market_data/yfinance_repository.py:430` | `stock_splits` | `(instrument_id, date)` | `_upsert` on `uq_stock_split_instrument_date` | idempotent |
-| 7 | `repositories/market_data/yfinance_repository.py:467` | `analyst_recommendations` | `(instrument_id, period)` | `_upsert` on `uq_analyst_rec_instrument_period` | idempotent |
-| 8 | `repositories/market_data/yfinance_repository.py:498` | `analyst_price_targets` | `instrument_id` | `_upsert` on `uq_analyst_pt_instrument` | idempotent |
-| 9 | `repositories/market_data/yfinance_repository.py:534` | `institutional_holders` | `(instrument_id, holder_name)` | `_upsert` on `uq_inst_holder_instrument_name` | idempotent |
-| 10 | `repositories/market_data/yfinance_repository.py:574` | `mutual_fund_holders` | `(instrument_id, holder_name)` | `_upsert` on `uq_mutual_fund_holder_instrument_name` | idempotent |
+| 2 | `repositories/market_data/fundamentals_repository.py:181` | `ticker_profiles` | `instrument_id` | `_upsert` on `uq_ticker_profile_instrument` | idempotent |
+| 3 | `repositories/market_data/prices_repository.py:81` | `price_history` | `(instrument_id, date)` | `_upsert` on `uq_price_history_instrument_date` | idempotent |
+| 4 | `repositories/market_data/fundamentals_repository.py:365` | `financial_statements` | `(instrument_id, statement_type, period_type, period_date, line_item)` | `_upsert` on `uq_financial_statement_row` | idempotent |
+| 5 | `repositories/market_data/prices_repository.py:186` | `dividends` | `(instrument_id, date)` | `_upsert` on `uq_dividend_instrument_date` | idempotent |
+| 6 | `repositories/market_data/prices_repository.py:217` | `stock_splits` | `(instrument_id, date)` | `_upsert` on `uq_stock_split_instrument_date` | idempotent |
+| 7 | `repositories/market_data/analyst_repository.py:355` | `analyst_recommendations` | `(instrument_id, period)` | `_upsert` on `uq_analyst_rec_instrument_period` | idempotent |
+| 8 | `repositories/market_data/analyst_repository.py:383` | `analyst_price_targets` | `instrument_id` | `_upsert` on `uq_analyst_pt_instrument` | idempotent |
+| 9 | `repositories/market_data/ownership_repository.py:102` | `institutional_holders` | `(instrument_id, holder_name)` | `_upsert` on `uq_inst_holder_instrument_name` | idempotent |
+| 10 | `repositories/market_data/ownership_repository.py:151` | `mutual_fund_holders` | `(instrument_id, holder_name)` | `_upsert` on `uq_mutual_fund_holder_instrument_name` | idempotent |
 | 11 | `repositories/market_data/yfinance_repository.py:640` | `insider_transactions` | `(instrument_id, insider_name, start_date, transaction_type)` | `_upsert` on `uq_insider_tx_row`, batch pre-deduped at `:623-643` | idempotent (see known defect below) |
-| 12 | `repositories/market_data/yfinance_repository.py:739` | `ticker_news` | `(instrument_id, news_uuid)` | `_upsert` on `uq_ticker_news_instrument_uuid` | idempotent |
+| 12 | `repositories/market_data/news_repository.py:132`, `:138` | `ticker_news` | `(instrument_id, news_uuid)` | `_upsert` on `uq_ticker_news_instrument_uuid` | idempotent |
 | 13 | `repositories/macro/macro_regime_repository.py:74` | `economic_indicators` | `country` | `_upsert` on `uq_economic_indicator_country` | idempotent |
 | 14 | `repositories/macro/macro_regime_repository.py:140` | `economic_indicator_observations` | `(country, date)` | `_upsert` on `uq_econ_obs_country_date` | idempotent |
 | 15 | `repositories/macro/macro_regime_repository.py:205` | `trading_economics_indicators` | `(country, indicator_key)` | `_upsert` on `uq_te_indicator_country_key` | idempotent |
