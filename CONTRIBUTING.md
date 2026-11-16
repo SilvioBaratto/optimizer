@@ -184,7 +184,7 @@ Use conventional commit style:
 
 Standard 6.6 asks every test to cite the requirement ID it verifies. Here requirement
 IDs are bound to tests of the critical functions in `docs/test-plan.md`, of the items
-under its table that show an id, and of the traceability check itself. The registry
+under its table that show an id, and of the traceability check and its wiring. The registry
 `docs/requirements.md` holds the ids, of the form `REQ-<AREA>-NNN`, and a test cites one
 with the `criterion(id)` pytest marker. Tests written before the registry were tagged
 only where they assert one of the registered requirements, so most tests cite no id.

@@ -75,15 +75,17 @@ A test case is identified by its pytest node id, `path::Class::test_name`. A tes
 also cite a requirement of `docs/requirements.md` by its `REQ-<AREA>-NNN` id with
 `@pytest.mark.criterion("REQ-...")`. Requirements are registered for the critical
 functions above, for the items under the table that show an id, and for the traceability
-check itself. Tests written before the registry were tagged only where they assert one of
-those requirements, so most tests cite no id. That is a recorded deviation from standard
-6.6 (see `CONTRIBUTING.md`).
+check and its wiring (REQ-OPS-001, REQ-OPS-002). Tests written before the registry were
+tagged only where they assert one of those requirements, so most tests cite no id. That
+is a recorded deviation from standard 6.6 (see `CONTRIBUTING.md`).
 
 The `lint` CI job collects the four suites with `--traceability-out` and runs
 `scripts/ci/traceability.py check`. It fails when a registered requirement has no test,
 when a test cites a `REQ-` id the registry does not list, or when a test carries a
-`defect` marker but no `REQ-` id. The job uploads the four CSV files, one row per
-(`criterion` id, test), as the `traceability` artifact of the run.
+`defect` marker but no `REQ-` id. The job uploads the four CSV files as the
+`traceability` artifact of the run. Each file has one row per (`criterion` id, test),
+and one row with an empty id for a test that carries a `defect` marker and no
+`criterion` marker.
 
 Each test follows the template of standard 6.4 in code form: the fixtures are the
 preconditions, the calls are the actions, the assertions are the expected results and a green
