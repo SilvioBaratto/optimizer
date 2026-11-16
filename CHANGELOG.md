@@ -359,6 +359,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **portopt-db: `newest_close_per_instrument` is renamed `newest_close_dates`** on the
+  `PriceReader` port and on `YFinanceRepository`, since it returns bar dates, not
+  closes. `fund.observe` calls the new name; a caller of the old name gets an
+  `AttributeError`. The statement it runs is the same.
 - **ingestion, ci: messages that say what the code does.** While its failure count is at
   or above its limit inside a back-off window, an external-source breaker refuses with
   `<service> circuit breaker open: failure count N, limit M, inside its back-off
@@ -557,7 +561,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `OrderRepository.filled_tickets` and `latest_filled_ticket` (`FilledTicket`) and
   `NavHistoryRepository.newest_nav_dates`, `fund.agents.graph_failures` calls
   `AgentRunRepository.insert_run_if_absent`, `fund.observe` calls
-  `YFinanceRepository.newest_close_per_instrument` through the `PriceReader` port, and
+  `YFinanceRepository.newest_close_dates` through the `PriceReader` port, and
   `fund.tools.eligibility` calls `UniverseRepository.instrument_classes_for`
   (`InstrumentClass`) through the `UniverseReader` port and
   `ETFMetadataRepository.newest_stock_pct`. Each method runs the statement the module

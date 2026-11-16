@@ -98,7 +98,7 @@ _DEVELOPMENT_SIGNATURES: dict[str, str] = {
     "instrument_for": (
         f"(self, yfinance_ticker: str) -> {_PORTS_MODULE}InstrumentSummary | None"
     ),
-    "newest_close_per_instrument": (
+    "newest_close_dates": (
         "(self, start: datetime.date, end: datetime.date) -> list[datetime.date]"
     ),
     "price_bars_for": (

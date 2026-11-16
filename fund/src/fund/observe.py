@@ -412,7 +412,7 @@ def default_decision_bar(session: Any, *, today: dt.date | None = None) -> dt.da
 
     day = today if today is not None else dt.datetime.now(dt.UTC).date()
     latest = sorted(
-        price_reader(session).newest_close_per_instrument(
+        price_reader(session).newest_close_dates(
             day - dt.timedelta(days=_DECISION_BAR_LOOKBACK_DAYS), day
         )
     )
