@@ -250,7 +250,7 @@ def find_holes(
 
     Args:
         requirements: The registered requirements.
-        rows: The trace rows of every suite.
+        rows: The trace rows of the suites to check, merged.
 
     Returns:
         One message per registered id that no row cites, per row that cites a
@@ -305,7 +305,12 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run ``check`` and return the process exit code: 0 complete, 1 otherwise."""
+    """Run ``check`` and return its exit code.
+
+    Returns:
+        0 when the matrix is complete; 1 when it has a hole or an input cannot be
+        read or parsed. A usage error exits 2 from argparse instead.
+    """
     args = _parser().parse_args(argv)
     try:
         requirements = parse_registry(args.requirements.read_text(encoding="utf-8"))
@@ -340,7 +345,7 @@ def pytest_collection_finish(session: pytest.Session) -> None:
     """Write the trace of the session's items when ``--traceability-out`` is given.
 
     pytest calls this after ``-k`` and ``-m`` have deselected items, so the file
-    lists the tests the session would run. A relative path is taken from the
+    lists the tests the session selected. A relative path is taken from the
     directory pytest was started in.
     """
     target = session.config.getoption("traceability_out")
