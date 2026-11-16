@@ -238,8 +238,8 @@ def _cost_params_match(
     compares them (with a float tolerance) against the request. Commission is a
     fraction of the line's *traded* notional; tickets stored before turnover
     pricing carry no ``traded_notional`` and were charged on the full line notional.
-    A line whose notional for that is 0 gives no rate to recompute, so its
-    commission is not compared.
+    A line whose commission base (that traded or full notional) is 0 gives no rate to
+    recompute, so its commission is not compared.
     """
     if not math.isclose(
         order.notional, notional, rel_tol=_COST_TOLERANCE, abs_tol=_COST_TOLERANCE
@@ -253,10 +253,10 @@ def _cost_params_match(
             abs_tol=_COST_TOLERANCE,
         ):
             return False
-        traded_notional = line.get("traded_notional", line.get("notional", 0.0))
-        if traded_notional:
+        commission_base = line.get("traded_notional", line.get("notional", 0.0))
+        if commission_base:
             stored_commission_bps = (
-                line["commission"] / abs(traded_notional) * BPS_PER_UNIT
+                line["commission"] / abs(commission_base) * BPS_PER_UNIT
             )
             if not math.isclose(
                 stored_commission_bps,

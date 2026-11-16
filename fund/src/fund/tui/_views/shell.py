@@ -17,6 +17,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import DataTable, Label, Static
 
+from fund.ask_context import short_id
 from fund.tui.ask_history import AskHistory
 
 if TYPE_CHECKING:
@@ -257,10 +258,9 @@ class ShellView(Vertical):
         return None
 
 
-def _short(value: Any) -> str:
-    """First hex group of a UUID (or its string) — a compact table cell."""
-    return str(value).split("-", 1)[0]
-
+# The views import the compact id from here as ``_short``; ``fund.ask_context`` owns it,
+# so the views and the Ask agent's snapshot shorten ids the same way.
+_short = short_id
 
 _ERROR_TEXT_MAX = 120
 
