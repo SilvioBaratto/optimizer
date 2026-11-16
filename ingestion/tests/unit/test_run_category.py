@@ -5,7 +5,8 @@ Validates ``app/services/market_data/yfinance/categories.py`` (``run_category``,
 ``default_is_empty`` and ``is_empty_collection``) and the financial-statement
 registry of ``YFinanceDataService`` in
 ``app/services/market_data/yfinance_data_service.py``. No requirement id is
-registered for this module yet.
+registered for ``categories.py``; ``yfinance_data_service.py`` is the module of
+REQ-ING-001 to REQ-ING-003, and no test here cites them.
 
 The savepoint tests run against the in-memory SQLite session of ``db_session``,
 so a rolled-back write is checked by reading the table back, not by inspecting
