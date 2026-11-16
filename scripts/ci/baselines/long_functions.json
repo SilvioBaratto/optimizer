@@ -247,6 +247,7 @@
   "packages/portopt-db/src/portopt_db/repositories/market_data/fundamentals_repository.py::FundamentalsRepository.upsert_financial_statements": 56,
   "packages/portopt-db/src/portopt_db/repositories/market_data/fundamentals_repository.py::FundamentalsRepository.upsert_profile": 111,
   "packages/portopt-db/src/portopt_db/repositories/market_data/market_summary_repository.py::MarketSummaryRepository.upsert_summaries": 35,
+  "packages/portopt-db/src/portopt_db/repositories/market_data/news_repository.py::NewsRepository.upsert_news": 106,
   "packages/portopt-db/src/portopt_db/repositories/market_data/ownership_repository.py::OwnershipRepository.upsert_insider_roster": 41,
   "packages/portopt-db/src/portopt_db/repositories/market_data/ownership_repository.py::OwnershipRepository.upsert_insider_transactions": 60,
   "packages/portopt-db/src/portopt_db/repositories/market_data/prices_repository.py::PricesRepository.upsert_dividends": 44,
@@ -254,7 +255,6 @@
   "packages/portopt-db/src/portopt_db/repositories/market_data/yfinance_repository.py::YFinanceRepository.get_instruments_with_yfinance_ticker": 31,
   "packages/portopt-db/src/portopt_db/repositories/market_data/yfinance_repository.py::YFinanceRepository.get_staleness_info": 36,
   "packages/portopt-db/src/portopt_db/repositories/market_data/yfinance_repository.py::YFinanceRepository.get_staleness_info_bulk": 54,
-  "packages/portopt-db/src/portopt_db/repositories/market_data/yfinance_repository.py::YFinanceRepository.upsert_news": 106,
   "packages/portopt-db/src/portopt_db/repositories/universe/universe_repository.py::UniverseRepository.save_instruments_batch": 73,
   "packages/portopt-db/src/portopt_db/repository.py::RepositoryBase._upsert": 50
 }
