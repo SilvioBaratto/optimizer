@@ -194,6 +194,20 @@ _MODULE_NAMES_TO_KEEP = (
 )
 
 
+_MARKET_DATA = "portopt_db.repositories.market_data."
+
+# Where each moved public method is defined; the facade reaches it by inheritance.
+_HOME_MODULES: dict[str, str] = {
+    "get_dividends": "prices_repository",
+    "get_oldest_price_date": "prices_repository",
+    "get_price_history": "prices_repository",
+    "get_splits": "prices_repository",
+    "upsert_dividends": "prices_repository",
+    "upsert_price_history": "prices_repository",
+    "upsert_splits": "prices_repository",
+}
+
+
 def _public_names() -> set[str]:
     return {name for name in dir(YFinanceRepository) if not name.startswith("_")}
 
@@ -209,6 +223,12 @@ def test_signature_matches_the_development_snapshot(name: str) -> None:
     signature = inspect.signature(getattr(YFinanceRepository, name))
 
     assert str(signature) == _DEVELOPMENT_SIGNATURES[name]
+
+
+@pytest.mark.parametrize(("name", "module"), sorted(_HOME_MODULES.items()))
+def test_method_is_defined_in_its_aggregate_module(name: str, module: str) -> None:
+    """The facade's method is the one its aggregate repository module defines."""
+    assert getattr(YFinanceRepository, name).__module__ == _MARKET_DATA + module
 
 
 def test_constructor_keeps_the_session_attribute() -> None:
