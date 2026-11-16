@@ -2,7 +2,6 @@
 
 import contextlib
 import logging
-import math
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, cast
@@ -43,6 +42,20 @@ from portopt_db.models.market_data.yfinance_data import (
 from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Instrument
 from portopt_db.ports import InstrumentSummary, PriceBar, ProfileSummary
+from portopt_db.repositories.market_data._mapping import (
+    _last_wins,
+    _refreshable_columns,
+    _safe_percent_as_fraction,
+    _strip_nul,
+    truncate,
+)
+
+# Re-exported: tests import these helpers from this module.
+from portopt_db.repositories.market_data._mapping import _safe_date as _safe_date
+from portopt_db.repositories.market_data._mapping import _safe_float as _safe_float
+from portopt_db.repositories.market_data._mapping import _safe_int as _safe_int
+from portopt_db.repositories.market_data._mapping import _safe_str as _safe_str
+from portopt_db.repositories.market_data._mapping import _safe_val as _safe_val
 from portopt_db.repository import RepositoryBase
 
 logger = logging.getLogger(__name__)
@@ -74,51 +87,6 @@ def _same_currency_unit(a: str, b: str) -> bool:
     return _SUB_UNIT_ALIASES.get(a, a) == _SUB_UNIT_ALIASES.get(b, b)
 
 
-def _safe_val(v: Any) -> Any:
-    """Convert pandas/numpy types to Python natives, NaN/NaT/NA to None."""
-    if v is None or v is pd.NA or v is pd.NaT:
-        return None
-    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-        return None
-    if isinstance(v, pd.Timestamp):
-        return v.to_pydatetime()
-    item_fn = getattr(v, "item", None)  # numpy scalar
-    if callable(item_fn):
-        native = item_fn()
-        # A numpy float32 NaN is not a float subclass, so it only shows as NaN
-        # once unwrapped. Unwrapped once: an object whose item() returns another
-        # such object would otherwise never stop.
-        if native is None or (
-            isinstance(native, float) and (math.isnan(native) or math.isinf(native))
-        ):
-            return None
-        return native
-    return v
-
-
-def _safe_int(v: Any) -> int | None:
-    v = _safe_val(v)
-    if v is None:
-        return None
-    try:
-        return int(v)
-    except (ValueError, TypeError):
-        return None
-
-
-def _safe_float(v: Any) -> float | None:
-    v = _safe_val(v)
-    if v is None:
-        return None
-    try:
-        f = float(v)
-        if math.isnan(f) or math.isinf(f):
-            return None
-        return f
-    except (ValueError, TypeError):
-        return None
-
-
 def _insider_lot_order(row: dict[str, Any]) -> tuple[Any, ...]:
     """Sort key giving same-key insider lots a source-order-independent order."""
     shares, value = row["shares"], row["value"]
@@ -130,31 +98,6 @@ def _insider_lot_order(row: dict[str, Any]) -> tuple[Any, ...]:
         row["ownership"] or "",
         row["position"] or "",
     )
-
-
-def _safe_percent_as_fraction(v: Any) -> float | None:
-    """Convert a figure Yahoo quotes in percent (``0.44`` = 0.44%) to a fraction."""
-    f = _safe_float(v)
-    return None if f is None else f / 100.0
-
-
-def _strip_nul(text: str) -> str:
-    """Remove NUL characters, which PostgreSQL text cannot hold.
-
-    psycopg2 rejects the whole multi-row INSERT when any value carries one, so a
-    single stray NUL in scraped text would otherwise drop every row in the batch.
-    """
-    return text.replace("\x00", "")
-
-
-def _safe_str(v: Any, max_len: int | None = None) -> str | None:
-    v = _safe_val(v)
-    if v is None:
-        return None
-    s = _strip_nul(str(v))
-    if max_len:
-        s = s[:max_len]
-    return s
 
 
 # Description and classification columns. When quoteSummary fails, yfinance
@@ -180,20 +123,6 @@ _PROFILE_STICKY_COLUMNS = frozenset(
     }
 )
 _PROFILE_EXTRAS_STICKY_COLUMNS = frozenset({"sector_key", "industry_key"})
-
-
-def _refreshable_columns(row: dict[str, Any], sticky: frozenset[str]) -> list[str]:
-    """Columns an ON CONFLICT update may overwrite for a single-row snapshot.
-
-    Every column except the conflict key, minus the ``sticky`` ones this row
-    leaves empty. ``updated_at`` stays in so the row is still stamped.
-    """
-    columns = [
-        name
-        for name, value in row.items()
-        if name != "instrument_id" and not (name in sticky and value is None)
-    ]
-    return [*columns, "updated_at"]
 
 
 def _estimate_update_columns(rows: list[dict[str, Any]]) -> list[str] | None:
@@ -232,60 +161,10 @@ def _split_by_currency(
     return [group for group in (labelled, unlabelled) if group]
 
 
-def _last_wins(rows: list[dict[str, Any]], *key_fields: str) -> list[dict[str, Any]]:
-    """Collapse rows that share a conflict key, keeping the last occurrence.
-
-    A single ``INSERT ... ON CONFLICT DO UPDATE`` cannot affect the same key
-    twice ("cannot affect row a second time"), and the error aborts the whole
-    statement, so a duplicate in one feed would drop that category for the
-    ticker on every run. ``instrument_id`` is constant within a batch and is
-    left out of ``key_fields``.
-    """
-    return list({tuple(r[k] for k in key_fields): r for r in rows}.values())
-
-
 def _latest_reported_per_holder(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep one row per holder name, preferring the most recent report date."""
     ordered = sorted(rows, key=lambda r: r["date_reported"] or _SENTINEL_DATE)
     return _last_wins(ordered, "holder_name")
-
-
-def _safe_date(v: Any) -> date | None:
-    """Convert various date-like values to date."""
-    v = _safe_val(v)
-    if v is None:
-        return None
-    # pd.NaT / pd.NA are missing values but NaT subclasses datetime, so the
-    # branch below would call NaT.date() -> NaT and leak a bogus date into a
-    # NOT NULL column. Treat any pandas NA scalar as missing.
-    try:
-        if pd.isna(v):
-            return None
-    except (TypeError, ValueError):
-        pass
-    if isinstance(v, datetime):
-        return v.date()
-    if isinstance(v, date):
-        return v
-    if isinstance(v, str):
-        try:
-            return datetime.fromisoformat(v).date()
-        except (ValueError, TypeError):
-            pass
-        # yfinance valuation-measure columns are labelled "M/D/YYYY" without
-        # zero padding.
-        try:
-            return datetime.strptime(v, "%m/%d/%Y").date()
-        except (ValueError, TypeError):
-            return None
-    if isinstance(v, int | float):
-        # Yahoo epoch dates sit at 00:00 UTC, so reading them in the host's
-        # timezone would shift the calendar day on any host west of UTC.
-        try:
-            return datetime.fromtimestamp(v, tz=timezone.utc).date()
-        except (ValueError, TypeError, OSError, OverflowError):
-            return None
-    return None
 
 
 # (statement_type, period_type) pairs written by the six statement fetches.
@@ -786,14 +665,14 @@ class YFinanceRepository(RepositoryBase):
         rows = [
             {
                 "instrument_id": instrument_id,
-                "period": _safe_str(period, 10),
+                "period": truncate(EarningsEstimate, "period", period),
                 "num_analysts": _safe_int(row.get("numberOfAnalysts")),
                 "avg": _safe_float(row.get("avg")),
                 "low": _safe_float(row.get("low")),
                 "high": _safe_float(row.get("high")),
                 "year_ago_eps": _safe_float(row.get("yearAgoEps")),
                 "growth": _safe_float(row.get("growth")),
-                "currency": _safe_str(row.get("currency"), 10),
+                "currency": truncate(EarningsEstimate, "currency", row.get("currency")),
             }
             for period, row in df.iterrows()
         ]
@@ -809,14 +688,14 @@ class YFinanceRepository(RepositoryBase):
         rows = [
             {
                 "instrument_id": instrument_id,
-                "period": _safe_str(period, 10),
+                "period": truncate(RevenueEstimate, "period", period),
                 "num_analysts": _safe_int(row.get("numberOfAnalysts")),
                 "avg": _safe_float(row.get("avg")),
                 "low": _safe_float(row.get("low")),
                 "high": _safe_float(row.get("high")),
                 "year_ago_revenue": _safe_float(row.get("yearAgoRevenue")),
                 "growth": _safe_float(row.get("growth")),
-                "currency": _safe_str(row.get("currency"), 10),
+                "currency": truncate(RevenueEstimate, "currency", row.get("currency")),
             }
             for period, row in df.iterrows()
         ]
@@ -844,7 +723,7 @@ class YFinanceRepository(RepositoryBase):
         rows = [
             {
                 "instrument_id": instrument_id,
-                "period": _safe_str(period, 10),
+                "period": truncate(GrowthEstimate, "period", period),
                 "stock_trend": _safe_float(_col(row, "stockTrend", "stock")),
                 "index_trend": _safe_float(_col(row, "indexTrend", "index")),
             }
@@ -865,13 +744,13 @@ class YFinanceRepository(RepositoryBase):
         rows = [
             {
                 "instrument_id": instrument_id,
-                "period": _safe_str(period, 10),
+                "period": truncate(EpsTrend, "period", period),
                 "current_estimate": _safe_float(row.get("current")),
                 "days_ago_7": _safe_float(row.get("7daysAgo")),
                 "days_ago_30": _safe_float(row.get("30daysAgo")),
                 "days_ago_60": _safe_float(row.get("60daysAgo")),
                 "days_ago_90": _safe_float(row.get("90daysAgo")),
-                "currency": _safe_str(row.get("currency"), 10),
+                "currency": truncate(EpsTrend, "currency", row.get("currency")),
             }
             for period, row in df.iterrows()
         ]
@@ -890,7 +769,7 @@ class YFinanceRepository(RepositoryBase):
         rows = [
             {
                 "instrument_id": instrument_id,
-                "period": _safe_str(period, 10),
+                "period": truncate(EpsRevisions, "period", period),
                 "up_last_7days": _safe_int(row.get("upLast7days")),
                 "up_last_30days": _safe_int(row.get("upLast30days")),
                 # Yahoo capitalises the D only on this column.
@@ -898,7 +777,7 @@ class YFinanceRepository(RepositoryBase):
                     row.get("downLast7Days", row.get("downLast7days"))
                 ),
                 "down_last_30days": _safe_int(row.get("downLast30days")),
-                "currency": _safe_str(row.get("currency"), 10),
+                "currency": truncate(EpsRevisions, "currency", row.get("currency")),
             }
             for period, row in df.iterrows()
         ]
@@ -1422,7 +1301,7 @@ class YFinanceRepository(RepositoryBase):
         """Upsert analyst recommendations from recommendations_summary DataFrame."""
         rows = []
         for _, row_data in rec_df.iterrows():
-            period = _safe_str(row_data.get("period"), 50)
+            period = truncate(AnalystRecommendation, "period", row_data.get("period"))
             if not period:
                 continue
             rows.append(
@@ -1519,7 +1398,7 @@ class YFinanceRepository(RepositoryBase):
         """
         rows = []
         for _, row_data in holders_df.iterrows():
-            name = _safe_str(row_data.get("Holder"), 500)
+            name = truncate(InstitutionalHolder, "holder_name", row_data.get("Holder"))
             if not name:
                 continue
             rows.append(
@@ -1572,7 +1451,7 @@ class YFinanceRepository(RepositoryBase):
         """
         rows = []
         for _, row_data in holders_df.iterrows():
-            name = _safe_str(row_data.get("Holder"), 500)
+            name = truncate(MutualFundHolder, "holder_name", row_data.get("Holder"))
             if not name:
                 continue
             rows.append(
