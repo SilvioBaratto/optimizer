@@ -168,7 +168,10 @@ Use conventional commit style:
 
 ## Releasing
 
-`main` receives releases only; direct commits to it are blocked.
+`main` receives releases only; direct commits to it are blocked. While the major
+version is 0, a breaking change raises the minor version (0.1.0 to 0.2.0): SemVer 2.0.0
+item 4 treats major version zero as initial development, so this is the one place the
+repository departs from the MAJOR rule of standard 5.1.1, until 1.0.0.
 
 1. Branch `release/0.x.0` from `development`
 2. Set the version to `0.x.0` in the root `pyproject.toml` and keep the three member

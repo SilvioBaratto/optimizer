@@ -9,19 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2026-11-18
 
-> **Upgrading from 0.1.0.** Library users: the distribution is now `portopt-core` (it was
-> `portopt` in 0.1.0; the import name `optimizer` is unchanged), it needs Python 3.12 or
-> newer, and its licence is PolyForm Noncommercial 1.0.0 instead of BSD-3-Clause. The
-> `optimizer` console command is gone, and so is `optimizer.pipeline` (compose runs from the
-> primitives; `build_portfolio_pipeline` now lives in `optimizer.pre_selection`). Several
-> `optimizer.factors` configs validate at construction and reject inputs that used to be
-> ignored, fail late or give silently wrong output, and `CPCVConfig` purges and embargoes by
-> default. The two BREAKING sections below list each of these changes. Running the stack
-> with Docker: dump the database first, because migration `d1e2f3a4b5c6` drops 17 tables and
-> cannot be downgraded; every compose service now sits behind a profile, so a bare
-> `docker compose up` starts nothing (use `--profile ingestion` or `--profile fund`); and
-> `docker-compose.yml` pins the project name to `optimizer`, so a checkout under another
-> directory name needs the steps in the **Fixed** entry on that pin before it upgrades.
+> **Upgrading from 0.1.0.**
+>
+> - **Library users:** the distribution is now `portopt-core` (it was `portopt` in 0.1.0;
+>   the import name `optimizer` is unchanged, so uninstall the old `portopt` before you
+>   install it). It needs Python 3.12 or newer, pins exact dependency versions, and is
+>   licensed under PolyForm Noncommercial 1.0.0 instead of BSD-3-Clause. The `optimizer`
+>   console command and `optimizer.pipeline` are gone (compose runs from the primitives;
+>   `build_portfolio_pipeline` now lives in `optimizer.pre_selection`), and so are the HMM
+>   and DMM moment blending and several other names the subpackages used to export.
+>   Several `optimizer.factors` configs validate at construction, and `CPCVConfig` purges
+>   and embargoes by default. The two BREAKING sections below list the removed names, the
+>   packaging and dependency changes and these behaviour changes; they do not describe every
+>   internal change, so run your own code against the new release before you rely on it.
+> - **Docker users:** dump the database first, because migration `d1e2f3a4b5c6` drops 17
+>   tables and, like three later ones (`a5ac0fa9b0ec`, `a6f1c8d3e2b7`, `b9c8d7e6f5a4`),
+>   cannot be downgraded. Every compose service now sits behind a profile, so a bare
+>   `docker compose up` starts nothing (use `--profile ingestion` or `--profile fund`). The
+>   scheduler reads its API keys from `.env`, `.env.scheduler` or the `./secrets/` files, so a
+>   key exported only in the shell no longer reaches it. `docker-compose.yml` pins the project
+>   name to `optimizer`, so a checkout under another directory name needs the steps in the
+>   **Fixed** entry on that pin before it upgrades.
 
 > **Many entries below concern the repository's ingestion service (`ingestion/`,
 > formerly `api/`) and its tooling.** The library breaking changes are in
@@ -45,6 +53,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `optimizer` command (`cli:app`) and a top-level `cli` package next to the
   `optimizer` import package. The library distribution now installs neither; the
   `portopt` command belongs to the separate ingestion distribution.
+- **HMM and DMM moment blending.** `optimizer.moments` no longer exports `HMMConfig`,
+  `HMMResult`, `HMMBlendedCovariance`, `HMMBlendedMu`, `fit_hmm`, `select_hmm_n_states`,
+  `blend_moments_by_regime`, `DMMConfig`, `DMMResult`, `fit_dmm` or `blend_moments_dmm`.
+  The `hmmlearn` dependency and the `dmm` extra (`torch`, `pyro-ppl`) went with them.
+- **Names `optimizer.optimization` no longer exports:** `RegimeRiskConfig`,
+  `build_regime_risk_budgeting`, `compute_regime_budget`, `compute_blended_risk_measure`,
+  `build_regime_blended_optimizer`, `RobustConfig`, `bootstrap_covariance_uncertainty`,
+  `CovarianceUncertaintyResult`, `ClusteringConfig`, `build_clustering_estimator`,
+  `build_distance_estimator`, `DistanceType` and `ExtraRiskMeasureType`. `DistanceConfig`
+  and `LinkageMethodType` are importable from `optimizer.distance` and `optimizer.cluster`
+  instead. Where the capability remains it has new entry points, not drop-in
+  replacements, so read their signatures: `build_regime_blended_mean_risk` and
+  `RobustMeanRiskConfig` in `optimizer.optimization`, `build_covariance_uncertainty_set`
+  and `build_mu_uncertainty_set` in `optimizer.uncertainty_set`,
+  `HierarchicalClusteringConfig` and `build_hierarchical_clustering` in `optimizer.cluster`,
+  and `build_distance` in `optimizer.distance`.
+- **The `docs` extra** (MkDocs) and the `Documentation` project URL, with the `examples/`
+  directory and the MkDocs site they served (see the entry further down).
 - **`optimizer.factors` config knobs that no code path read.** Setting them
   changed nothing while implying a protection or a switch, so they are removed
   and passing them now raises `TypeError` (or `ImportError` for the names).
@@ -64,11 +90,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The library distribution is renamed from `portopt` to `portopt-core`.** The import
   name `optimizer` is unchanged. In this repository the name `portopt` now belongs to
-  the ingestion daemon's distribution (`ingestion/`), so a dependency on `portopt` no
-  longer means the library.
+  the ingestion daemon's distribution (`ingestion/`), which the release workflow does
+  not publish. Switch a dependency on the library to `portopt-core`; `portopt` gets no
+  further library releases. Both distributions install the `optimizer` package, so
+  uninstall `portopt` before you install `portopt-core`.
 - **The Python floor rises from 3.10 to 3.12** (`requires-python = ">=3.12"`). The
-  pinned `numpy` and `pandas` need Python 3.12 or newer, so the old floor could not
-  be resolved; CI runs 3.12 and 3.13.
+  pinned `numpy` and `scipy` need Python 3.12 or newer; CI runs 3.12 and 3.13.
+- **Runtime dependencies are exact pins and fewer.** `numpy==2.5.4`, `pandas==3.0.6`,
+  `scipy==1.18.1`, `scikit-learn==1.9.1` and `skfolio==1.12.5` replace the 0.1.0 ranges
+  (`numpy>=1.24`, `pandas>=2.0`, `scipy>=1.11`, `scikit-learn>=1.6`, `skfolio>=0.5`), so
+  installing the library fixes those versions (pandas 3 in particular) in the
+  environment. `jinja2==3.1.6` is a new runtime dependency, and `hmmlearn` and `arch` are
+  no longer declared.
 - **The licence changes from BSD-3-Clause to PolyForm Noncommercial 1.0.0** (see
   `LICENSE`).
 - **`optimizer.factors` configs now validate at construction and raise
@@ -305,7 +338,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and dividers instead of showing the markdown marks, with a blank line between
   turns.
 - Structured logging with `NullHandler` pattern across all modules (#36)
-- CI Python version matrix testing (3.10, 3.11, 3.12) (#38)
+- CI Python version matrix testing (3.10, 3.11, 3.12) (#38); the matrix is now 3.12
+  and 3.13 (see **Changed (BREAKING — library)**)
 - Test coverage reporting with Codecov integration (#39)
 - This CHANGELOG file (#40)
 - CI restructure: parallel jobs, concurrency control, format checking (#41)
@@ -715,8 +749,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ANTHROPIC_API_KEY` from `.env.example`. None were read by any code — Trading
   Economics and Il Sole 24 Ore are scraped from HTML and take no key
 - The `examples/` directory and the MkDocs documentation site (#50, #51). Both were
-  added and removed while unreleased, so the entries above are corrected rather
-  than carried forward as history
+  part of the 0.1.0 tree
 - **ingestion**: code nothing called. `ArticleScraper.fetch_multiple` and its
   `ArticleScraperProtocol` declaration.
   `TradingEconomicsIndicatorsScraper.get_all_portfolio_countries`. The `__main__`

@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "Portfolio optimization library built on skfolio and scikit-learn"
 readme = "README.md"
 license = {text = "PolyForm-Noncommercial-1.0.0"}
-# 3.12 floor: the numpy==2.5.2 / pandas==3.0.5 pins require Python>=3.12, so the
+# 3.12 floor: the numpy==2.5.4 / scipy==1.18.1 pins require Python>=3.12, so the
 # prior >=3.10 was unsatisfiable (uv resolves across the whole range; pip masked it).
 requires-python = ">=3.12"
 authors = [
