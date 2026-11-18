@@ -40,11 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 >   directory name needs the steps in the **Fixed** entry on that pin before it upgrades.
 
 > **Many entries below concern the repository's ingestion service (`ingestion/`,
-> formerly `api/`) and its tooling.** The library breaking changes are in
+> formerly `api/`) and its tooling.** The itemised library breaking changes are in
 > **Removed (BREAKING — library)** and **Changed (BREAKING — library)** immediately
 > below; the `fund` bridge, the shared `portopt-db` layer and CI have entries of
-> their own further down. The **Added** entries that cite #36 to #53 were already in the
-> 0.1.0 changelog, listed as unreleased, and are repeated here.
+> their own further down. The **Added** entries that cite #36 to #53 were already
+> listed as unreleased in the 0.1.0 changelog, and some of what they describe (the
+> release workflow, the Makefile, the `NullHandler`) is in the 0.1.0 tag too, so they
+> are not new in 0.2.0.
 
 ### Removed (BREAKING — library)
 
@@ -84,15 +86,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `build_distance` in `optimizer.distance`.
 - **The `docs` extra** (MkDocs) and the `Documentation` project URL, with the `examples/`
   directory and the MkDocs site they served (see the entry further down).
-- **`optimizer.factors` config knobs that no code path read.** Setting them
-  changed nothing while implying a protection or a switch, so they are removed
-  and passing them now raises `TypeError` (or `ImportError` for the names).
+- **`optimizer.factors` config knobs that no code path reads any more.** Setting
+  them implied a protection or a switch, so they are removed and passing them now
+  raises `TypeError` (or `ImportError` for the names).
   - `FactorIntegrationConfig.max_weight` — never applied; cap positions with
     `MeanRiskConfig.max_weights`.
-  - `FactorConstructionConfig.publication_lag` — never read, so it gave no
-    point-in-time protection; shift fundamentals with
-    `align_to_pit(lag_days=...)`, taking the lag from the matching
-    `PublicationLagConfig` field, before computing factors.
+  - `FactorConstructionConfig.publication_lag` — nothing reads it, so it gives no
+    point-in-time protection. In 0.1.0 its only reader was the removed
+    `run_full_pipeline_with_selection`, which used `macro_days` (default 63) to lag
+    macro data before regime classification, so lag the macro data yourself before
+    `classify_regime`. Shift fundamentals with `align_to_pit(lag_days=...)`, taking
+    the lag from the matching `PublicationLagConfig` field, before computing factors.
   - `FactorValidationConfig.fmp_top_pct` / `fmp_bottom_pct` — mimicking-portfolio
     legs are set through the builder's `quantile` argument.
   - `GroupICAggregationConfig`, `ICWeightingMethod`, `ICNegativeFilterPolicy`,
@@ -104,6 +108,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `publication_lag` and `fmp_*` knobs can affect a 0.1.0 user.
 
 ### Changed (BREAKING — library)
+
+Some entries below are about things that did not exist in 0.1.0: the
+`SectorRegimeBandsConfig` line of the construction-time validation entry, and the
+entries on `resolve_sector_bands`, `RegimeThresholdConfig.for_rolling_percentile`,
+`RobustMeanRiskConfig`, `implied_annualization_factor` and
+`MomentEstimationConfig.for_regime_adjusted_ew`. They were added after 0.1.0 and changed
+again before this release, so they record later changes and ask nothing of a 0.1.0 user.
+Other entries mix older and newer names, and only the newer ones are later additions:
+`PreSelectionConfig.zero_variance_threshold` and `ic_decay_halflife`, `apply_no_trade_band`,
+`min_sector_weights`, `to_returns`, the `optimizer.online` searches, `market_weights` and
+`AvailableAssetViewsPrior` did not exist in 0.1.0, while `winsorize_threshold`, `ICIR`,
+`compute_drifted_weights` and `SyntheticDataConfig` did, so read those entries in full.
 
 - **The library distribution is renamed from `portopt` to `portopt-core`.** The import
   name `optimizer` is unchanged. In this repository the name `portopt` now belongs to
