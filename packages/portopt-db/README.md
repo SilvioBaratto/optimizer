@@ -10,7 +10,7 @@ Internal workspace package (not published), consumed by `ingestion` and by `fund
 
 ## Consumers and versioning
 
-The package is versioned with the rest of the workspace (`0.1.0`) and resolved through
+The package is versioned with the rest of the workspace and resolved through
 `[tool.uv.sources]`, so a consumer always builds against the checkout it sits in. What a
 consumer may rely on is the surface it imports: the models, the repositories, `RepositoryBase`,
 `DatabaseManager`, `portopt_db.ports` (the `PriceReader`, `FxRateReader` and `UniverseReader`
