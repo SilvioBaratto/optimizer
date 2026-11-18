@@ -29,15 +29,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 >   `distance_type`, and `WalkForwardConfig.purged_size` defaults to 5 where it was 0. Check
 >   the signatures you call against the 0.1.0 source and run your code against this
 >   release before you rely on it.
-> - **Docker users:** dump the database first, because migration `d1e2f3a4b5c6` drops 17
->   tables and, like three later ones (`a5ac0fa9b0ec`, `a6f1c8d3e2b7`, `b9c8d7e6f5a4`),
->   cannot be downgraded. Every compose service now sits behind a profile, so a bare
->   `docker compose up` starts nothing (use `--profile ingestion` or `--profile fund`). The
->   scheduler reads its API keys from `.env`, `.env.scheduler` or the `./secrets/` files, so a
->   key exported only in the shell no longer reaches it. The database (54320) and Adminer
->   (18081) ports are published on `127.0.0.1` only, so other hosts can no longer reach them.
->   `docker-compose.yml` pins the project name to `optimizer`, so a checkout under another
->   directory name needs the steps in the **Fixed** entry on that pin before it upgrades.
+> - **Docker users:** dump the database first, because four migrations cannot be
+>   downgraded (`d1e2f3a4b5c6`, which drops 17 tables, and three later ones,
+>   `a5ac0fa9b0ec`, `a6f1c8d3e2b7` and `b9c8d7e6f5a4`) and `a5ac0fa9b0ec` deletes rows
+>   from `trading_economics_indicators` and `trading_economics_observations`. Every
+>   compose service now sits behind a profile, so a bare `docker compose up` starts
+>   nothing (use `--profile ingestion` or `--profile fund`). The scheduler reads its API
+>   keys from `.env`, `.env.scheduler` or the `./secrets/` files, so a key exported only
+>   in the shell no longer reaches it. The database (54320) and Adminer (18081) ports are
+>   published on `127.0.0.1` only, so other hosts can no longer reach them.
+>   `docker-compose.yml` pins the project name to `optimizer`, so a checkout under
+>   another directory name needs the steps in the **Fixed** entry on that pin before it
+>   upgrades.
 
 > **Many entries below concern the repository's ingestion service (`ingestion/`,
 > formerly `api/`) and its tooling.** The itemised library breaking changes are in
@@ -57,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PortfolioResult`. `build_portfolio_pipeline` (pre-selection → optimiser
   composition) moved to `optimizer.pre_selection`. Opinionated, DB-connected
   orchestration (FX conversion, delisting correction, universe/factor selection,
-  rebalancing decisions, persistence) now belongs to the planned `fund/` bridge,
+  rebalancing decisions, persistence) now belongs to the `fund/` bridge,
   keeping `optimizer` DB-agnostic. Compose runs from primitives:
   `build_portfolio_pipeline(optimizer)` + `optimizer.validation.run_cross_val`.
 - **The `optimizer` console command and the `cli` package.** 0.1.0 installed an
@@ -111,15 +114,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Some entries below are about things that did not exist in 0.1.0: the
 `SectorRegimeBandsConfig` line of the construction-time validation entry, and the
-entries on `resolve_sector_bands`, `RegimeThresholdConfig.for_rolling_percentile`,
-`RobustMeanRiskConfig`, `implied_annualization_factor` and
-`MomentEstimationConfig.for_regime_adjusted_ew`. They were added after 0.1.0 and changed
-again before this release, so they record later changes and ask nothing of a 0.1.0 user.
-Other entries mix older and newer names, and only the newer ones are later additions:
-`PreSelectionConfig.zero_variance_threshold` and `ic_decay_halflife`, `apply_no_trade_band`,
-`min_sector_weights`, `to_returns`, the `optimizer.online` searches, `market_weights` and
-`AvailableAssetViewsPrior` did not exist in 0.1.0, while `winsorize_threshold`, `ICIR`,
-`compute_drifted_weights` and `SyntheticDataConfig` did, so read those entries in full.
+entries on `resolve_sector_bands`, `RegimeThresholdConfig.for_rolling_percentile` and
+`MomentEstimationConfig.for_regime_adjusted_ew`, plus the factor exposure band entry
+(nothing in 0.1.0 read the `exposure_*_bound` fields) and the `RobustMeanRiskConfig`
+entry (its presets
+share their names with the `RobustConfig` presets that 0.1.0 had and this release
+removes, see above). They were added after 0.1.0 and changed again before this
+release, so they record later changes and ask nothing of a 0.1.0 user. Other entries
+mix older and newer names, and only the newer ones are later additions:
+`PreSelectionConfig.zero_variance_threshold`, `CleaningConfig` and `for_low_volatility`,
+`CompositeScoringConfig.ic_decay_halflife`, `implied_annualization_factor`,
+`apply_no_trade_band`, `min_sector_weights`, `to_returns`, the `optimizer.online`
+searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0, while
+`winsorize_threshold`, `ICIR`, `CovEstimatorType.IMPLIED`, `compute_drifted_weights` and
+`SyntheticDataConfig` did, so read those entries in full.
 
 - **The library distribution is renamed from `portopt` to `portopt-core`.** The import
   name `optimizer` is unchanged. In this repository the name `portopt` now belongs to
@@ -156,11 +164,13 @@ Other entries mix older and newer names, and only the newer ones are later addit
   `ic_lookback=36`, group IC histories longer than 36 periods are trimmed, so
   existing ICIR-weighted composites change; set a larger `ic_lookback` to keep
   the old whole-history behaviour.
-- **Factor exposure band is relative to the selected set.**
-  `FactorIntegrationConfig.exposure_lower_bound` / `exposure_upper_bound` now
-  bound the exposure around the equal-weight exposure of the selected tickers,
-  not around the universe mean (z-score 0). The old absolute bounds were
-  infeasible for any top-N selection; a full-universe selection is unchanged.
+- **Factor exposure band is relative to the selected set.** In 0.1.0 nothing applied
+  `FactorIntegrationConfig.exposure_lower_bound` / `exposure_upper_bound`.
+  `build_factor_integration`, added after 0.1.0, bounds the exposure within them
+  around the equal-weight exposure of the selected tickers, not around the universe
+  mean (z-score 0), because absolute bounds were infeasible for any top-N selection; a
+  full-universe selection is unchanged. `build_factor_exposure_constraints`, which
+  0.1.0 already had, still takes absolute bounds.
 - **`resolve_sector_bands` honours `SectorRegimeBandsConfig.enable`.** A disabled
   config (`SectorRegimeBandsConfig.disabled()`) now yields no sector constraints
   instead of an 11-sector, 33%-floor set, and an enabled config with no bands is
@@ -184,10 +194,12 @@ Other entries mix older and newer names, and only the newer ones are later addit
   maximise worst-case mean-variance utility, not the Sharpe ratio.** The ratio
   problem is infeasible whenever the worst-case excess return is non-positive,
   which is the normal case on 1-2 years of daily data.
-- **`implied_annualization_factor` is required for an implied covariance.**
-  `build_cov_estimator` raises `ConfigurationError` without a positive value;
-  skfolio never inferred it from the index (it uses 252), so weekly data was
-  de-annualised by the wrong factor.
+- **The implied covariance estimator needs `implied_annualization_factor`.** 0.1.0's
+  `build_cov_estimator` returned a bare `ImpliedCovariance()` for
+  `CovEstimatorType.IMPLIED`; it now raises `ConfigurationError` unless
+  `MomentEstimationConfig.implied_annualization_factor` (new since 0.1.0) is positive,
+  for example 252 for daily returns. skfolio never inferred it from the index (it uses
+  252), so weekly data was de-annualised by the wrong factor.
 - **`MomentEstimationConfig.for_regime_adjusted_ew()` uses the EW mean estimator**,
   so it fits a ragged panel like its covariance does.
 - **Rebalancing treats weights that sum below 1 as cash.** `apply_no_trade_band`
@@ -206,8 +218,10 @@ Other entries mix older and newer names, and only the newer ones are later addit
   (`UserWarning`) when `n_assets * max_weights` is below the budget, naming the cap,
   the asset count and the number of assets needed, instead of leaving only the
   solver's generic infeasibility error. The presets that default to
-  `max_weights=0.10` need at least ten assets. Fitting, cloning and failure handling
-  are otherwise unchanged.
+  `max_weights=0.10` need at least ten assets. The returned estimators are the
+  subclasses `CapacityCheckedMeanRisk` and `CapacityCheckedMaximumDiversification`
+  (0.1.0 returned skfolio's own `MeanRisk` and `MaximumDiversification`); fitting,
+  cloning and failure handling are otherwise unchanged.
 - **`beta_neutral` factor-mimicking portfolios hedge with a lagged expanding
   beta** (NaN for the first 12 shared dates) instead of a full-sample beta, which
   used later data on earlier dates. `scores` must lead `returns`.
