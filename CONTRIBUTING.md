@@ -172,8 +172,13 @@ Use conventional commit style:
 
 1. Branch `release/0.x.0` from `development`
 2. Set the version to `0.x.0` in the root `pyproject.toml` and keep the three member
-   `pyproject.toml` files equal to it, then refresh `uv.lock`
-3. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[0.x.0]` section
+   `pyproject.toml` files equal to it, then refresh `uv.lock`. Two modules hold the
+   version as a literal (`fund/src/fund/__init__.py` and
+   `packages/portopt-db/src/portopt_db/__init__.py`), `fund/tests/unit/test_package.py`
+   asserts the `fund` one, and `CITATION.cff` carries the version and the release date,
+   so change those too
+3. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[0.x.0]` section dated the
+   day the tag is pushed
 4. Open a pull request from the release branch into `main` and merge it once green
 5. Tag the merge commit on `main`: `git tag -a v0.x.0` and `git push origin v0.x.0`
 6. The release workflow rejects the tag unless its commit is on `main` and the tag

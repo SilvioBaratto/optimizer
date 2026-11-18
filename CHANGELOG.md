@@ -7,20 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-16
+## [0.2.0] - 2026-11-18
 
-> **Upgrading from 0.1.0.** Library users: `optimizer.pipeline` is gone (compose runs from
-> the primitives; `build_portfolio_pipeline` now lives in `optimizer.pre_selection`), several
+> **Upgrading from 0.1.0.** Library users: the distribution is now `portopt-core` (it was
+> `portopt` in 0.1.0; the import name `optimizer` is unchanged), it needs Python 3.12 or
+> newer, and its licence is PolyForm Noncommercial 1.0.0 instead of BSD-3-Clause. The
+> `optimizer` console command is gone, and so is `optimizer.pipeline` (compose runs from the
+> primitives; `build_portfolio_pipeline` now lives in `optimizer.pre_selection`). Several
 > `optimizer.factors` configs validate at construction and reject inputs that used to be
-> ignored, and `CPCVConfig` purges and embargoes by default; the two BREAKING sections
-> below list each change. Running the stack with Docker: `docker-compose.yml` now pins the
-> project name to `optimizer`, so a checkout under another directory name needs the steps in
-> the **Fixed** entry on that pin before it upgrades.
+> ignored, fail late or give silently wrong output, and `CPCVConfig` purges and embargoes by
+> default. The two BREAKING sections below list each of these changes. Running the stack
+> with Docker: dump the database first, because migration `d1e2f3a4b5c6` drops 17 tables and
+> cannot be downgraded; every compose service now sits behind a profile, so a bare
+> `docker compose up` starts nothing (use `--profile ingestion` or `--profile fund`); and
+> `docker-compose.yml` pins the project name to `optimizer`, so a checkout under another
+> directory name needs the steps in the **Fixed** entry on that pin before it upgrades.
 
-> **Most entries below concern the repository's ingestion service (`ingestion/`,
-> formerly `api/`) and its tooling.** The exceptions are the library breaking
-> changes in **Removed (BREAKING — library)** and **Changed (BREAKING — library)**
-> immediately below.
+> **Many entries below concern the repository's ingestion service (`ingestion/`,
+> formerly `api/`) and its tooling.** The library breaking changes are in
+> **Removed (BREAKING — library)** and **Changed (BREAKING — library)** immediately
+> below; the `fund` bridge, the shared `portopt-db` layer and CI have entries of
+> their own further down.
 
 ### Removed (BREAKING — library)
 
@@ -34,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rebalancing decisions, persistence) now belongs to the planned `fund/` bridge,
   keeping `optimizer` DB-agnostic. Compose runs from primitives:
   `build_portfolio_pipeline(optimizer)` + `optimizer.validation.run_cross_val`.
+- **The `optimizer` console command and the `cli` package.** 0.1.0 installed an
+  `optimizer` command (`cli:app`) and a top-level `cli` package next to the
+  `optimizer` import package. The library distribution now installs neither; the
+  `portopt` command belongs to the separate ingestion distribution.
 - **`optimizer.factors` config knobs that no code path read.** Setting them
   changed nothing while implying a protection or a switch, so they are removed
   and passing them now raises `TypeError` (or `ImportError` for the names).
@@ -51,6 +62,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (BREAKING — library)
 
+- **The library distribution is renamed from `portopt` to `portopt-core`.** The import
+  name `optimizer` is unchanged. In this repository the name `portopt` now belongs to
+  the ingestion daemon's distribution (`ingestion/`), so a dependency on `portopt` no
+  longer means the library.
+- **The Python floor rises from 3.10 to 3.12** (`requires-python = ">=3.12"`). The
+  pinned `numpy` and `pandas` need Python 3.12 or newer, so the old floor could not
+  be resolved; CI runs 3.12 and 3.13.
+- **The licence changes from BSD-3-Clause to PolyForm Noncommercial 1.0.0** (see
+  `LICENSE`).
 - **`optimizer.factors` configs now validate at construction and raise
   `ConfigurationError`** for values that previously failed late or produced
   silently wrong output:
@@ -439,8 +459,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CLI rather than curl-and-poll drivers against HTTP endpoints
 - **docker**: compose service `api` → `scheduler`; the API port is gone and 9000
   (metrics) is published instead
-- Type-check target raised to Python 3.12 (see Fixed). Runtime 3.10 support is
-  unchanged, still enforced by ruff, pyright, and the 3.10 CI matrix leg
+- Type-check target raised to Python 3.12 (see Fixed). The runtime floor is 3.12
+  as well (see **Changed (BREAKING — library)**)
 - **api**: renamed to **`ingestion/`** — the folder is a schedule-driven worker,
   not an HTTP service, so the name now describes the domain rather than a
   removed transport layer. Docker (`ingestion/Dockerfile`), CI (job renamed
