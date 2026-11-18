@@ -2906,7 +2906,7 @@ wheels = [
 
 [[package]]
 name = "portopt"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "ingestion" }
 dependencies = [
     { name = "apscheduler" },
@@ -2976,7 +2976,7 @@ provides-extras = ["test"]
 
 [[package]]
 name = "portopt-core"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
@@ -3037,7 +3037,7 @@ provides-extras = ["test", "lint", "typecheck", "dev"]
 
 [[package]]
 name = "portopt-db"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/portopt-db" }
 dependencies = [
     { name = "alembic" },
@@ -3067,7 +3067,7 @@ provides-extras = ["test"]
 
 [[package]]
 name = "portopt-fund"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "fund" }
 dependencies = [
     { name = "apscheduler" },

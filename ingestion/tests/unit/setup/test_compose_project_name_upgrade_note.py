@@ -16,22 +16,23 @@ from pathlib import Path
 _CHANGELOG = Path(__file__).resolve().parents[4] / "CHANGELOG.md"
 
 
-def _unreleased() -> str:
+def _release_section() -> str:
+    """The `[0.2.0]` section, which records the pin, not the empty `[Unreleased]` one."""
     text = _CHANGELOG.read_text(encoding="utf-8")
-    head = text.split("## [Unreleased]", 1)[1]
+    head = text.split("## [0.2.0]", 1)[1]
     return head.split("\n## [", 1)[0]
 
 
 def test_changelog_records_the_project_name_pin() -> None:
     """The pin and the volume it fixes are both named, so the entry is findable."""
-    section = _unreleased()
+    section = _release_section()
     assert "name: optimizer" in section
     assert "optimizer_postgres_data" in section
 
 
 def test_changelog_documents_upgrade_for_non_default_checkout_names() -> None:
     """Both migration routes are spelled out, with the data-destroying flag called out."""
-    section = _unreleased()
+    section = _release_section()
     # Free the old project's fixed container names without deleting its volume.
     assert "docker compose -p" in section
     # Or keep using the old project (and so its volume) without moving data.
