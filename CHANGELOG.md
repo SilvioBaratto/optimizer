@@ -19,23 +19,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 >   `build_portfolio_pipeline` now lives in `optimizer.pre_selection`), and so are the HMM
 >   and DMM moment blending and several other names the subpackages used to export.
 >   Several `optimizer.factors` configs validate at construction, and `CPCVConfig` purges
->   and embargoes by default. The two BREAKING sections below list the removed names, the
->   packaging and dependency changes and these behaviour changes; they do not describe every
->   internal change, so run your own code against the new release before you rely on it.
+>   and embargoes by default. The two BREAKING sections below list the main breaks: the
+>   removed names, the packaging and dependency changes and some behaviour changes. They are
+>   not complete. The configs and builders that are still exported also lost or renamed
+>   fields, presets and parameters and changed some defaults, and most of those are not
+>   itemised: for example `MomentEstimationConfig` takes `ew_mu_half_life` and
+>   `ew_cov_half_life` where it took `ew_mu_alpha` and `ew_cov_alpha`, `RiskBudgetingConfig`
+>   no longer has `risk_measure`, `DistanceConfig` has `estimator` where it had
+>   `distance_type`, and `WalkForwardConfig.purged_size` defaults to 5 where it was 0. Check
+>   the signatures you call against the 0.1.0 source and run your code against this
+>   release before you rely on it.
 > - **Docker users:** dump the database first, because migration `d1e2f3a4b5c6` drops 17
 >   tables and, like three later ones (`a5ac0fa9b0ec`, `a6f1c8d3e2b7`, `b9c8d7e6f5a4`),
 >   cannot be downgraded. Every compose service now sits behind a profile, so a bare
 >   `docker compose up` starts nothing (use `--profile ingestion` or `--profile fund`). The
 >   scheduler reads its API keys from `.env`, `.env.scheduler` or the `./secrets/` files, so a
->   key exported only in the shell no longer reaches it. `docker-compose.yml` pins the project
->   name to `optimizer`, so a checkout under another directory name needs the steps in the
->   **Fixed** entry on that pin before it upgrades.
+>   key exported only in the shell no longer reaches it. The database (54320) and Adminer
+>   (18081) ports are published on `127.0.0.1` only, so other hosts can no longer reach them.
+>   `docker-compose.yml` pins the project name to `optimizer`, so a checkout under another
+>   directory name needs the steps in the **Fixed** entry on that pin before it upgrades.
 
 > **Many entries below concern the repository's ingestion service (`ingestion/`,
 > formerly `api/`) and its tooling.** The library breaking changes are in
 > **Removed (BREAKING — library)** and **Changed (BREAKING — library)** immediately
 > below; the `fund` bridge, the shared `portopt-db` layer and CI have entries of
-> their own further down.
+> their own further down. The **Added** entries that cite #36 to #53 were already in the
+> 0.1.0 changelog, listed as unreleased, and are repeated here.
 
 ### Removed (BREAKING — library)
 
@@ -52,7 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The `optimizer` console command and the `cli` package.** 0.1.0 installed an
   `optimizer` command (`cli:app`) and a top-level `cli` package next to the
   `optimizer` import package. The library distribution now installs neither; the
-  `portopt` command belongs to the separate ingestion distribution.
+  `portopt` command belongs to the separate ingestion distribution. The `portopt setup`
+  wizard puts a launcher that is also named `optimizer` on your `PATH` by default (it
+  brings the fund stack up and opens its terminal shell); it is not the removed command.
 - **HMM and DMM moment blending.** `optimizer.moments` no longer exports `HMMConfig`,
   `HMMResult`, `HMMBlendedCovariance`, `HMMBlendedMu`, `fit_hmm`, `select_hmm_n_states`,
   `blend_moments_by_regime`, `DMMConfig`, `DMMResult`, `fit_dmm` or `blend_moments_dmm`.
@@ -63,7 +74,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CovarianceUncertaintyResult`, `ClusteringConfig`, `build_clustering_estimator`,
   `build_distance_estimator`, `DistanceType` and `ExtraRiskMeasureType`. `DistanceConfig`
   and `LinkageMethodType` are importable from `optimizer.distance` and `optimizer.cluster`
-  instead. Where the capability remains it has new entry points, not drop-in
+  instead (`DistanceConfig` changed shape on the way: `estimator` replaces `distance_type`,
+  and `threshold` defaults to `None` instead of 0.5). Where the capability remains it has
+  new entry points, not drop-in
   replacements, so read their signatures: `build_regime_blended_mean_risk` and
   `RobustMeanRiskConfig` in `optimizer.optimization`, `build_covariance_uncertainty_set`
   and `build_mu_uncertainty_set` in `optimizer.uncertainty_set`,
@@ -86,22 +99,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `GroupICResult` — no group-IC aggregation by t-stat weight or negative-IC
     filter existed.
 
+  `FactorIntegrationConfig.max_weight` and the four group-IC names did not exist in
+  0.1.0 (they were added after it and removed again before this release), so only the
+  `publication_lag` and `fmp_*` knobs can affect a 0.1.0 user.
+
 ### Changed (BREAKING — library)
 
 - **The library distribution is renamed from `portopt` to `portopt-core`.** The import
   name `optimizer` is unchanged. In this repository the name `portopt` now belongs to
   the ingestion daemon's distribution (`ingestion/`), which the release workflow does
   not publish. Switch a dependency on the library to `portopt-core`; `portopt` gets no
-  further library releases. Both distributions install the `optimizer` package, so
-  uninstall `portopt` before you install `portopt-core`.
+  further library releases. The 0.1.0 `portopt` distribution and `portopt-core` both
+  install the `optimizer` package, so uninstall `portopt` before you install `portopt-core`.
 - **The Python floor rises from 3.10 to 3.12** (`requires-python = ">=3.12"`). The
   pinned `numpy` and `scipy` need Python 3.12 or newer; CI runs 3.12 and 3.13.
 - **Runtime dependencies are exact pins and fewer.** `numpy==2.5.4`, `pandas==3.0.6`,
   `scipy==1.18.1`, `scikit-learn==1.9.1` and `skfolio==1.12.5` replace the 0.1.0 ranges
   (`numpy>=1.24`, `pandas>=2.0`, `scipy>=1.11`, `scikit-learn>=1.6`, `skfolio>=0.5`), so
   installing the library fixes those versions (pandas 3 in particular) in the
-  environment. `jinja2==3.1.6` is a new runtime dependency, and `hmmlearn` and `arch` are
-  no longer declared.
+  environment. `skfolio` is pinned to the 1.x release 1.12.5, whose API differs from the
+  0.x versions its 0.1.0 range allowed (for example the EW estimators take `half_life`
+  where they took `alpha`), and that shows through the estimators the builders return.
+  `jinja2==3.1.6` is a new runtime dependency, and `hmmlearn` and `arch` are no longer
+  declared.
 - **The licence changes from BSD-3-Clause to PolyForm Noncommercial 1.0.0** (see
   `LICENSE`).
 - **`optimizer.factors` configs now validate at construction and raise

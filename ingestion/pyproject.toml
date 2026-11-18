@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "portopt"
 version = "0.2.0"
 description = "Optimizer Platform ingestion daemon and CLI"
-# 3.12 floor: numpy/pandas/scikit-learn pins require Python>=3.12 (see root).
+# 3.12 floor: the numpy/scipy pins require Python>=3.12 (see root).
 requires-python = ">=3.12"
 
 dependencies = [
