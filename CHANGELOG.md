@@ -347,6 +347,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fresh baseline from the current measurement, so a deleted or emptied baseline
   file in a diff deserves a reviewer's attention. A source root that is missing
   fails the check instead of measuring nothing.
+- **statarb**: new research package `optimizer.statarb` for pairs trading and PCA
+  statistical arbitrage. `engle_granger` runs the two-step cointegration test: an OLS
+  hedge ratio, then an Augmented Dickey-Fuller test on the residuals with the lag count
+  chosen by the Akaike criterion. It uses the asymptotic MacKinnon critical values with
+  no finite-sample correction, so its decision is approximate for short samples.
+  `ou_half_life` gives the half-life of mean reversion of any series.
+  `kalman_hedge_ratio` tracks a drifting hedge ratio and returns the one-step-ahead
+  spread and its z-score, and `zscore_positions` turns a z-score into positions with
+  entry, exit and stop bands. `fit_pca_residual_model` and `pca_signals` implement the
+  Avellaneda and Lee (2010) eigenportfolio residual model: the Ornstein-Uhlenbeck fit
+  of each residual, its s-score and the paper's trading thresholds. These are research
+  tools that ignore costs and borrow limits and are not wired to the fund, whose
+  mandate is long-only and paper-only. They need numpy and scipy only.
 - **fund: execution venues, paper-ticket pricing without a session, and NAV marking
   without a session.** `fund.pricing` (`BPS_PER_UNIT`, `DUST_WEIGHT`, `CostModel`,
   `FillQuote`, `TicketLine`, `PricedTicket`, `held_weights`, `price_ticket`) and
