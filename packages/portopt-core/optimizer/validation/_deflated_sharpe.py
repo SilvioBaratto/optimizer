@@ -138,6 +138,28 @@ def _require_finite_benchmark(benchmark_sharpe: float) -> None:
         raise ConfigurationError(msg)
 
 
+def _require_finite_moments(sharpe: float, skewness: float, kurtosis: float) -> None:
+    """Reject a sample statistic that is not a finite real number.
+
+    NaN fails every comparison and an infinity can make the variance term infinite
+    or the probability NaN, so either would come back as a plausible number instead
+    of an error. A bool or text is refused too: it is never a measured statistic.
+    """
+    statistics: tuple[tuple[str, object], ...] = (
+        ("sharpe", sharpe),
+        ("skewness", skewness),
+        ("kurtosis", kurtosis),
+    )
+    for name, value in statistics:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, numbers.Real)
+            or not math.isfinite(value)
+        ):
+            msg = f"{name} must be a finite real number, got {value!r}"
+            raise DataError(msg)
+
+
 def _variance_factor(sharpe: float, skewness: float, kurtosis: float) -> float:
     """Return the factor the Sharpe ratio's variance is proportional to."""
     factor = 1.0 - skewness * sharpe + (kurtosis - 1.0) / 4.0 * sharpe**2
@@ -178,11 +200,13 @@ def probabilistic_sharpe_ratio(
         A probability in ``[0, 1]``; one half when ``sharpe`` equals the benchmark.
 
     Raises:
-        DataError: If fewer than two observations are given, or the moments make
-            the variance of the Sharpe ratio estimate non-positive.
+        DataError: If fewer than two observations are given, ``sharpe``,
+            ``skewness`` or ``kurtosis`` is not a finite real number, or the moments
+            make the variance of the Sharpe ratio estimate non-positive.
         ConfigurationError: If ``benchmark_sharpe`` is not finite.
     """
     _require_finite_benchmark(benchmark_sharpe)
+    _require_finite_moments(sharpe, skewness, kurtosis)
     if not (
         math.isfinite(n_observations)
         and n_observations >= _MIN_OBSERVATIONS_FOR_STANDARD_ERROR
@@ -254,11 +278,13 @@ def minimum_track_record_length(
     Raises:
         ConfigurationError: If ``confidence_level`` is not strictly between 0 and 1
             or ``benchmark_sharpe`` is not finite.
-        DataError: If the moments make the variance of the Sharpe ratio estimate
+        DataError: If ``sharpe``, ``skewness`` or ``kurtosis`` is not a finite real
+            number, or the moments make the variance of the Sharpe ratio estimate
             non-positive.
     """
     _require_confidence(confidence_level)
     _require_finite_benchmark(benchmark_sharpe)
+    _require_finite_moments(sharpe, skewness, kurtosis)
     if sharpe <= benchmark_sharpe:
         return math.inf
     factor = _variance_factor(sharpe, skewness, kurtosis)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -27,6 +28,9 @@ from optimizer.validation import (
 
 _DAILY_SHARPE = 0.1
 _YEAR = 252
+# NaN fails every comparison, an infinity breaks the variance term, and a bool or text
+# is never a measured statistic.
+_NOT_FINITE_REAL = [math.nan, math.inf, -math.inf, True, "0.1"]
 
 
 def _noise(seed: int, size: int, mean: float = 0.0, sigma: float = 0.01) -> np.ndarray:
@@ -96,6 +100,22 @@ class TestProbabilisticSharpeRatio:
         """One observation has no standard error."""
         with pytest.raises(DataError, match="observations"):
             probabilistic_sharpe_ratio(_DAILY_SHARPE, 1, 0.0, 3.0)
+
+    @pytest.mark.parametrize("bad", _NOT_FINITE_REAL)
+    @pytest.mark.parametrize("name", ["sharpe", "skewness", "kurtosis"])
+    def test_a_statistic_that_is_not_a_finite_real_raises(
+        self, name: str, bad: object
+    ) -> None:
+        """An infinite kurtosis once returned 0.5 and an infinite Sharpe NaN."""
+        arguments: dict[str, Any] = {
+            "sharpe": _DAILY_SHARPE,
+            "n_observations": _YEAR,
+            "skewness": 0.0,
+            "kurtosis": 3.0,
+        }
+        arguments[name] = bad
+        with pytest.raises(DataError, match=f"{name} must be a finite real"):
+            probabilistic_sharpe_ratio(**arguments)
 
     @pytest.mark.parametrize("benchmark", [math.nan, math.inf, -math.inf])
     def test_a_benchmark_that_is_not_finite_raises(self, benchmark: float) -> None:
@@ -205,6 +225,23 @@ class TestMinimumTrackRecordLength:
         """A non-finite benchmark is rejected, as the config rejects it."""
         with pytest.raises(ConfigurationError, match="benchmark_sharpe"):
             minimum_track_record_length(_DAILY_SHARPE, 0.0, 3.0, benchmark, 0.95)
+
+    @pytest.mark.parametrize("bad", _NOT_FINITE_REAL)
+    @pytest.mark.parametrize("name", ["sharpe", "skewness", "kurtosis"])
+    def test_a_statistic_that_is_not_a_finite_real_raises(
+        self, name: str, bad: object
+    ) -> None:
+        """A -inf Sharpe once returned infinity, as if it were just below the hurdle."""
+        arguments: dict[str, Any] = {
+            "sharpe": _DAILY_SHARPE,
+            "skewness": 0.0,
+            "kurtosis": 3.0,
+            "benchmark_sharpe": 0.0,
+            "confidence_level": 0.95,
+        }
+        arguments[name] = bad
+        with pytest.raises(DataError, match=f"{name} must be a finite real"):
+            minimum_track_record_length(**arguments)
 
 
 class TestDeflatedSharpeConfig:
