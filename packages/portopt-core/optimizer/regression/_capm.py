@@ -37,6 +37,7 @@ from optimizer.regression._inputs import (
 from optimizer.regression._ols import ols
 
 _MARKET_LABEL = "market"
+_BETA_LABEL = "beta"
 _MIN_ASSETS_FOR_LINE = 3
 
 
@@ -205,7 +206,7 @@ def rolling_beta(
         raise DataError(msg)
     variance = market.rolling(window).var()
     covariance = asset.rolling(window).cov(market)
-    return (covariance / variance.where(variance > 0.0)).rename("beta")
+    return (covariance / variance.where(variance > 0.0)).rename(_BETA_LABEL)
 
 
 def _betas(asset_excess: pd.DataFrame, market_excess: pd.Series) -> pd.Series:
@@ -216,7 +217,7 @@ def _betas(asset_excess: pd.DataFrame, market_excess: pd.Series) -> pd.Series:
     centred_market = (market_excess - market_excess.mean()).to_numpy()
     centred_assets = (asset_excess - asset_excess.mean()).to_numpy()
     slopes = centred_assets.T @ centred_market / float(centred_market @ centred_market)
-    return pd.Series(slopes, index=asset_excess.columns, name="beta")
+    return pd.Series(slopes, index=asset_excess.columns, name=_BETA_LABEL)
 
 
 def security_market_line(
@@ -264,7 +265,7 @@ def security_market_line(
     line = ols(mean_excess, betas)
     table = pd.DataFrame(
         {
-            "beta": betas,
+            _BETA_LABEL: betas,
             "annualized_mean_excess_return": mean_excess,
             "capm_expected_excess_return": betas * premium,
             "alpha_vs_sml": mean_excess - betas * premium,
@@ -272,7 +273,7 @@ def security_market_line(
     )
     return SmlResult(
         table=table,
-        slope=float(line.coefficients.at["beta"]),
+        slope=float(line.coefficients.at[_BETA_LABEL]),
         intercept=float(line.coefficients.at[CONSTANT_NAME]),
         market_premium=premium,
     )

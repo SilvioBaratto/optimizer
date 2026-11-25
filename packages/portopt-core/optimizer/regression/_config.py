@@ -16,6 +16,8 @@ import numpy as np
 from optimizer.exceptions import ConfigurationError
 
 CONSTANT_NAME: Final = "const"
+# A sample covariance divides by n - 1, so a window of one observation has none.
+MIN_WINDOW: Final = 2
 
 
 class FamaFrenchFactor(str, Enum):
@@ -75,8 +77,8 @@ def require_window(window: int) -> None:
         window: Number of trailing observations in each window.
 
     Raises:
-        ConfigurationError: If it is not an integer of at least 2.
+        ConfigurationError: If it is not an integer of at least ``MIN_WINDOW`` (2).
     """
-    if not _is_whole_number(window) or window < 2:
-        msg = f"window must be an integer of at least 2, got {window!r}"
+    if not _is_whole_number(window) or window < MIN_WINDOW:
+        msg = f"window must be an integer of at least {MIN_WINDOW}, got {window!r}"
         raise ConfigurationError(msg)
