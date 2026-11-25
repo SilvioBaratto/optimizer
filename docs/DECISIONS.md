@@ -266,3 +266,22 @@ determinism guarantee.
 parameter, the prompt hash and the complete output, written **before** the step is checkpointed.
 Reproducibility becomes verifiability of what happened, which is what an audit needs and what a
 non-deterministic model can actually support.
+
+---
+
+## Later addition: `plotly` declared as a runtime dependency
+
+`optimizer.plotting` draws its charts with plotly, so the root `pyproject.toml` now declares
+`plotly==7.0.0`. portopt-core declared six runtime dependencies when this document was written
+and declares seven with it.
+
+| Package | Licence | Size | Transitive deps not already in portopt |
+|---|---|---|---|
+| **`plotly` 7.0.0** | MIT (`License :: OSI Approved :: MIT License`) | **9.1 MB** wheel, 38 MB installed | **none** — requires `narwhals` and `packaging`, both already in the lock |
+
+`skfolio` already requires `plotly>=6.0.0` and imports it when it loads, so every install had
+plotly before this change. Declaring it changes no installed version and adds no package: the
+lock gains only the two `portopt-core` lines that list it. The reason to declare it anyway is
+that `optimizer.plotting` imports plotly directly, and a library should not depend on another
+package's dependency list for something it uses itself. Only that package imports plotly;
+`kaleido` (static image export) is not a dependency.
