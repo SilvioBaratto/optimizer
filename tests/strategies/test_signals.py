@@ -6,7 +6,8 @@ code with the module under test.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -430,7 +431,7 @@ class TestCrossSectionalMomentumWeights:
         after = cross_sectional_momentum_weights(changed, 3, 1, 0.25, 2)
         pd.testing.assert_frame_equal(before.iloc[:6], after.iloc[:6])
 
-    @pytest.mark.parametrize("fraction", [0.0, -0.1, 1.5, float("nan")])
+    @pytest.mark.parametrize("fraction", [0.0, -0.1, 1.5, float("nan"), float("inf")])
     def test_a_fraction_outside_zero_one_raises(self, fraction: float) -> None:
         """The leg fraction must lie in (0, 1]."""
         with pytest.raises(ConfigurationError, match="top_fraction"):
@@ -450,6 +451,66 @@ class TestCrossSectionalMomentumWeights:
         """The lookback and skip rules of the scores apply here too."""
         with pytest.raises(ConfigurationError, match="skip"):
             self._weights(lookback=3, skip=3)
+
+
+_SMALL = _frame(a=[10, 11, 12, 13, 14, 15], b=[20, 19, 21, 22, 20, 23])
+# Values an integer setting must refuse: NaN, floats (even integral ones), a bool
+# (which subclasses int), text and None.
+_NOT_INTEGERS: list[object] = [float("nan"), 3.0, 2.5, True, "3", None]
+_INTEGER_SETTINGS: list[tuple[str, Callable[[Any], object]]] = [
+    ("window", lambda v: moving_average(_SMALL, v)),
+    ("fast", lambda v: moving_average_crossover_positions(_SMALL, v, 4)),
+    ("slow", lambda v: moving_average_crossover_positions(_SMALL, 2, v)),
+    ("lookback", lambda v: momentum_scores(_SMALL, v, 1)),
+    ("skip", lambda v: momentum_scores(_SMALL, 3, v)),
+    ("lookback", lambda v: cross_sectional_momentum_weights(_SMALL, v, 1, 0.5, 1)),
+    ("skip", lambda v: cross_sectional_momentum_weights(_SMALL, 3, v, 0.5, 1)),
+    (
+        "rebalance_every",
+        lambda v: cross_sectional_momentum_weights(_SMALL, 3, 1, 0.5, v),
+    ),
+]
+
+
+class TestIntegerSettings:
+    """Window and interval settings are whole numbers, not just numbers."""
+
+    @pytest.mark.parametrize(("setting", "call"), _INTEGER_SETTINGS)
+    @pytest.mark.parametrize("value", _NOT_INTEGERS)
+    def test_a_setting_that_is_not_an_integer_raises(
+        self, setting: str, call: Callable[[Any], object], value: object
+    ) -> None:
+        """NaN, floats, booleans, text and None never reach pandas or numpy."""
+        with pytest.raises(ConfigurationError, match=setting):
+            call(value)
+
+    def test_numpy_integers_are_accepted(self) -> None:
+        """A window read from an array gives the same result as a plain int."""
+        pd.testing.assert_frame_equal(
+            moving_average(_SMALL, np.int64(3)), moving_average(_SMALL, 3)
+        )
+        pd.testing.assert_frame_equal(
+            moving_average_crossover_positions(_SMALL, np.int32(2), np.int64(4)),
+            moving_average_crossover_positions(_SMALL, 2, 4),
+        )
+        pd.testing.assert_frame_equal(
+            cross_sectional_momentum_weights(
+                _SMALL, np.int64(3), np.int64(1), 0.5, np.int64(2)
+            ),
+            cross_sectional_momentum_weights(_SMALL, 3, 1, 0.5, 2),
+        )
+
+    @pytest.mark.parametrize("fraction", [True, "0.5", None])
+    def test_a_boolean_or_non_numeric_fraction_raises(self, fraction: object) -> None:
+        """A flag, text or None is not a share of the assets."""
+        with pytest.raises(ConfigurationError, match="top_fraction"):
+            cross_sectional_momentum_weights(
+                _SMALL,
+                3,
+                1,
+                fraction,
+                1,  # type: ignore[arg-type]
+            )
 
 
 def _broken_prices(kind: str) -> object:

@@ -28,7 +28,11 @@ import numpy.typing as npt
 import pandas as pd
 
 from optimizer.exceptions import ConfigurationError, DataError
-from optimizer.strategies._config import MovingAverageKind
+from optimizer.strategies._config import (
+    MovingAverageKind,
+    require_integer,
+    require_real,
+)
 
 # A fraction that should land exactly on an integer (0.29 of 100 assets) can sit one
 # unit in the last place below it (28.999999999999996), and floor would drop a name.
@@ -39,6 +43,7 @@ _MAX_LONG_SHORT_FRACTION: Final = 0.5
 # A moving-average window, a formation window or a rebalance interval of one row is the
 # shortest that means anything.
 _MIN_WINDOW: Final = 1
+_MIN_SKIP: Final = 0
 
 
 def to_float_frame(frame: pd.DataFrame, name: str) -> pd.DataFrame:
@@ -109,13 +114,6 @@ def require_price_frame(prices: pd.DataFrame, *, min_rows: int = 1) -> pd.DataFr
     return frame
 
 
-def _require_window(value: int, name: str) -> None:
-    """Reject a window shorter than one row."""
-    if value < _MIN_WINDOW:
-        msg = f"{name} must be at least {_MIN_WINDOW}, got {value}"
-        raise ConfigurationError(msg)
-
-
 def _as_kind(kind: MovingAverageKind | str) -> MovingAverageKind:
     """Return ``kind`` as a member of ``MovingAverageKind``."""
     try:
@@ -154,7 +152,7 @@ def moving_average(
         ConfigurationError: If ``window`` is below 1 or ``kind`` is unknown.
         DataError: If ``prices`` is not a valid price table.
     """
-    _require_window(window, "window")
+    require_integer("window", window, _MIN_WINDOW)
     averaging = _as_kind(kind)
     frame = require_price_frame(prices)
     if averaging is MovingAverageKind.EMA:
@@ -195,7 +193,8 @@ def moving_average_crossover_positions(
         ConfigurationError: If ``fast`` is below 1 or not smaller than ``slow``.
         DataError: If ``prices`` is not a valid price table.
     """
-    _require_window(fast, "fast")
+    require_integer("fast", fast, _MIN_WINDOW)
+    require_integer("slow", slow, _MIN_WINDOW)
     if fast >= slow:
         msg = f"fast must be smaller than slow, got fast={fast} and slow={slow}"
         raise ConfigurationError(msg)
@@ -211,12 +210,8 @@ def moving_average_crossover_positions(
 
 def _require_momentum_windows(lookback: int, skip: int) -> None:
     """Reject formation windows that are empty or inverted."""
-    if lookback < _MIN_WINDOW:
-        msg = f"lookback must be at least {_MIN_WINDOW}, got {lookback}"
-        raise ConfigurationError(msg)
-    if skip < 0:
-        msg = f"skip must not be negative, got {skip}"
-        raise ConfigurationError(msg)
+    require_integer("lookback", lookback, _MIN_WINDOW)
+    require_integer("skip", skip, _MIN_SKIP)
     if skip >= lookback:
         msg = (
             f"skip must be smaller than lookback, got skip={skip}, lookback={lookback}"
@@ -256,18 +251,17 @@ def _require_selection(
     top_fraction: float, rebalance_every: int, long_only: bool
 ) -> None:
     """Reject leg sizes and rebalance intervals that cannot form a book."""
-    if not 0.0 < top_fraction <= 1.0:
-        msg = f"top_fraction must be in (0, 1], got {top_fraction}"
+    fraction = require_real("top_fraction", top_fraction)
+    if not 0.0 < fraction <= 1.0:
+        msg = f"top_fraction must be in (0, 1], got {fraction}"
         raise ConfigurationError(msg)
-    if not long_only and top_fraction > _MAX_LONG_SHORT_FRACTION:
+    if not long_only and fraction > _MAX_LONG_SHORT_FRACTION:
         msg = (
             f"top_fraction must be at most {_MAX_LONG_SHORT_FRACTION} for a "
             f"long-short book, because the two legs would overlap, got {top_fraction}"
         )
         raise ConfigurationError(msg)
-    if rebalance_every < _MIN_WINDOW:
-        msg = f"rebalance_every must be at least {_MIN_WINDOW}, got {rebalance_every}"
-        raise ConfigurationError(msg)
+    require_integer("rebalance_every", rebalance_every, _MIN_WINDOW)
 
 
 def _rebalance_rows(

@@ -112,6 +112,17 @@ class TestReturns:
         np.testing.assert_allclose(result.weights.to_numpy(), held)
         np.testing.assert_allclose(result.gross_returns.to_numpy(), gross)
 
+    def test_a_numpy_integer_lag_behaves_like_an_int(self) -> None:
+        """A lag read from an array shifts the weights exactly as a plain int."""
+        prices = _prices(a=_TWO_A, b=_TWO_B)
+        targets = _targets(prices, [[1, 0], [0, 1], [1, 0], [0, 1]])
+        plain = backtest_weights(prices, targets, BacktestConfig(execution_lag=2))
+        from_numpy = backtest_weights(
+            prices, targets, BacktestConfig(execution_lag=np.int64(2))
+        )
+        pd.testing.assert_frame_equal(plain.weights, from_numpy.weights)
+        pd.testing.assert_series_equal(plain.net_returns, from_numpy.net_returns)
+
     def test_the_book_is_flat_until_the_first_decision_lands(self) -> None:
         """With a two-row lag the first period holds nothing and costs nothing."""
         prices = _prices(x=_SINGLE)

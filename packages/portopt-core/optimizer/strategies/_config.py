@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Final
@@ -10,6 +11,56 @@ from typing import Final
 from optimizer.exceptions import ConfigurationError
 
 _MIN_PERIODS_PER_YEAR: Final = 1
+_MIN_EXECUTION_LAG: Final = 0
+
+
+def require_integer(name: str, value: object, minimum: int) -> int:
+    """Return a setting as an ``int``, raising unless it is a whole number.
+
+    ``bool`` is rejected although it subclasses ``int``, and so is every float,
+    including NaN and integral values such as ``3.0``: a window or a lag written
+    as a float is a mistake worth surfacing before it reaches pandas or numpy,
+    where a NaN would slip past a ``<`` comparison.
+
+    Args:
+        name: Argument name used in the error message.
+        value: Candidate setting; Python and numpy integers are accepted.
+        minimum: Smallest accepted value.
+
+    Returns:
+        The value as a Python ``int``.
+
+    Raises:
+        ConfigurationError: If the value is not an integer or is below ``minimum``.
+    """
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, numbers.Integral)
+        or value < minimum
+    ):
+        msg = f"{name} must be an integer of at least {minimum}, got {value!r}"
+        raise ConfigurationError(msg)
+    return int(value)
+
+
+def require_real(name: str, value: object) -> float:
+    """Return a setting as a ``float``, raising unless it is a real number.
+
+    Args:
+        name: Argument name used in the error message.
+        value: Candidate setting; ``bool``, text and ``None`` are rejected.
+
+    Returns:
+        The value as a Python ``float``; it may still be NaN or infinite, which
+        the caller must rule out for its own setting.
+
+    Raises:
+        ConfigurationError: If the value is not a real number.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        msg = f"{name} must be a real number, got {value!r}"
+        raise ConfigurationError(msg)
+    return float(value)
 
 
 class MovingAverageKind(str, Enum):
@@ -33,11 +84,9 @@ class CostConfig:
 
     def __post_init__(self) -> None:
         """Reject a cost that is negative or not a finite number."""
-        if not math.isfinite(self.proportional_bps) or self.proportional_bps < 0.0:
-            msg = (
-                "proportional_bps must be finite and non-negative, "
-                f"got {self.proportional_bps}"
-            )
+        bps = require_real("proportional_bps", self.proportional_bps)
+        if not math.isfinite(bps) or bps < 0.0:
+            msg = f"proportional_bps must be finite and non-negative, got {bps}"
             raise ConfigurationError(msg)
 
 
@@ -67,18 +116,14 @@ class BacktestConfig:
 
     def __post_init__(self) -> None:
         """Reject conventions the backtest cannot honour."""
-        if self.periods_per_year < _MIN_PERIODS_PER_YEAR:
-            msg = (
-                f"periods_per_year must be at least {_MIN_PERIODS_PER_YEAR}, "
-                f"got {self.periods_per_year}"
-            )
+        require_integer(
+            "periods_per_year", self.periods_per_year, _MIN_PERIODS_PER_YEAR
+        )
+        require_integer("execution_lag", self.execution_lag, _MIN_EXECUTION_LAG)
+        capital = require_real("initial_capital", self.initial_capital)
+        if not math.isfinite(capital) or capital <= 0.0:
+            msg = f"initial_capital must be finite and positive, got {capital}"
             raise ConfigurationError(msg)
-        if self.execution_lag < 0:
-            msg = f"execution_lag must not be negative, got {self.execution_lag}"
-            raise ConfigurationError(msg)
-        if not math.isfinite(self.initial_capital) or self.initial_capital <= 0.0:
-            msg = (
-                "initial_capital must be finite and positive, "
-                f"got {self.initial_capital}"
-            )
+        if not isinstance(self.costs, CostConfig):
+            msg = f"costs must be a CostConfig, got {type(self.costs).__name__}"
             raise ConfigurationError(msg)

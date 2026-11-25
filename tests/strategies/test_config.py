@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
+import numpy as np
 import pytest
 
 from optimizer.exceptions import ConfigurationError
 from optimizer.strategies import BacktestConfig, CostConfig, MovingAverageKind
+
+# Values an integer setting must refuse: NaN, floats (even integral ones), a bool
+# (which subclasses int), text and None.
+_NOT_INTEGERS: list[object] = [float("nan"), 3.0, 2.5, True, "3", None]
+# Values a real-number setting must refuse although a comparison might let them by.
+_NOT_REALS: list[object] = [True, "10", None]
 
 
 class TestMovingAverageKind:
@@ -39,6 +47,16 @@ class TestCostConfig:
         """A cost must be a finite, non-negative number of basis points."""
         with pytest.raises(ConfigurationError, match="proportional_bps"):
             CostConfig(proportional_bps=bps)
+
+    @pytest.mark.parametrize("bps", _NOT_REALS)
+    def test_a_boolean_or_non_numeric_cost_raises(self, bps: object) -> None:
+        """A flag, text or None is not a number of basis points."""
+        with pytest.raises(ConfigurationError, match="proportional_bps"):
+            CostConfig(proportional_bps=bps)  # type: ignore[arg-type]
+
+    def test_a_numpy_float_is_accepted(self) -> None:
+        """A cost read from an array is a valid cost."""
+        assert CostConfig(proportional_bps=np.float64(5.0)).proportional_bps == 5.0
 
     def test_is_frozen(self) -> None:
         """A shared configuration cannot be mutated by accident."""
@@ -76,6 +94,35 @@ class TestBacktestConfig:
         """The starting equity must be a finite positive amount."""
         with pytest.raises(ConfigurationError, match="initial_capital"):
             BacktestConfig(initial_capital=capital)
+
+    @pytest.mark.parametrize("setting", ["periods_per_year", "execution_lag"])
+    @pytest.mark.parametrize("value", _NOT_INTEGERS)
+    def test_a_setting_that_is_not_an_integer_raises(
+        self, setting: str, value: object
+    ) -> None:
+        """NaN, floats, booleans, text and None never reach pandas as a count."""
+        settings: dict[str, Any] = {setting: value}
+        with pytest.raises(ConfigurationError, match=setting):
+            BacktestConfig(**settings)
+
+    def test_numpy_integers_are_accepted(self) -> None:
+        """A count read from an array is a valid count."""
+        config = BacktestConfig(
+            periods_per_year=np.int64(12), execution_lag=np.int32(2)
+        )
+        assert config.periods_per_year == 12
+        assert config.execution_lag == 2
+
+    @pytest.mark.parametrize("capital", _NOT_REALS)
+    def test_a_boolean_or_non_numeric_capital_raises(self, capital: object) -> None:
+        """A flag, text or None is not an amount of money."""
+        with pytest.raises(ConfigurationError, match="initial_capital"):
+            BacktestConfig(initial_capital=capital)  # type: ignore[arg-type]
+
+    def test_costs_must_be_a_cost_config(self) -> None:
+        """A bare number in place of the cost model is a mistake, not a rate."""
+        with pytest.raises(ConfigurationError, match="costs"):
+            BacktestConfig(costs=10.0)  # type: ignore[arg-type]
 
     def test_is_frozen(self) -> None:
         """A shared configuration cannot be mutated by accident."""

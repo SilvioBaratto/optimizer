@@ -13,9 +13,10 @@ credits a weight with the return that ended on the date it was decided, which
 is a look-ahead leak; it is allowed so that the leak can be measured, not
 because it is a valid way to trade.
 
-Backtests are in-sample evidence about a rule that was fitted to the same data.
-Pair them with ``optimizer.validation.run_deflated_sharpe`` when many variants
-were tried.
+A backtest is in-sample evidence about a rule that was fitted to the same data.
+Its Sharpe ratio is optimistic when many variants of the rule were tried and the
+best one is reported, so correct it for the number of variants tried before
+trusting it.
 """
 
 from optimizer.strategies._backtest import (
