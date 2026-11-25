@@ -28,6 +28,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _LAUNCHER = _REPO_ROOT / "scripts" / "optimizer"
 _LAUNCHER_CMD = _REPO_ROOT / "scripts" / "optimizer.cmd"
 _PS_CALL = "docker compose --profile fund ps --services --filter status=running"
+_PORTFOLIO_ID = "3f2b8c1e-5d4a-4e7b-9a10-2c6d8e0f1a3b"
 
 
 def _launcher_text() -> str:
@@ -194,15 +195,39 @@ def test_launcher_bare_invocation_opens_the_fund_wide_shell(tmp_path: Path) -> N
     ]
 
 
-def test_launcher_forwards_the_portfolio_id_to_the_tui(tmp_path: Path) -> None:
-    """A portfolio id is passed to fund-tui verbatim so the shell opens focused on it."""
-    result, calls = _run_launcher_with_stubs(tmp_path, "some-portfolio-id")
+@pytest.mark.parametrize(
+    "portfolio_id",
+    [_PORTFOLIO_ID, _PORTFOLIO_ID.upper(), _PORTFOLIO_ID.replace("-", "")],
+    ids=["canonical", "uppercase", "unhyphenated"],
+)
+def test_launcher_forwards_the_portfolio_id_to_the_tui(
+    tmp_path: Path, portfolio_id: str
+) -> None:
+    """A portfolio id is passed to fund-tui verbatim so the shell opens focused on it.
+
+    These are the plain spellings of a UUID (hyphenated or not, any case). The braced
+    and ``urn:uuid:`` forms that ``uuid.UUID`` also takes are not accepted."""
+    result, calls = _run_launcher_with_stubs(tmp_path, portfolio_id)
     assert result.returncode == 0, result.stderr
     assert calls == [
         "portopt start",
         _PS_CALL,
-        "docker compose --profile fund exec fund fund-tui some-portfolio-id",
+        f"docker compose --profile fund exec fund fund-tui {portfolio_id}",
     ]
+
+
+@pytest.mark.parametrize("argument", ["status", "--help", "3f2b8c1e"])
+def test_launcher_rejects_a_non_uuid_argument_before_starting_the_stack(
+    tmp_path: Path, argument: str
+) -> None:
+    """`optimizer status` once rebuilt the images and asked for the passphrase, then
+    crashed in the cockpit with a UUID traceback. The argument is checked first, so a
+    typo costs nothing and the message points at the `portopt` lifecycle commands."""
+    result, calls = _run_launcher_with_stubs(tmp_path, argument)
+    assert result.returncode == 2
+    assert calls == []
+    assert argument in result.stderr
+    assert "portopt" in result.stderr
 
 
 def test_launcher_does_not_attach_when_the_fund_is_not_running(
@@ -240,7 +265,7 @@ def test_launcher_outside_a_repo_reports_helpful_error(tmp_path: Path) -> None:
     env = {**os.environ, "HOME": str(home)}
     env.pop("OPTIMIZER_REPO", None)
     result = subprocess.run(  # noqa: S603 - fixed bash path + our own launcher script
-        [bash, str(stray), "some-portfolio-id"],
+        [bash, str(stray), _PORTFOLIO_ID],
         capture_output=True,
         text=True,
         env=env,
@@ -286,7 +311,7 @@ def test_launcher_pins_the_resolved_repo_for_portopt_start(tmp_path: Path) -> No
     env.pop("OPTIMIZER_REPO", None)
     env.pop("MSYSTEM", None)
     result = subprocess.run(  # noqa: S603 - fixed bash path + our own launcher copy
-        [bash, str(launcher), "some-portfolio-id"],
+        [bash, str(launcher), _PORTFOLIO_ID],
         capture_output=True,
         text=True,
         env=env,

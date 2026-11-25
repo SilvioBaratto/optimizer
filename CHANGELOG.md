@@ -718,6 +718,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **launcher, fund**: `optimizer status`, or any argument that is not a portfolio
+  UUID, no longer rebuilds the images and asks for the master passphrase before
+  crashing the cockpit with a `ValueError: badly formed hexadecimal UUID string`
+  traceback. The launcher now rejects the argument first (exit 2) and points at the
+  `portopt` stack commands, and `fund-tui` reports a bad portfolio id as a usage
+  error instead of a traceback. The launcher accepts a plain UUID (hyphenated or
+  not, any case) and rejects everything else, so `optimizer --help` now exits 2
+  with the same message instead of starting the stack, and the `{...}` and
+  `urn:uuid:` spellings are no longer forwarded.
 - **fund, ingestion, portopt-db**: API keys, the broker secret, database
   passwords and the notification webhook URL no longer appear in `repr()` or
   `str()` of `FundConfig`, `DbConfig` or the ingestion `Settings`. A traceback that renders locals or a stray

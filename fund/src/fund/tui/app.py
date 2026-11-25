@@ -651,16 +651,15 @@ def main() -> None:
     """
     import typer
 
-    def _launch(portfolio_id: str | None = typer.Argument(default=None)) -> None:
+    def _launch(portfolio_id: uuid.UUID | None = typer.Argument(default=None)) -> None:  # noqa: B008 - typer reads the argument spec from the default
         from fund.agents.model import build_fallback, build_primary
         from fund.audit import setup_langgraph
         from fund.database import database_manager, get_session
 
-        focus = uuid.UUID(portfolio_id) if portfolio_id else None
         persistence = setup_langgraph(settings)
         try:
             app = ShellApp(
-                focus,
+                portfolio_id,
                 session_factory=get_session,
                 persistence=persistence,
                 model_factory=lambda: build_primary(settings),
