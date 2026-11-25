@@ -13,6 +13,7 @@ import math
 import warnings
 from statistics import NormalDist
 
+import numpy as np
 import pytest
 
 from optimizer.credit import MertonConfig, MertonResult, solve_merton
@@ -75,11 +76,36 @@ class TestMertonConfig:
         with pytest.raises(ConfigurationError, match="solver_tolerance"):
             MertonConfig(solver_tolerance=tolerance)
 
-    @pytest.mark.parametrize("max_iterations", [0, -5])
-    def test_rejects_a_bad_iteration_budget(self, max_iterations: int) -> None:
-        """The solver needs at least one evaluation."""
+    @pytest.mark.parametrize(
+        "max_iterations", [0, -5, 2.5, 3.0, math.nan, math.inf, True, "5", None]
+    )
+    def test_rejects_a_bad_iteration_budget(self, max_iterations: object) -> None:
+        """The budget is a whole number of at least one: no float, NaN or bool."""
         with pytest.raises(ConfigurationError, match="max_iterations"):
-            MertonConfig(max_iterations=max_iterations)
+            MertonConfig(max_iterations=max_iterations)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("setting", ["maturity", "solver_tolerance", "asset_drift"])
+    @pytest.mark.parametrize("value", [True, "1.0", [1.0], 1 + 2j])
+    def test_rejects_a_non_numeric_real_setting(
+        self, setting: str, value: object
+    ) -> None:
+        """A bool, string, list or complex number is not a rate or a time."""
+        with pytest.raises(ConfigurationError, match=setting):
+            MertonConfig(**{setting: value})  # type: ignore[arg-type]
+
+    def test_accepts_numpy_numbers(self) -> None:
+        """numpy scalars are numbers, so a setting read from an array works."""
+        config = MertonConfig(
+            maturity=np.float64(2.0),
+            solver_tolerance=np.float32(1e-6),
+            max_iterations=np.int64(50),
+            asset_drift=np.float64(0.07),
+        )
+        assert _hull_result(config).residual_norm <= 1e-6
+
+    def test_accepts_an_integer_maturity(self) -> None:
+        """Whole years written as an int are fine."""
+        assert MertonConfig(maturity=2).maturity == 2
 
     @pytest.mark.parametrize("drift", [math.nan, math.inf, -math.inf])
     def test_rejects_a_non_finite_drift(self, drift: float) -> None:
@@ -447,6 +473,33 @@ class TestInputValidation:
         """The debt to repay is positive."""
         with pytest.raises(ConfigurationError, match="debt_face_value"):
             solve_merton(3.0, 0.8, value, 0.05)
+
+    @pytest.mark.parametrize(
+        ("name", "args"),
+        [
+            ("equity_value", (True, 0.8, 10.0, 0.05)),
+            ("equity_value", ("3", 0.8, 10.0, 0.05)),
+            ("equity_volatility", (3.0, False, 10.0, 0.05)),
+            ("equity_volatility", (3.0, None, 10.0, 0.05)),
+            ("debt_face_value", (3.0, 0.8, True, 0.05)),
+            ("debt_face_value", (3.0, 0.8, [10.0], 0.05)),
+            ("risk_free_rate", (3.0, 0.8, 10.0, True)),
+            ("risk_free_rate", (3.0, 0.8, 10.0, "0.05")),
+            ("risk_free_rate", (3.0, 0.8, 10.0, None)),
+        ],
+    )
+    def test_rejects_a_non_numeric_input(
+        self, name: str, args: tuple[object, ...]
+    ) -> None:
+        """A bool, string, list or None is not a market quantity."""
+        with pytest.raises(ConfigurationError, match=name):
+            solve_merton(*args)  # type: ignore[arg-type]
+
+    def test_accepts_integer_and_numpy_inputs(self) -> None:
+        """Whole-number and numpy market data solve like the float equivalents."""
+        expected = solve_merton(3.0, 0.8, 10.0, 0.0)
+        result = solve_merton(3, np.float64(0.8), np.int64(10), 0)
+        assert result == expected
 
     @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
     def test_rejects_a_non_finite_rate(self, value: float) -> None:

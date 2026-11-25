@@ -39,7 +39,12 @@ import numpy.typing as npt
 from scipy.optimize import least_squares
 from scipy.special import ndtr
 
-from optimizer.credit._config import MertonConfig, require_positive_finite
+from optimizer.credit._config import MertonConfig
+from optimizer.credit._validation import (
+    require_finite,
+    require_integer_at_least,
+    require_positive_finite,
+)
 from optimizer.exceptions import ConfigurationError, ConvergenceError, DataError
 
 # exp(-r T) must stay representable: exp(709) is the largest double.
@@ -127,22 +132,18 @@ def _build_problem(
     maturity: float,
 ) -> _Problem:
     """Validate the market inputs of a solve and bundle them."""
-    require_positive_finite("equity_value", equity_value, ConfigurationError)
-    require_positive_finite("equity_volatility", equity_volatility, ConfigurationError)
-    require_positive_finite("debt_face_value", debt_face_value, ConfigurationError)
-    if not math.isfinite(risk_free_rate):
-        msg = f"risk_free_rate must be finite, got {risk_free_rate}"
-        raise ConfigurationError(msg)
-    if abs(risk_free_rate * maturity) > _MAX_RATE_TIMES_MATURITY:
+    equity = require_positive_finite("equity_value", equity_value)
+    volatility = require_positive_finite("equity_volatility", equity_volatility)
+    debt = require_positive_finite("debt_face_value", debt_face_value)
+    rate = require_finite("risk_free_rate", risk_free_rate)
+    if abs(rate * maturity) > _MAX_RATE_TIMES_MATURITY:
         msg = (
             "risk_free_rate times maturity must be below "
             f"{_MAX_RATE_TIMES_MATURITY:g} in absolute value so that the discount "
-            f"factor is representable, got {risk_free_rate * maturity:g}"
+            f"factor is representable, got {rate * maturity:g}"
         )
         raise ConfigurationError(msg)
-    return _Problem(
-        equity_value, equity_volatility, debt_face_value, risk_free_rate, maturity
-    )
+    return _Problem(equity, volatility, debt, rate, maturity)
 
 
 def _d1(asset_value: float, asset_volatility: float, problem: _Problem) -> float:
@@ -189,7 +190,7 @@ def _solve_unknowns(
             xtol=stop,
             ftol=stop,
             gtol=stop,
-            max_nfev=config.max_iterations,
+            max_nfev=int(config.max_iterations),
         )
     except ValueError as error:
         msg = (
@@ -283,9 +284,9 @@ def solve_merton(
         debt value, the credit spread and the leverage.
 
     Raises:
-        ConfigurationError: If a market input is not finite and positive (the rate
-            only has to be finite), or the rate times the maturity is too large for
-            the discount factor to be representable.
+        ConfigurationError: If a market input is not a finite real number, or is not
+            above zero (the rate only has to be finite), or the rate times the
+            maturity is too large for the discount factor to be representable.
         ConvergenceError: If the solver cannot bring the residual of both equations
             under ``config.solver_tolerance`` within ``config.max_iterations``, or
             the solution is not finite, or the debt value ``V - E`` is not positive
@@ -299,7 +300,7 @@ def solve_merton(
         equity_volatility,
         debt_face_value,
         risk_free_rate,
-        settings.maturity,
+        float(settings.maturity),
     )
     # A trust-region trial step can overflow exp() or divide by a vanishing
     # volatility; the inf or NaN residual that results is how the solver learns to
@@ -338,9 +339,6 @@ def _latest_returns(
     """Return the last ``window`` log returns, or all of them without a window."""
     if window is None:
         return log_returns
-    if window < _MIN_WINDOW:
-        msg = f"window must be at least {_MIN_WINDOW}, got {window}"
-        raise ConfigurationError(msg)
     if window > log_returns.size:
         msg = (
             f"window of {window} returns is longer than the {log_returns.size} "
@@ -370,18 +368,18 @@ def estimate_equity_volatility(
         The annualised volatility; zero when the price never changes.
 
     Raises:
-        ConfigurationError: If ``periods_per_year`` is below 1 or ``window`` is
-            below 2.
+        ConfigurationError: If ``periods_per_year`` is not an integer of at least
+            1, or ``window`` is neither ``None`` nor an integer of at least 2.
         DataError: If ``prices`` is not a numeric, one-dimensional series of at
             least 3 finite, positive values, or ``window`` exceeds the number of
             returns.
     """
-    if periods_per_year < 1:
-        msg = f"periods_per_year must be at least 1, got {periods_per_year}"
-        raise ConfigurationError(msg)
+    periods = require_integer_at_least("periods_per_year", periods_per_year, 1)
+    if window is not None:
+        window = require_integer_at_least("window", window, _MIN_WINDOW)
     log_returns = np.diff(np.log(_as_prices(prices)))
     latest = _latest_returns(log_returns, window)
-    return float(np.std(latest, ddof=1) * math.sqrt(periods_per_year))
+    return float(np.std(latest, ddof=1) * math.sqrt(periods))
 
 
 def merton_from_market(

@@ -2,27 +2,13 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
-from optimizer.exceptions import ConfigurationError
-
-
-def require_positive_finite(name: str, value: float, error: type[Exception]) -> None:
-    """Raise ``error`` unless ``value`` is a finite number above zero.
-
-    Args:
-        name: Parameter name quoted in the message.
-        value: Number to check.
-        error: Exception class to raise, so a bad setting and a bad input can use
-            different classes.
-
-    Raises:
-        Exception: ``error``, when ``value`` is zero, negative, infinite or NaN.
-    """
-    if not (math.isfinite(value) and value > 0.0):
-        msg = f"{name} must be a finite number above zero, got {value}"
-        raise error(msg)
+from optimizer.credit._validation import (
+    require_finite,
+    require_integer_at_least,
+    require_positive_finite,
+)
 
 
 @dataclass(frozen=True)
@@ -51,13 +37,8 @@ class MertonConfig:
 
     def __post_init__(self) -> None:
         """Reject settings the model cannot use."""
-        require_positive_finite("maturity", self.maturity, ConfigurationError)
-        require_positive_finite(
-            "solver_tolerance", self.solver_tolerance, ConfigurationError
-        )
-        if self.max_iterations < 1:
-            msg = f"max_iterations must be at least 1, got {self.max_iterations}"
-            raise ConfigurationError(msg)
-        if self.asset_drift is not None and not math.isfinite(self.asset_drift):
-            msg = f"asset_drift must be finite or None, got {self.asset_drift}"
-            raise ConfigurationError(msg)
+        require_positive_finite("maturity", self.maturity)
+        require_positive_finite("solver_tolerance", self.solver_tolerance)
+        require_integer_at_least("max_iterations", self.max_iterations, 1)
+        if self.asset_drift is not None:
+            require_finite("asset_drift", self.asset_drift)

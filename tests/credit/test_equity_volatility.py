@@ -160,19 +160,41 @@ class TestEstimateEquityVolatilityValidation:
         with pytest.raises(DataError, match="numeric"):
             estimate_equity_volatility(["a", "b", "c", "d"])
 
-    @pytest.mark.parametrize("periods_per_year", [0, -252])
-    def test_a_non_positive_annualisation_factor_raises(
-        self, periods_per_year: int
-    ) -> None:
-        """A year has at least one period."""
+    @pytest.mark.parametrize(
+        "periods_per_year",
+        [0, -252, 52.5, 252.0, math.nan, math.inf, True, "252", None],
+    )
+    def test_a_bad_annualisation_factor_raises(self, periods_per_year: object) -> None:
+        """A year has a whole number of periods, at least one: no float, NaN or bool."""
         with pytest.raises(ConfigurationError, match="periods_per_year"):
-            estimate_equity_volatility(_HAND_PRICES, periods_per_year=periods_per_year)
+            estimate_equity_volatility(
+                _HAND_PRICES,
+                periods_per_year=periods_per_year,  # type: ignore[arg-type]
+            )
 
-    @pytest.mark.parametrize("window", [1, 0, -3])
-    def test_a_window_below_two_raises(self, window: int) -> None:
-        """A sample deviation needs two returns."""
+    @pytest.mark.parametrize(
+        "window", [1, 0, -3, 2.5, 3.0, math.nan, math.inf, True, "3", [3]]
+    )
+    def test_a_bad_window_raises(self, window: object) -> None:
+        """A window is a whole number of returns, at least two: no float or bool."""
         with pytest.raises(ConfigurationError, match="window"):
-            estimate_equity_volatility(_WINDOW_PRICES, window=window)
+            estimate_equity_volatility(
+                _WINDOW_PRICES,
+                window=window,  # type: ignore[arg-type]
+            )
+
+    def test_numpy_integers_are_accepted_for_both_counts(self) -> None:
+        """A count read from an array behaves like the Python int."""
+        expected = estimate_equity_volatility(_WINDOW_PRICES, 52, window=3)
+        actual = estimate_equity_volatility(
+            _WINDOW_PRICES, np.int64(52), window=np.int32(3)
+        )
+        assert actual == expected
+
+    def test_a_bad_setting_is_reported_before_bad_prices(self) -> None:
+        """The setting is the caller's mistake to fix first, whatever the data."""
+        with pytest.raises(ConfigurationError, match="window"):
+            estimate_equity_volatility([100.0, 101.0], window=math.nan)
 
     def test_a_window_longer_than_the_history_raises(self) -> None:
         """Asking for 5 returns out of 4 is a data problem, not a silent shrink."""
@@ -225,6 +247,20 @@ class TestMertonFromMarket:
         """Zero volatility cannot be inverted, and it is the price series at fault."""
         with pytest.raises(DataError, match="constant"):
             merton_from_market(3.0, [50.0, 50.0, 50.0, 50.0], 10.0, 0.05)
+
+    @pytest.mark.parametrize("periods_per_year", [math.nan, 252.0, True, 0])
+    def test_a_bad_annualisation_factor_is_a_configuration_error(
+        self, periods_per_year: object
+    ) -> None:
+        """The estimator's setting checks apply to the forwarded factor."""
+        with pytest.raises(ConfigurationError, match="periods_per_year"):
+            merton_from_market(
+                3.0,
+                _HAND_PRICES,
+                10.0,
+                0.05,
+                periods_per_year=periods_per_year,  # type: ignore[arg-type]
+            )
 
     def test_a_bad_market_cap_is_a_configuration_error(self) -> None:
         """The solver's input validation applies to the market cap."""
