@@ -651,7 +651,8 @@ def main() -> None:
     """
     import typer
 
-    def _launch(portfolio_id: uuid.UUID | None = typer.Argument(default=None)) -> None:  # noqa: B008 - typer reads the argument spec from the default
+    # typer reads the argument spec from the default value, so B008 cannot apply here.
+    def _launch(portfolio_id: uuid.UUID | None = typer.Argument(default=None)) -> None:  # noqa: B008
         from fund.agents.model import build_fallback, build_primary
         from fund.audit import setup_langgraph
         from fund.database import database_manager, get_session
