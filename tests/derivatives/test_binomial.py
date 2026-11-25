@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from statistics import NormalDist
+from typing import Any
 
 import numpy as np
 import pytest
@@ -210,11 +211,18 @@ class TestValidation:
         with pytest.raises(ConfigurationError, match="overflow"):
             _tree(_CALL, steps=200, volatility=500.0)
 
-    @pytest.mark.parametrize("steps", [0, -3, 2.5])
-    def test_invalid_step_counts_raise(self, steps: float) -> None:
-        """The tree needs a whole, positive number of steps."""
+    @pytest.mark.parametrize(
+        "steps", [0, -3, 2.5, 50.0, math.nan, True, False, "50", None]
+    )
+    def test_invalid_step_counts_raise(self, steps: Any) -> None:
+        """The tree needs a whole, positive number of steps, as an integer type."""
         with pytest.raises(ConfigurationError, match="steps"):
-            _tree(_CALL, steps=steps)  # type: ignore[arg-type]
+            _tree(_CALL, steps=steps)
+
+    def test_numpy_integer_step_counts_are_accepted(self) -> None:
+        """A step count that comes out of numpy arithmetic prices the same tree."""
+        steps: Any = np.int64(50)
+        assert _tree(_CALL, steps=steps) == _tree(_CALL, steps=50)
 
     @pytest.mark.parametrize(
         ("field", "value"),

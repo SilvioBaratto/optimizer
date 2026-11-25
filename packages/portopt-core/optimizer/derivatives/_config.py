@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import math
-import numbers
 from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
 
-from optimizer.derivatives._validation import FloatArray, FloatOrArray
+from optimizer.derivatives._validation import (
+    FloatArray,
+    FloatOrArray,
+    require_integer,
+    require_real,
+)
 from optimizer.exceptions import ConfigurationError
 
 _MIN_PATHS = 2
@@ -92,39 +96,32 @@ class DeltaHedgeConfig:
 
     def __post_init__(self) -> None:
         """Reject settings the simulation cannot use."""
-        _require_count("n_paths", self.n_paths, _MIN_PATHS)
-        _require_count("n_rebalances", self.n_rebalances, 1)
+        require_integer("n_paths", self.n_paths, _MIN_PATHS)
+        require_integer("n_rebalances", self.n_rebalances, 1)
         _require_positive("true_volatility", self.true_volatility)
         _require_positive("hedge_volatility", self.hedge_volatility)
         _require_finite("drift", self.drift)
         _require_finite("rate", self.rate)
-        _require_finite("transaction_cost_bps", self.transaction_cost_bps)
-        if self.transaction_cost_bps < 0.0:
+        if _require_finite("transaction_cost_bps", self.transaction_cost_bps) < 0.0:
             msg = (
                 "transaction_cost_bps must be non-negative, "
                 f"got {self.transaction_cost_bps}"
             )
             raise ConfigurationError(msg)
-        if self.random_state is not None and self.random_state < 0:
-            msg = (
-                f"random_state must be a non-negative integer, got {self.random_state}"
-            )
-            raise ConfigurationError(msg)
+        if self.random_state is not None:
+            require_integer("random_state", self.random_state, 0)
 
 
-def _require_count(name: str, value: int, minimum: int) -> None:
-    if not isinstance(value, numbers.Integral) or value < minimum:
-        msg = f"{name} must be an integer of at least {minimum}, got {value!r}"
-        raise ConfigurationError(msg)
-
-
-def _require_finite(name: str, value: float) -> None:
-    if not math.isfinite(value):
+def _require_finite(name: str, value: object) -> float:
+    number = require_real(name, value)
+    if not math.isfinite(number):
         msg = f"{name} must be finite, got {value}"
         raise ConfigurationError(msg)
+    return number
 
 
-def _require_positive(name: str, value: float) -> None:
-    if not math.isfinite(value) or value <= 0.0:
+def _require_positive(name: str, value: object) -> None:
+    number = require_real(name, value)
+    if not math.isfinite(number) or number <= 0.0:
         msg = f"{name} must be positive and finite, got {value}"
         raise ConfigurationError(msg)

@@ -14,13 +14,16 @@ update per level, with no Python loop over nodes.
 from __future__ import annotations
 
 import math
-import numbers
 from typing import Final
 
 import numpy as np
 
 from optimizer.derivatives._config import OptionType
-from optimizer.derivatives._validation import FloatArray, scalar_contract
+from optimizer.derivatives._validation import (
+    FloatArray,
+    require_integer,
+    scalar_contract,
+)
 from optimizer.exceptions import ConfigurationError
 
 # exp(709) is the largest finite float64; the margin keeps the discounted sums of
@@ -54,13 +57,6 @@ def _crr_parameters(
         )
         raise ConfigurationError(msg)
     return log_up, math.exp(-rate * dt), probability
-
-
-def _require_steps(steps: int) -> None:
-    """Raise unless the step count is a positive whole number."""
-    if not isinstance(steps, numbers.Integral) or steps < 1:
-        msg = f"steps must be a positive integer, got {steps!r}"
-        raise ConfigurationError(msg)
 
 
 def _lattice(spot: float, log_up: float, steps: int) -> FloatArray:
@@ -129,7 +125,7 @@ def binomial_price(
             the node prices overflow.
     """
     kind = OptionType.parse(option_type)
-    _require_steps(steps)
+    n_steps = require_integer("steps", steps, 1)
     contract = scalar_contract(spot, strike, maturity, rate, volatility, dividend_yield)
     if contract.maturity == 0.0:
         return float(kind.payoff(contract.spot, contract.strike))
@@ -138,8 +134,8 @@ def binomial_price(
         contract.rate,
         contract.volatility,
         contract.dividend_yield,
-        int(steps),
+        n_steps,
     )
-    nodes = _lattice(contract.spot, log_up, int(steps))
+    nodes = _lattice(contract.spot, log_up, n_steps)
     exercise = kind.payoff(nodes, contract.strike)
-    return _backward_induction(exercise, int(steps), discount, probability, american)
+    return _backward_induction(exercise, n_steps, discount, probability, american)

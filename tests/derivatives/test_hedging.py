@@ -74,26 +74,58 @@ class TestConfig:
             ("n_paths", 1),
             ("n_paths", 0),
             ("n_paths", 2.5),
+            ("n_paths", 100.0),
+            ("n_paths", math.nan),
+            ("n_paths", True),
+            ("n_paths", "100"),
             ("n_rebalances", 0),
             ("n_rebalances", -4),
             ("n_rebalances", 1.5),
+            ("n_rebalances", 12.0),
+            ("n_rebalances", math.nan),
+            ("n_rebalances", True),
+            ("n_rebalances", None),
             ("true_volatility", 0.0),
             ("true_volatility", -0.2),
             ("true_volatility", math.nan),
+            ("true_volatility", "0.2"),
+            ("true_volatility", True),
             ("hedge_volatility", 0.0),
             ("hedge_volatility", math.inf),
+            ("hedge_volatility", None),
             ("drift", math.nan),
             ("drift", math.inf),
+            ("drift", "0.05"),
             ("rate", math.nan),
+            ("rate", False),
             ("transaction_cost_bps", -1.0),
             ("transaction_cost_bps", math.nan),
+            ("transaction_cost_bps", "10"),
             ("random_state", -1),
+            ("random_state", 1.5),
+            ("random_state", 3.0),
+            ("random_state", math.nan),
+            ("random_state", True),
+            ("random_state", "7"),
         ],
     )
-    def test_invalid_settings_raise(self, field: str, value: float) -> None:
-        """Counts, volatilities, costs, rates and seeds are all checked."""
+    def test_invalid_settings_raise(self, field: str, value: Any) -> None:
+        """Counts, volatilities, costs, rates and seeds are all checked, type first.
+
+        A float, a bool, NaN or text for an integer setting, and text or a bool for
+        a real one, must fail here and not as a raw numpy or ``math`` error later.
+        """
         with pytest.raises(ConfigurationError, match=field):
             DeltaHedgeConfig(**{field: value})
+
+    def test_numpy_integers_are_accepted_for_the_integer_settings(self) -> None:
+        """Counts and seeds that come out of numpy arithmetic are valid settings."""
+        config = DeltaHedgeConfig(
+            n_paths=np.int64(30), n_rebalances=np.int32(4), random_state=np.int64(7)
+        )
+        result = simulate_delta_hedge(100.0, 100.0, 1.0, _CALL, config)
+        assert result.pnl.shape == (30,)
+        assert result.n_rebalances == 4
 
 
 class TestResult:

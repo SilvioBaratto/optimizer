@@ -8,6 +8,7 @@ Black-Scholes functions price a whole strike or volatility grid in one call.
 
 from __future__ import annotations
 
+import numbers
 from typing import NamedTuple, TypeAlias
 
 import numpy as np
@@ -59,6 +60,53 @@ def as_float_array(name: str, value: FloatOrArray) -> FloatArray:
     except (TypeError, ValueError) as exc:
         msg = f"{name} must be numeric, got {value!r}"
         raise ConfigurationError(msg) from exc
+
+
+def require_integer(name: str, value: object, minimum: int) -> int:
+    """Return a setting as an ``int``, raising unless it is a whole number.
+
+    ``bool`` is rejected although it subclasses ``int``, and so is every float,
+    including NaN and integral values such as ``3.0``: a count or a seed written as
+    a float is a mistake worth surfacing before it reaches numpy.
+
+    Args:
+        name: Argument name used in the error message.
+        value: Candidate setting; Python and numpy integers are accepted.
+        minimum: Smallest accepted value.
+
+    Returns:
+        The value as a Python ``int``.
+
+    Raises:
+        ConfigurationError: If the value is not an integer or is below ``minimum``.
+    """
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, numbers.Integral)
+        or value < minimum
+    ):
+        msg = f"{name} must be an integer of at least {minimum}, got {value!r}"
+        raise ConfigurationError(msg)
+    return int(value)
+
+
+def require_real(name: str, value: object) -> float:
+    """Return a setting as a ``float``, raising unless it is a real number.
+
+    Args:
+        name: Argument name used in the error message.
+        value: Candidate setting; ``bool`` and non-numeric values are rejected.
+
+    Returns:
+        The value as a Python ``float`` (it may still be NaN or infinite).
+
+    Raises:
+        ConfigurationError: If the value is not a real number.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        msg = f"{name} must be a real number, got {value!r}"
+        raise ConfigurationError(msg)
+    return float(value)
 
 
 def require_finite(name: str, values: FloatArray) -> None:
