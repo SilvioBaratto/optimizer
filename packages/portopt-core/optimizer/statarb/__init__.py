@@ -8,7 +8,12 @@
 * ``zscore_positions`` turns a z-score path into positions with entry, exit and
   stop bands.
 * ``fit_pca_residual_model`` and ``pca_signals`` implement the Avellaneda and Lee
-  (2010) eigenportfolio residual model and its trading thresholds.
+  (2010) eigenportfolio residual model and its trading thresholds. With the default
+  ``PcaResidualConfig(min_kappa=0.0)`` a residual that is close to a random walk
+  is kept as mean reverting, with a small ``kappa`` and a long half-life, because
+  the regression constant keeps its AR(1) coefficient below one. Avellaneda and Lee
+  trade only ``kappa > 8.4``; set ``PcaResidualConfig(min_kappa=8.4)`` for that
+  screen.
 
 Research tools only: nothing in this package models transaction costs, borrow
 costs or short-sale limits, and the fund mandate is long-only and paper-only, so

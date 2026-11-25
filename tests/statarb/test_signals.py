@@ -170,6 +170,11 @@ class TestZscorePositionsValidation:
         with pytest.raises(DataError, match="Series"):
             zscore_positions([0.0, 3.0])  # type: ignore[arg-type]
 
+    def test_non_numeric_scores_raise(self) -> None:
+        """Text among the scores is a data error, not a raw ValueError."""
+        with pytest.raises(DataError, match="zscores must contain only numbers"):
+            zscore_positions(pd.Series(["a", "b"]))
+
     @pytest.mark.parametrize("bad", [math.nan, math.inf])
     def test_levels_must_be_finite(self, bad: float) -> None:
         """A NaN or infinite level would make every comparison false."""

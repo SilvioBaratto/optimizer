@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 import numpy.typing as npt
@@ -26,6 +27,10 @@ import pandas as pd
 
 from optimizer.statarb._config import KalmanConfig
 from optimizer.statarb._inputs import aligned_pair
+
+# Columns of the filter's output, in the order ``_run_filter`` fills them; the
+# innovation standard deviation is the last one and ``zscore`` is derived from it.
+_OUTPUT_NAMES: Final = ("beta", "alpha", "spread", "spread_std")
 
 
 @dataclass(frozen=True, eq=False)
@@ -59,7 +64,7 @@ def _run_filter(
     state = np.zeros(2)
     covariance = np.eye(2) * config.initial_state_variance
     drift = np.eye(2) * (config.delta / (1.0 - config.delta))
-    rows = np.empty((len(y), 4))
+    rows = np.empty((len(y), len(_OUTPUT_NAMES)))
     for t in range(len(y)):
         regressors = np.array([x[t], 1.0])
         predicted = covariance + drift
@@ -99,15 +104,14 @@ def kalman_hedge_ratio(
 
     Raises:
         DataError: If the inputs are not aligned Series, are empty, or contain a
-            non-finite value.
+            value that is not a finite number.
     """
     settings = config or KalmanConfig()
     y_values, x_values = aligned_pair(y, x, min_observations=1)
     rows = _run_filter(y_values, x_values, settings)
-    names = ("beta", "alpha", "spread", "spread_std")
     columns = {
         name: pd.Series(rows[:, position], index=y.index, name=name)
-        for position, name in enumerate(names)
+        for position, name in enumerate(_OUTPUT_NAMES)
     }
     zscore = (columns["spread"] / columns["spread_std"]).rename("zscore")
     return KalmanResult(zscore=zscore, **columns)

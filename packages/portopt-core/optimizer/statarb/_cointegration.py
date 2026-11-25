@@ -30,7 +30,7 @@ import pandas as pd
 
 from optimizer.exceptions import DataError
 from optimizer.statarb._config import ENGLE_GRANGER_CRITICAL_VALUES, EngleGrangerConfig
-from optimizer.statarb._inputs import EXACT_FIT_RATIO, aligned_pair
+from optimizer.statarb._inputs import EXACT_FIT_RATIO, aligned_pair, as_float_array
 
 # Schwert (1989): the longest lag worth trying grows with the fourth root of T.
 _SCHWERT_SCALE: Final = 12.0
@@ -177,9 +177,9 @@ def engle_granger(
         The hedge ratio, the ADF statistic, the decision and the spread.
 
     Raises:
-        DataError: If the inputs are misaligned, too short, not finite or ``x`` is
-            constant, or the ADF regression has no degrees of freedom or the
-            spread is degenerate.
+        DataError: If the inputs are misaligned, too short, not numeric, not finite
+            or ``x`` is constant, or the ADF regression has no degrees of freedom
+            or the spread is degenerate.
     """
     settings = config or EngleGrangerConfig()
     y_values, x_values = aligned_pair(y, x, settings.min_observations)
@@ -223,10 +223,11 @@ def ou_half_life(series: npt.ArrayLike) -> float:
         positive (no reversion) or at most -1 (the series overshoots its mean).
 
     Raises:
-        DataError: If the input is not one-dimensional, has fewer than three
-            values, has a non-finite value, or its lagged values are constant.
+        DataError: If the input is not numeric or not one-dimensional, has fewer
+            than three values, has a non-finite value, or its lagged values are
+            constant.
     """
-    values = np.asarray(series, dtype=np.float64)
+    values = as_float_array(series, "series")
     if values.ndim != 1:
         msg = f"series must be one-dimensional, got shape {values.shape}"
         raise DataError(msg)

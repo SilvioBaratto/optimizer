@@ -289,6 +289,14 @@ class TestKalmanValidation:
         with pytest.raises(DataError, match="finite"):
             kalman_hedge_ratio(_series(y), _series(x))
 
+    def test_non_numeric_values_raise(self) -> None:
+        """Text among the prices is a data error, not a raw ValueError."""
+        y, x = _price_like(1, 20) * 2, _price_like(1, 20)
+        text = _series(y).astype(object)
+        text.iloc[4] = "n/a"
+        with pytest.raises(DataError, match="y must contain only numbers"):
+            kalman_hedge_ratio(text, _series(x))
+
     def test_an_empty_series_raises(self) -> None:
         """There is nothing to filter."""
         empty = pd.Series(dtype=float)

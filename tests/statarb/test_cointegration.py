@@ -311,6 +311,14 @@ class TestEngleGrangerValidation:
         with pytest.raises(DataError, match="Series"):
             engle_granger(y.to_numpy(), x)  # type: ignore[arg-type]
 
+    def test_non_numeric_values_raise(self) -> None:
+        """Text among the prices is a data error, not a raw ValueError."""
+        y, x = _cointegrated_pair(seed=0)
+        text = y.astype(object)
+        text.iloc[7] = "n/a"
+        with pytest.raises(DataError, match="y must contain only numbers"):
+            engle_granger(text, x)
+
     @pytest.mark.parametrize("bad", [np.nan, np.inf])
     def test_non_finite_values_raise(self, bad: float) -> None:
         """Missing or infinite prices are rejected rather than propagated."""
@@ -449,6 +457,11 @@ class TestOuHalfLife:
         path[5] = bad
         with pytest.raises(DataError, match="finite"):
             ou_half_life(path)
+
+    def test_non_numeric_values_raise(self) -> None:
+        """Text in the series is a data error, not a raw ValueError."""
+        with pytest.raises(DataError, match="series must contain only numbers"):
+            ou_half_life(["a", "b", "c", "d"])
 
     def test_too_few_observations_raise(self) -> None:
         """Two points give a line that fits exactly, which is no estimate."""

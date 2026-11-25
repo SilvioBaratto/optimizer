@@ -452,6 +452,13 @@ class TestPcaResidualValidation:
         with pytest.raises(DataError, match="observations"):
             fit_pca_residual_model(returns, 10, PcaResidualConfig(min_observations=10))
 
+    def test_non_numeric_returns_raise(self, small_market: pd.DataFrame) -> None:
+        """Text in the returns is a data error, not a raw ValueError."""
+        text = small_market.astype(object)
+        text.iloc[3, 2] = "n/a"
+        with pytest.raises(DataError, match="returns must contain only numbers"):
+            fit_pca_residual_model(text, n_components=2)
+
     def test_a_constant_asset_raises(self, small_market: pd.DataFrame) -> None:
         """An asset with no variance cannot be standardised."""
         flat = small_market.copy()
@@ -462,7 +469,7 @@ class TestPcaResidualValidation:
     def test_a_single_asset_raises(self) -> None:
         """There is nothing to take a common factor out of."""
         returns = _market(seed=7, size=100, coefficients=[0.8])
-        with pytest.raises(DataError, match="two assets"):
+        with pytest.raises(DataError, match="at least 2 assets"):
             fit_pca_residual_model(returns, n_components=1)
 
     @pytest.mark.parametrize("periods", [0, -252])
@@ -591,6 +598,12 @@ class TestPcaSignals:
         """Positions are matched to assets by label."""
         with pytest.raises(DataError, match="previous_positions"):
             pca_signals(_scores([0.0]), previous_positions={"a": 1})  # type: ignore[arg-type]
+
+    def test_non_numeric_scores_raise(self) -> None:
+        """Text among the scores is a data error, not a raw ValueError."""
+        scores = pd.Series(["high", "low"], index=["a", "b"])
+        with pytest.raises(DataError, match="s_scores must contain only numbers"):
+            pca_signals(scores)
 
     def test_non_series_input_raises(self) -> None:
         """Scores need labels to line up with the previous positions."""

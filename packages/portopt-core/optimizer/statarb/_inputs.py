@@ -20,6 +20,26 @@ from optimizer.exceptions import DataError
 EXACT_FIT_RATIO: Final = 1e-24
 
 
+def as_float_array(values: object, name: str) -> npt.NDArray[np.float64]:
+    """Return ``values`` as a float64 array.
+
+    Args:
+        values: A Series, DataFrame, array or nested sequence of numbers.
+        name: Name of the input, used in the error message.
+
+    Returns:
+        The values as a float64 array of the same shape.
+
+    Raises:
+        DataError: If the values cannot be read as numbers, for example text.
+    """
+    try:
+        return np.asarray(values, dtype=np.float64)
+    except (TypeError, ValueError) as error:
+        msg = f"{name} must contain only numbers"
+        raise DataError(msg) from error
+
+
 def aligned_pair(
     y: pd.Series, x: pd.Series, min_observations: int
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
@@ -35,7 +55,8 @@ def aligned_pair(
 
     Raises:
         DataError: If an input is not a Series, the indexes differ, there are
-            fewer than ``min_observations`` rows, or a value is not finite.
+            fewer than ``min_observations`` rows, a value is not a number, or a
+            value is not finite.
     """
     if not isinstance(y, pd.Series) or not isinstance(x, pd.Series):
         msg = "y and x must be pandas Series"
@@ -46,8 +67,8 @@ def aligned_pair(
     if len(y) < min_observations:
         msg = f"at least {min_observations} observations are needed, got {len(y)}"
         raise DataError(msg)
-    y_values = y.to_numpy(dtype=np.float64)
-    x_values = x.to_numpy(dtype=np.float64)
+    y_values = as_float_array(y, "y")
+    x_values = as_float_array(x, "x")
     if not (np.isfinite(y_values).all() and np.isfinite(x_values).all()):
         msg = "y and x must be finite: drop or fill missing values first"
         raise DataError(msg)

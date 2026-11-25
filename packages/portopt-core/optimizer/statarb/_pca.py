@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 import numpy.typing as npt
@@ -40,9 +41,11 @@ import pandas as pd
 
 from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.statarb._config import PcaResidualConfig
-from optimizer.statarb._inputs import EXACT_FIT_RATIO
+from optimizer.statarb._inputs import EXACT_FIT_RATIO, as_float_array
 
 _FloatArray = npt.NDArray[np.float64]
+# A correlation matrix of one asset has no common factor to remove.
+_MIN_ASSETS: Final = 2
 
 
 @dataclass(frozen=True, eq=False)
@@ -93,8 +96,8 @@ def _validated_returns(
         msg = "returns must be a pandas DataFrame (dates by assets)"
         raise DataError(msg)
     n_dates, n_assets = returns.shape
-    if n_assets < 2:
-        msg = f"at least two assets are needed, got {n_assets}"
+    if n_assets < _MIN_ASSETS:
+        msg = f"at least {_MIN_ASSETS} assets are needed, got {n_assets}"
         raise DataError(msg)
     if not 1 <= n_components < n_assets:
         msg = f"n_components must be in [1, {n_assets - 1}], got {n_components}"
@@ -110,7 +113,7 @@ def _validated_returns(
             "exactly: more observations than n_components + 1 are needed"
         )
         raise DataError(msg)
-    values = np.asarray(returns.to_numpy(), dtype=np.float64)
+    values = as_float_array(returns, "returns")
     if not np.isfinite(values).all():
         msg = "returns must be finite: drop or fill missing values first"
         raise DataError(msg)
@@ -237,7 +240,8 @@ def fit_pca_residual_model(
     Raises:
         DataError: If ``returns`` is not a DataFrame, has fewer than two assets or
             fewer rows than ``config.min_observations`` or than
-            ``n_components + 2``, has a non-finite value, or an asset is constant.
+            ``n_components + 2``, has a value that is not a finite number, or an
+            asset is constant.
         ConfigurationError: If ``n_components`` is outside ``[1, n_assets - 1]``.
     """
     settings = config or PcaResidualConfig()
@@ -338,8 +342,9 @@ def pca_signals(
         Integer target positions on the index of ``s_scores``.
 
     Raises:
-        DataError: If ``s_scores`` is not a Series or ``previous_positions``
-            holds a value other than -1, 0 or 1.
+        DataError: If ``s_scores`` is not a Series of numbers, or
+            ``previous_positions`` is not a Series or holds a value other than
+            -1, 0 or 1.
         ConfigurationError: If a threshold is not finite or the levels are not
             ordered ``buy_below < exit_long``, ``exit_short < sell_above`` and
             ``buy_below < sell_above``.
@@ -349,7 +354,7 @@ def pca_signals(
         msg = "s_scores must be a pandas Series"
         raise DataError(msg)
     held = _held_positions(s_scores.index, previous_positions)
-    scores = s_scores.to_numpy(dtype=np.float64)
+    scores = as_float_array(s_scores, "s_scores")
     long_position = ((held == 1) & (scores <= exit_long)) | (
         (held == 0) & (scores < buy_below)
     )

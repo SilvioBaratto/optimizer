@@ -17,6 +17,7 @@ import math
 import pandas as pd
 
 from optimizer.exceptions import ConfigurationError, DataError
+from optimizer.statarb._inputs import as_float_array
 
 
 def _validate_levels(entry: float, exit: float, stop: float | None) -> None:
@@ -91,7 +92,8 @@ def zscore_positions(
         Integer positions on the index of ``zscores``.
 
     Raises:
-        DataError: If ``zscores`` is not a pandas Series.
+        DataError: If ``zscores`` is not a pandas Series of numbers. Bad data is a
+            ``DataError`` and bad settings are a ``ConfigurationError``.
         ConfigurationError: If a level is not finite, ``exit`` is outside
             ``[0, entry)`` or ``stop`` is not above ``entry``.
     """
@@ -101,7 +103,7 @@ def zscore_positions(
     _validate_levels(entry, exit, stop)
     positions = []
     position, locked = 0, False
-    for zscore in zscores.to_numpy(dtype=float):
+    for zscore in as_float_array(zscores, "zscores"):
         if not math.isnan(zscore):
             position, locked = _next_state(
                 position, locked, float(zscore), entry, exit, stop
