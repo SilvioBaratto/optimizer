@@ -255,7 +255,11 @@ def _as_sample(
     returns: npt.ArrayLike, min_observations: int
 ) -> npt.NDArray[np.float64]:
     """Return ``returns`` as a validated one-dimensional float array."""
-    sample = np.asarray(returns, dtype=np.float64)
+    try:
+        sample = np.asarray(returns, dtype=np.float64)
+    except (TypeError, ValueError) as error:
+        msg = f"returns must hold only numeric values: {error}"
+        raise DataError(msg) from error
     if sample.ndim != 1:
         msg = f"returns must be one-dimensional, got shape {sample.shape}"
         raise DataError(msg)

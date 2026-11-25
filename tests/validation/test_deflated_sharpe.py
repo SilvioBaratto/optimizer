@@ -10,6 +10,7 @@ import dataclasses
 import math
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import pytest
 
@@ -299,9 +300,11 @@ class TestRunDeflatedSharpe:
             (np.full(60, 0.01), "constant"),
             (np.array([0.01, -0.01, 0.02]), "observations"),
             (np.zeros((60, 2)), "one-dimensional"),
+            (["a", "b", "c"] * 20, "numeric"),
+            ([[0.01, 0.02], [0.01]] * 20, "numeric"),
         ],
     )
-    def test_unusable_returns_raise(self, values: np.ndarray, message: str) -> None:
+    def test_unusable_returns_raise(self, values: npt.ArrayLike, message: str) -> None:
         """Non-finite, constant, short or 2-D input is rejected with a reason."""
         with pytest.raises(DataError, match=message):
             run_deflated_sharpe(values, n_trials=1, trials_sharpe_variance=0.0)
