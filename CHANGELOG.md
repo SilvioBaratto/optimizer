@@ -126,6 +126,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **validation**: probabilistic and deflated Sharpe ratio (Bailey and Lopez de Prado,
+  2014). `probabilistic_sharpe_ratio` gives the probability that the true Sharpe ratio
+  beats a benchmark, given the sample length, skewness and kurtosis;
+  `expected_max_sharpe` gives the best Sharpe ratio luck alone produces across a number
+  of trials; `minimum_track_record_length` gives the observations needed for a
+  confidence level. `run_deflated_sharpe` evaluates one selected return series against
+  its search, and `run_deflated_sharpe_from_trials` takes the matrix of every trial
+  (a grid search, or the candidates of a cross-validation), keeps the best one and
+  takes the number of trials and their dispersion from the columns.
 - **Requirement traceability (standard 6.6).** `docs/requirements.md` registers 35
   requirements, `REQ-<AREA>-NNN`, each one statement about one module that the tests
   citing it assert: the critical functions of `docs/test-plan.md`, the secret-hiding
