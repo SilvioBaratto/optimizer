@@ -11,6 +11,13 @@ See Hull, "Options, Futures, and Other Derivatives" (the Black-Scholes-Merton
 model), and Glasserman, "Monte Carlo Methods in Financial Engineering" (2004),
 chapter 3 for sample paths, including correlated geometric Brownian motion, and
 section 4.2 for antithetic variates.
+
+The whole ``optimizer.simulation`` package raises one error type per kind of input:
+``ConfigurationError`` for settings (``initial_price``, ``mu``, ``sigma``,
+``n_steps``, ``n_paths``, ``dt``, the seed, and the start prices and drifts of a
+market) and for a simulated path that overflows the float range, because those
+settings decide it; ``DataError`` for data arrays (observed prices, returns, a
+covariance matrix, simulated paths passed to a summary).
 """
 
 from __future__ import annotations
@@ -22,11 +29,13 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 
-from optimizer.exceptions import DataError
-from optimizer.simulation._config import (
-    DEFAULT_TIME_STEP,
-    GbmConfig,
+from optimizer.exceptions import ConfigurationError, DataError
+from optimizer.simulation._config import DEFAULT_TIME_STEP, GbmConfig
+from optimizer.simulation._validation import (
+    as_float_array,
+    as_vector,
     require_at_least_one,
+    require_no_overflow,
     require_positive,
     require_seed,
 )
@@ -72,15 +81,13 @@ def _compound(
     column of zeros makes the first time point equal ``initial`` exactly.
 
     Raises:
-        DataError: If a price leaves the float range.
+        ConfigurationError: If a price leaves the float range.
     """
     zeros = np.zeros_like(log_increments[:, :1])
     log_growth = np.concatenate([zeros, np.cumsum(log_increments, axis=1)], axis=1)
     with np.errstate(over="ignore"):
         paths = initial * np.exp(log_growth)
-    if not np.isfinite(paths).all():
-        msg = "simulated prices overflow the float range: reduce mu, sigma or n_steps"
-        raise DataError(msg)
+    require_no_overflow(paths, "reduce mu, the volatility, dt or n_steps")
     return paths
 
 
@@ -100,25 +107,13 @@ def simulate_gbm(config: GbmConfig) -> npt.NDArray[np.float64]:
         price.
 
     Raises:
-        DataError: If a simulated price overflows the float range.
+        ConfigurationError: If a simulated price overflows the float range.
     """
     rng = np.random.default_rng(config.random_state)
     shocks = _shocks(rng, config.n_paths, config.n_steps, antithetic=config.antithetic)
     drift = (config.mu - config.sigma**2 / 2.0) * config.dt
     log_increments = drift + config.sigma * math.sqrt(config.dt) * shocks
     return _compound(config.initial_price, log_increments)
-
-
-def _as_vector(name: str, values: npt.ArrayLike) -> npt.NDArray[np.float64]:
-    """Return ``values`` as a finite, non-empty one-dimensional float array."""
-    vector = np.asarray(values, dtype=np.float64)
-    if vector.ndim != 1 or vector.size == 0:
-        msg = f"{name} must be a non-empty one-dimensional array, got {vector.shape}"
-        raise DataError(msg)
-    if not np.isfinite(vector).all():
-        msg = f"{name} must be finite"
-        raise DataError(msg)
-    return vector
 
 
 def _covariance_factor(
@@ -131,10 +126,10 @@ def _covariance_factor(
     factor, so the square root from its eigen-decomposition is used instead.
 
     Raises:
-        DataError: If the matrix has the wrong shape, is not finite, not symmetric
-            or has a negative eigenvalue beyond rounding noise.
+        DataError: If the matrix is not numeric, has the wrong shape, is not finite,
+            not symmetric or has a negative eigenvalue beyond rounding noise.
     """
-    matrix = np.asarray(covariance, dtype=np.float64)
+    matrix = as_float_array("covariance", covariance, DataError)
     if matrix.shape != (n_assets, n_assets):
         msg = (
             f"covariance must have shape ({n_assets}, {n_assets}) for {n_assets} "
@@ -167,16 +162,16 @@ def _market_inputs(
     initial_prices: npt.ArrayLike, mu: npt.ArrayLike
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Return the start prices and drifts as matching, validated vectors."""
-    prices = _as_vector("initial_prices", initial_prices)
-    drifts = _as_vector("mu", mu)
+    prices = as_vector("initial_prices", initial_prices, error=ConfigurationError)
+    drifts = as_vector("mu", mu, error=ConfigurationError)
     if drifts.shape != prices.shape:
         msg = (
             f"mu needs one drift per asset: {prices.size} prices, {drifts.size} drifts"
         )
-        raise DataError(msg)
+        raise ConfigurationError(msg)
     if not (prices > 0.0).all():
         msg = "initial_prices must be positive"
-        raise DataError(msg)
+        raise ConfigurationError(msg)
     return prices, drifts
 
 
@@ -197,7 +192,7 @@ def simulate_correlated_gbm(
 
     Args:
         initial_prices: Start price of each asset, finite and positive.
-        mu: Drift of each price per unit of time.
+        mu: Drift of each price per unit of time, one per asset.
         covariance: Covariance matrix of the log returns per unit of time, symmetric
             and positive semi-definite, ordered like ``initial_prices``.
         n_steps: Number of time steps per path.
@@ -210,11 +205,13 @@ def simulate_correlated_gbm(
         time axis holds the initial prices.
 
     Raises:
-        ConfigurationError: If ``n_steps`` or ``n_paths`` is below 1, ``dt`` is not
-            positive and finite or ``random_state`` is negative.
-        DataError: If the inputs differ in length, a price is not positive, a value
-            is not finite, the covariance is not symmetric positive semi-definite
-            or a simulated price overflows.
+        ConfigurationError: If ``n_steps`` or ``n_paths`` is not an integer of at
+            least 1, ``dt`` is not positive and finite, ``random_state`` is not a
+            non-negative integer, ``initial_prices`` or ``mu`` is not a finite
+            vector (positive prices, one drift per asset) or a simulated price
+            overflows the float range.
+        DataError: If the covariance is not numeric, not a square matrix with one
+            row per asset, not finite, not symmetric or not positive semi-definite.
     """
     require_at_least_one("n_steps", n_steps)
     require_at_least_one("n_paths", n_paths)
@@ -231,14 +228,14 @@ def simulate_correlated_gbm(
 
 
 def calibrate_gbm(prices: npt.ArrayLike, dt: float = DEFAULT_TIME_STEP) -> GbmFit:
-    """Fit a geometric Brownian motion to a price series by maximum likelihood.
+    """Fit a geometric Brownian motion to a price series from its log returns.
 
     The log returns are independent normals with mean ``(mu - sigma^2 / 2) dt`` and
-    variance ``sigma^2 dt``, so ``sigma^2 = var / dt`` and
-    ``mu = mean / dt + sigma^2 / 2``. The variance uses one degree of freedom
-    (``ddof=1``), the unbiased estimator; the exact maximum likelihood estimator
-    divides by the number of returns instead, which differs by a factor
-    ``(n - 1) / n``.
+    variance ``sigma^2 dt``, so the estimates are ``sigma^2 = var / dt`` and
+    ``mu = mean / dt + sigma^2 / 2``, with ``mean`` and ``var`` the sample mean and
+    the unbiased sample variance (``ddof=1``) of the log returns. This is a moment
+    estimator; the maximum likelihood estimate divides the variance by the number of
+    returns instead, which differs by a factor ``(n - 1) / n``.
 
     Args:
         prices: Prices at equally spaced times, at least three, finite and positive.
@@ -249,14 +246,13 @@ def calibrate_gbm(prices: npt.ArrayLike, dt: float = DEFAULT_TIME_STEP) -> GbmFi
 
     Raises:
         ConfigurationError: If ``dt`` is not positive and finite.
-        DataError: If ``prices`` is not a one-dimensional, finite, positive series of
-            at least three values.
+        DataError: If ``prices`` is not a numeric, one-dimensional, finite, positive
+            series of at least three values.
     """
     require_positive("dt", dt)
-    series = _as_vector("prices", prices)
-    if series.size < _MIN_CALIBRATION_PRICES:
-        msg = f"at least {_MIN_CALIBRATION_PRICES} prices are needed, got {series.size}"
-        raise DataError(msg)
+    series = as_vector(
+        "prices", prices, error=DataError, min_size=_MIN_CALIBRATION_PRICES
+    )
     if not (series > 0.0).all():
         msg = "prices must be positive"
         raise DataError(msg)

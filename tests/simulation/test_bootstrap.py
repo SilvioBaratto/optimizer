@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -125,9 +126,11 @@ class TestSimulateBootstrap:
             [0.01, math.nan],
             [0.01, math.inf],
             [0.01, -1.5],
+            [0.01, "x"],
+            [[0.01], [0.02, 0.03]],
         ],
     )
-    def test_invalid_returns_raise(self, returns: list[float]) -> None:
+    def test_invalid_returns_raise(self, returns: npt.ArrayLike) -> None:
         """Returns are a finite, non-empty vector of simple returns of -1 or more."""
         with pytest.raises(DataError):
             simulate_bootstrap(returns, _config())
@@ -137,11 +140,21 @@ class TestSimulateBootstrap:
         with pytest.raises(DataError, match="block_size"):
             simulate_bootstrap([0.01, 0.02], _config(block_size=3))
 
-    @pytest.mark.parametrize("initial_value", [0.0, -1.0, math.nan])
-    def test_invalid_initial_value_raises(self, initial_value: float) -> None:
+    @pytest.mark.parametrize("initial_value", [0.0, -1.0, math.nan, "1"])
+    def test_invalid_initial_value_raises(self, initial_value: Any) -> None:
         """The starting wealth is positive and finite."""
         with pytest.raises(ConfigurationError, match="initial_value"):
             simulate_bootstrap([0.01], _config(), initial_value=initial_value)
+
+    def test_wealth_that_overflows_the_float_range_raises(self) -> None:
+        """Compounding a huge return past the largest float is reported."""
+        with pytest.raises(ConfigurationError, match="reduce n_steps"):
+            simulate_bootstrap([1e200], _config(n_steps=3))
+
+    def test_a_large_initial_value_can_overflow_too(self) -> None:
+        """The scale of the starting wealth is one of the settings to change."""
+        with pytest.raises(ConfigurationError, match="initial_value"):
+            simulate_bootstrap([0.01], _config(), initial_value=1.7e308)
 
 
 # Five paths worked out by hand. Terminal over start: 1.5, 0.5, 1.2, 0.5, 1.0.
@@ -212,15 +225,19 @@ class TestSummarizePaths:
             np.array([[1.0, math.nan, 1.0]]),
             np.array([[0.0, 1.0, 1.0]]),
             np.array([[1.0, -0.5, 1.0]]),
+            [[1.0, 2.0], [1.0]],
+            [["a", "b"], ["c", "d"]],
         ],
     )
-    def test_invalid_paths_raise(self, paths: npt.NDArray[np.float64]) -> None:
+    def test_invalid_paths_raise(self, paths: npt.ArrayLike) -> None:
         """Paths are a finite non-negative matrix with a positive start."""
         with pytest.raises(DataError):
             summarize_paths(paths)
 
-    @pytest.mark.parametrize("quantiles", [(), (-0.1,), (1.1,), (math.nan,)])
-    def test_invalid_quantiles_raise(self, quantiles: tuple[float, ...]) -> None:
+    @pytest.mark.parametrize(
+        "quantiles", [(), (-0.1,), (1.1,), (math.nan,), ("a",), ([0.1], [0.2, 0.3])]
+    )
+    def test_invalid_quantiles_raise(self, quantiles: Any) -> None:
         """Quantile levels are a non-empty set inside [0, 1]."""
         with pytest.raises(ConfigurationError, match="quantiles"):
             summarize_paths(_PATHS, quantiles=quantiles)

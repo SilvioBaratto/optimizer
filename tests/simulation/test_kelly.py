@@ -10,8 +10,10 @@ and losses for the ruin and loss probabilities.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import pytest
 
@@ -54,8 +56,10 @@ class TestKellyFractionGaussian:
         with pytest.raises(ConfigurationError, match="sigma"):
             kelly_fraction_gaussian(0.08, sigma)
 
-    @pytest.mark.parametrize(("mu", "rate"), [(math.nan, 0.0), (0.05, math.inf)])
-    def test_non_finite_return_or_rate_raises(self, mu: float, rate: float) -> None:
+    @pytest.mark.parametrize(
+        ("mu", "rate"), [(math.nan, 0.0), (0.05, math.inf), ("x", 0.0), (0.05, None)]
+    )
+    def test_non_finite_return_or_rate_raises(self, mu: Any, rate: Any) -> None:
         """Both the mean return and the risk-free rate are finite."""
         with pytest.raises(ConfigurationError):
             kelly_fraction_gaussian(mu, 0.2, risk_free_rate=rate)
@@ -126,9 +130,17 @@ class TestKellyFractionEmpirical:
 
     @pytest.mark.parametrize(
         "returns",
-        [[0.1], [], [[0.1, 0.2]], [0.1, math.nan], [0.1, -2.0]],
+        [
+            [0.1],
+            [],
+            [[0.1, 0.2]],
+            [0.1, math.nan],
+            [0.1, -2.0],
+            [0.1, "x"],
+            [[0.1], [0.2, 0.3]],
+        ],
     )
-    def test_invalid_returns_raise(self, returns: list[float]) -> None:
+    def test_invalid_returns_raise(self, returns: npt.ArrayLike) -> None:
         """Returns are at least two finite simple returns of -100% or more."""
         with pytest.raises(DataError):
             kelly_fraction_empirical(returns)
@@ -271,11 +283,13 @@ class TestSimulateKellyGrowth:
                 _SE_BANDS * standard_error, 1e-12
             )
 
-    def test_growth_is_maximised_next_to_the_kelly_fraction(self) -> None:
-        """The best fraction on the grid is the Kelly fraction or a neighbour."""
+    def test_growth_is_maximised_at_the_kelly_fraction(self) -> None:
+        """The best fraction on the grid is the Kelly fraction 0.2 itself."""
         grid = [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]
         frame = simulate_kelly_growth(_EVEN_ODDS, grid, 20_000, 100, random_state=_SEED)
-        assert frame["growth_rate"].idxmax() in (0.15, 0.2, 0.25)
+        # The exact growth rates 0.018850, 0.020136 and 0.018813 at 0.15, 0.2 and
+        # 0.25 differ by 1.3e-3, about 36 standard errors of the paired difference.
+        assert frame["growth_rate"].idxmax() == 0.2
         assert frame.loc[0.4, "growth_rate"] < frame.loc[0.2, "growth_rate"]
         assert frame.loc[0.4, "growth_rate"] < 0.0
 
@@ -328,43 +342,54 @@ class TestSimulateKellyGrowth:
         pd.testing.assert_frame_equal(first, again)
         assert not first.equals(other)
 
-    def test_every_fraction_sees_the_same_draws(self) -> None:
-        """Common random numbers: growth is ordered the same way as the exact curve."""
-        frame = simulate_kelly_growth(_EVEN_ODDS, [0.1, 0.2], 100, 10, random_state=3)
-        repeated = simulate_kelly_growth(
-            _EVEN_ODDS, [0.1, 0.2, 0.3], 100, 10, random_state=3
+    def test_the_same_fraction_twice_gives_identical_rows(self) -> None:
+        """Every fraction is evaluated on the same draws, so a repeated one matches."""
+        frame = simulate_kelly_growth(_EVEN_ODDS, [0.2, 0.2], 200, 20, random_state=3)
+        np.testing.assert_array_equal(
+            frame.iloc[0].to_numpy(), frame.iloc[1].to_numpy()
         )
-        pd.testing.assert_frame_equal(frame, repeated.loc[[0.1, 0.2]])
 
     @pytest.mark.parametrize(
-        "returns", [[0.1], [], [[0.1, 0.2]], [0.1, math.nan], [0.1, -2.0]]
+        "returns",
+        [[0.1], [], [[0.1, 0.2]], [0.1, math.nan], [0.1, -2.0], [0.1, "x"]],
     )
-    def test_invalid_returns_raise(self, returns: list[float]) -> None:
+    def test_invalid_returns_raise(self, returns: npt.ArrayLike) -> None:
         """Returns are at least two finite simple returns of -100% or more."""
         with pytest.raises(DataError):
             simulate_kelly_growth(returns, [0.1], 10, 5)
 
-    @pytest.mark.parametrize("fractions", [[], [-0.1], [math.nan], [[0.1, 0.2]]])
-    def test_invalid_fractions_raise(self, fractions: list[float]) -> None:
+    @pytest.mark.parametrize(
+        "fractions",
+        [[], [-0.1], [math.nan], [[0.1, 0.2]], ["a"], [[0.1], [0.2, 0.3]]],
+    )
+    def test_invalid_fractions_raise(self, fractions: npt.ArrayLike) -> None:
         """Fractions are a non-empty list of finite, non-negative numbers."""
         with pytest.raises(ConfigurationError, match="fractions"):
             simulate_kelly_growth(_EVEN_ODDS, fractions, 10, 5)
 
     @pytest.mark.parametrize(
-        ("n_paths", "n_periods", "name"), [(0, 5, "n_paths"), (5, 0, "n_periods")]
+        ("n_paths", "n_periods", "name"),
+        [
+            (0, 5, "n_paths"),
+            (5, 0, "n_periods"),
+            (2.5, 5, "n_paths"),
+            (5, True, "n_periods"),
+            (5, math.nan, "n_periods"),
+        ],
     )
-    def test_invalid_sizes_raise(self, n_paths: int, n_periods: int, name: str) -> None:
+    def test_invalid_sizes_raise(self, n_paths: Any, n_periods: Any, name: str) -> None:
         """Paths and periods are at least one."""
         with pytest.raises(ConfigurationError, match=name):
             simulate_kelly_growth(_EVEN_ODDS, [0.1], n_paths, n_periods)
 
-    @pytest.mark.parametrize("threshold", [0.0, 1.0, -0.5, 1.5, math.nan])
-    def test_invalid_ruin_threshold_raises(self, threshold: float) -> None:
+    @pytest.mark.parametrize("threshold", [0.0, 1.0, -0.5, 1.5, math.nan, "0.5", True])
+    def test_invalid_ruin_threshold_raises(self, threshold: Any) -> None:
         """The ruin threshold is a fraction of the start strictly between 0 and 1."""
         with pytest.raises(ConfigurationError, match="ruin_threshold"):
             simulate_kelly_growth(_EVEN_ODDS, [0.1], 10, 5, ruin_threshold=threshold)
 
-    def test_negative_seed_raises(self) -> None:
-        """A negative seed is rejected up front."""
+    @pytest.mark.parametrize("seed", [-1, 0.5, True])
+    def test_invalid_seed_raises(self, seed: Any) -> None:
+        """A seed is a non-negative integer or ``None``."""
         with pytest.raises(ConfigurationError, match="random_state"):
-            simulate_kelly_growth(_EVEN_ODDS, [0.1], 10, 5, random_state=-1)
+            simulate_kelly_growth(_EVEN_ODDS, [0.1], 10, 5, random_state=seed)

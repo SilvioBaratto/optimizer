@@ -163,16 +163,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has its protocol's parameters and type hints and that no protocol method's type hints
   name an ORM model.
 - **simulation**: new `optimizer.simulation` package for Monte Carlo scenarios and
-  Kelly sizing. `simulate_gbm` draws price paths of one asset under geometric Brownian
-  motion with the exact log-normal step and optional antithetic variates;
-  `simulate_correlated_gbm` does the same for several assets from a covariance matrix
-  (singular matrices are handled); `calibrate_gbm` fits drift and volatility to a price
-  series. `simulate_bootstrap` compounds resampled returns into wealth paths, singly or
-  in moving blocks that keep short-range autocorrelation, and `summarize_paths` reports
-  the terminal distribution, the chance of a loss and the drawdowns.
-  `kelly_fraction_gaussian` and `kelly_fraction_empirical` give the growth-optimal
-  fraction, and `simulate_kelly_growth` shows growth, median wealth and ruin
-  probability over a grid of fractions.
+  Kelly sizing. `simulate_gbm` takes a `GbmConfig` and draws price paths of one asset
+  under geometric Brownian motion with the exact log-normal step and optional
+  antithetic variates; `simulate_correlated_gbm` does the same for several assets from
+  a covariance matrix (singular matrices are handled); `calibrate_gbm` estimates drift
+  and volatility from a price series and returns a `GbmFit`. `simulate_bootstrap`
+  takes a `BootstrapConfig` and compounds resampled returns into wealth paths, singly
+  or in moving blocks that keep short-range autocorrelation; `summarize_paths` returns
+  a `PathSummary` with the terminal distribution, the chance of a loss and the
+  drawdowns. `kelly_fraction_gaussian` and `kelly_fraction_empirical` give the
+  growth-optimal fraction, and `simulate_kelly_growth` shows growth, median wealth and
+  ruin probability over a grid of fractions. Settings raise `ConfigurationError` and
+  data arrays raise `DataError`.
 - **ingestion: the external-call breakers, attempts and timeouts are settings.** The
   ingestion daemon reads them from its environment; `docs/integrations.md` lists them with
   what they set. The defaults are the values the code used before, except

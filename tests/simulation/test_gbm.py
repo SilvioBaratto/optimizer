@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -155,7 +156,7 @@ class TestSimulateGbm:
         config = GbmConfig(
             initial_price=_S0, mu=1000.0, sigma=0.0, n_steps=10, n_paths=2, dt=1.0
         )
-        with pytest.raises(DataError, match="overflow"):
+        with pytest.raises(ConfigurationError, match="overflow"):
             simulate_gbm(config)
 
 
@@ -283,40 +284,62 @@ class TestSimulateCorrelatedGbm:
             ([[100.0, 50.0]], [0.05, 0.1]),
             ([100.0, 50.0], [0.05]),
             ([100.0, 50.0], [0.05, math.inf]),
+            ([100.0, "x"], [0.05, 0.1]),
+            ([[100.0], [50.0, 60.0]], [0.05, 0.1]),
+            ([100.0, 50.0], [0.05, "x"]),
         ],
     )
     def test_invalid_prices_or_drifts_raise(
-        self, prices: list[float], mus: list[float]
+        self, prices: npt.ArrayLike, mus: npt.ArrayLike
     ) -> None:
-        """Start prices are positive and finite; one drift per asset."""
-        with pytest.raises(DataError):
+        """Start prices and drifts are settings: positive, finite, one per asset."""
+        with pytest.raises(ConfigurationError):
             simulate_correlated_gbm(prices, mus, _COV, 3, 3)
 
     @pytest.mark.parametrize(
-        ("n_steps", "n_paths", "dt"), [(0, 3, _DT), (3, 0, _DT), (3, 3, 0.0)]
+        "covariance", [[[0.04, 0.0], [0.0]], [["a", "b"], ["c", "d"]]]
+    )
+    def test_ragged_or_non_numeric_covariance_raises(
+        self, covariance: npt.ArrayLike
+    ) -> None:
+        """A covariance numpy cannot read raises the documented data error."""
+        with pytest.raises(DataError, match="covariance"):
+            _correlated(covariance)
+
+    @pytest.mark.parametrize(
+        ("n_steps", "n_paths", "dt"),
+        [
+            (0, 3, _DT),
+            (3, 0, _DT),
+            (3, 3, 0.0),
+            (2.5, 3, _DT),
+            (3, True, _DT),
+            (3, math.nan, _DT),
+        ],
     )
     def test_invalid_horizon_settings_raise(
-        self, n_steps: int, n_paths: int, dt: float
+        self, n_steps: Any, n_paths: Any, dt: float
     ) -> None:
         """Steps, paths and the time step are validated like ``GbmConfig``."""
         with pytest.raises(ConfigurationError):
             simulate_correlated_gbm(_PRICES, _MUS, _COV, n_steps, n_paths, dt=dt)
 
-    def test_negative_seed_raises(self) -> None:
-        """A negative seed is rejected up front."""
+    @pytest.mark.parametrize("seed", [-1, 1.5, True])
+    def test_invalid_seed_raises(self, seed: Any) -> None:
+        """A seed is a non-negative integer or ``None``."""
         with pytest.raises(ConfigurationError, match="random_state"):
-            _correlated(seed=-1)
+            _correlated(seed=seed)
 
     def test_overflowing_prices_raise(self) -> None:
         """Paths that leave the float range are reported."""
-        with pytest.raises(DataError, match="overflow"):
+        with pytest.raises(ConfigurationError, match="overflow"):
             simulate_correlated_gbm(
                 _PRICES, [1000.0, 1000.0], np.zeros((2, 2)), 10, 2, dt=1.0
             )
 
 
 class TestCalibrateGbm:
-    """``calibrate_gbm``: maximum likelihood on the log returns."""
+    """``calibrate_gbm``: moment estimates from the log returns."""
 
     # Prices 100, 102, 101, 105: log returns 0.0198026, -0.0098523, 0.0388398 have
     # mean 0.01626339 and sample variance 6.021255e-4 (statistics.variance).
@@ -370,9 +393,11 @@ class TestCalibrateGbm:
             [100.0, -1.0, 101.0],
             [100.0, math.nan, 101.0],
             [[100.0, 101.0, 102.0]],
+            [100.0, "x", 101.0],
+            [[100.0], [101.0, 102.0], [103.0]],
         ],
     )
-    def test_invalid_prices_raise(self, prices: list[float]) -> None:
+    def test_invalid_prices_raise(self, prices: npt.ArrayLike) -> None:
         """Three positive, finite prices in one dimension are the minimum."""
         with pytest.raises(DataError):
             calibrate_gbm(prices)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import math
 
+import numpy as np
 import pytest
 
 from optimizer.exceptions import ConfigurationError
@@ -55,12 +56,28 @@ class TestGbmConfig:
             ("n_steps", 0),
             ("n_paths", 0),
             ("random_state", -1),
+            ("initial_price", "100"),
+            ("sigma", None),
+            ("dt", True),
+            ("n_steps", 2.5),
+            ("n_steps", True),
+            ("n_paths", math.nan),
+            ("n_paths", "10"),
+            ("random_state", 1.5),
+            ("random_state", True),
         ],
     )
-    def test_invalid_setting_raises(self, field: str, value: float) -> None:
-        """Each invalid value names the offending field."""
+    def test_invalid_setting_raises(self, field: str, value: object) -> None:
+        """Each invalid value, wrong type included, names the offending field."""
         with pytest.raises(ConfigurationError, match=field):
             dataclasses.replace(_GBM, **{field: value})
+
+    def test_numpy_integers_are_counts_and_seeds(self) -> None:
+        """Values read from numpy arrays are valid settings."""
+        config = dataclasses.replace(
+            _GBM, n_steps=np.int64(5), n_paths=np.int32(7), random_state=np.int64(3)
+        )
+        assert config.n_steps == 5
 
 
 class TestBootstrapConfig:
@@ -78,9 +95,13 @@ class TestBootstrapConfig:
             ("n_steps", 0),
             ("block_size", 0),
             ("random_state", -3),
+            ("n_paths", 2.5),
+            ("block_size", True),
+            ("n_steps", math.nan),
+            ("random_state", 0.5),
         ],
     )
-    def test_invalid_setting_raises(self, field: str, value: int) -> None:
-        """Each invalid value names the offending field."""
+    def test_invalid_setting_raises(self, field: str, value: object) -> None:
+        """Each invalid value, wrong type included, names the offending field."""
         with pytest.raises(ConfigurationError, match=field):
             dataclasses.replace(_BOOTSTRAP, **{field: value})

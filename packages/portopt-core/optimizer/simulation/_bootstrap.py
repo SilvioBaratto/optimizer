@@ -8,18 +8,32 @@ moving-block bootstrap of Kunsch (1989) and Liu and Singh (1992), keeps the
 dependence inside a block: short-range autocorrelation and volatility clustering
 survive up to the block length. Efron and Tibshirani, "An Introduction to the
 Bootstrap" (1993), cover the i.i.d. case.
+
+Errors follow the rule stated in ``_gbm``: ``ConfigurationError`` for settings and
+for wealth that overflows, ``DataError`` for the returns and the paths summarised.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 import numpy.typing as npt
 
 from optimizer.exceptions import ConfigurationError, DataError
-from optimizer.simulation._config import BootstrapConfig, require_positive
+from optimizer.simulation._config import BootstrapConfig
+from optimizer.simulation._validation import (
+    as_float_array,
+    as_returns,
+    as_vector,
+    require_no_overflow,
+    require_positive,
+)
+
+# A bootstrap needs something to resample; one return is enough.
+_MIN_RETURNS: Final = 1
 
 
 @dataclass(frozen=True)
@@ -41,39 +55,6 @@ class PathSummary:
     probability_of_loss: float
     mean_max_drawdown: float
     worst_max_drawdown: float
-
-
-def as_returns(
-    returns: npt.ArrayLike, min_observations: int
-) -> npt.NDArray[np.float64]:
-    """Return ``returns`` as a validated one-dimensional float array.
-
-    Args:
-        returns: Simple per-period returns.
-        min_observations: Fewest values the series may have.
-
-    Returns:
-        The returns as a float array.
-
-    Raises:
-        DataError: If the series is not one-dimensional, has fewer than
-            ``min_observations`` values, has a non-finite value or a return below
-            -100%, which no unlevered position can suffer.
-    """
-    sample = np.asarray(returns, dtype=np.float64)
-    if sample.ndim != 1:
-        msg = f"returns must be one-dimensional, got shape {sample.shape}"
-        raise DataError(msg)
-    if sample.size < min_observations:
-        msg = f"at least {min_observations} returns are needed, got {sample.size}"
-        raise DataError(msg)
-    if not np.isfinite(sample).all():
-        msg = "returns must be finite: drop or fill missing values first"
-        raise DataError(msg)
-    if (sample < -1.0).any():
-        msg = "returns must be at least -1 (a loss of more than 100% is impossible)"
-        raise DataError(msg)
-    return sample
 
 
 def _resample(
@@ -118,15 +99,18 @@ def simulate_bootstrap(
         ``initial_value``.
 
     Raises:
-        ConfigurationError: If ``initial_value`` is not positive and finite.
-        DataError: If ``returns`` is not a finite one-dimensional series of at
-            least ``config.block_size`` values, each at least -100%.
+        ConfigurationError: If ``initial_value`` is not positive and finite or the
+            wealth overflows the float range.
+        DataError: If ``returns`` is not a numeric, finite, one-dimensional series
+            of at least ``config.block_size`` values, each at least -100%.
     """
     require_positive("initial_value", initial_value)
-    sample = _resample(as_returns(returns, 1), config)
-    growth = np.cumprod(1.0 + sample, axis=1)
+    sample = _resample(as_returns(returns, _MIN_RETURNS), config)
+    with np.errstate(over="ignore"):
+        wealth = initial_value * np.cumprod(1.0 + sample, axis=1)
+    require_no_overflow(wealth, "reduce n_steps or initial_value, or rescale returns")
     start = np.full((config.n_paths, 1), initial_value)
-    return np.concatenate([start, initial_value * growth], axis=1)
+    return np.concatenate([start, wealth], axis=1)
 
 
 def _max_drawdown(paths: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -137,7 +121,7 @@ def _max_drawdown(paths: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
 
 def _validated_paths(paths: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """Return ``paths`` as a finite, non-negative matrix with a positive start."""
-    matrix = np.asarray(paths, dtype=np.float64)
+    matrix = as_float_array("paths", paths, DataError)
     if matrix.ndim != 2 or matrix.shape[0] < 1 or matrix.shape[1] < 2:
         msg = (
             "paths must be a matrix with at least one path and two time points, "
@@ -170,14 +154,14 @@ def summarize_paths(
         drawdowns are positive fractions measured from the running maximum.
 
     Raises:
-        ConfigurationError: If ``quantiles`` is empty or has a level outside
-            ``[0, 1]``.
-        DataError: If ``paths`` is not a finite, non-negative matrix of at least
-            two time points that starts above zero.
+        ConfigurationError: If ``quantiles`` is empty, not numeric or has a level
+            outside ``[0, 1]``.
+        DataError: If ``paths`` is not a numeric, finite, non-negative matrix of at
+            least two time points that starts above zero.
     """
-    levels = np.asarray(quantiles, dtype=np.float64)
-    if levels.size == 0 or not ((levels >= 0.0) & (levels <= 1.0)).all():
-        msg = f"quantiles must be a non-empty set of levels in [0, 1], got {quantiles}"
+    levels = as_vector("quantiles", quantiles, error=ConfigurationError)
+    if not ((levels >= 0.0) & (levels <= 1.0)).all():
+        msg = f"quantiles must be levels in [0, 1], got {quantiles}"
         raise ConfigurationError(msg)
     matrix = _validated_paths(paths)
     terminal = matrix[:, -1] / matrix[:, 0]

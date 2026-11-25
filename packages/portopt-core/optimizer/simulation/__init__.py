@@ -4,7 +4,8 @@ Three tools for looking at the range of outcomes a strategy or an asset could ha
 produced, rather than the single history that happened:
 
 * geometric Brownian motion paths for one asset or for several correlated assets,
-  and a maximum-likelihood fit of its drift and volatility to a price series;
+  and an estimate of its drift and volatility from the log returns of a price
+  series;
 * bootstrap wealth paths that resample the observed returns, in single returns or
   in blocks that keep short-range autocorrelation, and a summary of the
   distribution of the final values and drawdowns;
