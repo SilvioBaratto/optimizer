@@ -32,7 +32,12 @@ import pandas as pd
 from scipy import integrate, stats
 
 from optimizer.exceptions import ConfigurationError, DataError
-from optimizer.risk._config import VarConfig, VarMethod, require_integer_at_least
+from optimizer.risk._config import (
+    VarConfig,
+    VarMethod,
+    require_finite_real,
+    require_integer_at_least,
+)
 
 _SQRT_TWO_PI: Final = math.sqrt(2.0 * math.pi)
 # Relative to the largest absolute return; see ``_empirical_var_es``.
@@ -67,6 +72,21 @@ class VarResult:
     n_observations: int
 
 
+def _adjusted_quantile(z: float, skewness: float, excess_kurtosis: float) -> float:
+    """Return the Cornish-Fisher expansion for arguments already known to be finite.
+
+    The numerical integration of the expected shortfall calls this thousands of
+    times with values the module computed itself, so it skips the argument checks
+    of ``cornish_fisher_quantile``.
+    """
+    return (
+        z
+        + (z**2 - 1.0) * skewness / 6.0
+        + (z**3 - 3.0 * z) * excess_kurtosis / 24.0
+        - (2.0 * z**3 - 5.0 * z) * skewness**2 / 36.0
+    )
+
+
 def cornish_fisher_quantile(z: float, skewness: float, excess_kurtosis: float) -> float:
     """Return the Cornish-Fisher adjusted quantile of a standardised distribution.
 
@@ -84,13 +104,16 @@ def cornish_fisher_quantile(z: float, skewness: float, excess_kurtosis: float) -
         The adjusted quantile of the standardised distribution; equal to ``z``
         when both moments are zero. It is only a quantile function while the
         expansion is monotone, which is not checked here.
+
+    Raises:
+        ConfigurationError: If an argument is not a finite real number (NaN,
+            infinity, a bool or text), which would otherwise return NaN or an
+            infinity without a word.
     """
-    return (
-        z
-        + (z**2 - 1.0) * skewness / 6.0
-        + (z**3 - 3.0 * z) * excess_kurtosis / 24.0
-        - (2.0 * z**3 - 5.0 * z) * skewness**2 / 36.0
-    )
+    require_finite_real("z", z)
+    require_finite_real("skewness", skewness)
+    require_finite_real("excess_kurtosis", excess_kurtosis)
+    return _adjusted_quantile(z, skewness, excess_kurtosis)
 
 
 def as_series(values: npt.ArrayLike | pd.Series, name: str) -> pd.Series:
@@ -217,9 +240,7 @@ def _quantile_weighted_by_density(
     z: float, skewness: float, excess_kurtosis: float
 ) -> float:
     """Return the Cornish-Fisher quantile times the normal density at ``z``."""
-    return cornish_fisher_quantile(z, skewness, excess_kurtosis) * _standard_normal_pdf(
-        z
-    )
+    return _adjusted_quantile(z, skewness, excess_kurtosis) * _standard_normal_pdf(z)
 
 
 def _cornish_fisher(
@@ -249,7 +270,7 @@ def _cornish_fisher(
         _quantile_weighted_by_density, -np.inf, z, args=(skewness, excess_kurtosis)
     )
     mean, std = _horizon_moments(sample, config.horizon)
-    adjusted_quantile = cornish_fisher_quantile(z, skewness, excess_kurtosis)
+    adjusted_quantile = _adjusted_quantile(z, skewness, excess_kurtosis)
     var = -(mean + std * adjusted_quantile)
     expected_shortfall = -(mean + std * integral / tail_probability)
     return var, expected_shortfall

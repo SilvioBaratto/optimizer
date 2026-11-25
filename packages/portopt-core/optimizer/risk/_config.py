@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Final
@@ -44,6 +45,26 @@ def require_confidence_level(confidence_level: float) -> None:
             "confidence_level must be a number strictly between 0 and 1, "
             f"got {confidence_level!r}"
         )
+        raise ConfigurationError(msg)
+
+
+def require_finite_real(name: str, value: object) -> None:
+    """Reject ``value`` unless it is a finite real number.
+
+    Args:
+        name: Argument name used in the error message.
+        value: Candidate number; a bool, string, ``None``, NaN or infinity is
+            rejected, a numpy scalar is accepted.
+
+    Raises:
+        ConfigurationError: If ``value`` is not a finite real number.
+    """
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float, np.integer, np.floating))
+        or not math.isfinite(value)
+    ):
+        msg = f"{name} must be a finite real number, got {value!r}"
         raise ConfigurationError(msg)
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from statistics import NormalDist
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -118,6 +119,24 @@ class TestCornishFisherQuantile:
         """Positive excess kurtosis lowers the left-tail quantile."""
         # (z^3-3z)K/24 = (-2)*3/24 = -0.25 with S = 0.
         assert cornish_fisher_quantile(-2.0, 0.0, 3.0) == pytest.approx(-2.25)
+
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf, True, "0.1", None])
+    @pytest.mark.parametrize("name", ["z", "skewness", "excess_kurtosis"])
+    def test_an_argument_that_is_not_a_finite_real_raises(
+        self, name: str, bad: object
+    ) -> None:
+        """NaN or infinity used to come back as NaN or inf, a bool as 1.0."""
+        arguments: dict[str, Any] = {"z": -2.0, "skewness": 0.0, "excess_kurtosis": 0.0}
+        arguments[name] = bad
+        with pytest.raises(ConfigurationError, match=f"{name} must be a finite real"):
+            cornish_fisher_quantile(**arguments)
+
+    def test_numpy_scalars_are_accepted(self) -> None:
+        """A moment computed by numpy is a real number, not a rejected type."""
+        quantile = cornish_fisher_quantile(
+            np.float64(-2.0), np.float32(0.0), np.int64(0)
+        )
+        assert quantile == pytest.approx(-2.0)
 
 
 class TestParametricVar:
