@@ -13,7 +13,7 @@ import pytest
 from scipy import stats
 
 from optimizer.exceptions import ConfigurationError, DataError
-from optimizer.plotting import correlation_heatmap
+from optimizer.plotting import CorrelationOrder, correlation_heatmap
 
 
 def _returns(seed: int = 7, rows: int = 80, columns: int = 4) -> pd.DataFrame:
@@ -224,6 +224,16 @@ class TestClusterOrder:
         expected = np.corrcoef(frame[labels].to_numpy(), rowvar=False)
         np.testing.assert_allclose(np.asarray(trace.z), expected, atol=1e-12)
 
+    def test_the_enum_member_and_its_string_value_are_interchangeable(self) -> None:
+        """``CorrelationOrder`` members are strings, so both spellings agree."""
+        frame = self._frame(["A", "B", "C", "D"], {"C": "A"})
+        by_member = correlation_heatmap(frame, order=CorrelationOrder.CLUSTER)
+        by_text = correlation_heatmap(frame, order="cluster")
+        assert list(by_member.data[0].x) == list(by_text.data[0].x)
+        assert CorrelationOrder.CLUSTER == "cluster"
+        unordered = correlation_heatmap(frame, order=CorrelationOrder.NONE)
+        assert list(unordered.data[0].x) == ["A", "B", "C", "D"]
+
     def test_two_assets_are_clustered_without_error(self) -> None:
         """The smallest matrix has a single merge and keeps both labels."""
         frame = self._frame(["A", "B"], {})
@@ -246,10 +256,11 @@ class TestValidation:
         with pytest.raises(ConfigurationError, match="method"):
             correlation_heatmap(_returns(), method="cosine")
 
-    def test_an_unknown_order_is_rejected(self) -> None:
-        """Only none and cluster exist."""
+    @pytest.mark.parametrize("order", ["alphabetical", "CLUSTER", None, 1])
+    def test_an_unknown_order_is_rejected(self, order: object) -> None:
+        """Only none and cluster exist, and a non-string is not one of them."""
         with pytest.raises(ConfigurationError, match="order"):
-            correlation_heatmap(_returns(), order="alphabetical")
+            correlation_heatmap(_returns(), order=order)  # type: ignore[arg-type]
 
     def test_a_non_frame_is_rejected(self) -> None:
         """A bare array has no asset names to draw."""

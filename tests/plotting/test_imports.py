@@ -90,6 +90,7 @@ def test_the_plotting_package_does_import_plotly() -> None:
     "name",
     [
         "ChartTheme",
+        "CorrelationOrder",
         "correlation_heatmap",
         "efficient_frontier_figure",
         "frontier_from_weights",

@@ -21,11 +21,10 @@ from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.spatial.distance import squareform
 
 from optimizer.exceptions import ConfigurationError, DataError
-from optimizer.plotting._config import ChartTheme, resolve_theme
+from optimizer.plotting._config import ChartTheme, CorrelationOrder, resolve_theme
 
 _CorrelationMethod = Literal["pearson", "spearman", "kendall"]
 _METHODS: Final = frozenset(get_args(_CorrelationMethod))
-_ORDERS: Final = frozenset({"none", "cluster"})
 _MIN_ASSETS: Final = 2
 _MIN_OBSERVATIONS: Final = 2
 # Absorbs the rounding noise of a correlation matrix computed elsewhere, so one that
@@ -40,7 +39,7 @@ def correlation_heatmap(
     *,
     is_correlation: bool = False,
     method: str = "pearson",
-    order: str = "none",
+    order: CorrelationOrder | str = CorrelationOrder.NONE,
     annotate: bool = True,
     theme: ChartTheme | None = None,
 ) -> go.Figure:
@@ -53,8 +52,9 @@ def correlation_heatmap(
             square, symmetric, with a unit diagonal and entries in ``[-1, 1]``.
         method: ``"pearson"``, ``"spearman"`` or ``"kendall"``; ignored when
             ``is_correlation`` is true.
-        order: ``"none"`` keeps the column order; ``"cluster"`` reorders the assets
-            by hierarchical clustering so similar assets sit next to each other.
+        order: A ``CorrelationOrder`` or its value. ``"none"`` keeps the column order;
+            ``"cluster"`` reorders the assets by hierarchical clustering so similar
+            assets sit next to each other.
         annotate: Write each value, rounded to two decimals, in its cell.
         theme: Chart appearance; the default theme when ``None``.
 
@@ -67,8 +67,8 @@ def correlation_heatmap(
             valid correlation matrix when ``is_correlation`` is set, or has a
             correlation that cannot be computed (for example a constant column).
     """
-    _require_choice("method", method, _METHODS)
-    _require_choice("order", order, _ORDERS)
+    _require_method(method)
+    asset_order = _resolve_order(order)
     chart_theme = resolve_theme(theme)
     if is_correlation:
         matrix = _checked_correlation(data)
@@ -76,7 +76,7 @@ def correlation_heatmap(
     else:
         matrix = _correlation_of_returns(data, method)
         title = f"Correlation heatmap ({method})"
-    if order == "cluster":
+    if asset_order is CorrelationOrder.CLUSTER:
         matrix = _cluster_ordered(matrix)
     figure = go.Figure(_heatmap_trace(matrix, annotate=annotate))
     figure.update_layout(title=title)
@@ -86,11 +86,21 @@ def correlation_heatmap(
     return figure
 
 
-def _require_choice(name: str, value: str, allowed: frozenset[str]) -> None:
-    """Raise if ``value`` is not one of the ``allowed`` settings."""
-    if value not in allowed:
-        msg = f"{name} must be one of {sorted(allowed)}, got {value!r}"
+def _require_method(method: str) -> None:
+    """Raise if ``method`` is not a correlation coefficient this chart supports."""
+    if method not in _METHODS:
+        msg = f"method must be one of {sorted(_METHODS)}, got {method!r}"
         raise ConfigurationError(msg)
+
+
+def _resolve_order(order: CorrelationOrder | str) -> CorrelationOrder:
+    """Return ``order`` as a ``CorrelationOrder``, accepting its plain string value."""
+    try:
+        return CorrelationOrder(order)
+    except ValueError as error:
+        allowed = [member.value for member in CorrelationOrder]
+        msg = f"order must be one of {allowed}, got {order!r}"
+        raise ConfigurationError(msg) from error
 
 
 def _numeric_frame(data: pd.DataFrame) -> pd.DataFrame:

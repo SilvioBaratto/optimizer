@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 import plotly.graph_objects as go
 import plotly.io as pio
 
 from optimizer.exceptions import ConfigurationError
+
+
+class CorrelationOrder(str, Enum):
+    """How the assets of a correlation heatmap are ordered.
+
+    Attributes:
+        NONE: Keep the column order of the input.
+        CLUSTER: Reorder by hierarchical clustering so similar assets sit together.
+    """
+
+    NONE = "none"
+    CLUSTER = "cluster"
 
 
 @dataclass(frozen=True)

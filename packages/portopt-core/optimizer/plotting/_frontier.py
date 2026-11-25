@@ -27,6 +27,8 @@ from optimizer.plotting._validation import (
 )
 
 _MIN_POINTS: Final = 2
+# A highlighted portfolio is one (risk, return) pair, whatever the frontier needs.
+_PAIR_SIZE: Final = 2
 _HIGHLIGHT_SIZE: Final = 14
 # A covariance matrix estimated from data can carry negative eigenvalues of the
 # order of rounding error, relative to its largest entry. Anything larger is a
@@ -163,8 +165,8 @@ def _highlight_points(
     points: dict[str, tuple[float, float]] = {}
     for name, pair in highlight.items():
         label = f"highlight[{name!r}]"
-        values = as_finite_vector(pair, label, min_size=_MIN_POINTS)
-        if values.size != _MIN_POINTS:
+        values = as_finite_vector(pair, label, min_size=_PAIR_SIZE)
+        if values.size != _PAIR_SIZE:
             msg = f"{label} must be a (risk, return) pair, got {values.size} values"
             raise DataError(msg)
         require_non_negative(values[:1], f"risk of {label}")

@@ -257,7 +257,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cumulative return, the rolling annualised volatility and the drawdown;
   `security_market_line_figure` plots assets against the CAPM line; `save_figure_html`
   writes any of them to a standalone HTML page. `ChartTheme` sets the template and
-  size. The package is imported only by `import optimizer.plotting`, never by
+  size and `CorrelationOrder` names the heatmap orderings (plain strings work too).
+  The package is imported only by `import optimizer.plotting`, never by
   `import optimizer`. `plotly==7.0.0` is now declared as a runtime dependency of
   `portopt-core`: skfolio already pulled it in, so the lockfile only gains the
   declaration and no installed version changes.

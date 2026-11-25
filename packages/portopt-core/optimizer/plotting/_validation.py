@@ -50,11 +50,12 @@ def as_finite_vector(
     return array
 
 
-def as_finite_scalar(value: object, name: str) -> float:
+def as_finite_scalar(value: float, name: str) -> float:
     """Return ``value`` as a finite float.
 
     Args:
-        value: A number, or anything ``float`` accepts.
+        value: A number. Anything ``float`` cannot convert is reported as a
+            ``DataError`` rather than a ``TypeError``, whatever the caller passed.
         name: Argument name used in error messages.
 
     Returns:
@@ -64,7 +65,7 @@ def as_finite_scalar(value: object, name: str) -> float:
         DataError: If ``value`` is not a number or is not finite.
     """
     try:
-        number = float(value)  # type: ignore[arg-type]
+        number = float(value)
     except (TypeError, ValueError) as error:
         msg = f"{name} must be a number, got {value!r}"
         raise DataError(msg) from error

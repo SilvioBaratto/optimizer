@@ -11,7 +11,7 @@ imported by ``import optimizer``: load it with ``import optimizer.plotting``.
 Static image export needs the separate ``kaleido`` package and is not provided.
 """
 
-from optimizer.plotting._config import ChartTheme
+from optimizer.plotting._config import ChartTheme, CorrelationOrder
 from optimizer.plotting._correlation import correlation_heatmap
 from optimizer.plotting._export import save_figure_html
 from optimizer.plotting._frontier import (
@@ -23,6 +23,7 @@ from optimizer.plotting._sml import security_market_line_figure
 
 __all__ = [
     "ChartTheme",
+    "CorrelationOrder",
     "correlation_heatmap",
     "efficient_frontier_figure",
     "frontier_from_weights",

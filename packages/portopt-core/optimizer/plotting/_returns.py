@@ -62,10 +62,10 @@ def returns_volatility_figure(
     _require_settings(window, periods_per_year)
     chart_theme = resolve_theme(theme)
     frame = _validated_returns(returns, window)
-    figure = make_subplots(
-        rows=3, cols=1, shared_xaxes=True, vertical_spacing=_VERTICAL_SPACING
-    )
     panels = _panels(frame, window, periods_per_year)
+    figure = make_subplots(
+        rows=len(panels), cols=1, shared_xaxes=True, vertical_spacing=_VERTICAL_SPACING
+    )
     for row, (axis_title, panel) in enumerate(panels, start=1):
         _add_panel(figure, panel, row)
         figure.update_yaxes(
