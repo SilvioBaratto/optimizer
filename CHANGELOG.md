@@ -729,6 +729,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the current 4.1. `pip-audit --strict` failed on both, which turned the `lint`
   job red on every branch; `tests/test_lockfile_security_floors.py` now pins the
   4.0.0 floor.
+- **deps**: `wcmatch` 11.0.1 -> 11.2 and its helper `bracex` 3.0.1 -> 3.2.4 in
+  `uv.lock`. 11.2 is the first release that fixes CVE-2026-132276 (a glob pattern with
+  several `*` wildcards takes polynomial time to reject a crafted file name);
+  `deepagents` pulls it in. `pip-audit --strict` flagged it, which turned the `lint`
+  job red on every branch and on `development` itself;
+  `tests/test_lockfile_security_floors.py` now pins the 11.2 floor. The lock stays on
+  the 11 line, since 12.0 is a major release.
 
 ### Fixed
 
