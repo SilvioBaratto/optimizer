@@ -23,7 +23,7 @@ import numpy as np
 from scipy.optimize import brentq
 from scipy.special import ndtr
 
-from optimizer.derivatives._config import OptionType
+from optimizer.derivatives._config import OptionType, exercise_value
 from optimizer.derivatives._validation import (
     Contract,
     FloatArray,
@@ -123,7 +123,7 @@ def black_scholes_price(
     priced = _model_price(
         contract._replace(maturity=np.where(live, contract.maturity, 1.0)), kind
     )
-    intrinsic = kind.payoff(contract.spot, contract.strike)
+    intrinsic = exercise_value(kind, contract.spot, contract.strike)
     return as_output(np.where(live, priced, intrinsic))
 
 

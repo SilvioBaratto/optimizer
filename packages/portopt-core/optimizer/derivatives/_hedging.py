@@ -26,7 +26,7 @@ from optimizer.derivatives._black_scholes import (
     black_scholes_greeks,
     black_scholes_price,
 )
-from optimizer.derivatives._config import DeltaHedgeConfig, OptionType
+from optimizer.derivatives._config import DeltaHedgeConfig, OptionType, exercise_value
 from optimizer.derivatives._validation import FloatArray, scalar_contract
 
 _BPS_PER_UNIT: Final = 10_000.0
@@ -106,7 +106,8 @@ def _hedged_pnl(
         shocks = rng.standard_normal(config.n_paths)
         prices = _gbm_step(prices, config.drift, config.true_volatility, dt, shocks)
     return np.asarray(
-        cash + shares * prices - kind.payoff(prices, strike), dtype=np.float64
+        cash + shares * prices - exercise_value(kind, prices, strike),
+        dtype=np.float64,
     )
 
 

@@ -11,10 +11,12 @@ import numpy as np
 from optimizer.derivatives._validation import (
     FloatArray,
     FloatOrArray,
+    as_float_array,
     require_integer,
+    require_positive,
     require_real,
 )
-from optimizer.exceptions import ConfigurationError
+from optimizer.exceptions import ConfigurationError, DataError
 
 _MIN_PATHS = 2
 
@@ -53,15 +55,41 @@ class OptionType(str, Enum):
         """Return the exercise value, the payoff at expiry.
 
         Args:
-            spot: Underlying price or prices.
-            strike: Strike price or prices.
+            spot: Underlying price or prices, strictly positive.
+            strike: Strike price or prices, strictly positive.
 
         Returns:
             ``max(S - K, 0)`` for a call and ``max(K - S, 0)`` for a put, with the
             broadcast shape of the inputs.
+
+        Raises:
+            ConfigurationError: If ``spot`` or ``strike`` is non-numeric, non-finite
+                or not above zero.
+            DataError: If the two cannot be broadcast together.
         """
-        exercise = self.sign * (np.asarray(spot) - np.asarray(strike))
-        return np.asarray(np.maximum(exercise, 0.0), dtype=np.float64)
+        spot_values = as_float_array("spot", spot)
+        strike_values = as_float_array("strike", strike)
+        require_positive("spot", spot_values)
+        require_positive("strike", strike_values)
+        try:
+            spot_grid, strike_grid = np.broadcast_arrays(spot_values, strike_values)
+        except ValueError as exc:
+            msg = "spot and strike cannot be broadcast together"
+            raise DataError(msg) from exc
+        return exercise_value(self, spot_grid, strike_grid)
+
+
+def exercise_value(
+    kind: OptionType, spot: FloatOrArray, strike: FloatOrArray
+) -> FloatArray:
+    """Return the payoff at expiry for inputs the caller has already validated.
+
+    The pricers, the tree and the hedging simulator call this with spots and strikes
+    they checked on entry, so it skips the argument checks of ``OptionType.payoff``,
+    the public entry point for untrusted numbers.
+    """
+    exercise = kind.sign * (np.asarray(spot) - np.asarray(strike))
+    return np.asarray(np.maximum(exercise, 0.0), dtype=np.float64)
 
 
 @dataclass(frozen=True)

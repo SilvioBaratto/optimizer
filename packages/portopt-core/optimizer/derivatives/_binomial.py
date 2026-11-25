@@ -18,7 +18,7 @@ from typing import Final
 
 import numpy as np
 
-from optimizer.derivatives._config import OptionType
+from optimizer.derivatives._config import OptionType, exercise_value
 from optimizer.derivatives._validation import (
     FloatArray,
     require_integer,
@@ -128,7 +128,7 @@ def binomial_price(
     n_steps = require_integer("steps", steps, 1)
     contract = scalar_contract(spot, strike, maturity, rate, volatility, dividend_yield)
     if contract.maturity == 0.0:
-        return float(kind.payoff(contract.spot, contract.strike))
+        return float(exercise_value(kind, contract.spot, contract.strike))
     log_up, discount, probability = _crr_parameters(
         contract.maturity,
         contract.rate,
@@ -137,5 +137,5 @@ def binomial_price(
         n_steps,
     )
     nodes = _lattice(contract.spot, log_up, n_steps)
-    exercise = kind.payoff(nodes, contract.strike)
+    exercise = exercise_value(kind, nodes, contract.strike)
     return _backward_induction(exercise, n_steps, discount, probability, american)
