@@ -248,6 +248,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entrypoints, installers, dependency pins, agent prompts) without a `CHANGELOG.md`
   entry; the `skip-changelog` label overrides it and Dependabot is exempt. The `lint`
   job, `make lint` and pre-commit now also cover `scripts/`.
+- **plotting**: new `optimizer.plotting` package of plotly charts. `correlation_heatmap`
+  draws a correlation matrix (Pearson, Spearman or Kendall, or one you pass in) on a
+  diverging scale centred at zero, optionally ordered by hierarchical clustering so
+  related assets sit together; `efficient_frontier_figure` plots a frontier with named
+  highlighted portfolios, and `frontier_from_weights` turns a table of portfolio weights
+  into its risk and expected-return points; `returns_volatility_figure` stacks the
+  cumulative return, the rolling annualised volatility and the drawdown;
+  `security_market_line_figure` plots assets against the CAPM line; `save_figure_html`
+  writes any of them to a standalone HTML page. `ChartTheme` sets the template and
+  size. The package is imported only by `import optimizer.plotting`, never by
+  `import optimizer`. `plotly==7.0.0` is now declared as a runtime dependency of
+  `portopt-core`: skfolio already pulled it in, so the lockfile only gains the
+  declaration and no installed version changes.
 - **portopt-db PostgreSQL integration suite and migration checks in CI.** SQLite
   drops the `ON CONFLICT ON CONSTRAINT` target and never installs the
   `human_audit_log` triggers, so neither had a test. `packages/portopt-db/tests/
