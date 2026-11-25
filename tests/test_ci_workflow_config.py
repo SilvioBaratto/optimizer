@@ -681,6 +681,9 @@ def _prose(path: str) -> str:
 
 
 def _grants_id_token(permissions: object) -> bool:
+    """``write-all`` includes ``id-token: write``, so it counts as a grant too."""
+    if permissions == "write-all":
+        return True
     return isinstance(permissions, dict) and "id-token" in permissions
 
 
@@ -700,7 +703,13 @@ def test_docs_do_not_promise_a_pypi_release() -> None:
     """The docs say what ``release.yml`` builds; none of them claims an upload."""
     claims = [
         doc
-        for doc in ("README.md", "CONTRIBUTING.md", "install.sh", "install.ps1")
+        for doc in (
+            "README.md",
+            "CONTRIBUTING.md",
+            "CLAUDE.md",
+            "install.sh",
+            "install.ps1",
+        )
         if _PYPI_PUBLISH_CLAIM.search(_prose(doc))
     ]
 

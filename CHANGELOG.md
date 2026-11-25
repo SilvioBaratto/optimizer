@@ -285,7 +285,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependabot for dependency and GitHub Actions updates (#48)
 - Property-based testing with Hypothesis (#49)
 - Developer experience: Makefile (#50)
-- Automated release workflow (tag to PyPI publish) (#52)
+- Automated release workflow: tag check, CI gate and `portopt-core` build (#52)
 - Pyright compatibility configuration (#53)
 - **api**: `app/worker.py` — the ingestion daemon entrypoint. Serves Prometheus
   metrics, reaps orphaned jobs, bootstraps benchmarks off-thread, then runs
