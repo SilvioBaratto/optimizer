@@ -275,6 +275,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the breaker is not closed as of the last poll, and says why on the status bar. The
   running daemons pick this up once their images are rebuilt and restarted. See
   `docs/adr/0008-database-circuit-breaker.md`.
+- **regression**: a new `optimizer.regression` module. `ols` is a least squares fit
+  with t-statistics, p-values and optional Newey-West standard errors for
+  autocorrelated residuals. `capm_regression` reports Jensen's alpha and beta of an
+  asset against the market net of a risk-free rate, with the Treynor ratio, tracking
+  error and information ratio; `rolling_beta` gives the trailing-window beta without
+  look-ahead; `security_market_line` fits the cross-sectional line and each asset's
+  distance from it. `multifactor_regression` and `fama_french_regression` regress an
+  excess return on factor series the caller supplies (the module loads no data) and
+  return the alpha, the loadings and their t-statistics. Missing, infinite or
+  misaligned data raises `DataError` instead of being dropped.
 - **Decision log, integration docs and a changelog check.** `docs/adr/` starts an
   architecture decision log with seven records (the strip to an ingestion pipeline,
   the four-package workspace, the removal of `optimizer.pipeline`, the heartbeat-lease
