@@ -182,6 +182,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   An attempt count that is not an integer of at least 1, or a duration that is not a
   finite number above 0, fails at startup with an error that names the variable. A
   scraper built with an explicit `timeout` keeps it.
+- **strategies**: new `optimizer.strategies` package with moving-average and momentum
+  strategies and a cost-aware weight backtest. `moving_average` (simple or exponential)
+  and `moving_average_crossover_positions` give a trend position per asset;
+  `momentum_scores` is the 12-1 momentum (return from `t-252` to `t-21` by default) and
+  `cross_sectional_momentum_weights` holds the top fraction of assets at equal weight,
+  optionally dollar neutral, rebalanced every N periods. `backtest_weights` simulates
+  holding any weight table: a weight decided at a date earns returns only from
+  `execution_lag` periods later (1 by default; 0 leaks the future and is for measuring
+  that), costs are `CostConfig.proportional_bps` of the drifted-weight turnover, and the
+  result has gross and net returns, held weights, turnover, equity curve, Sharpe
+  (risk-free rate 0), drawdown and the yearly return lost to costs.
 - **ingestion: metrics for the external HTTP sources.** `external_breaker_open{service}`
   reads 1 while the process-wide breaker of FRED, Trading Economics, Il Sole 24 Ore or
   Trading 212 would refuse a request, and `external_request_seconds{service,outcome}` times
