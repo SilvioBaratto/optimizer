@@ -157,6 +157,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tagged only where they assert one of the 35 requirements, so most tests cite no id.
   Running a suite's pytest config now needs `scripts/ci` from the checkout: without it,
   pytest stops because it cannot import `traceability`.
+- **risk**: new `optimizer.risk` module with a Value-at-Risk calculator and a backtest
+  of its forecasts. `compute_var` returns the VaR and the expected shortfall of a
+  return sample, as positive loss fractions, by the historical, parametric (normal),
+  Cornish-Fisher or bootstrap Monte Carlo method (`VarMethod`, `VarConfig`), at a
+  confidence level and a horizon of your choice; `cornish_fisher_quantile` exposes the
+  skewness and kurtosis adjustment on its own. `rolling_var_forecasts` makes one-step
+  forecasts from the window before each date, with no look-ahead. `backtest_var` counts
+  the days the loss beat the forecast and runs the Kupiec proportion-of-failures test,
+  the Christoffersen independence and conditional coverage tests, and the Basel
+  traffic-light zones (99% over 250 days). The Cornish-Fisher method raises `DataError`
+  when the sample's skewness and kurtosis put it outside the expansion's range.
 - **portopt-db: read ports for the repository reads `fund` runs.** `portopt_db.ports`
   defines three `runtime_checkable` protocols and the frozen dataclasses they return:
   `PriceReader` (`instrument_for`, `profile_for` and `price_bars_for`, returning
