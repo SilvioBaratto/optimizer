@@ -305,6 +305,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   conversation is saved per portfolio (and for the fund-wide view) and shown when
   Ask opens; `/clear`, behind a confirm, deletes the saved messages, the agent's
   memory and its offloaded history files.
+- **credit**: new `optimizer.credit` package with the Merton (1974) structural credit
+  model. `solve_merton` reads a firm's equity as a call option on its assets and
+  inverts the observed equity value and equity volatility into the asset value and
+  volatility, then reports the distance to default, the default probability (the
+  risk-neutral one, or the real-world one with `MertonConfig.asset_drift`), the
+  market value of the debt, its credit spread and the leverage.
+  `estimate_equity_volatility` annualises the volatility of an equity price series,
+  optionally over the latest `window` returns, and `merton_from_market` solves the
+  model from a market capitalisation, a price history and the total debt. A solve
+  that cannot reach `solver_tolerance` raises `ConvergenceError` instead of
+  returning an approximation.
 - **The Daily brief and Ask text is laid out to be read.** The market digest is a
   table (one macro series per line with value, date and signed change, then the
   markets and news themes), and Ask answers render their headings, bold, bullets
