@@ -462,6 +462,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **docs**: the README, `CLAUDE.md` and the `optimizer` package docstring list the
+  eight research tools added to the library (`risk`, `simulation`, `strategies`,
+  `regression`, `plotting`, `derivatives`, `credit`, `statarb`), so the library now has
+  26 submodules, and `validation` is described with the deflated Sharpe ratio.
+  `CLAUDE.md` no longer says `arch` arrives through skfolio: it does not, and neither
+  `arch`, `statsmodels`, `hmmlearn` nor `matplotlib` is installed.
 - **portopt-db: `newest_close_per_instrument` is renamed `newest_close_dates`** on the
   `PriceReader` port and on `YFinanceRepository`, since it returns bar dates, not
   closes. `fund.observe` calls the new name; a caller of the old name gets an
