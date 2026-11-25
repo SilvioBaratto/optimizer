@@ -29,6 +29,9 @@ _LAUNCHER = _REPO_ROOT / "scripts" / "optimizer"
 _LAUNCHER_CMD = _REPO_ROOT / "scripts" / "optimizer.cmd"
 _PS_CALL = "docker compose --profile fund ps --services --filter status=running"
 _PORTFOLIO_ID = "3f2b8c1e-5d4a-4e7b-9a10-2c6d8e0f1a3b"
+_COMPACT_ID = _PORTFOLIO_ID.replace("-", "")
+# One group joined without its hyphen: neither the canonical nor the compact shape.
+_HALF_HYPHENATED_ID = _PORTFOLIO_ID.replace("-4e7b-", "4e7b-")
 
 
 def _launcher_text() -> str:
@@ -197,7 +200,7 @@ def test_launcher_bare_invocation_opens_the_fund_wide_shell(tmp_path: Path) -> N
 
 @pytest.mark.parametrize(
     "portfolio_id",
-    [_PORTFOLIO_ID, _PORTFOLIO_ID.upper(), _PORTFOLIO_ID.replace("-", "")],
+    [_PORTFOLIO_ID, _PORTFOLIO_ID.upper(), _COMPACT_ID],
     ids=["canonical", "uppercase", "unhyphenated"],
 )
 def test_launcher_forwards_the_portfolio_id_to_the_tui(
@@ -217,9 +220,6 @@ def test_launcher_forwards_the_portfolio_id_to_the_tui(
     ]
 
 
-_COMPACT_ID = _PORTFOLIO_ID.replace("-", "")
-
-
 @pytest.mark.parametrize(
     "argument",
     [
@@ -230,8 +230,8 @@ _COMPACT_ID = _PORTFOLIO_ID.replace("-", "")
         f"-{_COMPACT_ID}",
         f"--{_COMPACT_ID}",
         f"{_COMPACT_ID}-",
-        "3f2b8c1e-5d4a4e7b9a102c6d8e0f1a3b",
-        "z" * 32,
+        _HALF_HYPHENATED_ID,
+        "z" * len(_COMPACT_ID),
         _COMPACT_ID[:-1],
         f"{_COMPACT_ID}0",
         f"{{{_PORTFOLIO_ID}}}",
