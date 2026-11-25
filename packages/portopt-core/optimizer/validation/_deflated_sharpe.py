@@ -28,9 +28,13 @@ from scipy import stats
 from optimizer.exceptions import ConfigurationError, DataError
 
 _EULER_MASCHERONI: Final = 0.5772156649015329
-# Skewness and kurtosis are undefined below four points, and the standard error of
-# the Sharpe ratio needs both.
+# Fewer than four points give no usable skewness or kurtosis (the kurtosis of two
+# points is always 1), and the standard error of the Sharpe ratio needs both.
 _MIN_MOMENT_OBSERVATIONS: Final = 4
+# The standard error divides by sqrt(n_observations - 1).
+_MIN_OBSERVATIONS_FOR_STANDARD_ERROR: Final = 2
+# A dispersion needs at least two Sharpe ratios to be measured.
+_MIN_TRIALS_FOR_DISPERSION: Final = 2
 
 
 @dataclass(frozen=True)
@@ -54,9 +58,7 @@ class DeflatedSharpeConfig:
 
     def __post_init__(self) -> None:
         """Reject settings the formulas cannot use."""
-        if not math.isfinite(self.benchmark_sharpe):
-            msg = f"benchmark_sharpe must be finite, got {self.benchmark_sharpe}"
-            raise ConfigurationError(msg)
+        _require_finite_benchmark(self.benchmark_sharpe)
         _require_confidence(self.confidence_level)
         if self.periods_per_year < 1:
             msg = f"periods_per_year must be at least 1, got {self.periods_per_year}"
@@ -118,16 +120,30 @@ def _require_confidence(confidence_level: float) -> None:
         raise ConfigurationError(msg)
 
 
-def _variance_term(sharpe: float, skewness: float, kurtosis: float) -> float:
+def _require_finite_benchmark(benchmark_sharpe: float) -> None:
+    """Reject a benchmark that would turn every probability into NaN."""
+    if not math.isfinite(benchmark_sharpe):
+        msg = f"benchmark_sharpe must be finite, got {benchmark_sharpe}"
+        raise ConfigurationError(msg)
+
+
+def _variance_factor(sharpe: float, skewness: float, kurtosis: float) -> float:
     """Return the factor the Sharpe ratio's variance is proportional to."""
-    term = 1.0 - skewness * sharpe + (kurtosis - 1.0) / 4.0 * sharpe**2
-    if not term > 0.0:
+    factor = 1.0 - skewness * sharpe + (kurtosis - 1.0) / 4.0 * sharpe**2
+    if not factor > 0.0:
         msg = (
             "the variance of the Sharpe ratio estimate is not positive for "
             f"sharpe={sharpe}, skewness={skewness}, kurtosis={kurtosis}"
         )
         raise DataError(msg)
-    return term
+    return factor
+
+
+def _sharpe_ratios(
+    returns: npt.NDArray[np.float64], axis: int = 0
+) -> npt.NDArray[np.float64]:
+    """Return the per-period Sharpe ratio of ``returns`` along ``axis``."""
+    return returns.mean(axis=axis) / returns.std(axis=axis, ddof=1)
 
 
 def probabilistic_sharpe_ratio(
@@ -153,13 +169,15 @@ def probabilistic_sharpe_ratio(
     Raises:
         DataError: If fewer than two observations are given, or the moments make
             the variance of the Sharpe ratio estimate non-positive.
+        ConfigurationError: If ``benchmark_sharpe`` is not finite.
     """
-    if n_observations < 2:
+    _require_finite_benchmark(benchmark_sharpe)
+    if n_observations < _MIN_OBSERVATIONS_FOR_STANDARD_ERROR:
         msg = f"at least two observations are needed, got {n_observations}"
         raise DataError(msg)
-    term = _variance_term(sharpe, skewness, kurtosis)
+    factor = _variance_factor(sharpe, skewness, kurtosis)
     z_score = (sharpe - benchmark_sharpe) * math.sqrt(n_observations - 1.0)
-    return float(stats.norm.cdf(z_score / math.sqrt(term)))
+    return float(stats.norm.cdf(z_score / math.sqrt(factor)))
 
 
 def expected_max_sharpe(n_trials: int, trials_sharpe_variance: float) -> float:
@@ -219,16 +237,18 @@ def minimum_track_record_length(
         exceed ``benchmark_sharpe``, because no amount of data would establish it.
 
     Raises:
-        ConfigurationError: If ``confidence_level`` is not strictly between 0 and 1.
+        ConfigurationError: If ``confidence_level`` is not strictly between 0 and 1
+            or ``benchmark_sharpe`` is not finite.
         DataError: If the moments make the variance of the Sharpe ratio estimate
             non-positive.
     """
     _require_confidence(confidence_level)
+    _require_finite_benchmark(benchmark_sharpe)
     if sharpe <= benchmark_sharpe:
         return math.inf
-    term = _variance_term(sharpe, skewness, kurtosis)
+    factor = _variance_factor(sharpe, skewness, kurtosis)
     z_score = float(stats.norm.ppf(confidence_level))
-    return 1.0 + term * (z_score / (sharpe - benchmark_sharpe)) ** 2
+    return 1.0 + factor * (z_score / (sharpe - benchmark_sharpe)) ** 2
 
 
 def _as_sample(
@@ -260,11 +280,11 @@ def _evaluate(
     selected_trial: str | None,
 ) -> DeflatedSharpeResult:
     """Compute every statistic for one validated return sample."""
-    sharpe = float(sample.mean() / sample.std(ddof=1))
+    sharpe = float(_sharpe_ratios(sample))
     skewness = float(stats.skew(sample, bias=True))
     kurtosis = float(stats.kurtosis(sample, fisher=False, bias=True))
     n_observations = int(sample.size)
-    bar = expected_max_sharpe(n_trials, trials_sharpe_variance)
+    expected_max = expected_max_sharpe(n_trials, trials_sharpe_variance)
     return DeflatedSharpeResult(
         sharpe=sharpe,
         annualized_sharpe=sharpe * math.sqrt(config.periods_per_year),
@@ -273,12 +293,12 @@ def _evaluate(
         n_observations=n_observations,
         n_trials=n_trials,
         trials_sharpe_variance=trials_sharpe_variance,
-        expected_max_sharpe=bar,
+        expected_max_sharpe=expected_max,
         probabilistic_sharpe=probabilistic_sharpe_ratio(
             sharpe, n_observations, skewness, kurtosis, config.benchmark_sharpe
         ),
         deflated_sharpe=probabilistic_sharpe_ratio(
-            sharpe, n_observations, skewness, kurtosis, bar
+            sharpe, n_observations, skewness, kurtosis, expected_max
         ),
         min_track_record_length=minimum_track_record_length(
             sharpe, skewness, kurtosis, config.benchmark_sharpe, config.confidence_level
@@ -344,24 +364,28 @@ def run_deflated_sharpe_from_trials(
 
     Raises:
         DataError: If there are fewer than two trials or fewer rows than
-            ``config.min_observations``, or any value is not finite, or a trial is
-            constant.
+            ``config.min_observations``, or a column is not numeric, or any value is
+            not finite, or a trial is constant.
     """
     settings = config or DeflatedSharpeConfig()
-    values = trial_returns.to_numpy(dtype=np.float64)
-    if values.ndim != 2 or values.shape[1] < 2:
+    try:
+        trial_matrix = trial_returns.to_numpy(dtype=np.float64)
+    except (TypeError, ValueError) as error:
+        msg = f"trial_returns must hold only numeric columns: {error}"
+        raise DataError(msg) from error
+    if trial_matrix.shape[1] < _MIN_TRIALS_FOR_DISPERSION:
         msg = (
             "at least two trials (columns) are needed to estimate how much their "
-            f"Sharpe ratios differ, got shape {values.shape}"
+            f"Sharpe ratios differ, got shape {trial_matrix.shape}"
         )
         raise DataError(msg)
-    for column in range(values.shape[1]):
-        _as_sample(values[:, column], settings.min_observations)
-    sharpes = values.mean(axis=0) / values.std(axis=0, ddof=1)
+    for column in range(trial_matrix.shape[1]):
+        _as_sample(trial_matrix[:, column], settings.min_observations)
+    sharpes = _sharpe_ratios(trial_matrix)
     best = int(np.argmax(sharpes))
     return _evaluate(
-        values[:, best],
-        n_trials=values.shape[1],
+        trial_matrix[:, best],
+        n_trials=trial_matrix.shape[1],
         trials_sharpe_variance=float(np.var(sharpes, ddof=1)),
         config=settings,
         selected_trial=str(trial_returns.columns[best]),

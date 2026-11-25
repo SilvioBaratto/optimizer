@@ -90,6 +90,14 @@ class TestProbabilisticSharpeRatio:
         with pytest.raises(DataError, match="observations"):
             probabilistic_sharpe_ratio(_DAILY_SHARPE, 1, 0.0, 3.0)
 
+    @pytest.mark.parametrize("benchmark", [math.nan, math.inf, -math.inf])
+    def test_a_benchmark_that_is_not_finite_raises(self, benchmark: float) -> None:
+        """A NaN benchmark would otherwise return NaN without a word."""
+        with pytest.raises(ConfigurationError, match="benchmark_sharpe"):
+            probabilistic_sharpe_ratio(
+                _DAILY_SHARPE, _YEAR, 0.0, 3.0, benchmark_sharpe=benchmark
+            )
+
 
 class TestExpectedMaxSharpe:
     """``expected_max_sharpe``: the best Sharpe ratio luck alone produces."""
@@ -172,6 +180,12 @@ class TestMinimumTrackRecordLength:
         length = minimum_track_record_length(0.1, -0.4, 4.5, 0.02, 0.95)
         psr = probabilistic_sharpe_ratio(0.1, length, -0.4, 4.5, benchmark_sharpe=0.02)
         assert psr == pytest.approx(0.95, abs=1e-9)
+
+    @pytest.mark.parametrize("benchmark", [math.nan, math.inf])
+    def test_a_benchmark_that_is_not_finite_raises(self, benchmark: float) -> None:
+        """A non-finite benchmark is rejected, as the config rejects it."""
+        with pytest.raises(ConfigurationError, match="benchmark_sharpe"):
+            minimum_track_record_length(_DAILY_SHARPE, 0.0, 3.0, benchmark, 0.95)
 
 
 class TestDeflatedSharpeConfig:
@@ -342,4 +356,11 @@ class TestRunDeflatedSharpeFromTrials:
         trials = self._noise_trials(5)
         trials.iloc[3, 2] = np.nan
         with pytest.raises(DataError, match="finite"):
+            run_deflated_sharpe_from_trials(trials)
+
+    def test_a_non_numeric_column_raises_a_data_error(self) -> None:
+        """A text column is reported as a data problem, not a raw ValueError."""
+        trials = self._noise_trials(4)
+        trials["label"] = "not a return"
+        with pytest.raises(DataError, match="numeric"):
             run_deflated_sharpe_from_trials(trials)
