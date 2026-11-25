@@ -236,6 +236,24 @@ def test_main_no_arg_opens_fund_wide_shell(monkeypatch) -> None:
     assert focused == [None]  # fund-wide landing (Posture)
 
 
+def test_main_rejects_a_non_uuid_argument_with_a_usage_error(
+    monkeypatch, capsys
+) -> None:
+    """`optimizer status` reached `fund-tui status` and died in `uuid.UUID` with a
+    traceback. The argument is a typed typer parameter, so the command stops at the
+    parser with a one-line usage error before persistence or the shell is built."""
+    pool, focused = _patch_main_deps(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fund-tui", "status"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        tui_app.main()
+
+    assert excinfo.value.code == 2
+    assert "UUID" in capsys.readouterr().err
+    assert pool.closed == 0
+    assert focused == []
+
+
 # --- import hygiene: light + keyless -----------------------------------------
 
 

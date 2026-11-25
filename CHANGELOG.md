@@ -126,6 +126,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **validation**: probabilistic and deflated Sharpe ratio (Bailey and Lopez de Prado,
+  2014). `probabilistic_sharpe_ratio` gives the probability that the true Sharpe ratio
+  beats a benchmark, given the sample length, skewness and kurtosis;
+  `expected_max_sharpe` gives the best Sharpe ratio luck alone produces across a number
+  of trials; `minimum_track_record_length` gives the observations needed for a
+  confidence level. `run_deflated_sharpe` evaluates one selected return series against
+  its search, and `run_deflated_sharpe_from_trials` takes the matrix of every trial
+  (a grid search, or the candidates of a cross-validation), keeps the best one and
+  takes the number of trials and their dispersion from the columns.
 - **Requirement traceability (standard 6.6).** `docs/requirements.md` registers 35
   requirements, `REQ-<AREA>-NNN`, each one statement about one module that the tests
   citing it assert: the critical functions of `docs/test-plan.md`, the secret-hiding
@@ -148,6 +157,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tagged only where they assert one of the 35 requirements, so most tests cite no id.
   Running a suite's pytest config now needs `scripts/ci` from the checkout: without it,
   pytest stops because it cannot import `traceability`.
+- **risk**: new `optimizer.risk` module with a Value-at-Risk calculator and a backtest
+  of its forecasts. `compute_var` returns the VaR and the expected shortfall of a
+  return sample, as positive loss fractions, by the historical, parametric (normal),
+  Cornish-Fisher or bootstrap Monte Carlo method (`VarMethod`, `VarConfig`), at a
+  confidence level and a horizon of your choice; `cornish_fisher_quantile` exposes the
+  skewness and kurtosis adjustment on its own. `rolling_var_forecasts` makes one-step
+  forecasts from the window before each date, with no look-ahead. `backtest_var` counts
+  the days the loss beat the forecast and runs the Kupiec proportion-of-failures test,
+  the Christoffersen independence and conditional coverage tests, and the Basel
+  traffic-light zones (99% over 250 days). The Cornish-Fisher method raises `DataError`
+  when the sample's skewness and kurtosis put it outside the expansion's range.
 - **portopt-db: read ports for the repository reads `fund` runs.** `portopt_db.ports`
   defines three `runtime_checkable` protocols and the frozen dataclasses they return:
   `PriceReader` (`instrument_for`, `profile_for` and `price_bars_for`, returning
@@ -162,6 +182,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   return type. `packages/portopt-db/tests/test_ports.py` checks that each repository
   has its protocol's parameters and type hints and that no protocol method's type hints
   name an ORM model.
+- **simulation**: new `optimizer.simulation` package for Monte Carlo scenarios and
+  Kelly sizing. `simulate_gbm` takes a `GbmConfig` and draws price paths of one asset
+  under geometric Brownian motion with the exact log-normal step and optional
+  antithetic variates; `simulate_correlated_gbm` does the same for several assets from
+  a covariance matrix (singular matrices are handled); `calibrate_gbm` estimates drift
+  and volatility from a price series and returns a `GbmFit`. `simulate_bootstrap`
+  takes a `BootstrapConfig` and compounds resampled returns into wealth paths, singly
+  or in moving blocks that keep short-range autocorrelation; `summarize_paths` returns
+  a `PathSummary` with the terminal distribution, the chance of a loss and the
+  drawdowns. `kelly_fraction_gaussian` and `kelly_fraction_empirical` give the
+  growth-optimal fraction, and `simulate_kelly_growth` shows growth, median wealth and
+  ruin probability over a grid of fractions. Settings raise `ConfigurationError` and
+  data arrays raise `DataError`.
 - **ingestion: the external-call breakers, attempts and timeouts are settings.** The
   ingestion daemon reads them from its environment; `docs/integrations.md` lists them with
   what they set. The defaults are the values the code used before, except
@@ -182,6 +215,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   An attempt count that is not an integer of at least 1, or a duration that is not a
   finite number above 0, fails at startup with an error that names the variable. A
   scraper built with an explicit `timeout` keeps it.
+- **strategies**: new `optimizer.strategies` package with moving-average and momentum
+  strategies and a cost-aware weight backtest. `moving_average` (simple or exponential)
+  and `moving_average_crossover_positions` give a trend position per asset;
+  `momentum_scores` is the 12-1 momentum (return from `t-252` to `t-21` by default) and
+  `cross_sectional_momentum_weights` holds the top fraction of assets at equal weight,
+  optionally dollar neutral, rebalanced every N periods. `backtest_weights` simulates
+  holding any weight table: a weight decided at a date earns returns only from
+  `execution_lag` periods later (1 by default; 0 leaks the future and is for measuring
+  that), costs are `CostConfig.proportional_bps` of the drifted-weight turnover, and the
+  result has gross and net returns, held weights, turnover, equity curve, Sharpe
+  (risk-free rate 0), drawdown and the yearly return lost to costs.
 - **ingestion: metrics for the external HTTP sources.** `external_breaker_open{service}`
   reads 1 while the process-wide breaker of FRED, Trading Economics, Il Sole 24 Ore or
   Trading 212 would refuse a request, and `external_request_seconds{service,outcome}` times
@@ -231,6 +275,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the breaker is not closed as of the last poll, and says why on the status bar. The
   running daemons pick this up once their images are rebuilt and restarted. See
   `docs/adr/0008-database-circuit-breaker.md`.
+- **regression**: a new `optimizer.regression` module. `ols` is a least squares fit
+  with t-statistics, p-values and optional Newey-West standard errors for
+  autocorrelated residuals. `capm_regression` reports Jensen's alpha and beta of an
+  asset against the market net of a risk-free rate, with the Treynor ratio, tracking
+  error and information ratio; `rolling_beta` gives the trailing-window beta without
+  look-ahead; `security_market_line` fits the cross-sectional line and each asset's
+  distance from it. `multifactor_regression` and `fama_french_regression` regress an
+  excess return on factor series the caller supplies (the module loads no data) and
+  return the alpha, the loadings and their t-statistics. Missing, infinite or
+  misaligned data raises `DataError` instead of being dropped.
 - **Decision log, integration docs and a changelog check.** `docs/adr/` starts an
   architecture decision log with seven records (the strip to an ingestion pipeline,
   the four-package workspace, the removal of `optimizer.pipeline`, the heartbeat-lease
@@ -248,6 +302,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entrypoints, installers, dependency pins, agent prompts) without a `CHANGELOG.md`
   entry; the `skip-changelog` label overrides it and Dependabot is exempt. The `lint`
   job, `make lint` and pre-commit now also cover `scripts/`.
+- **plotting**: new `optimizer.plotting` package of plotly charts. `correlation_heatmap`
+  draws a correlation matrix (Pearson, Spearman or Kendall, or one you pass in) on a
+  diverging scale centred at zero, optionally ordered by hierarchical clustering so
+  related assets sit together; `efficient_frontier_figure` plots a frontier with named
+  highlighted portfolios, and `frontier_from_weights` turns a table of portfolio weights
+  into its risk and expected-return points; `returns_volatility_figure` stacks the
+  cumulative return, the rolling annualised volatility and the drawdown;
+  `security_market_line_figure` plots assets against the CAPM line; `save_figure_html`
+  writes any of them to a standalone HTML page. `ChartTheme` sets the template and
+  size and `CorrelationOrder` names the heatmap orderings (plain strings work too).
+  The package is imported only by `import optimizer.plotting`, never by
+  `import optimizer`. `plotly==7.0.0` is now declared as a runtime dependency of
+  `portopt-core`: skfolio already pulled it in, so the lockfile only gains the
+  declaration and no installed version changes.
 - **portopt-db PostgreSQL integration suite and migration checks in CI.** SQLite
   drops the `ON CONFLICT ON CONSTRAINT` target and never installs the
   `human_audit_log` triggers, so neither had a test. `packages/portopt-db/tests/
@@ -260,6 +328,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   downgrade/upgrade round trip over the five most recent revisions. The six
   revisions whose `downgrade` raises now declare an `IRREVERSIBLE_REASON`, which a
   test requires of any future one-way revision.
+- **derivatives**: option pricing and hedging in the new `optimizer.derivatives`
+  package. `black_scholes_price` and `black_scholes_greeks` price European calls and
+  puts with a continuous dividend yield (Greeks: delta, gamma, vega per 1.00 of
+  volatility, theta per year, rho per 1.00 of rate) and accept numpy arrays that
+  broadcast, so a strike by volatility grid is one call. `implied_volatility` inverts
+  the price with Brent's method and rejects prices outside the no-arbitrage bounds.
+  `binomial_price` is a Cox-Ross-Rubinstein tree, European or American, that
+  converges to Black-Scholes. `simulate_delta_hedge` sells an option, hedges it with
+  the Black-Scholes delta at a chosen number of dates, with proportional trading
+  costs and a hedge volatility that may differ from the true one, and returns the
+  profit and loss of every simulated path.
 - **Ask is a read-only deep agent with a saved conversation.** A question is now
   answered by an agent that reads the fund's data (read-only tools over
   `fund.observe`) and a read-only staged copy of the docs and source, deciding its
@@ -269,6 +348,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   conversation is saved per portfolio (and for the fund-wide view) and shown when
   Ask opens; `/clear`, behind a confirm, deletes the saved messages, the agent's
   memory and its offloaded history files.
+- **credit**: new `optimizer.credit` package with the Merton (1974) structural credit
+  model. `solve_merton` reads a firm's equity as a call option on its assets and
+  inverts the observed equity value and equity volatility into the asset value and
+  volatility, then reports the distance to default, the default probability (the
+  risk-neutral one, or the real-world one with `MertonConfig.asset_drift`), the
+  market value of the debt, its credit spread and the leverage.
+  `estimate_equity_volatility` annualises the volatility of an equity price series,
+  optionally over the latest `window` returns, and `merton_from_market` solves the
+  model from a market capitalisation, a price history and the total debt. A solve
+  that cannot reach `solver_tolerance` raises `ConvergenceError` instead of
+  returning an approximation.
 - **The Daily brief and Ask text is laid out to be read.** The market digest is a
   table (one macro series per line with value, date and signed change, then the
   markets and news themes), and Ask answers render their headings, bold, bullets
@@ -347,6 +437,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fresh baseline from the current measurement, so a deleted or emptied baseline
   file in a diff deserves a reviewer's attention. A source root that is missing
   fails the check instead of measuring nothing.
+- **statarb**: new research package `optimizer.statarb` for pairs trading and PCA
+  statistical arbitrage. `engle_granger` runs the two-step cointegration test: an OLS
+  hedge ratio, then an Augmented Dickey-Fuller test on the residuals with the lag count
+  chosen by the Akaike criterion. It uses the asymptotic MacKinnon critical values with
+  no finite-sample correction, so its decision is approximate for short samples.
+  `ou_half_life` gives the half-life of mean reversion of any series.
+  `kalman_hedge_ratio` tracks a drifting hedge ratio and returns the one-step-ahead
+  spread and its z-score, and `zscore_positions` turns a z-score into positions with
+  entry, exit and stop bands. `fit_pca_residual_model` and `pca_signals` implement the
+  Avellaneda and Lee (2010) eigenportfolio residual model: the Ornstein-Uhlenbeck fit
+  of each residual, its s-score and the paper's trading thresholds. These are research
+  tools that ignore costs and borrow limits and are not wired to the fund, whose
+  mandate is long-only and paper-only. They need numpy and scipy only.
 - **fund: execution venues, paper-ticket pricing without a session, and NAV marking
   without a session.** `fund.pricing` (`BPS_PER_UNIT`, `DUST_WEIGHT`, `CostModel`,
   `FillQuote`, `TicketLine`, `PricedTicket`, `held_weights`, `price_ticket`) and
@@ -731,6 +834,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **launcher, fund**: `optimizer status`, or any argument that is not a portfolio
+  UUID, no longer rebuilds the images and asks for the master passphrase before
+  crashing the cockpit with a `ValueError: badly formed hexadecimal UUID string`
+  traceback. The launcher now rejects the argument first (exit 2) and points at the
+  `portopt` stack commands, and `fund-tui` reports a bad portfolio id as a usage
+  error instead of a traceback. The launcher accepts a UUID written with hyphens
+  (8-4-4-4-12) or as 32 hex digits, in any case, and rejects everything else: an
+  argument that starts with `-`, more than one argument, and the `{...}` and
+  `urn:uuid:` spellings. So `optimizer --help` now exits 2 with the same message
+  instead of starting the stack.
 - **fund, ingestion, portopt-db**: API keys, the broker secret, database
   passwords and the notification webhook URL no longer appear in `repr()` or
   `str()` of `FundConfig`, `DbConfig` or the ingestion `Settings`. A traceback that renders locals or a stray
