@@ -17,6 +17,7 @@ Every Sharpe ratio here is per period (not annualised) unless a name says
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass
 from typing import Final
 
@@ -60,15 +61,10 @@ class DeflatedSharpeConfig:
         """Reject settings the formulas cannot use."""
         _require_finite_benchmark(self.benchmark_sharpe)
         _require_confidence(self.confidence_level)
-        if self.periods_per_year < 1:
-            msg = f"periods_per_year must be at least 1, got {self.periods_per_year}"
-            raise ConfigurationError(msg)
-        if self.min_observations < _MIN_MOMENT_OBSERVATIONS:
-            msg = (
-                f"min_observations must be at least {_MIN_MOMENT_OBSERVATIONS}, "
-                f"got {self.min_observations}"
-            )
-            raise ConfigurationError(msg)
+        _require_integer("periods_per_year", self.periods_per_year, 1)
+        _require_integer(
+            "min_observations", self.min_observations, _MIN_MOMENT_OBSERVATIONS
+        )
 
 
 @dataclass(frozen=True)
@@ -118,6 +114,21 @@ def _require_confidence(confidence_level: float) -> None:
             f"confidence_level must be strictly between 0 and 1, got {confidence_level}"
         )
         raise ConfigurationError(msg)
+
+
+def _require_integer(name: str, value: object, minimum: int) -> int:
+    """Return ``value`` as an int of at least ``minimum``.
+
+    A bool, a float (NaN and integral floats included) or text is rejected: a bare
+    ``<`` comparison lets NaN through and a float count fails later inside numpy.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral):
+        msg = f"{name} must be an integer, got {value!r}"
+        raise ConfigurationError(msg)
+    if value < minimum:
+        msg = f"{name} must be at least {minimum}, got {value}"
+        raise ConfigurationError(msg)
+    return int(value)
 
 
 def _require_finite_benchmark(benchmark_sharpe: float) -> None:
@@ -172,8 +183,14 @@ def probabilistic_sharpe_ratio(
         ConfigurationError: If ``benchmark_sharpe`` is not finite.
     """
     _require_finite_benchmark(benchmark_sharpe)
-    if n_observations < _MIN_OBSERVATIONS_FOR_STANDARD_ERROR:
-        msg = f"at least two observations are needed, got {n_observations}"
+    if not (
+        math.isfinite(n_observations)
+        and n_observations >= _MIN_OBSERVATIONS_FOR_STANDARD_ERROR
+    ):
+        msg = (
+            f"at least {_MIN_OBSERVATIONS_FOR_STANDARD_ERROR} finite observations "
+            f"are needed, got {n_observations}"
+        )
         raise DataError(msg)
     factor = _variance_factor(sharpe, skewness, kurtosis)
     z_score = (sharpe - benchmark_sharpe) * math.sqrt(n_observations - 1.0)
@@ -199,9 +216,7 @@ def expected_max_sharpe(n_trials: int, trials_sharpe_variance: float) -> float:
         ConfigurationError: If ``n_trials`` is below 1 or the variance is negative
             or not finite.
     """
-    if n_trials < 1:
-        msg = f"n_trials must be at least 1, got {n_trials}"
-        raise ConfigurationError(msg)
+    n_trials = _require_integer("n_trials", n_trials, 1)
     if not math.isfinite(trials_sharpe_variance) or trials_sharpe_variance < 0.0:
         msg = (
             "trials_sharpe_variance must be finite and non-negative, "
@@ -379,8 +394,9 @@ def run_deflated_sharpe_from_trials(
         raise DataError(msg) from error
     if trial_matrix.shape[1] < _MIN_TRIALS_FOR_DISPERSION:
         msg = (
-            "at least two trials (columns) are needed to estimate how much their "
-            f"Sharpe ratios differ, got shape {trial_matrix.shape}"
+            f"at least {_MIN_TRIALS_FOR_DISPERSION} trials (columns) are needed to "
+            f"estimate how much their Sharpe ratios differ, got shape "
+            f"{trial_matrix.shape}"
         )
         raise DataError(msg)
     for column in range(trial_matrix.shape[1]):

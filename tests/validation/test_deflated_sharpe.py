@@ -86,6 +86,12 @@ class TestProbabilisticSharpeRatio:
         with pytest.raises(DataError, match="variance"):
             probabilistic_sharpe_ratio(2.0, 252, 3.0, 1.0)
 
+    @pytest.mark.parametrize("n_observations", [math.nan, math.inf])
+    def test_a_count_that_is_not_finite_raises(self, n_observations: float) -> None:
+        """NaN would pass a bare ``< 2`` check and return NaN."""
+        with pytest.raises(DataError, match="finite observations"):
+            probabilistic_sharpe_ratio(_DAILY_SHARPE, n_observations, 0.0, 3.0)
+
     def test_fewer_than_two_observations_raise(self) -> None:
         """One observation has no standard error."""
         with pytest.raises(DataError, match="observations"):
@@ -140,6 +146,18 @@ class TestExpectedMaxSharpe:
         """A search has to have tried at least one strategy."""
         with pytest.raises(ConfigurationError, match="n_trials"):
             expected_max_sharpe(n_trials, 0.01)
+
+    @pytest.mark.parametrize("n_trials", [2.5, 10.0, math.nan, True, "10", None])
+    def test_a_trial_count_that_is_not_an_integer_raises(
+        self, n_trials: object
+    ) -> None:
+        """A float, NaN, bool or text count is rejected, not silently used."""
+        with pytest.raises(ConfigurationError, match="n_trials"):
+            expected_max_sharpe(n_trials, 0.01)  # type: ignore[arg-type]
+
+    def test_numpy_integers_count_as_trials(self) -> None:
+        """A count produced by numpy is an integer and is accepted."""
+        assert expected_max_sharpe(np.int64(10), 0.01) == expected_max_sharpe(10, 0.01)
 
     @pytest.mark.parametrize("variance", [-0.01, math.nan, math.inf])
     def test_an_invalid_variance_raises(self, variance: float) -> None:
@@ -213,6 +231,13 @@ class TestDeflatedSharpeConfig:
             {"periods_per_year": 0},
             {"min_observations": 3},
             {"benchmark_sharpe": math.nan},
+            {"periods_per_year": math.nan},
+            {"periods_per_year": 12.0},
+            {"periods_per_year": True},
+            {"periods_per_year": "252"},
+            {"min_observations": math.nan},
+            {"min_observations": 30.5},
+            {"min_observations": False},
         ],
     )
     def test_invalid_values_raise(self, overrides: dict[str, float]) -> None:
@@ -351,7 +376,7 @@ class TestRunDeflatedSharpeFromTrials:
 
     def test_one_trial_is_not_enough_to_estimate_a_dispersion(self) -> None:
         """A spread needs at least two trials."""
-        with pytest.raises(DataError, match="at least two"):
+        with pytest.raises(DataError, match="at least 2 trials"):
             run_deflated_sharpe_from_trials(self._noise_trials(1))
 
     def test_a_missing_value_raises(self) -> None:
