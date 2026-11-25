@@ -7,11 +7,11 @@ paper-only, so none of it is wired to execution.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Final
 
 from optimizer.exceptions import ConfigurationError
+from optimizer.statarb._inputs import require_finite, require_integer
 
 # Asymptotic MacKinnon (2010) critical values of the two-variable Engle-Granger
 # test with a constant; the table has no finite-sample correction.
@@ -48,29 +48,27 @@ class EngleGrangerConfig:
 
     def __post_init__(self) -> None:
         """Reject settings the test cannot use."""
-        if self.adf_lags is not None and self.adf_lags < 0:
-            msg = f"adf_lags must be non-negative, got {self.adf_lags}"
-            raise ConfigurationError(msg)
-        if self.max_lags is not None and self.max_lags < 0:
-            msg = f"max_lags must be non-negative, got {self.max_lags}"
-            raise ConfigurationError(msg)
-        if self.significance not in ENGLE_GRANGER_CRITICAL_VALUES:
+        if self.adf_lags is not None:
+            require_integer("adf_lags", self.adf_lags, 0)
+        if self.max_lags is not None:
+            require_integer("max_lags", self.max_lags, 0)
+        if (
+            not isinstance(self.significance, str)
+            or self.significance not in ENGLE_GRANGER_CRITICAL_VALUES
+        ):
             msg = (
                 f"significance must be one of {sorted(ENGLE_GRANGER_CRITICAL_VALUES)}, "
                 f"got {self.significance!r}"
             )
             raise ConfigurationError(msg)
-        if self.min_observations < _MIN_ADF_OBSERVATIONS:
-            msg = (
-                f"min_observations must be at least {_MIN_ADF_OBSERVATIONS}, "
-                f"got {self.min_observations}"
-            )
-            raise ConfigurationError(msg)
+        require_integer(
+            "min_observations", self.min_observations, _MIN_ADF_OBSERVATIONS
+        )
 
 
-def _require_positive_finite(name: str, value: float) -> None:
-    if not (math.isfinite(value) and value > 0.0):
-        msg = f"{name} must be positive and finite, got {value}"
+def _require_positive_finite(name: str, value: object) -> None:
+    if not require_finite(name, value) > 0.0:
+        msg = f"{name} must be positive and finite, got {value!r}"
         raise ConfigurationError(msg)
 
 
@@ -98,8 +96,8 @@ class KalmanConfig:
 
     def __post_init__(self) -> None:
         """Reject settings that make the filter degenerate."""
-        if not 0.0 < self.delta < 1.0:
-            msg = f"delta must be strictly between 0 and 1, got {self.delta}"
+        if not 0.0 < require_finite("delta", self.delta) < 1.0:
+            msg = f"delta must be strictly between 0 and 1, got {self.delta!r}"
             raise ConfigurationError(msg)
         _require_positive_finite("observation_variance", self.observation_variance)
         _require_positive_finite("initial_state_variance", self.initial_state_variance)
@@ -126,15 +124,10 @@ class PcaResidualConfig:
 
     def __post_init__(self) -> None:
         """Reject settings the fit cannot use."""
-        if self.periods_per_year < 1:
-            msg = f"periods_per_year must be at least 1, got {self.periods_per_year}"
-            raise ConfigurationError(msg)
-        if self.min_observations < _MIN_PCA_OBSERVATIONS:
-            msg = (
-                f"min_observations must be at least {_MIN_PCA_OBSERVATIONS}, "
-                f"got {self.min_observations}"
-            )
-            raise ConfigurationError(msg)
-        if not (math.isfinite(self.min_kappa) and self.min_kappa >= 0.0):
-            msg = f"min_kappa must be finite and non-negative, got {self.min_kappa}"
+        require_integer("periods_per_year", self.periods_per_year, 1)
+        require_integer(
+            "min_observations", self.min_observations, _MIN_PCA_OBSERVATIONS
+        )
+        if require_finite("min_kappa", self.min_kappa) < 0.0:
+            msg = f"min_kappa must be non-negative, got {self.min_kappa!r}"
             raise ConfigurationError(msg)

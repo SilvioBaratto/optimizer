@@ -41,7 +41,12 @@ import pandas as pd
 
 from optimizer.exceptions import ConfigurationError, DataError
 from optimizer.statarb._config import PcaResidualConfig
-from optimizer.statarb._inputs import EXACT_FIT_RATIO, as_float_array
+from optimizer.statarb._inputs import (
+    EXACT_FIT_RATIO,
+    as_float_array,
+    require_finite,
+    require_integer,
+)
 
 _FloatArray = npt.NDArray[np.float64]
 # A correlation matrix of one asset has no common factor to remove.
@@ -242,9 +247,11 @@ def fit_pca_residual_model(
             fewer rows than ``config.min_observations`` or than
             ``n_components + 2``, has a value that is not a finite number, or an
             asset is constant.
-        ConfigurationError: If ``n_components`` is outside ``[1, n_assets - 1]``.
+        ConfigurationError: If ``n_components`` is not an integer or is outside
+            ``[1, n_assets - 1]``.
     """
     settings = config or PcaResidualConfig()
+    n_components = require_integer("n_components", n_components, 1)
     values = _validated_returns(returns, n_components, settings)
     eigenvalues, eigenvectors, volatility = _principal_components(values, n_components)
     factors = values @ (eigenvectors / volatility[:, None])
@@ -269,16 +276,10 @@ def fit_pca_residual_model(
 def _validate_thresholds(
     buy_below: float, sell_above: float, exit_long: float, exit_short: float
 ) -> None:
-    levels = {
-        "buy_below": buy_below,
-        "sell_above": sell_above,
-        "exit_long": exit_long,
-        "exit_short": exit_short,
-    }
-    for name, value in levels.items():
-        if not math.isfinite(value):
-            msg = f"{name} must be finite, got {value}"
-            raise ConfigurationError(msg)
+    buy_below = require_finite("buy_below", buy_below)
+    sell_above = require_finite("sell_above", sell_above)
+    exit_long = require_finite("exit_long", exit_long)
+    exit_short = require_finite("exit_short", exit_short)
     if not buy_below < exit_long:
         msg = f"buy_below ({buy_below}) must be below exit_long ({exit_long})"
         raise ConfigurationError(msg)

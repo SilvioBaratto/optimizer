@@ -27,6 +27,9 @@ from optimizer.statarb import (
 # Asymptotic MacKinnon (2010) values for the two-variable Engle-Granger test with a
 # constant: the numbers the task states and statsmodels' ``coint`` tabulates.
 _CRITICAL_VALUES = {"1%": -3.90, "5%": -3.34, "10%": -3.04}
+# Values that are not whole-number settings: NaN, infinity, fractions, integral
+# floats, booleans (an int subclass), numpy floats and text.
+_NOT_INTEGERS = [math.nan, math.inf, 2.5, 3.0, np.float64(3.0), True, "3"]
 
 
 def _index(size: int) -> pd.DatetimeIndex:
@@ -356,10 +359,38 @@ class TestEngleGrangerValidation:
         with pytest.raises(ConfigurationError, match="max_lags"):
             EngleGrangerConfig(max_lags=-1)
 
-    def test_unknown_significance_raises(self) -> None:
-        """Only the tabulated levels have a critical value."""
+    @pytest.mark.parametrize("bad", _NOT_INTEGERS)
+    def test_adf_lags_must_be_an_integer(self, bad: object) -> None:
+        """NaN, floats (even 3.0), booleans and text are not lag counts."""
+        with pytest.raises(ConfigurationError, match="adf_lags"):
+            EngleGrangerConfig(adf_lags=bad)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("bad", _NOT_INTEGERS)
+    def test_max_lags_must_be_an_integer(self, bad: object) -> None:
+        """The search limit has to be a whole number as well."""
+        with pytest.raises(ConfigurationError, match="max_lags"):
+            EngleGrangerConfig(max_lags=bad)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("bad", [*_NOT_INTEGERS, None])
+    def test_min_observations_must_be_an_integer(self, bad: object) -> None:
+        """A NaN floor would switch the sample-size check off."""
+        with pytest.raises(ConfigurationError, match="min_observations"):
+            EngleGrangerConfig(min_observations=bad)  # type: ignore[arg-type]
+
+    def test_numpy_integers_are_accepted(self) -> None:
+        """Counts read from an array behave like Python integers."""
+        y, x = _cointegrated_pair(seed=0)
+        config = EngleGrangerConfig(
+            adf_lags=np.int64(2), max_lags=np.int32(5), min_observations=np.int64(50)
+        )
+        expected = engle_granger(y, x, EngleGrangerConfig(adf_lags=2))
+        assert engle_granger(y, x, config).adf_statistic == expected.adf_statistic
+
+    @pytest.mark.parametrize("bad", ["2%", 5, None, ["5%"], math.nan])
+    def test_unknown_significance_raises(self, bad: object) -> None:
+        """Only the tabulated levels, written as strings, have a critical value."""
         with pytest.raises(ConfigurationError, match="significance"):
-            EngleGrangerConfig(significance="2%")
+            EngleGrangerConfig(significance=bad)  # type: ignore[arg-type]
 
     def test_min_observations_below_the_floor_raises(self) -> None:
         """The ADF regression needs a handful of rows at the very least."""

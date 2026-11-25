@@ -30,6 +30,9 @@ _PERIODS_PER_YEAR = 252
 # kappa above 252 / 30 = 8.4 per year.
 _PAPER_MIN_KAPPA = 8.4
 _SIGMA = 0.01
+# Values that are not whole-number settings: NaN, infinity, fractions, integral
+# floats, booleans (an int subclass), numpy floats and text.
+_NOT_INTEGERS = [math.nan, math.inf, 2.5, 3.0, np.float64(3.0), True, "3"]
 
 
 def _path_returns(
@@ -472,22 +475,48 @@ class TestPcaResidualValidation:
         with pytest.raises(DataError, match="at least 2 assets"):
             fit_pca_residual_model(returns, n_components=1)
 
-    @pytest.mark.parametrize("periods", [0, -252])
-    def test_periods_per_year_must_be_positive(self, periods: int) -> None:
-        """Kappa is annualised, so a year needs at least one period."""
+    @pytest.mark.parametrize("periods", [0, -252, *_NOT_INTEGERS])
+    def test_periods_per_year_must_be_a_positive_integer(self, periods: object) -> None:
+        """Kappa is annualised; NaN would turn every kappa into NaN without a word."""
         with pytest.raises(ConfigurationError, match="periods_per_year"):
-            PcaResidualConfig(periods_per_year=periods)
+            PcaResidualConfig(periods_per_year=periods)  # type: ignore[arg-type]
 
-    def test_min_observations_below_the_floor_raises(self) -> None:
-        """The AR(1) fit of a short window is not an estimate."""
+    @pytest.mark.parametrize("floor", [9, *_NOT_INTEGERS, None])
+    def test_min_observations_must_be_an_integer_above_the_floor(
+        self, floor: object
+    ) -> None:
+        """The AR(1) fit of a short window is not an estimate, and NaN is no floor."""
         with pytest.raises(ConfigurationError, match="min_observations"):
-            PcaResidualConfig(min_observations=9)
+            PcaResidualConfig(min_observations=floor)  # type: ignore[arg-type]
 
-    @pytest.mark.parametrize("kappa", [-1.0, math.nan, math.inf])
-    def test_min_kappa_must_be_finite_and_non_negative(self, kappa: float) -> None:
+    @pytest.mark.parametrize("kappa", [-1.0, math.nan, math.inf, True, "8.4", None])
+    def test_min_kappa_must_be_finite_and_non_negative(self, kappa: object) -> None:
         """A speed floor below zero or not a number is meaningless."""
         with pytest.raises(ConfigurationError, match="min_kappa"):
-            PcaResidualConfig(min_kappa=kappa)
+            PcaResidualConfig(min_kappa=kappa)  # type: ignore[arg-type]
+
+    def test_numpy_integers_and_integer_kappa_are_accepted(self) -> None:
+        """Settings read from arrays behave like Python numbers."""
+        config = PcaResidualConfig(
+            periods_per_year=np.int64(52), min_observations=np.int32(60), min_kappa=8
+        )
+        assert config.periods_per_year == 52
+
+    @pytest.mark.parametrize("components", [2.5, 3.0, math.nan, math.inf, True, "2"])
+    def test_n_components_must_be_an_integer(
+        self, small_market: pd.DataFrame, components: object
+    ) -> None:
+        """A fractional or NaN count would fail deep inside a slice."""
+        with pytest.raises(ConfigurationError, match="n_components"):
+            fit_pca_residual_model(small_market, n_components=components)  # type: ignore[arg-type]
+
+    def test_a_numpy_integer_n_components_is_accepted(
+        self, small_market: pd.DataFrame
+    ) -> None:
+        """A count read from an array gives the same model as a Python int."""
+        numpy_model = fit_pca_residual_model(small_market, n_components=np.int64(2))
+        plain_model = fit_pca_residual_model(small_market, n_components=2)
+        pd.testing.assert_frame_equal(numpy_model.betas, plain_model.betas)
 
     def test_config_is_immutable(self) -> None:
         """The configuration is a frozen dataclass."""
@@ -573,18 +602,32 @@ class TestPcaSignals:
             {"sell_above": 0.7},
             {"sell_above": 0.75},
             {"buy_below": 2.0, "exit_long": 3.0, "exit_short": 0.0, "sell_above": 1.0},
-            {"buy_below": math.nan},
-            {"sell_above": math.inf},
-            {"exit_long": math.nan},
-            {"exit_short": -math.inf},
         ],
     )
-    def test_inconsistent_or_non_finite_thresholds_raise(
-        self, kwargs: dict[str, float]
-    ) -> None:
-        """Each exit must lie between the two entry levels, and all must be finite."""
-        with pytest.raises(ConfigurationError, match=r"finite|below"):
+    def test_inconsistent_thresholds_raise(self, kwargs: dict[str, float]) -> None:
+        """Each exit must lie between the two entry levels."""
+        with pytest.raises(ConfigurationError, match="below"):
             pca_signals(_scores([0.0]), **kwargs)
+
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf, True, "1", None])
+    @pytest.mark.parametrize(
+        "name", ["buy_below", "sell_above", "exit_long", "exit_short"]
+    )
+    def test_thresholds_must_be_finite_numbers(self, name: str, bad: object) -> None:
+        """NaN would make every comparison false and silently trade nothing."""
+        with pytest.raises(ConfigurationError, match=f"{name} must be a finite"):
+            pca_signals(_scores([0.0]), **{name: bad})  # type: ignore[arg-type]
+
+    def test_integer_thresholds_are_accepted(self) -> None:
+        """Whole-number thresholds, Python or numpy, work like floats."""
+        positions = pca_signals(
+            _scores([-2.0, 2.0]),
+            buy_below=-1,
+            sell_above=np.int64(1),
+            exit_long=0,
+            exit_short=0,
+        )
+        assert positions.tolist() == [1, -1]
 
     def test_previous_positions_outside_minus_one_to_one_raise(self) -> None:
         """Only -1, 0 and +1 are positions."""

@@ -175,10 +175,24 @@ class TestZscorePositionsValidation:
         with pytest.raises(DataError, match="zscores must contain only numbers"):
             zscore_positions(pd.Series(["a", "b"]))
 
-    @pytest.mark.parametrize("bad", [math.nan, math.inf])
-    def test_levels_must_be_finite(self, bad: float) -> None:
-        """A NaN or infinite level would make every comparison false."""
-        with pytest.raises(ConfigurationError, match="finite"):
-            zscore_positions(_z([0.0]), entry=bad)
-        with pytest.raises(ConfigurationError, match="finite"):
-            zscore_positions(_z([0.0]), stop=bad)
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, True, "2"])
+    @pytest.mark.parametrize("name", ["entry", "exit", "stop"])
+    def test_levels_must_be_finite_numbers(self, name: str, bad: object) -> None:
+        """NaN would slip through every comparison; text and booleans are no levels."""
+        levels: dict[str, object] = {"entry": 2.0, "exit": 0.5, "stop": 4.0}
+        levels[name] = bad
+        with pytest.raises(ConfigurationError, match=f"{name} must be a finite"):
+            zscore_positions(_z([0.0]), **levels)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("name", ["entry", "exit"])
+    def test_entry_and_exit_are_required(self, name: str) -> None:
+        """Only the stop is optional."""
+        levels: dict[str, object] = {"entry": 2.0, "exit": 0.5}
+        levels[name] = None
+        with pytest.raises(ConfigurationError, match=f"{name} must be a finite"):
+            zscore_positions(_z([0.0]), **levels)  # type: ignore[arg-type]
+
+    def test_integer_levels_are_accepted(self) -> None:
+        """Whole-number levels, Python or numpy, work like floats."""
+        z = _z([0.0, 3.0, 0.2])
+        assert zscore_positions(z, entry=2, exit=np.int64(1)).tolist() == [0, -1, 0]

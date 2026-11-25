@@ -17,21 +17,16 @@ import math
 import pandas as pd
 
 from optimizer.exceptions import ConfigurationError, DataError
-from optimizer.statarb._inputs import as_float_array
+from optimizer.statarb._inputs import as_float_array, require_finite
 
 
 def _validate_levels(entry: float, exit: float, stop: float | None) -> None:
-    levels = {"entry": entry, "exit": exit}
-    if stop is not None:
-        levels["stop"] = stop
-    for name, value in levels.items():
-        if not math.isfinite(value):
-            msg = f"{name} must be finite, got {value}"
-            raise ConfigurationError(msg)
+    entry = require_finite("entry", entry)
+    exit = require_finite("exit", exit)
     if not 0.0 <= exit < entry:
         msg = f"exit must satisfy 0 <= exit < entry, got exit={exit}, entry={entry}"
         raise ConfigurationError(msg)
-    if stop is not None and stop <= entry:
+    if stop is not None and require_finite("stop", stop) <= entry:
         msg = f"stop must exceed entry, got stop={stop}, entry={entry}"
         raise ConfigurationError(msg)
 

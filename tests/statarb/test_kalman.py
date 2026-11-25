@@ -243,27 +243,40 @@ class TestKalmanZscore:
 class TestKalmanValidation:
     """Every rejected setting or input of ``kalman_hedge_ratio``."""
 
-    @pytest.mark.parametrize("delta", [0.0, 1.0, -0.1, 1.5, math.nan])
-    def test_delta_must_lie_strictly_between_zero_and_one(self, delta: float) -> None:
+    @pytest.mark.parametrize(
+        "delta", [0.0, 1.0, -0.1, 1.5, math.nan, math.inf, True, "0.5", None]
+    )
+    def test_delta_must_lie_strictly_between_zero_and_one(self, delta: object) -> None:
         """The state variance ``delta / (1 - delta)`` needs ``0 < delta < 1``."""
         with pytest.raises(ConfigurationError, match="delta"):
-            KalmanConfig(delta=delta)
+            KalmanConfig(delta=delta)  # type: ignore[arg-type]
 
-    @pytest.mark.parametrize("value", [0.0, -1.0, math.nan, math.inf])
+    @pytest.mark.parametrize(
+        "value", [0.0, -1.0, math.nan, math.inf, True, "1.0", None]
+    )
     def test_observation_variance_must_be_positive_and_finite(
-        self, value: float
+        self, value: object
     ) -> None:
         """A zero measurement variance would make the gain degenerate."""
         with pytest.raises(ConfigurationError, match="observation_variance"):
-            KalmanConfig(observation_variance=value)
+            KalmanConfig(observation_variance=value)  # type: ignore[arg-type]
 
-    @pytest.mark.parametrize("value", [0.0, -1.0, math.nan, math.inf])
+    @pytest.mark.parametrize(
+        "value", [0.0, -1.0, math.nan, math.inf, True, "1.0", None]
+    )
     def test_initial_state_variance_must_be_positive_and_finite(
-        self, value: float
+        self, value: object
     ) -> None:
         """The prior covariance must be a proper covariance."""
         with pytest.raises(ConfigurationError, match="initial_state_variance"):
-            KalmanConfig(initial_state_variance=value)
+            KalmanConfig(initial_state_variance=value)  # type: ignore[arg-type]
+
+    def test_integer_valued_variances_are_accepted(self) -> None:
+        """A whole number is a perfectly good variance."""
+        config = KalmanConfig(
+            observation_variance=1, initial_state_variance=np.int64(2)
+        )
+        assert config.observation_variance == 1
 
     def test_config_is_immutable(self) -> None:
         """The configuration is a frozen dataclass."""

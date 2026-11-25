@@ -7,17 +7,73 @@ paper-only, so none of it is wired to execution.
 
 from __future__ import annotations
 
+import math
+import numbers
 from typing import Final
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
 
 # A residual sum of squares below this share of the target's own sum of squares is
 # a fit to machine precision, where a t-statistic or a variance is arithmetic noise.
 EXACT_FIT_RATIO: Final = 1e-24
+
+
+def require_integer(name: str, value: object, minimum: int) -> int:
+    """Return a setting as an ``int``, raising unless it is a whole number.
+
+    ``bool`` is rejected although it subclasses ``int``, and so is every float,
+    including NaN and integral values such as ``3.0``: a count written as a float
+    is a mistake worth surfacing before it reaches ``range`` or a slice.
+
+    Args:
+        name: Setting name used in the error message.
+        value: Candidate setting; Python and numpy integers are accepted.
+        minimum: Smallest accepted value.
+
+    Returns:
+        The value as a Python ``int``.
+
+    Raises:
+        ConfigurationError: If the value is not an integer or is below ``minimum``.
+    """
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, numbers.Integral)
+        or value < minimum
+    ):
+        msg = f"{name} must be an integer of at least {minimum}, got {value!r}"
+        raise ConfigurationError(msg)
+    return int(value)
+
+
+def require_finite(name: str, value: object) -> float:
+    """Return a setting as a ``float``, raising unless it is a finite real number.
+
+    NaN would slip through a ``<`` comparison, so it is rejected here, together
+    with infinities, ``bool`` and non-numeric values.
+
+    Args:
+        name: Setting name used in the error message.
+        value: Candidate setting.
+
+    Returns:
+        The value as a Python ``float``.
+
+    Raises:
+        ConfigurationError: If the value is not a finite real number.
+    """
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, numbers.Real)
+        or not math.isfinite(value)
+    ):
+        msg = f"{name} must be a finite number, got {value!r}"
+        raise ConfigurationError(msg)
+    return float(value)
 
 
 def as_float_array(values: object, name: str) -> npt.NDArray[np.float64]:
