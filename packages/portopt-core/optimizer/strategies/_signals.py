@@ -36,6 +36,9 @@ _FRACTION_TOLERANCE: Final = 1e-9
 # Share of the ranked assets a long-short book may hold in each leg before the legs
 # would have to share an asset.
 _MAX_LONG_SHORT_FRACTION: Final = 0.5
+# A moving-average window, a formation window or a rebalance interval of one row is the
+# shortest that means anything.
+_MIN_WINDOW: Final = 1
 
 
 def to_float_frame(frame: pd.DataFrame, name: str) -> pd.DataFrame:
@@ -108,8 +111,8 @@ def require_price_frame(prices: pd.DataFrame, *, min_rows: int = 1) -> pd.DataFr
 
 def _require_window(value: int, name: str) -> None:
     """Reject a window shorter than one row."""
-    if value < 1:
-        msg = f"{name} must be at least 1, got {value}"
+    if value < _MIN_WINDOW:
+        msg = f"{name} must be at least {_MIN_WINDOW}, got {value}"
         raise ConfigurationError(msg)
 
 
@@ -208,8 +211,8 @@ def moving_average_crossover_positions(
 
 def _require_momentum_windows(lookback: int, skip: int) -> None:
     """Reject formation windows that are empty or inverted."""
-    if lookback < 1:
-        msg = f"lookback must be at least 1, got {lookback}"
+    if lookback < _MIN_WINDOW:
+        msg = f"lookback must be at least {_MIN_WINDOW}, got {lookback}"
         raise ConfigurationError(msg)
     if skip < 0:
         msg = f"skip must not be negative, got {skip}"
@@ -258,12 +261,12 @@ def _require_selection(
         raise ConfigurationError(msg)
     if not long_only and top_fraction > _MAX_LONG_SHORT_FRACTION:
         msg = (
-            "top_fraction must be at most 0.5 for a long-short book, because the "
-            f"two legs would overlap, got {top_fraction}"
+            f"top_fraction must be at most {_MAX_LONG_SHORT_FRACTION} for a "
+            f"long-short book, because the two legs would overlap, got {top_fraction}"
         )
         raise ConfigurationError(msg)
-    if rebalance_every < 1:
-        msg = f"rebalance_every must be at least 1, got {rebalance_every}"
+    if rebalance_every < _MIN_WINDOW:
+        msg = f"rebalance_every must be at least {_MIN_WINDOW}, got {rebalance_every}"
         raise ConfigurationError(msg)
 
 

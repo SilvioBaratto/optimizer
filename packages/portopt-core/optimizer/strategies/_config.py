@@ -5,8 +5,11 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Final
 
 from optimizer.exceptions import ConfigurationError
+
+_MIN_PERIODS_PER_YEAR: Final = 1
 
 
 class MovingAverageKind(str, Enum):
@@ -64,8 +67,11 @@ class BacktestConfig:
 
     def __post_init__(self) -> None:
         """Reject conventions the backtest cannot honour."""
-        if self.periods_per_year < 1:
-            msg = f"periods_per_year must be at least 1, got {self.periods_per_year}"
+        if self.periods_per_year < _MIN_PERIODS_PER_YEAR:
+            msg = (
+                f"periods_per_year must be at least {_MIN_PERIODS_PER_YEAR}, "
+                f"got {self.periods_per_year}"
+            )
             raise ConfigurationError(msg)
         if self.execution_lag < 0:
             msg = f"execution_lag must not be negative, got {self.execution_lag}"

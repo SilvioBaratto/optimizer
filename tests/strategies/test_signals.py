@@ -438,7 +438,7 @@ class TestCrossSectionalMomentumWeights:
 
     def test_a_long_short_fraction_above_one_half_raises(self) -> None:
         """Above one half the long and short legs would overlap."""
-        with pytest.raises(ConfigurationError, match="top_fraction"):
+        with pytest.raises(ConfigurationError, match=r"at most 0\.5"):
             self._weights(top_fraction=0.6, long_only=False)
 
     def test_a_rebalance_interval_below_one_raises(self) -> None:
