@@ -174,7 +174,7 @@ class TestPrecomputedMatrix:
             (pd.DataFrame([[0.9, 0.2], [0.2, 1.0]]), "diagonal"),
             (pd.DataFrame([[1.0, 1.5], [1.5, 1.0]]), "between -1 and 1"),
             (pd.DataFrame([[1.0, np.nan], [np.nan, 1.0]]), "finite"),
-            (pd.DataFrame([[1.0]]), "at least two"),
+            (pd.DataFrame([[1.0]]), "at least 2 assets"),
         ],
     )
     def test_an_invalid_matrix_is_rejected(
@@ -269,12 +269,12 @@ class TestValidation:
 
     def test_a_single_asset_is_rejected(self) -> None:
         """A correlation matrix needs at least two assets."""
-        with pytest.raises(DataError, match="at least two"):
+        with pytest.raises(DataError, match="at least 2 assets"):
             correlation_heatmap(_returns(columns=1))
 
     def test_a_single_observation_is_rejected(self) -> None:
         """A correlation needs at least two observations."""
-        with pytest.raises(DataError, match="observations"):
+        with pytest.raises(DataError, match="at least 2 observations"):
             correlation_heatmap(_returns(rows=1))
 
     def test_a_non_numeric_column_is_rejected(self) -> None:

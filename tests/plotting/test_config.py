@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 
 import numpy as np
 import pandas as pd
@@ -32,17 +33,43 @@ class TestChartTheme:
         with pytest.raises(dataclasses.FrozenInstanceError):
             ChartTheme().height = 300  # type: ignore[misc]
 
-    @pytest.mark.parametrize("height", [0, -5])
-    def test_a_height_below_one_is_rejected(self, height: int) -> None:
-        """A chart needs at least one pixel of height."""
+    @pytest.mark.parametrize("height", [0, -5, 9])
+    def test_a_height_below_plotlys_minimum_is_rejected(self, height: int) -> None:
+        """Plotly cannot draw a layout under 10 pixels, so the theme refuses it."""
         with pytest.raises(ConfigurationError, match="height"):
             ChartTheme(height=height)
 
-    @pytest.mark.parametrize("width", [0, -1])
-    def test_a_width_below_one_is_rejected(self, width: int) -> None:
-        """An explicit width needs at least one pixel."""
+    @pytest.mark.parametrize("width", [0, -1, 9])
+    def test_a_width_below_plotlys_minimum_is_rejected(self, width: int) -> None:
+        """The same 10 pixel floor holds for an explicit width."""
         with pytest.raises(ConfigurationError, match="width"):
             ChartTheme(width=width)
+
+    @pytest.mark.parametrize("size", [300.0, 300.5, math.nan, True, "300", None])
+    def test_a_height_that_is_not_an_integer_is_rejected(self, size: object) -> None:
+        """Floats (even 300.0), NaN, bool, text and None are not pixel counts."""
+        with pytest.raises(ConfigurationError, match="height"):
+            ChartTheme(height=size)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("size", [640.0, 640.5, math.nan, True, "640"])
+    def test_a_width_that_is_not_an_integer_or_none_is_rejected(
+        self, size: object
+    ) -> None:
+        """Only whole pixels, or None for automatic width, are valid."""
+        with pytest.raises(ConfigurationError, match="width"):
+            ChartTheme(width=size)  # type: ignore[arg-type]
+
+    def test_the_smallest_size_plotly_accepts_is_accepted(self) -> None:
+        """Ten pixels is the boundary: it builds and reaches the layout."""
+        theme = ChartTheme(height=10, width=10)
+        figure = efficient_frontier_figure([0.1, 0.2], [0.04, 0.07], theme=theme)
+        assert (figure.layout.height, figure.layout.width) == (10, 10)
+
+    def test_numpy_integer_sizes_are_accepted(self) -> None:
+        """Sizes that come out of a numpy computation are whole numbers too."""
+        theme = ChartTheme(height=np.int64(320), width=np.int32(640))
+        figure = efficient_frontier_figure([0.1, 0.2], [0.04, 0.07], theme=theme)
+        assert (figure.layout.height, figure.layout.width) == (320, 640)
 
     def test_an_unknown_template_is_rejected(self) -> None:
         """Only templates plotly knows can be applied."""

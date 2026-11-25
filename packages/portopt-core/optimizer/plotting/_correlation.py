@@ -109,7 +109,7 @@ def _numeric_frame(data: pd.DataFrame) -> pd.DataFrame:
         msg = f"data must be a pandas DataFrame, got {type(data).__name__}"
         raise DataError(msg)
     if data.shape[1] < _MIN_ASSETS:
-        msg = f"data needs at least two assets (columns), got {data.shape[1]}"
+        msg = f"data needs at least {_MIN_ASSETS} assets (columns), got {data.shape[1]}"
         raise DataError(msg)
     if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in data.dtypes):
         msg = "data must be numeric in every column"
@@ -121,13 +121,16 @@ def _correlation_of_returns(data: pd.DataFrame, method: str) -> pd.DataFrame:
     """Return the correlation matrix of the asset returns in ``data``."""
     frame = _numeric_frame(data)
     if frame.shape[0] < _MIN_OBSERVATIONS:
-        msg = f"data needs at least two observations (rows), got {frame.shape[0]}"
+        msg = (
+            f"data needs at least {_MIN_OBSERVATIONS} observations (rows), "
+            f"got {frame.shape[0]}"
+        )
         raise DataError(msg)
     matrix = frame.corr(method=cast("_CorrelationMethod", method))
     if matrix.isna().to_numpy().any():
         msg = (
             "a correlation is undefined: a column is constant or shares fewer than "
-            "two observations with another column"
+            f"{_MIN_OBSERVATIONS} observations with another column"
         )
         raise DataError(msg)
     return matrix

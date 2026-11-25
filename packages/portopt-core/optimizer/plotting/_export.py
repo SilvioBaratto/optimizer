@@ -47,7 +47,10 @@ def save_figure_html(
     # `1 == True` in Python, so a membership test on a set of modes would let the
     # integers 0 and 1 through.
     if not (isinstance(include_plotlyjs, bool) or include_plotlyjs == _CDN):
-        msg = f"include_plotlyjs must be 'cdn', True or False, got {include_plotlyjs!r}"
+        msg = (
+            f"include_plotlyjs must be {_CDN!r}, True or False, "
+            f"got {include_plotlyjs!r}"
+        )
         raise ConfigurationError(msg)
     target = Path(path)
     if target.suffix.lower() != _HTML_SUFFIX:

@@ -8,12 +8,41 @@ the offending argument.
 from __future__ import annotations
 
 import math
+import numbers
 from collections.abc import Sequence
 
 import numpy as np
 import numpy.typing as npt
 
-from optimizer.exceptions import DataError
+from optimizer.exceptions import ConfigurationError, DataError
+
+
+def require_integer(name: str, value: object, minimum: int) -> int:
+    """Return a setting as an ``int``, raising unless it is a whole number.
+
+    ``bool`` is rejected although it subclasses ``int``, and so is every float,
+    including NaN and integral values such as ``3.0``: a size or a count written as a
+    float is a mistake worth surfacing before it reaches plotly or pandas.
+
+    Args:
+        name: Argument name used in the error message.
+        value: Candidate setting; Python and numpy integers are accepted.
+        minimum: Smallest accepted value.
+
+    Returns:
+        The value as a Python ``int``.
+
+    Raises:
+        ConfigurationError: If the value is not an integer or is below ``minimum``.
+    """
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, numbers.Integral)
+        or value < minimum
+    ):
+        msg = f"{name} must be an integer of at least {minimum}, got {value!r}"
+        raise ConfigurationError(msg)
+    return int(value)
 
 
 def as_finite_vector(

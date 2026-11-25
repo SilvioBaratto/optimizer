@@ -27,6 +27,8 @@ from optimizer.plotting._validation import (
 )
 
 _MIN_POINTS: Final = 2
+_MIN_PORTFOLIOS: Final = 1
+_MIN_WEIGHT_ASSETS: Final = 1
 # A highlighted portfolio is one (risk, return) pair, whatever the frontier needs.
 _PAIR_SIZE: Final = 2
 _HIGHLIGHT_SIZE: Final = 14
@@ -179,8 +181,11 @@ def _weights_matrix(weights: pd.DataFrame) -> npt.NDArray[np.float64]:
     if not isinstance(weights, pd.DataFrame):
         msg = f"weights must be a pandas DataFrame, got {type(weights).__name__}"
         raise DataError(msg)
-    if weights.shape[0] < 1 or weights.shape[1] < 1:
-        msg = f"weights needs at least one portfolio and one asset, got {weights.shape}"
+    if weights.shape[0] < _MIN_PORTFOLIOS or weights.shape[1] < _MIN_WEIGHT_ASSETS:
+        msg = (
+            f"weights needs at least {_MIN_PORTFOLIOS} portfolio (row) and "
+            f"{_MIN_WEIGHT_ASSETS} asset (column), got {weights.shape}"
+        )
         raise DataError(msg)
     if not weights.columns.is_unique:
         msg = "weights columns must be unique asset names"

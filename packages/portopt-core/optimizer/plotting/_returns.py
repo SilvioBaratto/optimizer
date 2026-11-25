@@ -21,10 +21,13 @@ import plotly.colors as plotly_colors
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from optimizer.exceptions import ConfigurationError, DataError
+from optimizer.exceptions import DataError
 from optimizer.plotting._config import ChartTheme, resolve_theme
+from optimizer.plotting._validation import require_integer
 
 _MIN_WINDOW: Final = 2
+_MIN_PERIODS_PER_YEAR: Final = 1
+_MIN_COLUMNS: Final = 1
 _DEFAULT_NAME: Final = "returns"
 _PERCENT_FORMAT: Final = ".0%"
 _VERTICAL_SPACING: Final = 0.06
@@ -44,8 +47,10 @@ def returns_volatility_figure(
         returns: Simple (linear) period returns on an increasing index, usually
             dates. A Series draws one line per panel and a DataFrame one line per
             column.
-        window: Number of periods in the rolling volatility, at least 2.
-        periods_per_year: Periods in a year, used to annualise the volatility.
+        window: Number of periods in the rolling volatility, a whole number of at
+            least 2.
+        periods_per_year: Periods in a year, a whole number of at least 1, used to
+            annualise the volatility.
         theme: Chart appearance; the default theme when ``None``.
 
     Returns:
@@ -59,7 +64,7 @@ def returns_volatility_figure(
         DataError: If ``returns`` is not a Series or DataFrame of finite numbers
             above -1 on an increasing index, or has fewer rows than ``window``.
     """
-    _require_settings(window, periods_per_year)
+    window, periods_per_year = _require_settings(window, periods_per_year)
     chart_theme = resolve_theme(theme)
     frame = _validated_returns(returns, window)
     panels = _panels(frame, window, periods_per_year)
@@ -76,14 +81,12 @@ def returns_volatility_figure(
     return figure
 
 
-def _require_settings(window: int, periods_per_year: int) -> None:
-    """Raise if the rolling window or the annualisation factor is unusable."""
-    if window < _MIN_WINDOW:
-        msg = f"window must be at least {_MIN_WINDOW}, got {window}"
-        raise ConfigurationError(msg)
-    if periods_per_year < 1:
-        msg = f"periods_per_year must be at least 1, got {periods_per_year}"
-        raise ConfigurationError(msg)
+def _require_settings(window: int, periods_per_year: int) -> tuple[int, int]:
+    """Return the rolling window and the annualisation factor as validated ints."""
+    return (
+        require_integer("window", window, _MIN_WINDOW),
+        require_integer("periods_per_year", periods_per_year, _MIN_PERIODS_PER_YEAR),
+    )
 
 
 def _as_frame(returns: pd.Series | pd.DataFrame) -> pd.DataFrame:
@@ -100,8 +103,8 @@ def _as_frame(returns: pd.Series | pd.DataFrame) -> pd.DataFrame:
 def _validated_returns(returns: pd.Series | pd.DataFrame, window: int) -> pd.DataFrame:
     """Return the returns as a float frame after checking shape, index and values."""
     frame = _as_frame(returns)
-    if frame.shape[1] < 1:
-        msg = "returns needs at least one column"
+    if frame.shape[1] < _MIN_COLUMNS:
+        msg = f"returns needs at least {_MIN_COLUMNS} column, got {frame.shape[1]}"
         raise DataError(msg)
     if frame.shape[0] < window:
         msg = f"returns needs at least window={window} rows, got {frame.shape[0]}"

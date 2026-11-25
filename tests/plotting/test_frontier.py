@@ -183,7 +183,12 @@ class TestFrontierFromWeights:
         ("weights", "mu", "covariance", "message"),
         [
             ([[1.0, 0.0]], _MU, _COVARIANCE, "DataFrame"),
-            (pd.DataFrame(columns=["A", "B"]), _MU, _COVARIANCE, "at least one"),
+            (
+                pd.DataFrame(columns=["A", "B"]),
+                _MU,
+                _COVARIANCE,
+                "at least 1 portfolio",
+            ),
             (
                 pd.DataFrame([[np.nan, 1.0]], columns=["A", "B"]),
                 _MU,

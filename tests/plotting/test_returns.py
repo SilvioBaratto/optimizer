@@ -213,6 +213,12 @@ class TestValidation:
         with pytest.raises(ConfigurationError, match="window"):
             returns_volatility_figure(_series(), window=window)
 
+    @pytest.mark.parametrize("window", [5.0, 5.5, math.nan, True, "5", None])
+    def test_a_window_that_is_not_an_integer_is_rejected(self, window: object) -> None:
+        """Floats (even 5.0), NaN, bool and text are caught before pandas sees them."""
+        with pytest.raises(ConfigurationError, match="window"):
+            returns_volatility_figure(_series(), window=window)  # type: ignore[arg-type]
+
     @pytest.mark.parametrize("periods", [0, -252])
     def test_periods_per_year_below_one_is_rejected(self, periods: int) -> None:
         """There is at least one period in a year."""
@@ -220,6 +226,29 @@ class TestValidation:
             returns_volatility_figure(
                 _series(), window=_WINDOW, periods_per_year=periods
             )
+
+    @pytest.mark.parametrize("periods", [252.0, 12.5, math.nan, math.inf, True, "252"])
+    def test_periods_per_year_that_is_not_an_integer_is_rejected(
+        self, periods: object
+    ) -> None:
+        """NaN would otherwise draw an all-NaN volatility panel without an error."""
+        with pytest.raises(ConfigurationError, match="periods_per_year"):
+            returns_volatility_figure(
+                _series(),
+                window=_WINDOW,
+                periods_per_year=periods,  # type: ignore[arg-type]
+            )
+
+    def test_numpy_integers_are_accepted_for_both_settings(self) -> None:
+        """Values coming out of a numpy computation are whole numbers too."""
+        series = _series()
+        plain = returns_volatility_figure(series, window=_WINDOW)
+        numpy_typed = returns_volatility_figure(
+            series, window=np.int64(_WINDOW), periods_per_year=np.int32(_YEAR)
+        )
+        np.testing.assert_allclose(
+            _panel(numpy_typed, 2), _panel(plain, 2), atol=1e-15, equal_nan=True
+        )
 
     def test_fewer_rows_than_the_window_is_rejected(self) -> None:
         """No volatility could be drawn, so the call fails instead of showing gaps."""
@@ -242,7 +271,7 @@ class TestValidation:
     def test_a_frame_without_columns_is_rejected(self) -> None:
         """There is nothing to draw."""
         empty = pd.DataFrame(index=pd.bdate_range("2024-01-01", periods=30))
-        with pytest.raises(DataError, match="at least one column"):
+        with pytest.raises(DataError, match="at least 1 column"):
             returns_volatility_figure(empty, window=_WINDOW)
 
     def test_a_shuffled_datetime_index_is_rejected(self) -> None:
