@@ -190,7 +190,7 @@ def test_every_action_is_pinned_to_a_full_commit_sha(name: str) -> None:
 
 
 def test_release_build_tool_is_version_pinned() -> None:
-    """The ``build`` backend produces the artifacts published to PyPI."""
+    """The ``build`` backend produces the release artifacts."""
     installs = [
         cmd
         for job in _jobs("release.yml").values()
@@ -540,8 +540,8 @@ def test_ci_workflow_is_reusable_so_the_release_can_run_it() -> None:
     assert "workflow_call" in _triggers(_load("ci.yml"))
 
 
-def test_release_publish_waits_for_the_full_ci_workflow() -> None:
-    """A tag must not reach PyPI without the lint, type and test gates passing."""
+def test_release_build_waits_for_the_full_ci_workflow() -> None:
+    """A tag must not be built without the lint, type and test gates passing."""
     ci_jobs = {
         name
         for name, job in _jobs("release.yml").items()
@@ -549,14 +549,14 @@ def test_release_publish_waits_for_the_full_ci_workflow() -> None:
     }
 
     assert ci_jobs, "release.yml never calls the CI workflow"
-    assert ci_jobs <= _needs_closure("release.yml", "publish")
+    assert ci_jobs <= _needs_closure("release.yml", "build")
 
 
-def test_release_checks_run_before_the_build_and_publish() -> None:
-    """The tag checks must gate publishing, not merely exist in the workflow."""
+def test_release_checks_run_before_the_build() -> None:
+    """The tag checks must gate the build, not merely exist in the workflow."""
     for marker in ("merge-base", "pyproject.toml"):
         job_name, _ = _release_step(marker)
-        assert job_name in _needs_closure("release.yml", "publish")
+        assert job_name in _needs_closure("release.yml", "build")
 
 
 def test_release_tag_check_sees_the_full_history_of_the_tagged_commit() -> None:
@@ -620,7 +620,7 @@ def tagged_clone(tmp_path: Path) -> tuple[Path, str, str]:
 def test_release_only_accepts_tags_reachable_from_main(
     tagged_clone: tuple[Path, str, str], which: str, ok: bool
 ) -> None:
-    """A ``v*`` tag pushed on a feature branch must not be published."""
+    """A ``v*`` tag pushed on a feature branch must not pass the release checks."""
     clone, on_main, off_main = tagged_clone
     sha = on_main if which == "on_main" else off_main
     _git(clone, "fetch", "-q", "origin", "feature")
@@ -650,7 +650,7 @@ def _pyproject_version() -> str:
 def test_release_tag_must_equal_the_pyproject_version(
     tmp_path: Path, tag_template: str, ok: bool
 ) -> None:
-    """A wheel whose version differs from its tag cannot be replaced on PyPI."""
+    """A tag naming another version than ``pyproject.toml`` would mislabel the build."""
     (tmp_path / "pyproject.toml").write_text(
         (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"), encoding="utf-8"
     )
@@ -661,11 +661,15 @@ def test_release_tag_must_equal_the_pyproject_version(
     assert (result.returncode == 0) is ok, result.stdout + result.stderr
 
 
-# portopt-core is not on PyPI until a tagged release has actually published it,
-# so prose may say what ``release.yml`` does but must not state it as a done deal.
-_PYPI_PRESENT_FACT = re.compile(
-    r"\b(?:is|are|been)\s+published\s+to\s+pypi"
-    r"|only\s+the\s+`?portopt-core`?\s+library\s+is\b",
+# The owner decided never to publish this project to PyPI. An upload needs a trusted
+# publisher on pypi.org, a ``pypi`` environment and an ``id-token`` grant, and a
+# version number can never be re-used there, so the release workflow must not carry
+# any of them and the docs must not promise one.
+_PYPI_UPLOAD = re.compile(r"gh-action-pypi-publish|twine\s+upload|uv\s+publish", re.I)
+_PYPI_PUBLISH_CLAIM = re.compile(
+    r"\bpublish(?:es|ed)?\s+`?portopt-core`?\s+to\s+pypi"
+    r"|\b(?:is|are|been)\s+published\s+to\s+pypi"
+    r"|\bonly\s+then\s+publishes\b",
     re.IGNORECASE,
 )
 
@@ -676,21 +680,28 @@ def _prose(path: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"^\s*#", "", text, flags=re.MULTILINE))
 
 
-def test_docs_attribute_the_pypi_release_to_the_workflow() -> None:
-    """``release.yml`` publishes ``portopt-core``; docs describe it, not claim it."""
-    publishes = any(
-        "pypa/gh-action-pypi-publish" in step.get("uses", "")
-        for job in _jobs("release.yml").values()
-        for step in _steps(job)
-    )
-    assert publishes
-    assert "`release.yml` publishes `portopt-core` to PyPI" in _prose("README.md")
-    assert "release workflow" in _prose("CONTRIBUTING.md")
+def _grants_id_token(permissions: object) -> bool:
+    return isinstance(permissions, dict) and "id-token" in permissions
 
+
+def test_release_workflow_never_uploads_to_pypi() -> None:
+    """No release job may upload to PyPI, use an environment or get an OIDC token."""
+    assert not _grants_id_token(_load("release.yml").get("permissions"))
+
+    for job_name, job in _jobs("release.yml").items():
+        assert "environment" not in job, f"{job_name} targets a deployment environment"
+        assert not _grants_id_token(job.get("permissions")), job_name
+        for step in _steps(job):
+            script = f"{step.get('uses', '')} {step.get('run', '')}"
+            assert not _PYPI_UPLOAD.search(script), f"{job_name} uploads to PyPI"
+
+
+def test_docs_do_not_promise_a_pypi_release() -> None:
+    """The docs say what ``release.yml`` builds; none of them claims an upload."""
     claims = [
         doc
         for doc in ("README.md", "CONTRIBUTING.md", "install.sh", "install.ps1")
-        if _PYPI_PRESENT_FACT.search(_prose(doc))
+        if _PYPI_PUBLISH_CLAIM.search(_prose(doc))
     ]
 
     assert claims == []

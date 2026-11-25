@@ -178,7 +178,7 @@ Use conventional commit style:
 5. Tag the merge commit on `main`: `git tag -a v0.x.0` and `git push origin v0.x.0`
 6. The release workflow rejects the tag unless its commit is on `main` and the tag
    equals `v` plus the `pyproject.toml` version, re-runs the full CI workflow, and
-   only then publishes `portopt-core` to PyPI
+   only then builds the `portopt-core` sdist and wheel. Nothing is uploaded to PyPI
 
 ## Test traceability (documented deviation from standard 6.6)
 

@@ -125,8 +125,8 @@ those unpublished names up on PyPI), so install those two through uv.
 
 The daemon ships an install wizard. The one-line bootstrap needs **git**: it clones
 this repo, installs `uv`, installs the `portopt` CLI straight from it (the CLI and the
-daemon are never published to PyPI; `release.yml` builds only the `portopt-core`
-library), then launches the wizard:
+daemon are never published to PyPI, and this repo uploads nothing there;
+`release.yml` builds only the `portopt-core` library), then launches the wizard:
 
 ```bash
 # macOS / Linux
@@ -450,9 +450,10 @@ shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.414`), `te
 `integration`-marked tests of `portopt-db` and `fund`), `changelog` (advisory, pull
 requests only: shipped code needs a `CHANGELOG.md` entry), `docker-images` (compose config + build of
 both images, then a boot of both stacks), and `windows-install` (`install.ps1` on a
-Windows runner under Windows PowerShell 5.1 and PowerShell 7). `release.yml` publishes `portopt-core` to PyPI on `v*` tags, but only
+Windows runner under Windows PowerShell 5.1 and PowerShell 7). `release.yml` builds `portopt-core` on `v*` tags, but only
 after checking that the tagged commit is on `main`, that the tag equals
-`v<pyproject version>`, and that the whole CI workflow passes on it.
+`v<pyproject version>`, and that the whole CI workflow passes on it. It uploads
+nothing to PyPI.
 
 ---
 

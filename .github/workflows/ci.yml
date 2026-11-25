@@ -7,7 +7,7 @@ on:
     branches: [main, development, "feature/**", "bugfix/**", "hotfix/**", "release/**"]
   pull_request:
     branches: [main, development]
-  # release.yml runs this whole workflow as the gate in front of the PyPI upload.
+  # release.yml runs this whole workflow as the gate in front of the release build.
   workflow_call:
 
 permissions:

@@ -670,6 +670,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **ci**: the `publish` job of `release.yml`. This project is no longer published to
+  PyPI: the `pypi` environment, the `id-token: write` grant and the
+  `pypa/gh-action-pypi-publish` step are gone, so a `v*` tag cannot upload anything.
+  A tag is still checked (on `main`, equal to the `pyproject.toml` version), runs
+  the full CI workflow and then builds the `portopt-core` sdist and wheel as the
+  `dist` artifact. `test_release_workflow_never_uploads_to_pypi` fails if an upload
+  step comes back, and the README, CONTRIBUTING and CLAUDE.md no longer describe one.
 - **api**: the entire HTTP layer — every `/api/v1/*` route, FastAPI, uvicorn, the
   API-key auth middleware, and the `api_keys` table
 - **api**: the portfolio, optimization, backtest, factor, risk, rebalancing,
