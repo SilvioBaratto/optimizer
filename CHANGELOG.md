@@ -328,6 +328,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   downgrade/upgrade round trip over the five most recent revisions. The six
   revisions whose `downgrade` raises now declare an `IRREVERSIBLE_REASON`, which a
   test requires of any future one-way revision.
+- **derivatives**: option pricing and hedging in the new `optimizer.derivatives`
+  package. `black_scholes_price` and `black_scholes_greeks` price European calls and
+  puts with a continuous dividend yield (Greeks: delta, gamma, vega per 1.00 of
+  volatility, theta per year, rho per 1.00 of rate) and accept numpy arrays that
+  broadcast, so a strike by volatility grid is one call. `implied_volatility` inverts
+  the price with Brent's method and rejects prices outside the no-arbitrage bounds.
+  `binomial_price` is a Cox-Ross-Rubinstein tree, European or American, that
+  converges to Black-Scholes. `simulate_delta_hedge` sells an option, hedges it with
+  the Black-Scholes delta at a chosen number of dates, with proportional trading
+  costs and a hedge volatility that may differ from the true one, and returns the
+  profit and loss of every simulated path.
 - **Ask is a read-only deep agent with a saved conversation.** A question is now
   answered by an agent that reads the fund's data (read-only tools over
   `fund.observe`) and a read-only staged copy of the docs and source, deciding its
