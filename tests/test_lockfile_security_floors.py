@@ -29,6 +29,10 @@ _ADVISORY_FLOORS = {
     # HTML (`:has()` with a sibling combinator, deep descendant combinators). The
     # scrapers parse third-party pages, so 4.0.0 is the first release that fixes both.
     "soupsieve": "4.0.0",
+    # CVE-2026-132276: with default flags a pattern holding several `*` wildcards takes
+    # O(n^k) time to reject a crafted file name. deepagents matches paths with it, so
+    # 11.2 is the first release that fixes it; 12.x would be a major jump for no gain.
+    "wcmatch": "11.2",
 }
 
 
@@ -63,3 +67,11 @@ def test_virtualenv_floor_rejects_the_last_vulnerable_release() -> None:
     """virtualenv 21.14.9 still carries GHSA-4f8h-vr72-p32c; only 21.14.10 clears it."""
     lock_text = '[[package]]\nname = "virtualenv"\nversion = "21.14.9"\n'
     assert _stale_copies(lock_text, "virtualenv") == ["21.14.9"]
+
+
+def test_wcmatch_floor_rejects_the_release_that_failed_pip_audit() -> None:
+    """wcmatch 11.0.1 carries CVE-2026-132276, and 11.2 is the first clean release."""
+    stale = '[[package]]\nname = "wcmatch"\nversion = "11.0.1"\n'
+    fixed = '[[package]]\nname = "wcmatch"\nversion = "11.2"\n'
+    assert _stale_copies(stale, "wcmatch") == ["11.0.1"]
+    assert _stale_copies(fixed, "wcmatch") == []
