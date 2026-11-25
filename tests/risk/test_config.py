@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import math
 
+import numpy as np
 import pytest
 
 from optimizer.exceptions import ConfigurationError
@@ -51,6 +52,13 @@ class TestVarConfig:
         )
         assert config.n_simulations == 100
 
+    def test_accepts_numpy_integers(self) -> None:
+        """A size read from a numpy array is a whole number all the same."""
+        config = VarConfig(
+            horizon=np.int64(3), n_simulations=np.int32(500), random_state=np.int64(1)
+        )
+        assert config.horizon == 3
+
     @pytest.mark.parametrize(
         ("overrides", "message"),
         [
@@ -58,13 +66,23 @@ class TestVarConfig:
             ({"confidence_level": 1.0}, "confidence_level"),
             ({"confidence_level": -0.5}, "confidence_level"),
             ({"confidence_level": math.nan}, "confidence_level"),
+            ({"confidence_level": "0.95"}, "confidence_level"),
+            ({"confidence_level": None}, "confidence_level"),
+            ({"confidence_level": True}, "confidence_level"),
             ({"method": "historical"}, "method"),
             ({"horizon": 0}, "horizon"),
             ({"horizon": 2.5}, "horizon"),
+            ({"horizon": 5.0}, "horizon"),
+            ({"horizon": math.nan}, "horizon"),
             ({"horizon": True}, "horizon"),
             ({"n_simulations": 99}, "n_simulations"),
+            ({"n_simulations": 1000.0}, "n_simulations"),
             ({"random_state": -1}, "random_state"),
+            ({"random_state": 1.5}, "random_state"),
+            ({"random_state": True}, "random_state"),
             ({"min_observations": 9}, "min_observations"),
+            ({"min_observations": 30.0}, "min_observations"),
+            ({"min_observations": None}, "min_observations"),
         ],
     )
     def test_invalid_values_raise(

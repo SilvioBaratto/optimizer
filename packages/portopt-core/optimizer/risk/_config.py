@@ -33,17 +33,32 @@ def require_confidence_level(confidence_level: float) -> None:
 
     Raises:
         ConfigurationError: If the value is outside the open unit interval or is
-            not a number.
+            not a real number (a bool, a string or ``None`` is rejected).
     """
-    if not 0.0 < confidence_level < 1.0:
+    if (
+        isinstance(confidence_level, bool)
+        or not isinstance(confidence_level, (int, float, np.integer, np.floating))
+        or not 0.0 < confidence_level < 1.0
+    ):
         msg = (
-            f"confidence_level must be strictly between 0 and 1, got {confidence_level}"
+            "confidence_level must be a number strictly between 0 and 1, "
+            f"got {confidence_level!r}"
         )
         raise ConfigurationError(msg)
 
 
-def _require_integer_at_least(name: str, value: object, minimum: int) -> None:
-    """Reject ``value`` unless it is a whole number that is at least ``minimum``."""
+def require_integer_at_least(name: str, value: object, minimum: int) -> None:
+    """Reject ``value`` unless it is a whole number that is at least ``minimum``.
+
+    Args:
+        name: Argument name used in the error message.
+        value: Candidate setting; a bool, float (even a whole one), NaN, string or
+            ``None`` is rejected, a numpy integer is accepted.
+        minimum: Smallest accepted value.
+
+    Raises:
+        ConfigurationError: If ``value`` is not an integer of at least ``minimum``.
+    """
     if (
         isinstance(value, bool)
         or not isinstance(value, (int, np.integer))
@@ -80,10 +95,10 @@ class VarConfig:
         if not isinstance(self.method, VarMethod):
             msg = f"method must be a VarMethod, got {self.method!r}"
             raise ConfigurationError(msg)
-        _require_integer_at_least("horizon", self.horizon, 1)
-        _require_integer_at_least("n_simulations", self.n_simulations, _MIN_SIMULATIONS)
-        _require_integer_at_least(
+        require_integer_at_least("horizon", self.horizon, 1)
+        require_integer_at_least("n_simulations", self.n_simulations, _MIN_SIMULATIONS)
+        require_integer_at_least(
             "min_observations", self.min_observations, _MIN_OBSERVATIONS_FLOOR
         )
         if self.random_state is not None:
-            _require_integer_at_least("random_state", self.random_state, 0)
+            require_integer_at_least("random_state", self.random_state, 0)

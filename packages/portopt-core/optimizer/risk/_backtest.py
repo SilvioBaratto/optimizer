@@ -199,7 +199,8 @@ def backtest_var(
         tests, and the Basel traffic-light zone where it applies.
 
     Raises:
-        ConfigurationError: If ``confidence_level`` is not strictly between 0 and 1.
+        ConfigurationError: If ``confidence_level`` is not a number strictly between
+            0 and 1.
         DataError: If an input is not a one-dimensional numeric series, fewer than
             two dates are common to both, or a value is infinite.
     """

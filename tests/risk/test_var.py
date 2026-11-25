@@ -499,6 +499,29 @@ class TestRollingVarForecasts:
         with pytest.raises(ConfigurationError, match="window"):
             rolling_var_forecasts(returns, 20, VarConfig(min_observations=30))
 
+    @pytest.mark.parametrize("window", [60.0, 60.5, math.nan, True, "60", None])
+    def test_a_window_that_is_not_an_integer_raises(
+        self, returns: pd.Series, window: object
+    ) -> None:
+        """A float, NaN, bool, string or None window fails as a bad setting."""
+        with pytest.raises(ConfigurationError, match="window"):
+            rolling_var_forecasts(returns, window)  # type: ignore[arg-type]
+
+    def test_a_numpy_integer_window_is_accepted(self, returns: pd.Series) -> None:
+        """A window taken from a numpy array is a whole number all the same."""
+        forecasts = rolling_var_forecasts(returns, np.int64(60))
+        assert forecasts.iloc[60:].notna().all()
+
+    @pytest.mark.parametrize("config", [{"confidence_level": 0.99}, "historical", 0.95])
+    def test_a_config_of_the_wrong_type_raises(
+        self, returns: pd.Series, config: object
+    ) -> None:
+        """Both public estimators reject a config that is not a ``VarConfig``."""
+        with pytest.raises(ConfigurationError, match="config"):
+            rolling_var_forecasts(returns, 60, config)  # type: ignore[arg-type]
+        with pytest.raises(ConfigurationError, match="config"):
+            compute_var(returns, config)  # type: ignore[arg-type]
+
     def test_a_window_equal_to_the_minimum_is_accepted(
         self, returns: pd.Series
     ) -> None:

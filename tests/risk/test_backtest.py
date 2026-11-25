@@ -266,12 +266,14 @@ class TestAlignment:
 class TestBacktestValidation:
     """``backtest_var`` rejects inputs it cannot score."""
 
-    @pytest.mark.parametrize("confidence_level", [0.0, 1.0, -0.2, 1.5, math.nan])
-    def test_an_invalid_confidence_level_raises(self, confidence_level: float) -> None:
-        """The confidence level has to lie strictly between 0 and 1."""
+    @pytest.mark.parametrize(
+        "confidence_level", [0.0, 1.0, -0.2, 1.5, math.nan, "0.99", None, True]
+    )
+    def test_an_invalid_confidence_level_raises(self, confidence_level: object) -> None:
+        """The confidence level has to be a number strictly between 0 and 1."""
         returns, forecasts = _from_pattern([0] * 10)
         with pytest.raises(ConfigurationError, match="confidence_level"):
-            backtest_var(returns, forecasts, confidence_level)
+            backtest_var(returns, forecasts, confidence_level)  # type: ignore[arg-type]
 
     def test_series_with_no_common_date_raise(self) -> None:
         """Disjoint indexes leave nothing to compare."""

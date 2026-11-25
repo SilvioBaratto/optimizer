@@ -32,7 +32,7 @@ import pandas as pd
 from scipy import integrate, stats
 
 from optimizer.exceptions import ConfigurationError, DataError
-from optimizer.risk._config import VarConfig, VarMethod
+from optimizer.risk._config import VarConfig, VarMethod, require_integer_at_least
 
 _SQRT_TWO_PI: Final = math.sqrt(2.0 * math.pi)
 # Relative to the largest absolute return; see ``_empirical_var_es``.
@@ -275,6 +275,16 @@ _ESTIMATORS: Final[dict[VarMethod, _Estimator]] = {
 }
 
 
+def _resolve_config(config: VarConfig | None) -> VarConfig:
+    """Return ``config``, or the defaults when none is given."""
+    if config is None:
+        return VarConfig()
+    if not isinstance(config, VarConfig):
+        msg = f"config must be a VarConfig, got {type(config).__name__}"
+        raise ConfigurationError(msg)
+    return config
+
+
 def _evaluate(sample: npt.NDArray[np.float64], config: VarConfig) -> VarResult:
     """Estimate VaR and ES for one validated sample."""
     var, expected_shortfall = _ESTIMATORS[config.method](sample, config)
@@ -314,11 +324,12 @@ def compute_var(
         The VaR and the expected shortfall as positive fractions of portfolio value.
 
     Raises:
+        ConfigurationError: If ``config`` is not a ``VarConfig``.
         DataError: If ``returns`` is not a finite, one-dimensional series of at
             least ``config.min_observations`` values, or the Cornish-Fisher
             expansion is not monotone over the tail for the sample's moments.
     """
-    settings = config or VarConfig()
+    settings = _resolve_config(config)
     return _evaluate(_as_sample(returns, settings.min_observations), settings)
 
 
@@ -336,30 +347,27 @@ def rolling_var_forecasts(
 
     Args:
         returns: Simple per-period returns, preferably a series with a date index.
-        window: Number of past returns behind each forecast.
+        window: Number of past returns behind each forecast, a whole number (a
+            float or bool is rejected).
         config: Settings with ``horizon == 1``; defaults to ``VarConfig()``.
 
     Returns:
         A series indexed like ``returns`` whose first ``window`` entries are NaN.
 
     Raises:
-        ConfigurationError: If the config's horizon is not 1, or ``window`` is
-            below the config's ``min_observations``.
+        ConfigurationError: If ``config`` is not a ``VarConfig``, its horizon is
+            not 1, or ``window`` is not an integer of at least the config's
+            ``min_observations``.
         DataError: If ``returns`` is not a finite, one-dimensional series longer
             than ``window``, or a window is outside the Cornish-Fisher range.
     """
-    settings = config or VarConfig()
+    settings = _resolve_config(config)
     if settings.horizon != 1:
         msg = (
             f"rolling forecasts are one-step: horizon must be 1, got {settings.horizon}"
         )
         raise ConfigurationError(msg)
-    if window < settings.min_observations:
-        msg = (
-            f"window must be at least min_observations ({settings.min_observations}), "
-            f"got {window}"
-        )
-        raise ConfigurationError(msg)
+    require_integer_at_least("window", window, settings.min_observations)
     series = as_series(returns, "returns")
     if series.size <= window:
         msg = f"returns must be longer than the window ({window}), got {series.size}"
