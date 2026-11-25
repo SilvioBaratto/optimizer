@@ -32,10 +32,12 @@ _MIN_OBSERVATIONS: Final = 2
 _TOLERANCE: Final = 1e-8
 _ANNOTATION_DECIMALS: Final = 2
 _COLOR_SCALE: Final = "RdBu"
+# Names the public argument in the messages of the helpers that validate it.
+_INPUT_NAME: Final = "returns_or_correlation"
 
 
 def correlation_heatmap(
-    data: pd.DataFrame,
+    returns_or_correlation: pd.DataFrame,
     *,
     is_correlation: bool = False,
     method: str = "pearson",
@@ -46,9 +48,11 @@ def correlation_heatmap(
     """Draw the correlation matrix of a set of assets as a heatmap.
 
     Args:
-        data: Asset returns, one column per asset, or with ``is_correlation`` a
-            correlation matrix. Missing returns are dropped pairwise.
-        is_correlation: Treat ``data`` as an already computed correlation matrix:
+        returns_or_correlation: Asset returns, one column per asset, or with
+            ``is_correlation`` a correlation matrix. Missing returns are dropped
+            pairwise.
+        is_correlation: Treat ``returns_or_correlation`` as an already computed
+            correlation matrix:
             square, symmetric, with a unit diagonal and entries in ``[-1, 1]``.
         method: ``"pearson"``, ``"spearman"`` or ``"kendall"``; ignored when
             ``is_correlation`` is true.
@@ -63,18 +67,19 @@ def correlation_heatmap(
 
     Raises:
         ConfigurationError: If ``method``, ``order`` or ``theme`` is invalid.
-        DataError: If ``data`` is not a numeric frame of at least two assets, is not a
-            valid correlation matrix when ``is_correlation`` is set, or has a
-            correlation that cannot be computed (for example a constant column).
+        DataError: If ``returns_or_correlation`` is not a numeric frame of at least
+            two assets, is not a valid correlation matrix when ``is_correlation`` is
+            set, or has a correlation that cannot be computed (for example a
+            constant column).
     """
     _require_method(method)
     asset_order = _resolve_order(order)
     chart_theme = resolve_theme(theme)
     if is_correlation:
-        matrix = _checked_correlation(data)
+        matrix = _checked_correlation(returns_or_correlation)
         title = "Correlation matrix"
     else:
-        matrix = _correlation_of_returns(data, method)
+        matrix = _correlation_of_returns(returns_or_correlation, method)
         title = f"Correlation heatmap ({method})"
     if asset_order is CorrelationOrder.CLUSTER:
         matrix = _cluster_ordered(matrix)
@@ -103,26 +108,31 @@ def _resolve_order(order: CorrelationOrder | str) -> CorrelationOrder:
         raise ConfigurationError(msg) from error
 
 
-def _numeric_frame(data: pd.DataFrame) -> pd.DataFrame:
-    """Return ``data`` after checking it is a numeric frame of enough assets."""
-    if not isinstance(data, pd.DataFrame):
-        msg = f"data must be a pandas DataFrame, got {type(data).__name__}"
+def _numeric_frame(candidate: pd.DataFrame) -> pd.DataFrame:
+    """Return ``candidate`` after checking it is a numeric frame of enough assets."""
+    if not isinstance(candidate, pd.DataFrame):
+        msg = (
+            f"{_INPUT_NAME} must be a pandas DataFrame, got {type(candidate).__name__}"
+        )
         raise DataError(msg)
-    if data.shape[1] < _MIN_ASSETS:
-        msg = f"data needs at least {_MIN_ASSETS} assets (columns), got {data.shape[1]}"
+    if candidate.shape[1] < _MIN_ASSETS:
+        msg = (
+            f"{_INPUT_NAME} needs at least {_MIN_ASSETS} assets (columns), "
+            f"got {candidate.shape[1]}"
+        )
         raise DataError(msg)
-    if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in data.dtypes):
-        msg = "data must be numeric in every column"
+    if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in candidate.dtypes):
+        msg = f"{_INPUT_NAME} must be numeric in every column"
         raise DataError(msg)
-    return data
+    return candidate
 
 
-def _correlation_of_returns(data: pd.DataFrame, method: str) -> pd.DataFrame:
-    """Return the correlation matrix of the asset returns in ``data``."""
-    frame = _numeric_frame(data)
+def _correlation_of_returns(returns: pd.DataFrame, method: str) -> pd.DataFrame:
+    """Return the correlation matrix of the asset ``returns``."""
+    frame = _numeric_frame(returns)
     if frame.shape[0] < _MIN_OBSERVATIONS:
         msg = (
-            f"data needs at least {_MIN_OBSERVATIONS} observations (rows), "
+            f"{_INPUT_NAME} needs at least {_MIN_OBSERVATIONS} observations (rows), "
             f"got {frame.shape[0]}"
         )
         raise DataError(msg)
@@ -136,9 +146,9 @@ def _correlation_of_returns(data: pd.DataFrame, method: str) -> pd.DataFrame:
     return matrix
 
 
-def _checked_correlation(data: pd.DataFrame) -> pd.DataFrame:
-    """Return ``data`` after checking it is a valid correlation matrix."""
-    frame = _numeric_frame(data)
+def _checked_correlation(matrix: pd.DataFrame) -> pd.DataFrame:
+    """Return ``matrix`` after checking it is a valid correlation matrix."""
+    frame = _numeric_frame(matrix)
     values = frame.to_numpy(dtype=np.float64)
     if values.shape[0] != values.shape[1]:
         msg = f"a correlation matrix must be square, got shape {values.shape}"
