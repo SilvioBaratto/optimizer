@@ -176,7 +176,7 @@ class TestSmlValidation:
     def test_fewer_than_three_assets_raise(self) -> None:
         """A line through two points has no residual to judge."""
         market = _market()
-        with pytest.raises(DataError, match="three"):
+        with pytest.raises(DataError, match="at least 3 assets"):
             security_market_line(_assets(market).iloc[:, :2], market)
 
     def test_assets_with_the_same_beta_cannot_define_a_slope(self) -> None:

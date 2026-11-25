@@ -128,6 +128,33 @@ def require_same_index(
         raise DataError(msg)
 
 
+def require_scalar_rate(risk_free_rate: object) -> float:
+    """Return a per-period risk-free rate given as a number, or raise.
+
+    A bool is refused although it is an ``int``: ``True`` would silently become a
+    rate of 100% per period.
+
+    Args:
+        risk_free_rate: Candidate per-period rate.
+
+    Returns:
+        The rate as a float.
+
+    Raises:
+        ConfigurationError: If it is not a real number, or is NaN or infinite.
+    """
+    if isinstance(risk_free_rate, bool) or not isinstance(
+        risk_free_rate, (int, float, np.integer, np.floating)
+    ):
+        msg = f"risk_free_rate must be a number or a Series, got {risk_free_rate!r}"
+        raise ConfigurationError(msg)
+    scalar = float(risk_free_rate)
+    if not math.isfinite(scalar):
+        msg = f"risk_free_rate must be finite, got {risk_free_rate!r}"
+        raise ConfigurationError(msg)
+    return scalar
+
+
 def subtract_risk_free(
     returns: _Returns, risk_free_rate: float | pd.Series, name: str = "returns"
 ) -> _Returns:
@@ -151,14 +178,7 @@ def subtract_risk_free(
         rate = as_series(risk_free_rate, "risk_free_rate")
         require_same_index(returns, rate, name, "risk_free_rate")
         return returns.sub(rate, axis=0)
-    if not isinstance(risk_free_rate, (int, float, np.integer, np.floating)):
-        msg = f"risk_free_rate must be a number or a Series, got {risk_free_rate!r}"
-        raise ConfigurationError(msg)
-    scalar = float(risk_free_rate)
-    if not math.isfinite(scalar):
-        msg = f"risk_free_rate must be finite, got {risk_free_rate!r}"
-        raise ConfigurationError(msg)
-    return returns - scalar
+    return returns - require_scalar_rate(risk_free_rate)
 
 
 def annualized_mean(

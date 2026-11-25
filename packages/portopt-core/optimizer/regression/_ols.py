@@ -177,9 +177,10 @@ def _gram_inverse(design: _Array) -> _Array:
 def _require_estimable(design: _Array, hac_lags: int | None) -> _Array:
     """Check the sample can support the fit and return ``(X'X)^-1``."""
     n_obs, n_params = design.shape
-    if n_obs < n_params + 1:
+    needed = n_params + 1
+    if n_obs < needed:
         msg = (
-            f"at least {n_params + 1} observations are needed to estimate "
+            f"at least {needed} observations are needed to estimate "
             f"{n_params} parameters with a residual degree of freedom, got {n_obs}"
         )
         raise DataError(msg)

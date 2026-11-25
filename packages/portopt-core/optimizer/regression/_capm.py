@@ -255,7 +255,10 @@ def security_market_line(
     market = as_series(market_returns, "market_returns")
     require_same_index(frame, market, "assets", "market_returns")
     if frame.shape[1] < _MIN_ASSETS_FOR_LINE:
-        msg = f"at least three assets are needed to fit the line, got {frame.shape[1]}"
+        msg = (
+            f"at least {_MIN_ASSETS_FOR_LINE} assets are needed to fit the line, "
+            f"got {frame.shape[1]}"
+        )
         raise DataError(msg)
     asset_excess = subtract_risk_free(frame, risk_free_rate, "assets")
     market_excess = subtract_risk_free(market, risk_free_rate, "market_returns")
