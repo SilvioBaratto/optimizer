@@ -1,10 +1,12 @@
 """Guard: ``uv.lock`` must not pin third-party packages below their advisory fixes.
 
 Both Docker images install with ``uv sync --frozen``, so whatever the lockfile pins is
-exactly what ships; CI's ``pip-audit`` only runs on pull requests to ``main`` and so
-never sees a stale lock on ``development``. Each floor below is the first release
-that fixes the published advisories for that package (``pip-audit`` fix versions).
-Raise a floor when a new advisory lands; never lower one.
+exactly what ships. CI's ``pip-audit --strict`` (the ``lint`` job, on every push and
+pull request) finds a vulnerable pin only with network access and only in that job;
+these floors give the same protection in a plain offline ``pytest`` run and record why
+each version was chosen. Each floor below is the first release that fixes the published
+advisories for that package (``pip-audit`` fix versions). Raise a floor when a new
+advisory lands; never lower one.
 """
 
 from __future__ import annotations
