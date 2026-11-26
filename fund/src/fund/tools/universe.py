@@ -68,6 +68,10 @@ if TYPE_CHECKING:
     from sqlalchemy import ColumnElement, Select
     from sqlalchemy.orm import Session
 
+    # SQLAlchemy 2.1 types a statement by its bare column types, one per column,
+    # so the six selected columns of ``_investable`` are spelled out.
+    _InvestableSelect = Select[str | None, str, str | None, int | None, str | None, str]
+
 # ``PreSelectionConfig`` field names; the other criterion the tool applies is
 # ``exclusions``. Any other key is reported back in ``ignored_criteria``.
 _CONFIG_FIELDS: frozenset[str] = frozenset(
@@ -374,7 +378,9 @@ def _priced_by(asof: dt.date) -> ColumnElement[bool]:
     )
 
 
-def _investable(asof: dt.date, exclusions: Collection[GicsSector | str]) -> Select[Any]:
+def _investable(
+    asof: dt.date, exclusions: Collection[GicsSector | str]
+) -> _InvestableSelect:
     """Select every investable instrument as ``(ticker, name, sector, market_cap,
     instrument_type, asset_class)``.
 
@@ -446,9 +452,10 @@ def uninvestable_reasons(
             _priced_by(asof).label("priced"),
         ).where(Instrument.yfinance_ticker.in_(list(tickers)))
     ).all()
-    investable: set[str] = set()
-    live: set[str] = set()
-    seen: set[str] = set()
+    # The column is nullable, so a row's ticker is typed ``str | None``.
+    investable: set[str | None] = set()
+    live: set[str | None] = set()
+    seen: set[str | None] = set()
     for ticker, active, priced in rows:
         seen.add(ticker)
         if active:
@@ -537,10 +544,10 @@ def list_universe(
 
     if tickers is not None:
         # An allowlist is a few dozen names, so ordering and paging it here is cheaper
-        # than a SQL ``CASE`` over its positions.
+        # than a SQL ``CASE``. The IN filter keeps NULL tickers out, hence the cast.
         position = {ticker: index for index, ticker in enumerate(tickers)}
         everything = sorted(
-            session.execute(stmt).all(), key=lambda row: position[row[0]]
+            session.execute(stmt).all(), key=lambda row: position[cast(str, row[0])]
         )
         total = len(everything)
         rows = everything[start : start + page]

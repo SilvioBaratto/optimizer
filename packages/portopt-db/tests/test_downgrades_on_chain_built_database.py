@@ -192,9 +192,7 @@ def _backfill_start_dates(conn: Connection) -> dict[str, str]:
     with Operations.context(MigrationContext.configure(conn)):
         mod._backfill_insider_start_dates()
     return dict(
-        conn.execute(text("SELECT id, start_date FROM insider_transactions"))
-        .tuples()
-        .all()
+        conn.execute(text("SELECT id, start_date FROM insider_transactions")).all()
     )
 
 

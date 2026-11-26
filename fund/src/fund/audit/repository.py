@@ -648,7 +648,7 @@ class AgentRunRepository(RepositoryBase):
             stmt = stmt.where(AgentRun.status.in_(run_statuses))
         yield from self._stream(stmt)
 
-    def _stream(self, stmt: Select[tuple[_T]]) -> Iterator[_T]:
+    def _stream(self, stmt: Select[_T]) -> Iterator[_T]:
         result = self.session.execute(stmt.execution_options(yield_per=_STREAM_BATCH))
         try:
             yield from result.scalars()

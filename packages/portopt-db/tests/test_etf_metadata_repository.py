@@ -7,6 +7,7 @@ Convert-then-rerun: the same payload twice converges to one row per table
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import event
@@ -439,6 +440,28 @@ def _stop_recording(db_session, record) -> None:
 
 class TestGetLatestSectorWeights:
     """``get_latest_sector_weights`` reads the newest sector snapshot per ETF."""
+
+    def test_a_row_without_a_ticker_is_left_out(
+        self, db_session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A NULL ``yfinance_ticker`` has no key to file the snapshot under."""
+        as_of = dt.date(2026, 9, 1)
+        stored_rows = [
+            (None, as_of, "technology", 0.5),
+            ("VWCE.DE", as_of, "energy", None),
+        ]
+        monkeypatch.setattr(
+            db_session,
+            "execute",
+            lambda *_a, **_k: SimpleNamespace(all=lambda: stored_rows),
+        )
+
+        result = ETFMetadataRepository(db_session).get_latest_sector_weights(
+            ["VWCE.DE"]
+        )
+
+        assert set(result) == {"VWCE.DE"}
+        assert result["VWCE.DE"].weights == {"energy": None}
 
     def test_returns_only_the_newest_snapshot(self, db_session) -> None:
         """An older as_of for the same instrument is ignored."""

@@ -8,7 +8,9 @@ each call, so both must answer alike on one session.
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 
+import pytest
 from _fixtures import add_and_flush, get_or_create_exchange
 from sqlalchemy.orm import Session
 
@@ -85,6 +87,26 @@ def test_benchmark_coverage_counts_bars_and_reports_the_latest(
     coverage = UniverseRepository(db_session).get_benchmark_coverage(["SPY", "NOPE"])
 
     assert coverage == {"SPY": (2, dt.date(2026, 11, 13)), "NOPE": (0, None)}
+
+
+def test_benchmark_coverage_ignores_a_row_without_a_symbol(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test ``UniverseRepository.get_benchmark_coverage`` on a NULL symbol row.
+
+    A row whose ``yfinance_ticker`` is NULL has no key to report under, so it is
+    left out and the requested symbols keep their answers.
+    """
+    stored_rows = [(None, 3, dt.date(2026, 11, 13)), ("SPY", 2, dt.date(2026, 11, 12))]
+    monkeypatch.setattr(
+        db_session,
+        "execute",
+        lambda *_a, **_k: SimpleNamespace(all=lambda: stored_rows),
+    )
+
+    coverage = UniverseRepository(db_session).get_benchmark_coverage(["SPY", "NOPE"])
+
+    assert coverage == {"SPY": (2, dt.date(2026, 11, 12)), "NOPE": (0, None)}
 
 
 def test_facade_lookups_answer_like_universe_repository(db_session: Session) -> None:

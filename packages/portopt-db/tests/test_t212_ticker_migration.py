@@ -94,7 +94,7 @@ def _upgrade(engine: Engine) -> None:
 
 def _tickers(engine: Engine) -> dict[str, str]:
     with engine.connect() as conn:
-        rows = conn.execute(text("SELECT id, ticker FROM instruments")).tuples().all()
+        rows = conn.execute(text("SELECT id, ticker FROM instruments")).all()
     return dict(rows)
 
 

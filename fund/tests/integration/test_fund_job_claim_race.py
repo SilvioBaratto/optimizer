@@ -25,6 +25,7 @@ from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from portopt_db.config import pin_postgres_driver
 from portopt_db.models import BackgroundJob, BackgroundJobError
 from sqlalchemy import create_engine, make_url
 from sqlalchemy.engine import Engine
@@ -82,7 +83,7 @@ def race_engine() -> Generator[Engine, None, None]:
     The pool is sized to the claimant count so no thread waits on a connection
     instead of on the lock under test.
     """
-    url = _target_url()
+    url = pin_postgres_driver(_target_url())
     schema = f"fund_claim_race_{uuid.uuid4().hex[:8]}"
     admin = create_engine(url, isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:
