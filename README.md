@@ -412,7 +412,7 @@ for DBSCAN price-repair), `numpy==2.5.5`, `pandas==3.0.6`, `APScheduler==3.11.3`
 `pydantic==2.14.4`, `pydantic-settings==2.16.3`, `python-dotenv==1.2.4`, plus
 `portopt-db` (workspace; psycopg2-binary/alembic arrive transitively).
 
-**`portopt-fund`** (bridge): `deepagents==0.7.35` (the only exact pin),
+**`portopt-fund`** (bridge): `deepagents==0.7.42` (the only exact pin),
 `langgraph`, `langgraph-checkpoint-postgres`, `psycopg[binary]`, `psycopg-pool`,
 `langchain-ollama`, `APScheduler`, `typer`, `textual`, `pydantic`,
 `python-dotenv`, plus `portopt-core` + `portopt-db` (workspace).

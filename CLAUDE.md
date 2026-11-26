@@ -84,7 +84,7 @@ fund mandate set <portfolio_id> ... | fund mandate show <portfolio_id>
 
 > **Gotcha — two `lint` gates a change can trip.** The complexity ratchet: a function body over 30 lines or a complexity over 9 must already be in `scripts/ci/baselines/*.json`, whose keys are `path::qualname` (moving or renaming a baselined function changes its key), and `--update` only lowers values. Requirement traceability: a test binds to a requirement with `@pytest.mark.criterion("REQ-...")`, the id must be registered in `docs/requirements.md`, and every registered id needs a test (`CONTRIBUTING.md`, section "Test traceability").
 
-**Deps**: each member declares its own. Library runtime → root `pyproject.toml`; DB layer → `packages/portopt-db/pyproject.toml` (SQLAlchemy, psycopg2-binary, alembic, pandas, pydantic); daemon → `ingestion/pyproject.toml` (`portopt-db` is a `[tool.uv.sources]` workspace dep; psycopg2-binary/alembic arrive transitively); bridge → `fund/pyproject.toml` (`portopt-core` + `portopt-db` workspace deps; `deepagents==0.7.35` + langgraph/langchain-ollama/psycopg). No `requirements.txt`. `requires-python >= 3.12` across all **four**.
+**Deps**: each member declares its own. Library runtime → root `pyproject.toml`; DB layer → `packages/portopt-db/pyproject.toml` (SQLAlchemy, psycopg2-binary, alembic, pandas, pydantic); daemon → `ingestion/pyproject.toml` (`portopt-db` is a `[tool.uv.sources]` workspace dep; psycopg2-binary/alembic arrive transitively); bridge → `fund/pyproject.toml` (`portopt-core` + `portopt-db` workspace deps; `deepagents==0.7.42` + langgraph/langchain-ollama/psycopg). No `requirements.txt`. `requires-python >= 3.12` across all **four**.
 
 ## Optimizer Library conventions
 
