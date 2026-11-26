@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This section covers the dependency refresh of 2026-11 (`feature/dependency-refresh-2026-11`)
 and the dependency updates merged since 0.2.0. Versions are given as they were in 0.2.0 and
 as they are now; the 0.2.0 section below keeps the pins as they were when it was written.
-Three changes affect privacy or configuration and are listed first.
+The four entries under Security affect privacy or configuration and come first.
 
 ### Security
 
