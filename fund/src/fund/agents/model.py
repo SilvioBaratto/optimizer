@@ -30,6 +30,7 @@ lazily; the first request happens later at call time.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -70,11 +71,18 @@ _READ_TIMEOUT_SECONDS = 180.0
 
 # Model families whose APIs reject any non-default sampling temperature: OpenAI's
 # o-series ("o1", "o3-mini", "o4-mini", ...) answers HTTP 400, and langchain-anthropic
-# raises client-side for the Fable family. The fallback model goes through the same
-# builder, so sending the temperature=0 contract anyway would fail every request
-# with nothing for ModelFallbackMiddleware to fall back to.
+# raises client-side for the Fable family and Mythos 5.2. The fallback model goes
+# through the same builder, so sending the temperature=0 contract anyway would fail
+# every request with nothing for ModelFallbackMiddleware to fall back to.
 _OPENAI_REASONING_MODEL = re.compile(r"o\d")
-_ANTHROPIC_FIXED_SAMPLING_PREFIX = "claude-fable-5"
+_ANTHROPIC_FIXED_SAMPLING_PREFIXES = ("claude-fable-5", "claude-mythos-5-2")
+
+# langchain-core reads this process variable (`true`, or a gateway URL) and a provider
+# class that applies it sends any model whose endpoint the builder did not pass to the
+# LangSmith gateway host, prompts and API key included. The values below are the ones
+# langchain-core itself treats as "off"; anything else enables the gateway.
+_LANGSMITH_GATEWAY_ENV = "LANGSMITH_GATEWAY"
+_LANGSMITH_GATEWAY_OFF_VALUES = frozenset({"false", "0", "no"})
 
 # Explicit completion budget for the providers whose SDK wrapper otherwise caps
 # output silently (ChatNVIDIA at 1024 tokens, the Hugging Face wrapper at 512). A
@@ -124,6 +132,29 @@ def _require(value: str | None, env_name: str) -> str:
     return value
 
 
+def _reject_langsmith_gateway() -> None:
+    """Refuse to build a chat model while the LangSmith gateway is enabled.
+
+    The check lives here, once, instead of in each builder: which provider classes
+    apply the gateway changes with every release of their package, and a builder that
+    passes no endpoint (``openai`` without ``OPENAI_BASE_URL``, ``anthropic``,
+    ``google``, ``aws``) would otherwise send portfolio data to a host nobody chose.
+    The process environment is read directly because that is where the SDKs read it,
+    whatever ``FundConfig`` was loaded from. The value is not repeated in the error: a
+    gateway URL can carry credentials.
+
+    Raises:
+        RuntimeError: ``LANGSMITH_GATEWAY`` is set to anything but a false value.
+    """
+    value = os.environ.get(_LANGSMITH_GATEWAY_ENV)
+    if value and value.lower() not in _LANGSMITH_GATEWAY_OFF_VALUES:
+        raise RuntimeError(
+            f"{_LANGSMITH_GATEWAY_ENV} is set, which makes the provider SDK send "
+            "prompts and the API key to the LangSmith gateway instead of the "
+            f"provider's own host. Unset {_LANGSMITH_GATEWAY_ENV} for this process."
+        )
+
+
 class _BearerAuth:
     """httpx auth hook that attaches a bearer token while keeping it out of ``repr``.
 
@@ -150,7 +181,7 @@ def _rejects_temperature(provider: str, model_name: str) -> bool:
     if provider in ("openai", "microsoft"):
         return _OPENAI_REASONING_MODEL.match(model_name) is not None
     if provider == "anthropic":
-        return model_name.startswith(_ANTHROPIC_FIXED_SAMPLING_PREFIX)
+        return model_name.startswith(_ANTHROPIC_FIXED_SAMPLING_PREFIXES)
     return False
 
 
@@ -315,9 +346,10 @@ def _build_anthropic(config: FundConfig, model_name: str) -> BaseChatModel:
     """Build a ``ChatAnthropic`` (Anthropic's Claude models).
 
     Requires ``ANTHROPIC_API_KEY``; ``temperature=0`` threads the D4 contract except
-    for the Fable family, which rejects it. ``reasoning=`` is Ollama-only and is
-    never passed here — Anthropic's extended thinking is an operator model-id /
-    separate-flag choice (SPEC Open Q2), not this constructor flag.
+    for the Fable family and Mythos 5.2, which reject it. ``reasoning=`` is
+    Ollama-only and is never passed here — Anthropic's extended thinking is an
+    operator model-id / separate-flag choice (SPEC Open Q2), not this constructor
+    flag.
     """
     from langchain_anthropic import ChatAnthropic
 
@@ -458,7 +490,8 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
 
     ``temperature=0`` threads the D4 contract and ``max_completion_tokens`` is set
     explicitly because ``ChatNVIDIA`` otherwise caps every completion at 1024 tokens;
-    ``reasoning=`` is Ollama-only and is never passed here.
+    ``reasoning=`` is Ollama-only and is never passed here. The SDK's hourly usage
+    telemetry to NVIDIA is switched off (see ``usage_telemetry_enabled`` below).
     """
     from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
@@ -467,6 +500,11 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
         "model": model_name,
         "temperature": config.model_temperature,
         "max_completion_tokens": _MAX_COMPLETION_TOKENS,
+        # Since 1.5 the SDK posts hourly usage aggregates (model id, token sums,
+        # latency buckets) to an NVIDIA host on the hosted API, on by default. An
+        # explicit argument beats the SDK's own env switch, so no ambient
+        # NVIDIA_USAGE_TELEMETRY_ENABLED can turn it back on.
+        "usage_telemetry_enabled": False,
     }
     if config.nvidia_base_url:
         kwargs["base_url"] = config.nvidia_base_url
@@ -604,6 +642,8 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
     Dispatches on ``config.llm_provider``:
 
     * unknown provider → :class:`RuntimeError` listing the valid providers;
+    * ``LANGSMITH_GATEWAY`` enabled in the process environment →
+      :class:`RuntimeError`, for every provider (see :func:`_reject_langsmith_gateway`);
     * a provider whose SDK package is not installed → the builder's
       ``ModuleNotFoundError`` is re-raised as a :class:`RuntimeError` naming the
       ``uv sync --package portopt-fund --extra <extra>`` command, where ``<extra>``
@@ -619,6 +659,7 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
             f"Unknown LLM provider {config.llm_provider!r}; valid providers: {valid}."
         ) from None
 
+    _reject_langsmith_gateway()
     try:
         return builder(config, model_name)
     except ModuleNotFoundError as exc:

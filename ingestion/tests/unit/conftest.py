@@ -12,9 +12,8 @@ def _offline_news_search(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep the news search fallback off the network across the unit suite.
 
     ``fetch_yahoo_news`` falls back to ``yf.Search`` whenever the ticker feed is
-    empty or fails, and ``Ticker.news`` yields nothing for every symbol since Yahoo
-    retired the ``/xhr/ncp`` route, so any test stubbing an empty feed would
-    otherwise issue a real request. Only the fallback indirection is stubbed —
+    empty or fails, so any test stubbing an empty or failing feed would otherwise
+    issue a real request. Only the fallback indirection is stubbed —
     patching ``yf.Search`` itself would break the search sub-client tests that
     inspect the HTTP layer.
     """

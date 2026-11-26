@@ -16,13 +16,41 @@ from portopt_db.resilience import (
     validate_breaker_settings,
 )
 
+_BARE_POSTGRES_SCHEME = "postgresql://"
+_PSYCOPG2_POSTGRES_SCHEME = "postgresql+psycopg2://"
+
+
+def pin_postgres_driver(url: str) -> str:
+    """Name the psycopg2 driver in a Postgres URL that names none.
+
+    SQLAlchemy 2.1 resolves ``postgresql://`` to psycopg (version 3), while every
+    deployment template and CI job exports the bare form. This package declares
+    psycopg2 and its keepalive settings, circuit-breaker error classification and
+    NUL-stripping were written against it, and an image that installs only
+    ``portopt-db`` carries no psycopg 3 at all.
+
+    Args:
+        url: A SQLAlchemy URL string, as exported in ``DATABASE_URL``.
+
+    Returns:
+        ``url`` with ``postgresql+psycopg2://`` in place of a leading
+        ``postgresql://``. A URL that names a driver (including psycopg 3), another
+        backend or nothing at all is returned unchanged; the rest of the string is
+        never re-encoded, so an escaped password survives as given.
+    """
+    if url.startswith(_BARE_POSTGRES_SCHEME):
+        return _PSYCOPG2_POSTGRES_SCHEME + url[len(_BARE_POSTGRES_SCHEME) :]
+    return url
+
 
 @dataclass(frozen=True)
 class DbConfig:
     """Connection and QueuePool tunables passed to the SQLAlchemy engine.
 
     Attributes:
-        url: SQLAlchemy database URL (e.g. ``postgresql+psycopg2://...``).
+        url: SQLAlchemy database URL. A bare ``postgresql://`` is bound to
+            psycopg2 when the engine is built (see ``pin_postgres_driver``); a
+            URL that names a driver is used as given.
         echo: Log every SQL statement; expensive, for debugging only.
         pool_size: Number of persistent connections kept open in the pool.
         max_overflow: Extra connections allowed beyond ``pool_size`` under load.
@@ -120,4 +148,4 @@ class DbConfig:
         return args
 
 
-__all__ = ["DbConfig"]
+__all__ = ["DbConfig", "pin_postgres_driver"]

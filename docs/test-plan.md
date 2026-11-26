@@ -50,10 +50,19 @@ Also critical and tested:
 - The append-only audit trail (`human_audit_log`): `packages/portopt-db/tests/integration/test_audit_log_triggers.py`.
   No requirement id.
 - Secrets kept out of `repr`: `fund/tests/unit/test_config_secrets_not_in_repr.py`,
-  `ingestion/tests/unit/test_settings_repr.py`, `packages/portopt-db/tests/test_db_config_repr.py`.
-  REQ-FUND-017, REQ-ING-008, REQ-DB-005.
+  `fund/tests/unit/test_model_anthropic_secret_not_in_repr.py`,
+  `fund/tests/unit/test_model_factory.py`, `fund/tests/unit/test_model_openai_family.py`,
+  `ingestion/tests/unit/test_settings_repr.py`,
+  `packages/portopt-db/tests/test_db_config_repr.py`.
+  REQ-FUND-017, REQ-FUND-018, REQ-FUND-019, REQ-FUND-020, REQ-FUND-021, REQ-FUND-022,
+  REQ-FUND-023, REQ-FUND-025, REQ-ING-008, REQ-DB-005.
 - Provider request lines kept out of the daemon log (`silence_http_request_logs`):
-  `fund/tests/unit/test_config.py`. REQ-FUND-028.
+  `fund/tests/unit/test_config.py`, `fund/tests/unit/test_model_factory.py`. REQ-FUND-028.
+- No usage telemetry from a provider SDK (data minimisation, standard 2.15.11): the
+  `nvidia` chat model is built with the SDK's telemetry switched off, whatever the
+  environment holds. `fund/tests/unit/test_model_factory.py`. REQ-FUND-026.
+- No chat model is built while `LANGSMITH_GATEWAY` is set, so prompts and keys never reach
+  the LangSmith gateway: `fund/tests/unit/test_model_openai_family.py`. REQ-FUND-027.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
   REQ-DB-006.
 - A fresh install builds its universe on the first daily run (issue 1125):

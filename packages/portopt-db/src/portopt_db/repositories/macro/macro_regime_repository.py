@@ -740,12 +740,12 @@ class MacroRegimeRepository(RepositoryBase):
 
     def get_distinct_countries(self) -> list[str]:
         """Return a deduplicated sorted list of all countries with stored macro data."""
-        from sqlalchemy import distinct, union_all
+        from sqlalchemy import union_all
 
         q1 = select(EconomicIndicator.country.label("country"))
         q2 = select(TradingEconomicsIndicator.country.label("country"))
         q3 = select(BondYield.country.label("country"))
 
         subq = union_all(q1, q2, q3).subquery()
-        stmt = select(distinct(subq.c.country)).order_by(subq.c.country)
+        stmt = select(subq.c.country).distinct().order_by(subq.c.country)
         return list(self.session.execute(stmt).scalars().all())

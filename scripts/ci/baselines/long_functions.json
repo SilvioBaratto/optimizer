@@ -239,7 +239,7 @@
   "packages/portopt-db/src/portopt_db/repositories/market_data/calendars_repository.py::CalendarsRepository.upsert_earnings": 31,
   "packages/portopt-db/src/portopt_db/repositories/market_data/calendars_repository.py::CalendarsRepository.upsert_economic_events": 33,
   "packages/portopt-db/src/portopt_db/repositories/market_data/calendars_repository.py::CalendarsRepository.upsert_splits": 33,
-  "packages/portopt-db/src/portopt_db/repositories/market_data/etf_metadata_repository.py::ETFMetadataRepository.get_latest_sector_weights": 38,
+  "packages/portopt-db/src/portopt_db/repositories/market_data/etf_metadata_repository.py::ETFMetadataRepository.get_latest_sector_weights": 32,
   "packages/portopt-db/src/portopt_db/repositories/market_data/etf_metadata_repository.py::ETFMetadataRepository.upsert_equity_holdings": 34,
   "packages/portopt-db/src/portopt_db/repositories/market_data/etf_metadata_repository.py::ETFMetadataRepository.upsert_fund_operations": 31,
   "packages/portopt-db/src/portopt_db/repositories/market_data/fundamentals_repository.py::FundamentalsRepository.upsert_financial_statements": 56,

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import and_, func, select
+from sqlalchemy import Subquery, and_, func, select
 
 from portopt_db.models.market_data.etf_metadata import (
     ETFAssetClass,
@@ -86,6 +86,23 @@ def _finite_or_none(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
+
+
+def _newest_sector_snapshots(
+    wanted: Collection[str], on_or_before: dt.date | None
+) -> Subquery:
+    """Pick each wanted ETF's newest sector-weight ``as_of`` (on or before a cutoff)."""
+    newest_query = (
+        select(
+            ETFSectorWeight.instrument_id.label("instrument_id"),
+            func.max(ETFSectorWeight.as_of).label("as_of"),
+        )
+        .join(Instrument, Instrument.id == ETFSectorWeight.instrument_id)
+        .where(Instrument.yfinance_ticker.in_(wanted))
+    )
+    if on_or_before is not None:
+        newest_query = newest_query.where(ETFSectorWeight.as_of <= on_or_before)
+    return newest_query.group_by(ETFSectorWeight.instrument_id).subquery()
 
 
 class ETFMetadataRepository(RepositoryBase):
@@ -562,17 +579,7 @@ class ETFMetadataRepository(RepositoryBase):
         wanted = {t for t in tickers if t}
         if not wanted:
             return {}
-        newest_query = (
-            select(
-                ETFSectorWeight.instrument_id.label("instrument_id"),
-                func.max(ETFSectorWeight.as_of).label("as_of"),
-            )
-            .join(Instrument, Instrument.id == ETFSectorWeight.instrument_id)
-            .where(Instrument.yfinance_ticker.in_(wanted))
-        )
-        if on_or_before is not None:
-            newest_query = newest_query.where(ETFSectorWeight.as_of <= on_or_before)
-        newest = newest_query.group_by(ETFSectorWeight.instrument_id).subquery()
+        newest = _newest_sector_snapshots(wanted, on_or_before)
         rows = self.session.execute(
             select(
                 Instrument.yfinance_ticker,
@@ -591,6 +598,10 @@ class ETFMetadataRepository(RepositoryBase):
         ).all()
         snapshots: dict[str, SectorSnapshot] = {}
         for ticker, as_of, sector, weight in rows:
+            # The column is nullable and the IN filter already excludes NULL; the
+            # guard states that for the row type SQLAlchemy 2.1 now infers.
+            if ticker is None:
+                continue
             current = snapshots.get(ticker)
             if current is None or as_of > current.as_of:
                 current = snapshots[ticker] = SectorSnapshot(as_of=as_of, weights={})

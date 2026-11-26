@@ -7,7 +7,7 @@ name = "portopt-db"
 version = "0.2.0"
 description = "Shared SQLAlchemy models, repositories, engine and Alembic migrations for the portopt Postgres database."
 readme = "README.md"
-# 3.12 floor: matches the workspace (the root pins numpy==2.5.4 and scipy==1.18.1, which
+# 3.12 floor: matches the workspace (the root pins numpy==2.5.5 and scipy==1.18.1, which
 # require Python>=3.12).
 requires-python = ">=3.12"
 authors = [{ name = "Silvio Baratto" }]
@@ -15,9 +15,9 @@ authors = [{ name = "Silvio Baratto" }]
 # Owns the database stack for the workspace; the single SQLAlchemy pin every
 # consumer inherits (Python allows only one installed version).
 dependencies = [
-    "SQLAlchemy==2.0.52",
+    "SQLAlchemy==2.1.9",
     "psycopg2-binary==2.9.13",
-    "alembic==1.19.1",
+    "alembic==1.20.1",
     "pandas==3.0.6",
     # RepositoryBase's generic CRUD is typed against pydantic schemas.
     "pydantic==2.14.4",

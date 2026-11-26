@@ -20,6 +20,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 
 from alembic import command
+from portopt_db.config import pin_postgres_driver
 
 _URL_VARIABLE = "PORTOPT_TEST_DATABASE_URL"
 _PACKAGE_ROOT = Path(__file__).resolve().parents[2]
@@ -51,7 +52,7 @@ def pg_engine(pg_url: str) -> Iterator[Engine]:
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("DATABASE_URL", pg_url)
         command.upgrade(config, "head")
-    engine = create_engine(pg_url)
+    engine = create_engine(pin_postgres_driver(pg_url))
     yield engine
     engine.dispose()
 
