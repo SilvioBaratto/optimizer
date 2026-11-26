@@ -147,7 +147,7 @@ module = [
     "reportlab.*",
     "apscheduler",
     "apscheduler.*",
-    "sqlalchemy==2.1.9",
+    "sqlalchemy_utils",
     "sqlalchemy_utils.*",
 ]
 ignore_missing_imports = true
