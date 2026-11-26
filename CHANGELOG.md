@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-This section covers the dependency refresh of 2026-11 (`feature/dependency-refresh-2026-11`)
+This section covers the dependency refresh of 2026-11 (`feature/dependency-refresh-2026-11`),
+the second pass over the packages that no `pyproject.toml` declares (`feature/bump-transitive-refresh`)
 and the dependency updates merged since 0.2.0. Versions are given as they were in 0.2.0 and
 as they are now; the 0.2.0 section below keeps the pins as they were when it was written.
-The four entries under Security affect privacy or configuration and come first.
+The entries under Security affect privacy or configuration and come first.
 
 ### Security
 
@@ -45,6 +46,26 @@ The four entries under Security affect privacy or configuration and come first.
   certifi. `pydantic-settings` 2.16.3 no longer follows symlinks that leave a `secrets_dir`
   (this project sets none), and the `psycopg2-binary` 2.9.13 wheel bundles libpq 17.11 and
   OpenSSL 3.5.8 and rejects over-long int64 array elements instead of overflowing a buffer.
+- **fund**: no new telemetry reaches the daemon from the SDK moves, and tests now pin that.
+  `anthropic` 2.x can emit OpenTelemetry spans and trace headers, but only through a tracer
+  provider the process registers; the fund registers none and the lock holds only
+  `opentelemetry-api`, so nothing is recorded or sent (`ANTHROPIC_OPEN_TELEMETRY=false`
+  switches it off if one is ever added; REQ-FUND-029). `groq` 1.3 reads `GROQ_CUSTOM_HEADERS`
+  and adds those headers to every Groq request; nothing here sets it, and a test pins the exact
+  headers a Groq request may carry (REQ-FUND-030). The `google` provider never asks Google's
+  auth library for Application Default Credentials (REQ-FUND-032). `hf-xet` 1.7 and later
+  report each Hugging Face transfer to the Hub, but the chat path never loads it
+  (REQ-FUND-037). A new guard keeps the network-capable development tools (`virtualenv`,
+  `nodeenv`, `pip-audit`, `pre-commit`, `pyright`) out of everything that ships
+  (`tests/test_lockfile_dev_tooling_isolated.py`).
+- **deps**: security fixes in packages that the lock pulls in: `websockets` 17.4 rejects a
+  message split into more than 4096 frames (a memory-exhaustion attack; this repository opens
+  no WebSocket itself, and `WEBSOCKETS_MAX_FRAGMENTS` tunes the limit), `lxml` 6.1.3 no longer
+  resolves external parameter entities by default (reached through yfinance's `read_html`),
+  `ormsgpack` 1.13.1 no longer spends memory and time on truncated MessagePack arrays (the
+  LangGraph checkpoints), `botocore` 1.44 refuses bearer-token authentication on a plain-HTTP
+  endpoint, `markdown-it-py` 4.3.0 and `mdit-py-plugins` 0.7.0 carry security releases (unused
+  here), and `wcmatch` 12.0.4 keeps the fix for the ReDoS in 11.x.
 
 ### Added
 
@@ -55,8 +76,10 @@ The four entries under Security affect privacy or configuration and come first.
 - **docs**: requirements REQ-FUND-018 to REQ-FUND-023 and REQ-FUND-025 (the API key or token
   of the OpenAI family, Groq, Anthropic, NVIDIA, Google, AWS and Hugging Face models stays out
   of `repr`, `str` and the serialised form), REQ-FUND-026 (NVIDIA telemetry off), REQ-FUND-027
-  (the gateway check) and REQ-FUND-028 (no request line in the log), each with tests, in
-  `docs/requirements.md` and `docs/test-plan.md`.
+  (the gateway check), REQ-FUND-028 (no request line in the log), REQ-FUND-029 and
+  REQ-FUND-030 (what an `anthropic` and a `groq` request may carry), REQ-FUND-032 (the `google`
+  provider never uses Application Default Credentials) and REQ-FUND-037 (the Hugging Face path
+  never loads `hf_xet`), each with tests, in `docs/requirements.md` and `docs/test-plan.md`.
 
 ### Changed
 
@@ -87,14 +110,45 @@ Behaviour changes to know about:
   the history-length guard expects slightly fewer sessions for those two venues.
 - **fund**: Google SDK 2.x -> 3.x (`google-genai` 2.23.0 -> 3.6.1, pulled by
   `langchain-google-genai` 4.5): the SDK's default API version is now `v1`, which
-  `langchain-google-genai` pins back to `v1beta` so requests are unchanged, and it verifies
-  TLS with the operating-system trust store instead of certifi unless `SSL_CERT_FILE` or
-  `SSL_CERT_DIR` is set. `huggingface-hub` 2.x does the same trust-store switch and adds the
-  `httpx2` stack (see the Security entry on request lines). A host behind a corporate CA may
-  need `SSL_CERT_FILE` at runtime.
-- **fund**: the `anthropic` builder no longer sends `temperature=0` to `claude-mythos-5-2`:
-  `ChatAnthropic` refuses any temperature but 1 for that model, as it already did for
-  `claude-fable-5*`.
+  `langchain-google-genai` pins back to `v1beta` so requests are unchanged. TLS is no longer
+  verified with certifi: the SDKs on the `httpx2` stack (`google-genai`, `anthropic`, `openai`
+  and `huggingface-hub` 2.x; see the Security entry on request lines) use the operating-system
+  trust store on macOS and Windows and, since `httpx2` 2.15, the system CA files on Linux
+  (OpenSSL's default location, for example `/etc/ssl/certs`, and the usual bundle paths).
+  `SSL_CERT_FILE` or `SSL_CERT_DIR` still wins. A host behind a corporate CA may need
+  `SSL_CERT_FILE` at runtime.
+- **fund**: the `anthropic` builder no longer sends `temperature=0` to `claude-mythos-5-2` or
+  `claude-sonnet-5-5`: `ChatAnthropic` refuses any temperature but 1 for those models, as it
+  already did for `claude-fable-5*`. With `langchain-anthropic` 1.7.13, `LLM_PROVIDER=anthropic`
+  and `claude-sonnet-5-5` failed every request before this change, and so did the fallback
+  model that goes through the same builder.
+- **fund**: `anthropic` 1.6.0 -> 2.14.0 (through `langchain-anthropic`) sends the API key as
+  `Authorization: Bearer` instead of `X-Api-Key`; the API accepts both. A proxy, gateway or
+  log filter that matches on `X-Api-Key` has to read `Authorization`. The request keeps the
+  `anthropic-version` of `2023-06-01` that `langchain-anthropic` sets, which is what lets the
+  `temperature` setting work; a wire test fails if that changes.
+- **fund**: AWS Bedrock calls retry less: `botocore` 1.44 defaults to its standard retry
+  mode, so a throttled or failing call is tried 3 times instead of 5, with shorter waits (about
+  3 s at most, was about 15 s). `AWS_MAX_ATTEMPTS` and `AWS_RETRY_MODE` change it.
+- **fund**: an SDK error says less. `openai` 3.38 puts only the server's message in
+  `str(error)` (the body stays on `error.body`), so an alert that matches the text
+  `Error code: 4xx - {...}` now sees `Error code: 4xx - <message>`, and `openai` 3.59 strips the
+  `Authorization` header from the request attached to the error.
+- **fund**: the Ask agent's `glob` and `grep` listings can only shrink with `wcmatch` 12:
+  `*.env` and `*.*` no longer list dotfiles and `**/` no longer lists regular files. Over
+  182,546 pattern and path cases nothing started matching, the permission checks decided
+  1,416 cases identically, and a scripted Ask run gave the same write, edit and delete
+  outcomes.
+- **fund**: LangGraph checkpoints written by the earlier versions read back unchanged under
+  `ormsgpack` 1.13.1 and `langgraph-checkpoint` 4.3.2, and the reverse also holds, so a
+  rollback can read what the new versions wrote (checked on the real Postgres saver and store).
+- **library**: the solver stack moved (`cvxpy-base` 1.9.3 with `sparsediffpy` 0.6.1, `joblib`
+  1.6.0, `threadpoolctl` 3.8.0, `tzdata` and `pytz` 2026.6) and results did not: 122 seeded
+  optimizer problems (mean-risk with 14 risk measures, risk budgeting, distributionally robust
+  CVaR, maximum diversification, robust uncertainty sets, the benchmark tracker) gave weights
+  identical to the last digit. `joblib` 1.6.0 needs `cloudpickle`, a new package in the lock.
+  The time-zone data changes Cuba, Manitoba, Inuvik and some history before 1967; no zone
+  that the library, the scheduler or an exchange calendar uses is affected.
 - **fund**: langchain-core 1.8.5 is used by every provider package. The `gpt-5.3-chat-latest`
   profile no longer states `max_input_tokens`, and the NVIDIA profile table in
   `langchain-nvidia-ai-endpoints` 1.5 dropped 54 earlier ids, so deepagents' summarization
@@ -104,7 +158,11 @@ Behaviour changes to know about:
   `type: ignore` in `ingestion/app/repositories/jobs/background_job_repository.py`, now
   removed. pyyaml 6.0.4 changes the precedence of YAML merge keys; the repository has none.
   `plotly` 7.2.0 embeds plotly.js 4.1.1 in the HTML that `save_figure_html` writes, and its
-  wheel is about 0.6 MB larger.
+  wheel is about 0.6 MB larger. `coverage` 7.17.5 measures the same percentages on all four
+  suites, `click` 8.5.1 leaves the `--help` screens of both CLIs as they were, `wcwidth` 0.9
+  ships an optional compiled extension (`WCWIDTH_PYTHON=1` turns it off) and `virtualenv`
+  21.15.9 and later also asks the package indexes in pip's configuration about yanked files
+  on its periodic update (`VIRTUALENV_NO_PERIODIC_UPDATE=1` stops all contact).
 
 Version moves, from 0.2.0 to now:
 
@@ -152,6 +210,32 @@ The comments in `pyproject.toml` and `packages/portopt-db/pyproject.toml` now na
 the two move together; the Ask agent, summarization, backend, skills and containment tests
 pass unchanged on 0.7.42.
 
+The second pass moved every other package in the lock to its newest release. None has a
+declaration of its own, and `uv lock --upgrade` now has nothing left to move:
+
+- Provider SDKs: anthropic 1.6.0 -> 2.14.0 (adds `opentelemetry-api` 1.45.2), groq 0.37.1 -> 1.7.0,
+  openai 3.19.2 -> 3.60.0, boto3 and botocore 1.43.101 -> 1.44.12, s3transfer 0.19.2 -> 0.19.3,
+  google-auth 2.58.0 -> 2.63.1.
+- Other majors: websockets 16.1.1 -> 17.4, multidict 6.9.1 -> 7.2.1, wcmatch 11.2 -> 12.0.4;
+  uuid-utils 0.17.1 -> 0.19.0, jsonpatch 1.33 -> 1.48, jsonpointer 3.1.1 -> 3.12.
+- HTTP and runtime: httpx2 and httpcore2 2.13.0 -> 2.16.2, anyio 4.14.2 -> 4.16.0, idna 3.19 -> 3.20,
+  charset-normalizer 3.5.1 -> 3.5.3, truststore 0.10.4 -> 0.10.5, orjson 3.12.0 -> 3.13.0, ormsgpack
+  1.12.2 -> 1.13.1, jiter 0.17.0 -> 0.19.0, lxml 6.1.2 -> 6.1.3, regex 2026.9.10 -> 2026.11.25,
+  soupsieve 4.1 -> 4.1.3, hf-xet 1.6.0 -> 1.8.0, huggingface-hub 2.4.0 -> 2.5.0, langgraph-checkpoint
+  4.3.0 -> 4.3.2, langgraph-sdk 0.4.11 -> 0.4.14, annotated-doc 0.0.5 -> 0.0.7, typing-inspection
+  0.4.4 -> 0.4.5, toolz 1.1.0 -> 1.2.0.
+- Numerics and time zones: cvxpy-base 1.9.2 -> 1.9.3, sparsediffpy 0.3.0 -> 0.6.1, joblib 1.5.3 -> 1.6.0
+  (adds cloudpickle 3.1.3), threadpoolctl 3.6.0 -> 3.8.0, narwhals 2.25.0 -> 2.29.0, xxhash 4.0.1 -> 4.1.0,
+  pycparser 3.0 -> 3.12, pyparsing 3.3.2 -> 3.3.3, protobuf 7.36.0 -> 7.36.2, pytz 2026.3.post1 -> 2026.6,
+  tzdata 2026.3 -> 2026.6, tzlocal 5.4.4 -> 5.4.5.
+- Tooling and text: coverage 7.15.4 -> 7.17.5, pluggy 1.6.0 -> 1.7.0, iniconfig 2.3.0 -> 2.3.1,
+  cyclonedx-python-lib 11.12.0 -> 11.13.0, py-serializable 2.1.0 -> 2.2.0, pip-api 0.0.34 -> 0.0.35,
+  pip 26.2.1 -> 26.3, cachecontrol 0.14.4 -> 0.15.0, packaging 26.3 -> 26.4, virtualenv 21.14.13 ->
+  21.15.13, filelock 4.2.4 -> 4.3.1, platformdirs 4.11.4 -> 4.14.8, distlib 0.4.3 -> 0.4.4,
+  python-discovery 1.6.4 -> 1.9.7, identify 2.6.19 -> 2.6.20, nodeenv 1.10.0 -> 1.12.0, click 8.5.0 ->
+  8.5.1, markdown-it-py 4.2.0 -> 4.3.0, mdit-py-plugins 0.6.1 -> 0.7.0, mako 1.4.1 -> 1.4.3,
+  markupsafe 3.0.3 -> 3.0.4, tomli 2.4.1 -> 2.5.0, wcwidth 0.8.2 -> 0.9.5, peewee 4.4.0 -> 4.5.3.
+
 ### Known / not done
 
 - **pandas 3.1.1** is not adopted (pandas stays at 3.0.6; the work sits on a draft pull
@@ -160,14 +244,38 @@ pass unchanged on 0.7.42.
   It waits for an `exchange_calendars` release that contains upstream pull request 633.
 - **python-dateutil 4.0.0** is not adopted: `botocore`, reached through `langchain-aws` (the
   `aws` and `all-llm` extras), caps it below 3.0.
-- **Transitive major releases** that the new provider packages now allow are not taken, and the
-  lock keeps `anthropic` 1.6.0, `groq` 0.37.1, `websockets` 16.1.1, `uuid-utils` 0.17.1,
-  `multidict` 6.9.1 and `wcmatch` 11.2. They need their own pass.
-- **claude-sonnet-5-5** also makes `ChatAnthropic` refuse a temperature other than 1, but the
-  `anthropic` builder still sends 0 for it (as it did before this refresh). Adding the model
-  family to the fixed-sampling list in `fund/src/fund/agents/model.py` is a one-token fix.
+- **Releases that another package's cap holds back**: `uuid-utils` 1.x (`langsmith` requires
+  below 1.0, and `langchain-core` and `langsmith` still call the 0.x signature),
+  `sparsediffpy` 0.7 to 0.9 (`cvxpy-base` 1.9.3 requires below 0.7) and `soupsieve` 4.1.4 (on
+  GitHub, not on PyPI).
+- **The Ask agent's write rule does not cover dot-prefixed paths.** The fund's one permission
+  rule denies writes to `/**`, and `deepagents` matches without the dotfile flag, so a path with
+  a dot-prefixed component (`/.git/config`, `/docs/.x.md`, `/code/fund/.hidden.py`) is not
+  matched: in a scripted run the agent wrote, edited and deleted such files, and every other
+  write was refused. It is the same on `wcmatch` 11.2 and 12.0.4, so this refresh did not
+  cause it. The writes land in the virtual backend roots (the staged copies and scratch), not
+  in the checkout. `read_only_permissions` is shared by the portfolio-manager, profiler and Ask
+  graphs, so `/theory/` and `/skills/` are open to the same writes, and the statement that
+  the permission layer denies every write is not true for such paths. A fix needs a
+  backend-level write refusal or an upstream flag, with a test.
+- **Hugging Face telemetry stays on** for `LLM_PROVIDER=huggingface`: `huggingface-hub` 2.x
+  sends a user agent that names the harness and torch version, and fetches the agent-harness
+  list from huggingface.co once per 24 hours. Only the test fixture sets
+  `HF_HUB_DISABLE_TELEMETRY`; operators can set it (or `HF_HUB_OFFLINE=1`) in the environment.
+- **Provider builder gaps that this refresh found and did not change**: the `groq` builder
+  passes no timeout, so `ChatGroq` has no read timeout (only `ollama` and `google` set one);
+  an ambient `GOOGLE_GENAI_USE_VERTEXAI=true` makes the `google` model a Vertex client even
+  though an API key is passed, which puts Application Default Credentials and the metadata
+  server on the request path; `GROQ_LOG=info` or `debug` in the environment turns the `httpx`
+  request line back on after `silence_http_request_logs` ran; and at DEBUG, `botocore` and
+  `websockets` log URLs, headers and credential ids. The daemon logs at INFO and has no
+  DEBUG switch, so none of that is reachable today.
+- **Test isolation in `portopt-db`**: running its unit tests and `tests/integration` in one
+  process with `PORTOPT_TEST_DATABASE_URL` set fails two log-capture tests, because Alembic's
+  `env.py` disables the existing loggers. CI runs them separately and passes.
 - What only a live provider can confirm was not exercised, because the tests use fakes and
-  local stubs: Gemini, Bedrock, Groq and NVIDIA NIM structured output and tool calls, the
+  local stubs: the Anthropic API accepting the key as `Authorization: Bearer` with the
+  `2023-06-01` version header, Gemini, Bedrock, Groq and NVIDIA NIM structured output and tool calls, the
   extra yfinance repair request and its effect on stored prices, and the news feed's article
   ids against search ids (a story may appear twice per ticker).
 

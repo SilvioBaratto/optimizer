@@ -967,6 +967,41 @@ def test_google_requests_use_the_v1beta_api_version(fake_gemini):
     ]
 
 
+@pytest.mark.criterion("REQ-FUND-032")
+def test_google_provider_never_asks_google_auth_for_credentials(
+    fake_gemini, monkeypatch
+):
+    """Validates ``fund.agents.model._build_google``: the API key is all it needs.
+
+    google-auth holds the Application Default Credentials lookup, the Compute Engine
+    metadata server and the environment switches that steer them (bound tokens,
+    regional access boundary lookups). A model built from ``GOOGLE_API_KEY`` must
+    reach none of it, or a google-auth release could pick the identity and the host
+    of a request that the operator keyed for the Gemini Developer API.
+    """
+    import google.auth
+
+    def _no_application_default_credentials(*_args, **_kwargs):
+        pytest.fail("google.auth.default() ran for a model built from an API key")
+
+    real_connect = socket.socket.connect
+
+    def _loopback_only(sock, address):
+        host = address[0] if isinstance(address, tuple) else "localhost"
+        if host not in ("127.0.0.1", "::1", "localhost"):
+            pytest.fail(f"the google provider opened a connection to {host}")
+        return real_connect(sock, address)
+
+    monkeypatch.setattr(google.auth, "default", _no_application_default_credentials)
+    monkeypatch.setattr(socket.socket, "connect", _loopback_only)
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+    llm.invoke("hi")
+
+    assert len(fake_gemini) == 1
+
+
 # --- aws / Bedrock Converse (langchain-aws / ChatBedrockConverse) ------------
 #
 # AWS is the first non-key provider: creds arrive via boto3 (AWS_ACCESS_KEY_ID /
@@ -1832,6 +1867,48 @@ def test_a_huggingface_call_writes_no_request_line_to_the_daemon_log(
     assert "router.huggingface.co" not in caplog.text
 
 
+@pytest.mark.criterion("REQ-FUND-037")
+@pytest.mark.parametrize("call", ["invoke", "ainvoke"])
+def test_a_huggingface_call_never_imports_the_xet_transfer_client(
+    call, hub_transport, monkeypatch
+):
+    """``hf_xet`` 1.7 and later send a report to the Hub after every transfer.
+
+    Validates ``fund.agents.model._build_huggingface``: the chat path only talks to
+    the Inference API, so the transfer client must not even be imported. A model
+    download added later fails here instead of starting those reports.
+    """
+    import importlib
+    import importlib.abc
+
+    requested: list[str] = []
+
+    # Refusing the import, rather than only noting it, keeps the Rust extension from
+    # being loaded a second time in a process that may already hold it.
+    class _XetImportBlocker(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname.split(".")[0] == "hf_xet":
+                requested.append(fullname)
+                raise ModuleNotFoundError(fullname)
+            return None
+
+    monkeypatch.delitem(sys.modules, "hf_xet", raising=False)
+    monkeypatch.setattr(sys, "meta_path", [_XetImportBlocker(), *sys.meta_path])
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("hf_xet")
+    assert requested == ["hf_xet"], "the blocker must see an import of hf_xet"
+    requested.clear()
+    llm = _hf_chat_model()
+
+    if call == "invoke":
+        llm.invoke("hi")
+    else:
+        asyncio.run(llm.ainvoke("hi"))
+
+    assert hub_transport.requests, "the call must have reached the hub transport"
+    assert requested == []
+
+
 @pytest.mark.criterion("REQ-FUND-025")
 def test_huggingface_token_stays_out_of_str_logs_and_error_text(
     hub_transport, caplog, monkeypatch
@@ -1892,7 +1969,9 @@ def _sent_temperature(llm: object) -> object:
     return payload.get("temperature", extra_body.get("temperature"))
 
 
-@pytest.mark.parametrize("model_name", ["claude-fable-5", "claude-mythos-5-2"])
+@pytest.mark.parametrize(
+    "model_name", ["claude-fable-5", "claude-mythos-5-2", "claude-sonnet-5-5"]
+)
 def test_anthropic_fixed_sampling_request_payload_builds_without_a_temperature(
     model_name,
 ):
@@ -1926,6 +2005,7 @@ def test_openai_reasoning_models_are_built_without_a_temperature(model_name):
     [
         ("anthropic", "claude-fable-5", None),
         ("anthropic", "claude-mythos-5-2", None),
+        ("anthropic", "claude-sonnet-5-5", None),
         ("anthropic", "claude-sonnet-4-5", 0.0),
         ("openai", "o3-mini", None),
         ("openai", "gpt-4o", 0.0),
