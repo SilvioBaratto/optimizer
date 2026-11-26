@@ -10,13 +10,12 @@ header, an endpoint or a new place for the key that nobody reviewed fails here.
 from __future__ import annotations
 
 import json
-import socket
-import threading
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 import pytest
+from _provider_stubs import loopback_only, loopback_url, serve_on_loopback
 
 from fund.agents import model
 from fund.config import FundConfig
@@ -87,12 +86,6 @@ _AMBIENT_GROQ_VARIABLES = (
     "LANGSMITH_GATEWAY",
 )
 
-# The stub's bind address, the NO_PROXY exemption and GROQ_API_BASE must name the same
-# host, or the request goes through a proxy or past the stub.
-_STUB_HOST = "127.0.0.1"
-_LOOPBACK_HOSTS = (_STUB_HOST, "::1", "localhost")
-_SERVER_JOIN_SECONDS = 5
-
 # (path, headers with lower-cased names, body) of one request the stub received.
 Request = tuple[str, dict[str, str], bytes]
 
@@ -119,19 +112,6 @@ def _recording_handler(requests: list[Request]) -> type[BaseHTTPRequestHandler]:
     return _Handler
 
 
-def _loopback_only(real_connect: Callable[..., None]) -> Callable[..., None]:
-    """Wrap ``socket.connect`` so only a loopback connection is allowed."""
-
-    def connect(sock, address):
-        """Connect over loopback only; fail the test on any other host."""
-        host = address[0] if isinstance(address, tuple) else "localhost"
-        if host not in _LOOPBACK_HOSTS:
-            pytest.fail(f"a unit test opened a connection to {host}")
-        return real_connect(sock, address)
-
-    return connect
-
-
 @pytest.fixture
 def fake_groq(monkeypatch) -> Generator[list[Request], None, None]:
     """A localhost stub of Groq's chat-completions route; yields what it received.
@@ -142,19 +122,11 @@ def fake_groq(monkeypatch) -> Generator[list[Request], None, None]:
     """
     for name in _AMBIENT_GROQ_VARIABLES:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("NO_PROXY", _STUB_HOST)
-    monkeypatch.setattr(socket.socket, "connect", _loopback_only(socket.socket.connect))
+    loopback_only(monkeypatch)
     requests: list[Request] = []
-    server = ThreadingHTTPServer((_STUB_HOST, 0), _recording_handler(requests))
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    monkeypatch.setenv("GROQ_API_BASE", f"http://{_STUB_HOST}:{server.server_port}")
-    try:
+    with serve_on_loopback(monkeypatch, _recording_handler(requests)) as port:
+        monkeypatch.setenv("GROQ_API_BASE", loopback_url(port))
         yield requests
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=_SERVER_JOIN_SECONDS)
 
 
 @pytest.mark.criterion("REQ-FUND-030")

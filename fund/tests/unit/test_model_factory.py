@@ -18,17 +18,17 @@ import json
 import logging
 import os
 import re
-import socket
 import sys
-import threading
 import types
 from collections.abc import Generator
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
 import pytest
 import tomllib
+from _provider_stubs import loopback_only, loopback_url, serve_on_loopback
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_core.load import dumpd, dumps
@@ -60,7 +60,6 @@ def fake_ollama(monkeypatch):
     ``auth_headers`` collects the ``Authorization`` header of every request (``None``
     when absent), so a test can assert what actually crossed the wire.
     """
-    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
     # The ollama SDK itself turns an ambient OLLAMA_API_KEY into a bearer header.
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
     auth_headers: list[str | None] = []
@@ -81,7 +80,7 @@ def fake_ollama(monkeypatch):
                 ).encode()
                 + b"\n"
             )
-            self.send_response(200)
+            self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/x-ndjson")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -90,15 +89,8 @@ def fake_ollama(monkeypatch):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_port}", auth_headers
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+    with serve_on_loopback(monkeypatch, _Handler) as port:
+        yield loopback_url(port), auth_headers
 
 
 @pytest.fixture
@@ -110,7 +102,6 @@ def fake_nvidia(monkeypatch):
     credential actually crossed the wire. The ambient ``NVIDIA_API_KEY`` is cleared
     first; a test that wants one sets it afterwards.
     """
-    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     auth_headers: list[str | None] = []
 
@@ -138,7 +129,7 @@ def fake_nvidia(monkeypatch):
                     },
                 }
             ).encode()
-            self.send_response(200)
+            self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -147,15 +138,8 @@ def fake_nvidia(monkeypatch):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_port}/v1", auth_headers
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+    with serve_on_loopback(monkeypatch, _Handler) as port:
+        yield f"{loopback_url(port)}/v1", auth_headers
 
 
 @pytest.fixture
@@ -168,7 +152,6 @@ def fake_gemini(monkeypatch):
     which aims a model built by the repo's own builder at the stub. Every ambient
     variable that moves the SDK to another backend, version or gateway is cleared.
     """
-    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
     for name in (
         "GOOGLE_API_KEY",
         "GEMINI_API_KEY",
@@ -202,7 +185,7 @@ def fake_gemini(monkeypatch):
                     },
                 }
             ).encode()
-            self.send_response(200)
+            self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -211,18 +194,9 @@ def fake_gemini(monkeypatch):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    monkeypatch.setenv(
-        "GOOGLE_GEMINI_BASE_URL", f"http://127.0.0.1:{server.server_port}"
-    )
-    try:
+    with serve_on_loopback(monkeypatch, _Handler) as port:
+        monkeypatch.setenv("GOOGLE_GEMINI_BASE_URL", loopback_url(port))
         yield requests
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
 
 
 def test_build_chat_model_threads_config_onto_chatollama():
@@ -984,16 +958,8 @@ def test_google_provider_never_asks_google_auth_for_credentials(
     def _no_application_default_credentials(*_args, **_kwargs):
         pytest.fail("google.auth.default() ran for a model built from an API key")
 
-    real_connect = socket.socket.connect
-
-    def _loopback_only(sock, address):
-        host = address[0] if isinstance(address, tuple) else "localhost"
-        if host not in ("127.0.0.1", "::1", "localhost"):
-            pytest.fail(f"the google provider opened a connection to {host}")
-        return real_connect(sock, address)
-
     monkeypatch.setattr(google.auth, "default", _no_application_default_credentials)
-    monkeypatch.setattr(socket.socket, "connect", _loopback_only)
+    loopback_only(monkeypatch)
     cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
 
     llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
@@ -1588,15 +1554,7 @@ _NVIDIA_STATIC_TABLE_MODEL = "meta/llama-3.1-70b-instruct"
 @pytest.fixture
 def nvidia_construction_stays_offline(monkeypatch):
     """Fail on a non-loopback connection that ``except Exception`` cannot swallow."""
-    real_connect = socket.socket.connect
-
-    def _loopback_only(sock, address):
-        host = address[0] if isinstance(address, tuple) else "localhost"
-        if host not in ("127.0.0.1", "::1", "localhost"):
-            pytest.fail(f"a unit test opened a connection to {host}")
-        return real_connect(sock, address)
-
-    monkeypatch.setattr(socket.socket, "connect", _loopback_only)
+    loopback_only(monkeypatch)
 
 
 @pytest.mark.criterion("REQ-FUND-026")

@@ -17,15 +17,14 @@ from __future__ import annotations
 
 import json
 import logging
-import socket
-import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from typing import Any
 
 import pytest
+from _provider_stubs import loopback_only, loopback_url, serve_on_loopback
 from langchain_core.load import dumpd, dumps
 
 from fund.agents import model
@@ -37,16 +36,12 @@ pytest.importorskip("langchain_anthropic")
 _KEY = "sk-ant-S3CRET-wire"
 # Not a model the SDK lists as deprecated: it warns on a request that names one.
 _MODEL = "claude-sonnet-4-6"
-_SERVER_JOIN_SECONDS = 5
-_STUB_HOST = "127.0.0.1"
-_EPHEMERAL_PORT = 0
 
 # The first API version that answers a request carrying ``temperature``, ``top_p`` or
 # ``top_k`` with HTTP 400. ISO dates order the same as strings.
 _FIRST_VERSION_WITHOUT_SAMPLING = "2026-10-21"
 
 _TRACE_CONTEXT_HEADERS = ("traceparent", "tracestate", "baggage")
-_LOOPBACK_HOSTS = frozenset({_STUB_HOST, "::1", "localhost"})
 
 # Every variable the SDK or langchain-anthropic would read in place of a value the
 # builder did not pass, so a developer's shell cannot change what is asserted. The
@@ -117,34 +112,12 @@ class _Stub:
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in _AMBIENT_ENV:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("NO_PROXY", _STUB_HOST)
 
 
 @pytest.fixture(autouse=True)
-def _loopback_only(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+def refused_hosts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Refuse and record every connection or lookup that is not the loopback stub."""
-    refused: list[str] = []
-    real_connect = socket.socket.connect
-    real_getaddrinfo = socket.getaddrinfo
-
-    def connect(self: socket.socket, address: Any) -> None:
-        """Connect to the loopback stub; record and refuse any other host."""
-        host = address[0] if isinstance(address, tuple) else str(address)
-        if host not in _LOOPBACK_HOSTS:
-            refused.append(f"connect {host}")
-            raise OSError("only the loopback stub may be reached")
-        real_connect(self, address)
-
-    def getaddrinfo(host: Any, *args: Any, **kwargs: Any) -> Any:
-        """Resolve a loopback name; record and refuse any other lookup."""
-        if host is not None and host not in _LOOPBACK_HOSTS:
-            refused.append(f"lookup {host}")
-            raise socket.gaierror("only the loopback stub may be resolved")
-        return real_getaddrinfo(host, *args, **kwargs)
-
-    monkeypatch.setattr(socket.socket, "connect", connect)
-    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
-    return refused
+    return loopback_only(monkeypatch, refuse_lookups=True)
 
 
 def _recording_handler(state: _Stub) -> type[BaseHTTPRequestHandler]:
@@ -174,19 +147,10 @@ def _recording_handler(state: _Stub) -> type[BaseHTTPRequestHandler]:
 def stub(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Stub]:
     """A localhost Anthropic-style ``/v1/messages`` endpoint, set as the base URL."""
     state = _Stub(base_url="")
-    server = ThreadingHTTPServer(
-        (_STUB_HOST, _EPHEMERAL_PORT), _recording_handler(state)
-    )
-    state.base_url = f"http://{_STUB_HOST}:{server.server_port}"
-    monkeypatch.setenv("ANTHROPIC_BASE_URL", state.base_url)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
+    with serve_on_loopback(monkeypatch, _recording_handler(state)) as port:
+        state.base_url = loopback_url(port)
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", state.base_url)
         yield state
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=_SERVER_JOIN_SECONDS)
 
 
 def _chat_model() -> Any:
@@ -243,7 +207,7 @@ def test_no_trace_context_is_sent_while_no_tracer_provider_is_registered(
 
 @pytest.mark.criterion("REQ-FUND-029")
 def test_one_call_makes_one_request_and_contacts_no_other_host(
-    stub: _Stub, _loopback_only: list[str]
+    stub: _Stub, refused_hosts: list[str]
 ) -> None:
     """Building and calling the model starts no update check, telemetry or lookup.
 
@@ -252,7 +216,7 @@ def test_one_call_makes_one_request_and_contacts_no_other_host(
     _chat_model().invoke("hi")
 
     assert len(stub.requests) == 1
-    assert _loopback_only == []
+    assert refused_hosts == []
 
 
 @pytest.mark.criterion("REQ-FUND-029")
