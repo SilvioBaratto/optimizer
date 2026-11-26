@@ -152,6 +152,73 @@ def fake_nvidia(monkeypatch):
         thread.join(timeout=5)
 
 
+@pytest.fixture
+def fake_gemini(monkeypatch):
+    """A localhost Gemini ``generateContent`` stub for ``ChatGoogleGenerativeAI``.
+
+    Yields ``requests``, one ``{"path", "api_key"}`` record per call, so a test can
+    assert which API version and credential actually crossed the wire. The
+    google-genai SDK reads ``GOOGLE_GEMINI_BASE_URL`` when no base URL is passed,
+    which aims a model built by the repo's own builder at the stub. Every ambient
+    variable that moves the SDK to another backend, version or gateway is cleared.
+    """
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    for name in (
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_GENAI_API_VERSION",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_GENAI_USE_ENTERPRISE",
+        "LANGSMITH_GATEWAY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    requests: list[dict[str, str | None]] = []
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            requests.append(
+                {"path": self.path, "api_key": self.headers.get("x-goog-api-key")}
+            )
+            body = json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "content": {"role": "model", "parts": [{"text": "ok"}]},
+                            "finishReason": "STOP",
+                            "index": 0,
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 1,
+                        "candidatesTokenCount": 1,
+                        "totalTokenCount": 2,
+                    },
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setenv(
+        "GOOGLE_GEMINI_BASE_URL", f"http://127.0.0.1:{server.server_port}"
+    )
+    try:
+        yield requests
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_build_chat_model_threads_config_onto_chatollama():
     llm = model.build_chat_model(_CFG, model_name="deepseek-v4.1-flash:cloud")
 
@@ -806,6 +873,55 @@ def test_google_without_key_raises_runtimeerror(monkeypatch):
 
     with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
         model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+
+@pytest.mark.criterion("REQ-FUND-022")
+def test_google_api_key_is_absent_from_repr_str_and_serialized_form():
+    """Validates ``fund.agents.model._build_google``.
+
+    LangChain hands ``repr`` and ``dumpd`` of the model to every tracer and debug
+    log, and the google-genai client the model builds holds the key too.
+    """
+    key = "gk-google-secret-value"
+    cfg = FundConfig(llm_provider="google", google_api_key=key)
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+    assert key not in repr(llm)
+    assert key not in str(llm)
+    assert key not in json.dumps(dumpd(llm), default=str)
+
+
+@pytest.mark.criterion("REQ-FUND-022")
+def test_google_api_key_is_sent_as_a_header_but_not_handed_to_callbacks(fake_gemini):
+    """Validates ``fund.agents.model._build_google``."""
+    key = "gk-google-secret-value"
+    cfg = FundConfig(llm_provider="google", google_api_key=key)
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+    spy = _SerializedSpy()
+
+    llm.invoke("hi", config={"callbacks": [spy]})
+
+    assert [request["api_key"] for request in fake_gemini] == [key]
+    assert spy.serialized
+    assert all(key not in payload for payload in spy.serialized)
+
+
+def test_google_requests_use_the_v1beta_api_version(fake_gemini):
+    """Validates ``fund.agents.model._build_google``.
+
+    google-genai 3.0 moved the Gemini Developer API default to ``v1``, which does
+    not serve preview models, the ``-latest`` aliases or context caching;
+    langchain-google-genai pins ``v1beta`` back for that backend.
+    """
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+    llm.invoke("hi")
+
+    assert [request["path"] for request in fake_gemini] == [
+        "/v1beta/models/gemini-2.5-flash:generateContent"
+    ]
 
 
 # --- aws / Bedrock Converse (langchain-aws / ChatBedrockConverse) ------------

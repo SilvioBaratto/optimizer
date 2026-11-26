@@ -50,8 +50,9 @@ Also critical and tested:
 - The append-only audit trail (`human_audit_log`): `packages/portopt-db/tests/integration/test_audit_log_triggers.py`.
   No requirement id.
 - Secrets kept out of `repr`: `fund/tests/unit/test_config_secrets_not_in_repr.py`,
-  `ingestion/tests/unit/test_settings_repr.py`, `packages/portopt-db/tests/test_db_config_repr.py`.
-  REQ-FUND-017, REQ-ING-008, REQ-DB-005.
+  `fund/tests/unit/test_model_factory.py`, `ingestion/tests/unit/test_settings_repr.py`,
+  `packages/portopt-db/tests/test_db_config_repr.py`.
+  REQ-FUND-017, REQ-FUND-022, REQ-ING-008, REQ-DB-005.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
   REQ-DB-006.
 - A fresh install builds its universe on the first daily run (issue 1125):
