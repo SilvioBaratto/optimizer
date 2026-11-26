@@ -1927,7 +1927,9 @@ def _sent_temperature(llm: object) -> object:
     return payload.get("temperature", extra_body.get("temperature"))
 
 
-@pytest.mark.parametrize("model_name", ["claude-fable-5", "claude-mythos-5-2"])
+@pytest.mark.parametrize(
+    "model_name", ["claude-fable-5", "claude-mythos-5-2", "claude-sonnet-5-5"]
+)
 def test_anthropic_fixed_sampling_request_payload_builds_without_a_temperature(
     model_name,
 ):
@@ -1961,6 +1963,7 @@ def test_openai_reasoning_models_are_built_without_a_temperature(model_name):
     [
         ("anthropic", "claude-fable-5", None),
         ("anthropic", "claude-mythos-5-2", None),
+        ("anthropic", "claude-sonnet-5-5", None),
         ("anthropic", "claude-sonnet-4-5", 0.0),
         ("openai", "o3-mini", None),
         ("openai", "gpt-4o", 0.0),

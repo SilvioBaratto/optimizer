@@ -71,11 +71,15 @@ _READ_TIMEOUT_SECONDS = 180.0
 
 # Model families whose APIs reject any non-default sampling temperature: OpenAI's
 # o-series ("o1", "o3-mini", "o4-mini", ...) answers HTTP 400, and langchain-anthropic
-# raises client-side for the Fable family and Mythos 5.2. The fallback model goes
-# through the same builder, so sending the temperature=0 contract anyway would fail
-# every request with nothing for ModelFallbackMiddleware to fall back to.
+# raises client-side for the Fable family, Mythos 5.2 and Sonnet 5.5. The fallback
+# model goes through the same builder, so sending the temperature=0 contract anyway
+# would fail every request with nothing for ModelFallbackMiddleware to fall back to.
 _OPENAI_REASONING_MODEL = re.compile(r"o\d")
-_ANTHROPIC_FIXED_SAMPLING_PREFIXES = ("claude-fable-5", "claude-mythos-5-2")
+_ANTHROPIC_FIXED_SAMPLING_PREFIXES = (
+    "claude-fable-5",
+    "claude-mythos-5-2",
+    "claude-sonnet-5-5",
+)
 
 # langchain-core reads this process variable (`true`, or a gateway URL) and a provider
 # class that applies it sends any model whose endpoint the builder did not pass to the
