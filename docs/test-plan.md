@@ -60,7 +60,9 @@ Also critical and tested:
   `fund/tests/unit/test_config.py`, `fund/tests/unit/test_model_factory.py`. REQ-FUND-028.
 - No usage telemetry from a provider SDK (data minimisation, standard 2.15.11): the
   `nvidia` chat model is built with the SDK's telemetry switched off, whatever the
-  environment holds. `fund/tests/unit/test_model_factory.py`. REQ-FUND-026.
+  environment holds. `fund/tests/unit/test_model_factory.py`. REQ-FUND-026. The
+  `huggingface` chat path never imports `hf_xet`, whose 1.7 and later releases report each
+  transfer to the Hub: `fund/tests/unit/test_model_factory.py`. REQ-FUND-037.
 - No chat model is built while `LANGSMITH_GATEWAY` is set, so prompts and keys never reach
   the LangSmith gateway: `fund/tests/unit/test_model_openai_family.py`. REQ-FUND-027.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
