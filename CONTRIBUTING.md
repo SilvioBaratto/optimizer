@@ -186,7 +186,7 @@ repository departs from the MAJOR rule of standard 5.1.1, until 1.0.0.
 5. Tag the merge commit on `main`: `git tag -a v0.x.0` and `git push origin v0.x.0`
 6. The release workflow rejects the tag unless its commit is on `main` and the tag
    equals `v` plus the `pyproject.toml` version, re-runs the full CI workflow, and
-   only then publishes `portopt-core` to PyPI
+   only then builds the `portopt-core` sdist and wheel. Nothing is uploaded to PyPI
 7. Merge `main` back into `development` through a pull request, so that `development`
    carries the release version, the new `[0.x.0]` section and the empty `[Unreleased]`
 

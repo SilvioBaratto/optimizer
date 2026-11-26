@@ -489,7 +489,7 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
 - Dependabot for dependency and GitHub Actions updates (#48)
 - Property-based testing with Hypothesis (#49)
 - Developer experience: Makefile (#50)
-- Automated release workflow (tag to PyPI publish) (#52)
+- Automated release workflow: tag check, CI gate and `portopt-core` build (#52)
 - Pyright compatibility configuration (#53)
 - **api**: `app/worker.py` — the ingestion daemon entrypoint. Serves Prometheus
   metrics, reaps orphaned jobs, bootstraps benchmarks off-thread, then runs
@@ -893,6 +893,13 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
 
 ### Removed
 
+- **ci**: the `publish` job of `release.yml`. This project is no longer published to
+  PyPI: the `pypi` environment, the `id-token: write` grant and the
+  `pypa/gh-action-pypi-publish` step are gone, so a `v*` tag cannot upload anything.
+  A tag is still checked (on `main`, equal to the `pyproject.toml` version), runs
+  the full CI workflow and then builds the `portopt-core` sdist and wheel as the
+  `dist` artifact. `test_release_workflow_never_uploads_to_pypi` fails if an upload
+  step comes back, and the README, CONTRIBUTING and CLAUDE.md no longer describe one.
 - **api**: the entire HTTP layer — every `/api/v1/*` route, FastAPI, uvicorn, the
   API-key auth middleware, and the `api_keys` table
 - **api**: the portfolio, optimization, backtest, factor, risk, rebalancing,
