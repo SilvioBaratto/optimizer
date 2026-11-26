@@ -967,6 +967,41 @@ def test_google_requests_use_the_v1beta_api_version(fake_gemini):
     ]
 
 
+@pytest.mark.criterion("REQ-FUND-032")
+def test_google_provider_never_asks_google_auth_for_credentials(
+    fake_gemini, monkeypatch
+):
+    """Validates ``fund.agents.model._build_google``: the API key is all it needs.
+
+    google-auth holds the Application Default Credentials lookup, the Compute Engine
+    metadata server and the environment switches that steer them (bound tokens,
+    regional access boundary lookups). A model built from ``GOOGLE_API_KEY`` must
+    reach none of it, or a google-auth release could pick the identity and the host
+    of a request that the operator keyed for the Gemini Developer API.
+    """
+    import google.auth
+
+    def _no_application_default_credentials(*_args, **_kwargs):
+        pytest.fail("google.auth.default() ran for a model built from an API key")
+
+    real_connect = socket.socket.connect
+
+    def _loopback_only(sock, address):
+        host = address[0] if isinstance(address, tuple) else "localhost"
+        if host not in ("127.0.0.1", "::1", "localhost"):
+            pytest.fail(f"the google provider opened a connection to {host}")
+        return real_connect(sock, address)
+
+    monkeypatch.setattr(google.auth, "default", _no_application_default_credentials)
+    monkeypatch.setattr(socket.socket, "connect", _loopback_only)
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+    llm.invoke("hi")
+
+    assert len(fake_gemini) == 1
+
+
 # --- aws / Bedrock Converse (langchain-aws / ChatBedrockConverse) ------------
 #
 # AWS is the first non-key provider: creds arrive via boto3 (AWS_ACCESS_KEY_ID /

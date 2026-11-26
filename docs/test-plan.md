@@ -69,6 +69,10 @@ Also critical and tested:
 - What the `groq` SDK sends with a request is pinned, so a release of it cannot add a
   header, an endpoint or a new place for the key unnoticed (data minimisation,
   standard 2.15.11): `fund/tests/unit/test_model_groq_sdk_wire.py`. REQ-FUND-030.
+- No Application Default Credentials or metadata-server lookup from the `google` provider
+  (data minimisation, standard 2.15.11): a model built from `GOOGLE_API_KEY` never calls
+  `google.auth.default()` and connects only to its Gemini endpoint.
+  `fund/tests/unit/test_model_factory.py`. REQ-FUND-032.
 - No chat model is built while `LANGSMITH_GATEWAY` is set, so prompts and keys never reach
   the LangSmith gateway: `fund/tests/unit/test_model_openai_family.py`. REQ-FUND-027.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
