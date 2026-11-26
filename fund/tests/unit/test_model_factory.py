@@ -13,18 +13,23 @@ missing key raises at *build* time (never at import, so a bare
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
+import logging
 import os
 import re
 import sys
 import threading
 import types
+from collections.abc import Generator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 import pytest
 import tomllib
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.language_models import BaseChatModel
 from langchain_core.load import dumpd
 
 from fund.agents import model
@@ -1358,6 +1363,170 @@ def test_huggingface_clients_stay_authenticated_after_the_token_is_hidden():
 
     assert llm.llm.client.token == token
     assert llm.llm.async_client.token == token
+
+
+# The hub keeps its auto-router only for a key that looks like a Hugging Face one, so
+# the fake must start with ``hf_``. Not named after a token to stay clear of S105.
+_FAKE_HF_ROUTED = "hf_fake-routed-value"
+_HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
+
+
+@dataclasses.dataclass
+class _HubTransport:
+    """What the in-memory Hugging Face router saw, and how it answers next."""
+
+    status_code: int = 200
+    requests: list[Any] = dataclasses.field(default_factory=list)
+
+
+@pytest.fixture
+def hub_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[_HubTransport, None, None]:
+    """Serve every ``huggingface_hub`` request from memory, sync and async.
+
+    The hub builds one shared client from a module-level factory, so the factory is
+    swapped for one that keeps the hub's own request hook but replaces the network
+    with a mock transport. Telemetry is switched off because the user-agent builder
+    would otherwise fetch an agent-harness registry from huggingface.co and cache it
+    under ``HF_HOME``.
+    """
+    import httpx2
+    from huggingface_hub import constants as hub_constants
+    from huggingface_hub.utils import _http as hub_http
+
+    transport = _HubTransport()
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        transport.requests.append(request)
+        if transport.status_code != 200:
+            return httpx2.Response(transport.status_code, json={"error": "upstream"})
+        completion = {
+            "id": "cmpl-1",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "m",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "hello"},
+                }
+            ],
+        }
+        return httpx2.Response(200, json=completion)
+
+    sync_hooks = {"request": [hub_http.hf_request_event_hook]}
+    async_hooks = {
+        "request": [hub_http.async_hf_request_event_hook],
+        "response": [hub_http.async_hf_response_event_hook],
+    }
+    monkeypatch.setattr(hub_constants, "HF_HUB_DISABLE_TELEMETRY", True)
+    monkeypatch.setattr(hub_http, "_GLOBAL_CLIENT", None)
+    monkeypatch.setattr(
+        hub_http,
+        "_GLOBAL_CLIENT_FACTORY",
+        lambda: httpx2.Client(
+            transport=httpx2.MockTransport(answer), event_hooks=sync_hooks, timeout=None
+        ),
+    )
+    monkeypatch.setattr(
+        hub_http,
+        "_GLOBAL_ASYNC_CLIENT_FACTORY",
+        lambda: httpx2.AsyncClient(
+            transport=httpx2.MockTransport(answer),
+            event_hooks=async_hooks,
+            timeout=None,
+        ),
+    )
+    yield transport
+    hub_http.close_session()
+
+
+def _hf_chat_model() -> BaseChatModel:
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=_FAKE_HF_ROUTED)
+    return model.build_chat_model(cfg, model_name="meta-llama/Meta-Llama-3-8B-Instruct")
+
+
+_HTTP_LOGGER_NAMES = ("httpx", "httpx2", "httpcore", "httpcore2")
+
+
+@pytest.mark.parametrize("call", ["invoke", "ainvoke"])
+def test_a_huggingface_call_writes_no_request_line_to_the_daemon_log(
+    call, hub_transport, caplog
+):
+    """``huggingface-hub`` 2.x logs through ``httpx2``, not ``httpx``.
+
+    Validates ``fund.config.silence_http_request_logs`` against the 2.x hub client.
+    ``caplog.set_level`` restores each logger it touched, so the levels the silencing
+    sets do not leak into later tests.
+    """
+    from fund.config import silence_http_request_logs
+
+    llm = _hf_chat_model()
+    caplog.set_level(logging.INFO)
+    for name in _HTTP_LOGGER_NAMES:
+        caplog.set_level(logging.NOTSET, logger=name)
+
+    def run() -> None:
+        if call == "invoke":
+            llm.invoke("hi")
+        else:
+            asyncio.run(llm.ainvoke("hi"))
+
+    run()
+    assert any(
+        "HTTP Request" in r.getMessage() and _HF_ROUTER_URL in r.getMessage()
+        for r in caplog.records
+    ), "the control call must log before silencing, or this test proves nothing"
+    caplog.clear()
+
+    silence_http_request_logs()
+    run()
+
+    assert [str(r.url) for r in hub_transport.requests][-1] == _HF_ROUTER_URL
+    assert "HTTP Request" not in caplog.text
+    assert "router.huggingface.co" not in caplog.text
+
+
+@pytest.mark.criterion("REQ-FUND-025")
+def test_huggingface_token_stays_out_of_str_logs_and_error_text(
+    hub_transport, caplog, monkeypatch
+):
+    """Validates ``fund.agents.model._build_huggingface`` against the 2.x hub client.
+
+    The hub's own debug logging prints a curl command for every request, so it is
+    switched on here with every logger at DEBUG: the token must still never appear.
+    """
+    from huggingface_hub import constants as hub_constants
+    from huggingface_hub.errors import HfHubHTTPError
+
+    monkeypatch.setattr(hub_constants, "HF_DEBUG", True)
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="huggingface_hub")
+    for name in _HTTP_LOGGER_NAMES:
+        caplog.set_level(logging.NOTSET, logger=name)
+    llm = _hf_chat_model()
+
+    llm.invoke("hi")
+    asyncio.run(llm.ainvoke("hi"))
+    hub_transport.status_code = 500
+    with pytest.raises(HfHubHTTPError) as failure:
+        llm.invoke("hi")
+
+    assert hub_transport.requests[0].headers["authorization"] == (
+        f"Bearer {_FAKE_HF_ROUTED}"
+    ), "the clients must still authenticate once the token is hidden"
+    visible = [
+        repr(llm),
+        str(llm),
+        json.dumps(dumpd(llm), default=str),
+        caplog.text,
+        str(failure.value),
+        repr(failure.value),
+    ]
+    assert not [text for text in visible if _FAKE_HF_ROUTED in text]
+    assert "<TOKEN>" in caplog.text, "the debug curl line must have been logged"
 
 
 # --- temperature is sent only to models that accept it -----------------------
