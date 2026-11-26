@@ -285,7 +285,8 @@ Metrics, served by the worker when metrics are enabled:
   builder (`model.py` explains why a missing one can block the daemon), the primary model
   has one fallback, and structured output is validated with pydantic and retried.
   Providers hang intermittently (one Ollama Cloud call blocked for 180 s), so a round can
-  stall until its deadline.
+  stall until its deadline. From 1.5 the NVIDIA SDK also posts hourly usage aggregates to
+  an NVIDIA host unless told not to; the `nvidia` builder switches that off.
 - **Code**: `fund/src/fund/agents/model.py`, `fund/src/fund/config.py`,
   `fund/src/fund/agents/graph.py`, `fund/src/fund/tools/orders.py`,
   `fund/src/fund/actions.py`.
