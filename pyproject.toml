@@ -48,7 +48,7 @@ lint = ["ruff==0.17.6", "pip-audit==2.10.1"]
 # pyright is pinned exactly: each release can add checks that fail the zero-error
 # CI gate, so the pin moves together with any fixes the new version needs.
 typecheck = ["mypy==2.3.1", "pyright[nodejs]==1.1.414"]
-dev = ["portopt-core[test,lint,typecheck]", "pre-commit==4.6.2"]
+dev = ["portopt-core[test,lint,typecheck]", "pre-commit==4.7.0"]
 
 # src-layout: the `optimizer` import package now lives under
 # packages/portopt-core/optimizer (moved out of the repo root). `where` points
