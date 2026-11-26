@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 import tomllib
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.load import dumpd
+from langchain_core.load import dumpd, dumps
 
 from fund.agents import model
 from fund.config import FundConfig, load_config
@@ -859,6 +859,99 @@ def test_aws_without_region_raises_runtimeerror(monkeypatch):
 
     with pytest.raises(RuntimeError, match="AWS_REGION"):
         model.build_chat_model(cfg, model_name="anthropic.claude-3")
+
+
+_AWS_SENTINELS = {
+    "AWS_ACCESS_KEY_ID": "s3ntinel-aws-access-key-id-value",
+    "AWS_SECRET_ACCESS_KEY": "s3ntinel-aws-secret-access-key-value",
+    "AWS_SESSION_TOKEN": "s3ntinel-aws-session-token-value",
+}
+
+
+class _ConverseStub:
+    """A Converse client that replays one canned response and never opens a socket."""
+
+    def __init__(self, stop_reason: str) -> None:
+        self._response = {
+            "output": {"message": {"role": "assistant", "content": [{"text": "ok"}]}},
+            "stopReason": stop_reason,
+            "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2},
+            "metrics": {"latencyMs": 1},
+        }
+
+    def converse(self, **_request):
+        return self._response
+
+
+@pytest.fixture
+def aws_env(monkeypatch, tmp_path):
+    """Sentinel boto3 credentials in the environment and no ambient AWS config.
+
+    The real ``ChatBedrockConverse`` reads these at build time, so the fixture also
+    keeps boto3 from reading the developer's ``~/.aws`` files or probing the
+    instance-metadata endpoint.
+    """
+    pytest.importorskip("langchain_aws")
+    for name, value in _AWS_SENTINELS.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "aws-config"))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "aws-credentials"))
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    return dict(_AWS_SENTINELS)
+
+
+@pytest.mark.criterion("REQ-FUND-023")
+def test_aws_credentials_are_absent_from_repr_and_serialized_form(aws_env):
+    # The class copies the boto3 credentials from the environment into its own
+    # fields, and LangChain falls back to repr() as the serialized form it hands
+    # every tracer and log, so a field that stopped being a SecretStr would leak.
+    cfg = FundConfig(llm_provider="aws", aws_region="us-east-1")
+
+    llm = model.build_chat_model(
+        cfg, model_name="anthropic.claude-3-5-sonnet-20240620-v1:0"
+    )
+
+    # Without this the test would pass vacuously if the class stopped reading them.
+    assert llm.aws_access_key_id.get_secret_value() == aws_env["AWS_ACCESS_KEY_ID"]
+    rendered = {
+        "repr": repr(llm),
+        "str": str(llm),
+        "dumps": dumps(llm),
+        "dumpd": json.dumps(dumpd(llm), default=str),
+        "model_dump_json": llm.model_dump_json(),
+    }
+    leaks = [
+        (form, name)
+        for form, text in rendered.items()
+        for name, secret in aws_env.items()
+        if secret in text
+    ]
+    assert leaks == []
+
+
+@pytest.mark.parametrize(
+    ("stop_reason", "expected"),
+    [
+        pytest.param("max_tokens", "output_truncated", id="output-cap"),
+        pytest.param("end_turn", "no_order", id="normal-stop"),
+    ],
+)
+def test_aws_converse_stop_reason_is_read_by_the_pm_end_reason(
+    aws_env, stop_reason, expected
+):
+    # langchain-aws 1.10 adds finish_reason and normalized_finish_reason next to
+    # the raw stopReason; the PM end-reason reader must keep telling a provider
+    # output cap from a model that simply stopped.
+    from fund.agents.graph_hitl import _ungated_end_reason
+
+    cfg = FundConfig(llm_provider="aws", aws_region="us-east-1")
+    llm = model.build_chat_model(cfg, model_name="anthropic.claude-3")
+    llm.client = _ConverseStub(stop_reason)
+
+    reply = llm.invoke("hi")
+
+    assert _ungated_end_reason(reply, pm_round_cap_reached=False) == expected
 
 
 # --- microsoft / Azure OpenAI (langchain-openai / AzureChatOpenAI) -----------
