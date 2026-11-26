@@ -2975,7 +2975,7 @@ requires-dist = [
     { name = "rich", specifier = "==15.0.0" },
     { name = "scikit-learn", specifier = "==1.9.1" },
     { name = "sqlalchemy", specifier = "==2.0.52" },
-    { name = "typer", specifier = "==0.27.1" },
+    { name = "typer", specifier = "==0.29.3" },
     { name = "urllib3", specifier = "==2.8.0" },
     { name = "userpath", specifier = "==1.9.2" },
     { name = "yfinance", specifier = "==1.8.0" },
@@ -4507,17 +4507,18 @@ wheels = [
 
 [[package]]
 name = "typer"
-version = "0.27.1"
+version = "0.29.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
     { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "pydantic" },
     { name = "rich" },
     { name = "shellingham" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ae/40/4a3db7990d1f62a53182aa96eaef57aeb2886a27f90a195bc66713565d31/typer-0.27.1.tar.gz", hash = "sha256:a79bef8469a79c45498e7b814ecf8d603cc7644e9acbd9e19cac0334240b18df", size = 203994, upload-time = "2026-08-03T14:41:03.438Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/8f/4583099c74623e04610d9df01ff58a9217935e88fdbd4b14167ebe99c134/typer-0.29.3.tar.gz", hash = "sha256:8189a53bb9684dc551e0b61e71904b323214884f2eb14bfe71aa859ae980d10a", size = 205982, upload-time = "2026-11-26T08:20:50.693Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/89/9518bc0c3929bee36b3a4a8e3daddd6e03f92f9961c66d4983b837160543/typer-0.27.1-py3-none-any.whl", hash = "sha256:53150287edd11baeb4e4722c8e394fcdf8181c0ae89485cba8d25c778d5edd56", size = 122874, upload-time = "2026-08-03T14:41:04.391Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/43/a3e7ce867dc4fa852f4223ada99d29bc9ba5faf32496b63ec587cd10a0d7/typer-0.29.3-py3-none-any.whl", hash = "sha256:1fd37275046faecc86caa2e0e313978c10db71533fc0fe1a48f4e03a60efc23c", size = 121082, upload-time = "2026-11-26T08:20:49.527Z" },
 ]
 
 [[package]]
