@@ -8,6 +8,34 @@ set -euo pipefail
 # The portfolio id is optional and forwarded to fund-tui verbatim: no arg opens the
 # fund-wide shell (Posture landing), `<uuid>` focuses that portfolio.
 
+# Checked before anything starts: `portopt start` asks for the master passphrase and may
+# rebuild images, so a mistyped word (`optimizer status` meant for `portopt status`)
+# must fail here instead of crashing the cockpit once all of that has run.
+#
+# The two accepted shapes are spelled out in full. Stripping the hyphens and counting
+# digits would also let `-<32 hex>` through, which fund-tui's parser reads as an
+# option, after the stack has already started.
+readonly CANONICAL_UUID='^[[:xdigit:]]{8}(-[[:xdigit:]]{4}){3}-[[:xdigit:]]{12}$'
+readonly COMPACT_UUID='^[[:xdigit:]]{32}$'
+
+is_portfolio_id() {
+  [[ $1 =~ $CANONICAL_UUID || $1 =~ $COMPACT_UUID ]]
+}
+
+usage_error() {
+  echo "optimizer: $1" >&2
+  echo "Run \`optimizer\` for the fund-wide cockpit, or \`optimizer <portfolio-uuid>\` to focus one portfolio." >&2
+  echo "The stack commands (setup, start, stop, status) are \`portopt <command>\`." >&2
+  exit 2
+}
+
+# fund-tui takes at most one id; a second argument would only fail in its parser.
+[[ $# -le 1 ]] || usage_error "expected at most one portfolio id, got $#."
+
+for arg in "$@"; do
+  is_portfolio_id "$arg" || usage_error "'${arg}' is not a portfolio id (expected a UUID)."
+done
+
 # Resolve the repo root, in precedence order:
 #   1. $OPTIMIZER_REPO           — explicit override, self-heals a moved repo
 #   2. the (possibly symlinked) $0 followed back to scripts/optimizer -> repo root

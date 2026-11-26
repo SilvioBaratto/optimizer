@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
 title: "Portfolio Optimizer"
-version: 0.1.0
-date-released: 2026-02-21
+version: 0.2.0
+date-released: 2026-11-18
 license: PolyForm-Noncommercial-1.0.0
 repository-code: "https://github.com/SilvioBaratto/optimizer"
 url: "https://github.com/SilvioBaratto/optimizer"

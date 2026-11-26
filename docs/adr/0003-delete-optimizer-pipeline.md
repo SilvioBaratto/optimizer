@@ -28,7 +28,8 @@ compose `build_portfolio_pipeline(optimizer)` with `validation.run_cross_val`.
 ## Consequences
 
 - This is a breaking change for any user of the library. `CHANGELOG.md` lists it under
-  `Removed (BREAKING — library)`, yet the version is still `0.1.0` and no release has
-  been cut since, so a release is overdue (standard 5.1.1).
+  `Removed (BREAKING — library)`. When the record was written the version was still
+  `0.1.0` and no release had been cut since, so a release was overdue (standard 5.1.1);
+  `0.2.0` is that release.
 - Orchestration lives in `fund/`, which may import both `optimizer` and `portopt_db`
   (ADR-0002), so the library keeps no database dependency.

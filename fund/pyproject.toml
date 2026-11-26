@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portopt-fund"
-version = "0.1.0"
+version = "0.2.0"
 description = "deepagents investment-fund bridge: LLM chooses, optimizer computes"
-# 3.12 floor: inherited workspace pin (numpy/pandas via portopt-core). Matches
+# 3.12 floor: inherited workspace pin (numpy/scipy via portopt-core). Matches
 # the other three members; uv resolves across the whole range.
 requires-python = ">=3.12"
 

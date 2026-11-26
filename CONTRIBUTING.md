@@ -168,17 +168,27 @@ Use conventional commit style:
 
 ## Releasing
 
-`main` receives releases only; direct commits to it are blocked.
+`main` receives releases only; direct commits to it are blocked. While the major
+version is 0, a breaking change raises the minor version (0.1.0 to 0.2.0): SemVer 2.0.0
+item 4 treats major version zero as initial development, so this is the one place the
+repository departs from the MAJOR rule of standard 5.1.1, until 1.0.0.
 
 1. Branch `release/0.x.0` from `development`
 2. Set the version to `0.x.0` in the root `pyproject.toml` and keep the three member
-   `pyproject.toml` files equal to it, then refresh `uv.lock`
-3. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[0.x.0]` section
+   `pyproject.toml` files equal to it, then refresh `uv.lock`. Two modules hold the
+   version as a literal (`fund/src/fund/__init__.py` and
+   `packages/portopt-db/src/portopt_db/__init__.py`), `fund/tests/unit/test_package.py`
+   asserts the `fund` one, and `CITATION.cff` carries the version and the release date,
+   so change those too
+3. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[0.x.0]` section dated the
+   day the tag is pushed
 4. Open a pull request from the release branch into `main` and merge it once green
 5. Tag the merge commit on `main`: `git tag -a v0.x.0` and `git push origin v0.x.0`
 6. The release workflow rejects the tag unless its commit is on `main` and the tag
    equals `v` plus the `pyproject.toml` version, re-runs the full CI workflow, and
    only then builds the `portopt-core` sdist and wheel. Nothing is uploaded to PyPI
+7. Merge `main` back into `development` through a pull request, so that `development`
+   carries the release version, the new `[0.x.0]` section and the empty `[Unreleased]`
 
 ## Test traceability (documented deviation from standard 6.6)
 

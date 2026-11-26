@@ -11,4 +11,4 @@ import fund
 
 
 def test_fund_exposes_its_version():
-    assert fund.__version__ == "0.1.0"
+    assert fund.__version__ == "0.2.0"

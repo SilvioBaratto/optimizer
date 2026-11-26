@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portopt-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Portfolio optimization library built on skfolio and scikit-learn"
 readme = "README.md"
 license = {text = "PolyForm-Noncommercial-1.0.0"}
-# 3.12 floor: the numpy==2.5.2 / pandas==3.0.5 pins require Python>=3.12, so the
+# 3.12 floor: the numpy==2.5.4 / scipy==1.18.1 pins require Python>=3.12, so the
 # prior >=3.10 was unsatisfiable (uv resolves across the whole range; pip masked it).
 requires-python = ">=3.12"
 authors = [
@@ -33,6 +33,7 @@ dependencies = [
     "scikit-learn==1.9.1",
     "skfolio==1.12.5",
     "jinja2==3.1.6",
+    "plotly==7.0.0",
 ]
 
 [project.urls]
@@ -86,7 +87,7 @@ ignore = ["RUF002", "RUF003"]  # allow unicode in docstrings/comments (mathemati
 "tests/scheduler/**" = ["N803", "N806", "S101", "S603", "S607", "E501"]
 
 [tool.mypy]
-# Matches the workspace floor (requires-python = ">=3.12"; numpy 2.5 / pandas 3.0
+# Matches the workspace floor (requires-python = ">=3.12"; numpy 2.5 / scipy 1.18
 # require it, and numpy's bundled stubs use PEP 695 `type` statements that mypy
 # refuses to parse below 3.12 — a lower target makes it abort on numpy before
 # reaching our code and silently check nothing). The 3.12/3.13 CI matrix tracks
