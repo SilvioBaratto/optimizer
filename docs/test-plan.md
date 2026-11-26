@@ -52,6 +52,8 @@ Also critical and tested:
 - Secrets kept out of `repr`: `fund/tests/unit/test_config_secrets_not_in_repr.py`,
   `ingestion/tests/unit/test_settings_repr.py`, `packages/portopt-db/tests/test_db_config_repr.py`.
   REQ-FUND-017, REQ-ING-008, REQ-DB-005.
+- Provider request lines kept out of the daemon log (`silence_http_request_logs`):
+  `fund/tests/unit/test_config.py`. REQ-FUND-028.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
   REQ-DB-006.
 - A fresh install builds its universe on the first daily run (issue 1125):

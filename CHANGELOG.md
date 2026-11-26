@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **fund**: the daemon log no longer shows the `HTTP Request: <method> <url>` lines of
+  the SDKs that use the `httpx2` stack (`openai`, which also serves OpenRouter and Azure
+  OpenAI, `anthropic`, `langsmith` and, from 2.0, `huggingface-hub`). The line carries the
+  full URL, so a query string or credentials in a base URL reached the log on every
+  model call. `silence_http_request_logs` now also covers `httpx2` and `httpcore2`.
+  Log files written before this fix may already contain such lines: review them and
+  rotate or delete the ones that do.
+
 ## [0.2.0] - 2026-11-18
 
 > **Upgrading from 0.1.0.**
