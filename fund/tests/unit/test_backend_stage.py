@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from _fund_fakes import file_tree
 
 from fund.agents import backend
 from fund.agents.skills import SKILLS_BY_AGENT, skill_sources
@@ -179,6 +180,8 @@ def test_stage_theory_missing_skills_source_raises_when_preloading(tmp_path):
 def test_build_backend_roots_virtual_filesystembackend_at_staged_workdir(
     tmp_path, monkeypatch
 ):
+    from deepagents.backends import FilesystemBackend
+
     src = _fake_theory(tmp_path / "canonical")
     dest = tmp_path / "agent-fs"
     monkeypatch.setattr(backend, "_THEORY_SRC", src)
@@ -186,7 +189,7 @@ def test_build_backend_roots_virtual_filesystembackend_at_staged_workdir(
 
     fs = backend.build_backend(_PRELOAD)
 
-    assert type(fs).__name__ == "FilesystemBackend"
+    assert isinstance(fs, FilesystemBackend)
     assert Path(fs.cwd).resolve() == dest.resolve()
     assert fs.virtual_mode is True
     assert (dest / "optimizer-theory" / "openwiki" / "index.md").exists()
@@ -388,6 +391,40 @@ def test_runs_get_separate_writable_scratch_areas(staged_workdir):
     assert fs_b.ls("/conversation_history").entries in (None, [])
     assert "CLIENT A" not in str(fs_b.grep("CLIENT A", "/").matches)
     assert fs_a.read("/conversation_history/s.md").file_data["content"] == "CLIENT A"
+
+
+@pytest.mark.criterion("REQ-FUND-038")
+@pytest.mark.parametrize("with_run_id", [False, True], ids=["workdir", "run-scratch"])
+def test_the_backend_refuses_to_change_a_dot_prefixed_path(staged_workdir, with_run_id):
+    """Validates ``fund.agents.backend.guarded_filesystem_backend`` on both backends.
+
+    ``read_only_permissions`` cannot say it: its globs skip dot-prefixed names.
+    ``wcmatch`` keeps ``*`` and ``**`` away from a leading dot unless told otherwise,
+    so ``/**`` never denied ``/.git/config`` or ``/a/.h/x``. The backend closes that
+    gap for every role (PM, profiler and the Ask agent share it).
+    """
+    fs = backend.build_backend(_PRELOAD, run_id=uuid.uuid4() if with_run_id else None)
+    root = Path((fs.default if with_run_id else fs).cwd)
+    (root / ".git").mkdir()
+    (root / ".git/config").write_text("[core]\n")
+    (root / ".note").write_text("keep")
+    before = file_tree(root)
+
+    results = [
+        fs.write("/.git/config", "x"),
+        fs.write("/a/.h/x", "x"),
+        fs.write("/.new", "x"),
+        fs.edit("/.git/config", "core", "pwn"),
+        fs.edit("/.note", "keep", "pwn"),
+        fs.delete("/.note"),
+        fs.delete("/.git/config"),
+        fs.delete("/.git"),
+    ]
+
+    assert all("permission denied" in (r.error or "").lower() for r in results)
+    assert file_tree(root) == before
+    # Offloading writes through the same backend; a dot inside a name is no secret.
+    assert fs.write("/conversation_history/s.v2.md", "ok").error is None
 
 
 def test_every_run_backend_reads_the_shared_theory_and_skills(staged_workdir):

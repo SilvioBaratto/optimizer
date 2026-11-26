@@ -518,3 +518,11 @@ def seed_paused_fund_run(
         )
         session.commit()
         return run.run_id, expected
+
+
+def file_tree(base: Path) -> dict[str, bytes | None]:
+    """Every path under ``base`` with its bytes (``None`` for a directory)."""
+    return {
+        p.relative_to(base).as_posix(): p.read_bytes() if p.is_file() else None
+        for p in base.rglob("*")
+    }

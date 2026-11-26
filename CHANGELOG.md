@@ -58,6 +58,28 @@ The entries under Security affect privacy or configuration and come first.
   (REQ-FUND-037). A new guard keeps the network-capable development tools (`virtualenv`,
   `nodeenv`, `pip-audit`, `pre-commit`, `pyright`) out of everything that ships
   (`tests/test_lockfile_dev_tooling_isolated.py`).
+- **fund**: the portfolio-manager, profiler and Ask agents can no longer write, edit or delete
+  a file whose path has a dot-prefixed part (`/.git/config`, `/docs/.x.md`,
+  `/code/fund/.hidden.py`). Their one permission rule denies writes to `/**`, and `deepagents`
+  matches globs without the dotfile flag, so the rule never matched such a path; in a scripted
+  run the Ask agent wrote, edited and deleted them. The writes landed in the virtual backend
+  (the staged copies and scratch), never in the checkout. A glob cannot cover a path of any
+  depth, so the backend now refuses the three mutating calls itself (REQ-FUND-038). The
+  offloaded history and tool results use plain names and are unaffected.
+- **fund**: the `huggingface` provider switches the Hugging Face hub's telemetry off. With it
+  on, `huggingface-hub` 2.x put the name of the AI agent harness it runs under and the installed
+  torch version into the user agent of every request, and fetched the harness list from
+  huggingface.co (REQ-FUND-039).
+- **fund**: `GROQ_LOG`, `OPENAI_LOG` and `ANTHROPIC_LOG` set to `info` or `debug` no longer
+  bring the `HTTP Request: <method> <url>` line back after `silence_http_request_logs` ran.
+  Each SDK sets its own logger and the `httpx` logger of its stack when it is first imported,
+  which happens after the entry point silenced the loggers, and at DEBUG the SDK logger
+  writes the URL, the response headers and the whole request body, which is the prompt.
+  `build_chat_model` now undoes that once the model is built (REQ-FUND-028).
+- **fund**: the `google` provider is always the Gemini Developer API. An ambient
+  `GOOGLE_GENAI_USE_VERTEXAI=true` (or `GOOGLE_GENAI_USE_ENTERPRISE=true`) used to turn the
+  model into a Vertex AI client even though an API key was passed, which put Application
+  Default Credentials and the metadata server on the request path (REQ-FUND-041).
 - **deps**: security fixes in packages that the lock pulls in: `websockets` 17.4 rejects a
   message split into more than 4096 frames (a memory-exhaustion attack; this repository opens
   no WebSocket itself, and `WEBSOCKETS_MAX_FRAGMENTS` tunes the limit), `lxml` 6.1.3 no longer
@@ -80,6 +102,9 @@ The entries under Security affect privacy or configuration and come first.
   REQ-FUND-030 (what an `anthropic` and a `groq` request may carry), REQ-FUND-032 (the `google`
   provider never uses Application Default Credentials) and REQ-FUND-037 (the Hugging Face path
   never loads `hf_xet`), each with tests, in `docs/requirements.md` and `docs/test-plan.md`.
+  REQ-FUND-038 (no write to a dot-prefixed path), REQ-FUND-039 (Hugging Face hub telemetry
+  off), REQ-FUND-040 (a Groq request has a deadline) and REQ-FUND-041 (`google` ignores the
+  Vertex switches) follow, and REQ-FUND-028 now also covers the SDK log variables.
 
 ### Changed
 
@@ -130,6 +155,8 @@ Behaviour changes to know about:
 - **fund**: AWS Bedrock calls retry less: `botocore` 1.44 defaults to its standard retry
   mode, so a throttled or failing call is tried 3 times instead of 5, with shorter waits (about
   3 s at most, was about 15 s). `AWS_MAX_ATTEMPTS` and `AWS_RETRY_MODE` change it.
+- **fund**: a Groq request now has a 180 second deadline, the same as the other providers
+  that set one. `ChatGroq` had none, so a call that hung blocked the run for good.
 - **fund**: an SDK error says less. `openai` 3.38 puts only the server's message in
   `str(error)` (the body stays on `error.body`), so an alert that matches the text
   `Error code: 4xx - {...}` now sees `Error code: 4xx - <message>`, and `openai` 3.59 strips the
@@ -248,28 +275,8 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   below 1.0, and `langchain-core` and `langsmith` still call the 0.x signature),
   `sparsediffpy` 0.7 to 0.9 (`cvxpy-base` 1.9.3 requires below 0.7) and `soupsieve` 4.1.4 (on
   GitHub, not on PyPI).
-- **The Ask agent's write rule does not cover dot-prefixed paths.** The fund's one permission
-  rule denies writes to `/**`, and `deepagents` matches without the dotfile flag, so a path with
-  a dot-prefixed component (`/.git/config`, `/docs/.x.md`, `/code/fund/.hidden.py`) is not
-  matched: in a scripted run the agent wrote, edited and deleted such files, and every other
-  write was refused. It is the same on `wcmatch` 11.2 and 12.0.4, so this refresh did not
-  cause it. The writes land in the virtual backend roots (the staged copies and scratch), not
-  in the checkout. `read_only_permissions` is shared by the portfolio-manager, profiler and Ask
-  graphs, so `/theory/` and `/skills/` are open to the same writes, and the statement that
-  the permission layer denies every write is not true for such paths. A fix needs a
-  backend-level write refusal or an upstream flag, with a test.
-- **Hugging Face telemetry stays on** for `LLM_PROVIDER=huggingface`: `huggingface-hub` 2.x
-  sends a user agent that names the harness and torch version, and fetches the agent-harness
-  list from huggingface.co once per 24 hours. Only the test fixture sets
-  `HF_HUB_DISABLE_TELEMETRY`; operators can set it (or `HF_HUB_OFFLINE=1`) in the environment.
-- **Provider builder gaps that this refresh found and did not change**: the `groq` builder
-  passes no timeout, so `ChatGroq` has no read timeout (only `ollama` and `google` set one);
-  an ambient `GOOGLE_GENAI_USE_VERTEXAI=true` makes the `google` model a Vertex client even
-  though an API key is passed, which puts Application Default Credentials and the metadata
-  server on the request path; `GROQ_LOG=info` or `debug` in the environment turns the `httpx`
-  request line back on after `silence_http_request_logs` ran; and at DEBUG, `botocore` and
-  `websockets` log URLs, headers and credential ids. The daemon logs at INFO and has no
-  DEBUG switch, so none of that is reachable today.
+- **At DEBUG, `botocore` and `websockets` log URLs, headers and credential ids.** The daemon
+  logs at INFO and has no DEBUG switch, so that is not reachable today.
 - **Test isolation in `portopt-db`**: running its unit tests and `tests/integration` in one
   process with `PORTOPT_TEST_DATABASE_URL` set fails two log-capture tests, because Alembic's
   `env.py` disables the existing loggers. CI runs them separately and passes.

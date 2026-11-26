@@ -264,11 +264,14 @@ def test_a_failed_request_shows_nothing_of_the_key_in_its_error_or_logs(
     Validates ``fund.agents.model._build_anthropic``.
     """
     stub.status = HTTPStatus.UNAUTHORIZED
+    llm = _chat_model()
+    # After the build: building a chat model puts the SDK loggers back to the level
+    # they have without ANTHROPIC_LOG, and this test needs their DEBUG records.
     for name in ("anthropic", "httpx2", "httpcore2"):
         caplog.set_level(logging.DEBUG, logger=name)
 
     with pytest.raises(anthropic.AuthenticationError) as raised:
-        _chat_model().invoke("hi")
+        llm.invoke("hi")
 
     error = raised.value
     rendered = [

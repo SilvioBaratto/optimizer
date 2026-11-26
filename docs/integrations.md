@@ -301,7 +301,13 @@ Metrics, served by the worker when metrics are enabled:
   has one fallback, and structured output is validated with pydantic and retried.
   Providers hang intermittently (one Ollama Cloud call blocked for 180 s), so a round can
   stall until its deadline. From 1.5 the NVIDIA SDK also posts hourly usage aggregates to
-  an NVIDIA host unless told not to; the `nvidia` builder switches that off.
+  an NVIDIA host unless told not to; the `nvidia` builder switches that off. The
+  `huggingface` builder switches the hub's telemetry off, so its user agent names no AI
+  agent harness or torch version. The `google` builder always builds a Gemini Developer API
+  client: `GOOGLE_GENAI_USE_VERTEXAI` and `GOOGLE_GENAI_USE_ENTERPRISE` do not turn it into a
+  Vertex AI one; Vertex AI is not a supported provider. `GROQ_LOG`, `OPENAI_LOG` and
+  `ANTHROPIC_LOG` cannot bring the `httpx` request line, or the SDK's own DEBUG lines (URL,
+  response headers, the prompt), into the daemon log.
 - **Anthropic SDK 2.x**: the `anthropic` package sends the key as
   `Authorization: Bearer`, where 1.x used `X-Api-Key`; a proxy or log filter that reads
   `X-Api-Key` must read `Authorization`. Since 1.14 it also opens an OpenTelemetry span per
