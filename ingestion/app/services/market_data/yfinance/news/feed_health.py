@@ -17,15 +17,14 @@ DEFAULT_PROBE_WINDOW_SECONDS = 60.0
 class TickerFeedHealth:
     """Stop calling a ticker news feed that keeps failing, and test it now and then.
 
-    When Yahoo retires or breaks the route behind ``Ticker.news`` (as it did with
-    ``/xhr/ncp``, which yfinance 1.7.0 still requested), its error page makes
-    yfinance raise a generic "Yahoo Finance is currently down" error for every
-    symbol, so a bulk sweep would spend several requests per ticker (the request, a
-    cookie strategy flip and a crumb fetch, then a retry) only to fall back to
-    search each time. After ``failure_threshold`` failures in a row the gate opens
-    and callers go straight to the fallback. Once ``cooldown_seconds`` have passed
-    one caller is let through as a probe while the others keep skipping the feed,
-    so a feed that is fixed upstream is picked up again without a restart.
+    When the route behind ``Ticker.news`` fails for every symbol, yfinance raises a
+    generic "Yahoo Finance is currently down" error (it got no response or Yahoo's
+    error page), so a bulk sweep would spend several requests per ticker (the
+    request, a cookie strategy flip and a crumb fetch, then a retry) only to fall
+    back to search each time. After ``failure_threshold`` failures in a row the gate
+    opens and callers go straight to the fallback. Once ``cooldown_seconds`` have
+    passed one caller is let through as a probe while the others keep skipping the
+    feed, so a feed that is fixed upstream is picked up again without a restart.
 
     The state lives in the process on purpose, like
     :class:`~app.services.market_data.empty_fetch_memory.EmptyFetchMemory`: it needs

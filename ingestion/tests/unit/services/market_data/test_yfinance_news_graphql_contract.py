@@ -3,13 +3,12 @@
 Validates ``fetch_yahoo_news`` (``app.services.market_data.yfinance.news.client``),
 ``extract_article_link`` and ``CountryNewsFetcher``.
 
-yfinance 1.8.0 reads ``Ticker.news`` from Yahoo's GraphQL news API again, after
-Yahoo retired the ``/xhr/ncp`` route. These tests run the real ``Ticker.get_news``
-parser over a canned GraphQL answer, with only the HTTP POST replaced, so they pin
-what the repo relies on from the library: the article shape its readers accept, and
-the ``YFDataException`` that sends a failed feed to the search fallback. What
-Yahoo's live endpoint answers cannot be checked offline. No requirement id is
-registered for the news feed yet.
+yfinance 1.8.0 reads ``Ticker.news`` from Yahoo's GraphQL news API. These tests run
+the real ``Ticker.get_news`` parser over a canned GraphQL answer, with only the
+HTTP POST replaced, so they pin what the repo relies on from the library: the
+article shape its readers accept, and the ``YFDataException`` that sends a failed
+feed to the search fallback. What Yahoo's live endpoint answers cannot be checked
+offline. No requirement id is registered for the news feed yet.
 """
 
 from __future__ import annotations

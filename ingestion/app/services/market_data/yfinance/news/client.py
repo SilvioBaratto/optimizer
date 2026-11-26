@@ -28,12 +28,9 @@ TICKER_FEED_HEALTH = TickerFeedHealth()
 def _search_news(symbol: str, count: int) -> list[dict[str, Any]]:
     """Fetch articles from Yahoo's search endpoint.
 
-    The fallback for a ticker feed that is empty or failing. yfinance 1.8.0 reads
-    ``Ticker.news`` from Yahoo's GraphQL news API; the ``/xhr/ncp`` route behind it
-    in 1.7.0 and earlier was retired and answered every symbol with an empty list
-    or a ``YFDataException``. The search endpoint serves a flat article shape
-    (``uuid``/``link``/``providerPublishTime``), where the feed nests the fields
-    under ``content``.
+    The fallback for a ticker feed that is empty or failing. The search endpoint
+    serves a flat article shape (``uuid``/``link``/``providerPublishTime``), where
+    the feed nests the fields under ``content``.
     """
     return list(yf.Search(symbol, max_results=0, news_count=count).news or [])
 
@@ -77,11 +74,11 @@ def fetch_yahoo_news(
     """Fetch a ticker's news, falling back to the search endpoint.
 
     The search endpoint is used when the ticker feed is empty and also when it
-    fails with ``YFDataException``, the error yfinance raises when Yahoo answers
-    with its "right back" error page. After repeated failures the feed is skipped
-    for a while so a sweep does not pay for a dead route on every ticker. Rate
-    limits and network errors are not caught: they belong to the caller's retry and
-    circuit-breaker logic.
+    fails with ``YFDataException``, the error yfinance raises when Yahoo gives no
+    response or answers with its "right back" error page. After repeated failures
+    the feed is skipped for a while so a sweep does not pay for a failing feed on
+    every ticker. Rate limits and network errors are not caught: they belong to the
+    caller's retry and circuit-breaker logic.
 
     Args:
         symbol: Yahoo Finance ticker symbol.

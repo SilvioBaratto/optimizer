@@ -1,11 +1,10 @@
 """``fetch_yahoo_news`` when the ticker news feed fails instead of coming back empty.
 
-When Yahoo's news route is retired or broken, yfinance either returns an empty feed
-or raises ``YFDataException("*** YAHOO! FINANCE IS CURRENTLY DOWN! ***")`` even
-though Yahoo itself is up; every symbol failed that way under yfinance 1.7.0, whose
-``/xhr/ncp`` route Yahoo had retired. An empty feed already falls back to Yahoo
-search; a raised error has to reach the same fallback instead of failing every
-ticker.
+When the news request fails, yfinance either returns an empty feed or raises
+``YFDataException("*** YAHOO! FINANCE IS CURRENTLY DOWN! ***")`` (it got no
+response or Yahoo's error page) even though Yahoo itself may be up. An empty feed
+already falls back to Yahoo search; a raised error has to reach the same fallback
+instead of failing every ticker.
 """
 
 from __future__ import annotations
@@ -68,7 +67,7 @@ class TestFeedRaisesDataError:
     def test_search_articles_are_returned(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The search fallback delivers the news the dead feed could not."""
+        """The search fallback delivers the news the failing feed could not."""
         articles = [{"uuid": "u1", "title": "From search", "link": "https://x/1"}]
         searched = _search_returning(monkeypatch, articles)
         yf_client = _client_with(_FeedTicker(error=YFDataException(_DOWN)))
