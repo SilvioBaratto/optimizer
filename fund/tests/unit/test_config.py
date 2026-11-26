@@ -769,6 +769,7 @@ def test_a_provider_sdk_request_writes_no_request_line_once_silenced(
     assert "api.example.test" not in caplog.text
 
 
+@pytest.mark.criterion("REQ-FUND-028")
 def test_every_logging_setup_in_the_package_silences_http_request_logs():
     src = Path(__file__).resolve().parents[2] / "src" / "fund"
     configuring = [
