@@ -43,7 +43,7 @@ dependencies = [
     # Monitoring
     "prometheus-client==0.26.0",
     # CLI
-    "typer==0.27.1",
+    "typer==0.29.3",
     # Install wizard (portopt setup): interactive prompts, rich output, encrypted secret store
     "questionary==2.1.1",
     "prompt-toolkit==3.0.53",
