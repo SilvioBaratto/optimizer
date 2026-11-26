@@ -458,7 +458,8 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
 
     ``temperature=0`` threads the D4 contract and ``max_completion_tokens`` is set
     explicitly because ``ChatNVIDIA`` otherwise caps every completion at 1024 tokens;
-    ``reasoning=`` is Ollama-only and is never passed here.
+    ``reasoning=`` is Ollama-only and is never passed here. The SDK's hourly usage
+    telemetry to NVIDIA is switched off (see ``usage_telemetry_enabled`` below).
     """
     from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
@@ -467,6 +468,11 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
         "model": model_name,
         "temperature": config.model_temperature,
         "max_completion_tokens": _MAX_COMPLETION_TOKENS,
+        # Since 1.5 the SDK posts hourly usage aggregates (model id, token sums,
+        # latency buckets) to an NVIDIA host on the hosted API, on by default. An
+        # explicit argument beats the SDK's own env switch, so no ambient
+        # NVIDIA_USAGE_TELEMETRY_ENABLED can turn it back on.
+        "usage_telemetry_enabled": False,
     }
     if config.nvidia_base_url:
         kwargs["base_url"] = config.nvidia_base_url

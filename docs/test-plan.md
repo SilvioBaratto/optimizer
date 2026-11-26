@@ -50,8 +50,12 @@ Also critical and tested:
 - The append-only audit trail (`human_audit_log`): `packages/portopt-db/tests/integration/test_audit_log_triggers.py`.
   No requirement id.
 - Secrets kept out of `repr`: `fund/tests/unit/test_config_secrets_not_in_repr.py`,
+  `fund/tests/unit/test_model_factory.py` (the chat model built for the `nvidia` provider),
   `ingestion/tests/unit/test_settings_repr.py`, `packages/portopt-db/tests/test_db_config_repr.py`.
-  REQ-FUND-017, REQ-ING-008, REQ-DB-005.
+  REQ-FUND-017, REQ-FUND-021, REQ-ING-008, REQ-DB-005.
+- No usage telemetry from a provider SDK (data minimisation, standard 2.15.11): the
+  `nvidia` chat model is built with the SDK's telemetry switched off, whatever the
+  environment holds. `fund/tests/unit/test_model_factory.py`. REQ-FUND-026.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
   REQ-DB-006.
 - A fresh install builds its universe on the first daily run (issue 1125):

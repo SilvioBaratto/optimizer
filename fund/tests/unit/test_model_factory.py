@@ -1241,6 +1241,83 @@ def test_nvidia_building_a_keyless_nim_does_not_edit_the_process_env(monkeypatch
     assert os.environ["NVIDIA_API_KEY"] == "nvapi-HOSTED-SECRET"
 
 
+@pytest.mark.criterion("REQ-FUND-026")
+@pytest.mark.parametrize(
+    "base_url",
+    [None, "https://integrate.api.nvidia.com/v1", "http://localhost:8000/v1"],
+    ids=["default-hosted", "explicit-hosted", "self-hosted"],
+)
+def test_nvidia_switches_the_sdk_usage_telemetry_off(monkeypatch, base_url):
+    """Validates ``fund.agents.model._build_nvidia``: it passes the telemetry opt-out.
+
+    langchain-nvidia-ai-endpoints >= 1.5 posts hourly usage aggregates to an NVIDIA
+    telemetry host unless told otherwise. The fund never opted in to that egress.
+    """
+    _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
+    cfg = FundConfig(
+        llm_provider="nvidia", nvidia_api_key="nvapi-test", nvidia_base_url=base_url
+    )
+
+    llm = model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+    assert llm.kwargs["usage_telemetry_enabled"] is False
+
+
+# The two tests below build the real ChatNVIDIA, which stays offline only while the
+# model id is in the SDK's static model table: any other hosted model makes it fetch
+# `available_models` over the network at construction. Keep a table model here.
+_NVIDIA_STATIC_TABLE_MODEL = "meta/llama-3.1-70b-instruct"
+
+
+@pytest.mark.criterion("REQ-FUND-026")
+@pytest.mark.parametrize(
+    ("base_url", "is_hosted"),
+    [(None, True), ("http://localhost:8000/v1", False)],
+    ids=["hosted", "self-hosted"],
+)
+def test_nvidia_usage_telemetry_stays_off_on_both_real_clients_despite_the_env(
+    monkeypatch, base_url, is_hosted
+):
+    """Validates ``fund.agents.model._build_nvidia`` against the real ``ChatNVIDIA``.
+
+    The env var is the SDK's own switch; the explicit constructor argument must
+    win over an ambient "true" so no process setting can turn the egress back on.
+    """
+    monkeypatch.setenv("NVIDIA_USAGE_TELEMETRY_ENABLED", "true")
+    # The SDK falls back to this variable when no base_url is passed.
+    monkeypatch.delenv("NVIDIA_BASE_URL", raising=False)
+    cfg = FundConfig(
+        llm_provider="nvidia", nvidia_api_key="nvapi-test", nvidia_base_url=base_url
+    )
+
+    llm = model.build_chat_model(cfg, model_name=_NVIDIA_STATIC_TABLE_MODEL)
+
+    assert llm._client.is_hosted is is_hosted
+    assert llm.usage_telemetry_enabled is False
+    assert llm._client.usage_telemetry_enabled is False
+    assert llm._async_client.usage_telemetry_enabled is False
+
+
+@pytest.mark.criterion("REQ-FUND-021")
+def test_nvidia_api_key_is_absent_from_repr_and_serialized_form(monkeypatch):
+    """Validates ``fund.agents.model._build_nvidia``: the key stays out of every dump.
+
+    ChatNVIDIA holds the key as a SecretStr; LangChain hands repr() and the
+    serialized form to every tracer and debug log.
+    """
+    monkeypatch.delenv("NVIDIA_BASE_URL", raising=False)
+    key = "nvapi-secret-key-value"
+    cfg = FundConfig(llm_provider="nvidia", nvidia_api_key=key)
+
+    llm = model.build_chat_model(cfg, model_name=_NVIDIA_STATIC_TABLE_MODEL)
+
+    assert key not in repr(llm)
+    assert key not in str(llm)
+    assert key not in json.dumps(dumpd(llm), default=str)
+
+
 def test_nvidia_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
     # `reasoning=` is Ollama-only; ChatNVIDIA would reject it.
     _install_fake_chat_class(
