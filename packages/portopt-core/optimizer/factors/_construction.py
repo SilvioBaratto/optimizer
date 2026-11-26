@@ -90,6 +90,13 @@ def align_to_pit(
     return available
 
 
+def _coerce_numeric(values: pd.Series) -> pd.Series:
+    """Parse a Series to numbers, turning what cannot be parsed into NaN."""
+    # pandas >= 3.1 annotates ``to_numeric`` with a union of every input kind
+    # (scalars, arrays, Series); a Series in gives a Series out.
+    return cast(pd.Series, pd.to_numeric(values, errors="coerce"))
+
+
 def _market_cap(fundamentals: pd.DataFrame) -> pd.Series | None:
     """Return the ``market_cap`` column, or ``None`` when it is absent."""
     mcap = fundamentals.get("market_cap")
@@ -520,9 +527,7 @@ def _compute_net_insider_buying(
     direction = np.select(
         [is_purchase & ~is_sale, is_sale & ~is_purchase], [1.0, -1.0], default=0.0
     )
-    amount = pd.to_numeric(insider_data[amount_col], errors="coerce").to_numpy(
-        "float64"
-    )
+    amount = _coerce_numeric(insider_data[amount_col]).to_numpy("float64")
     unusable = np.isnan(amount)
     by_ticker = (
         insider_data[["ticker"]]
@@ -535,7 +540,7 @@ def _compute_net_insider_buying(
     )
     scored = by_ticker["classified"].any() & ~by_ticker["unknown_trade"].any()
     net = cast(pd.Series, by_ticker["signed"].sum().where(scored))
-    scale = pd.to_numeric(fundamentals[scale_col], errors="coerce")
+    scale = _coerce_numeric(fundamentals[scale_col])
     return net / scale.where(scale > 0).reindex(net.index)
 
 
