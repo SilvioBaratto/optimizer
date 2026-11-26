@@ -14,6 +14,7 @@ before ``create_all``.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
 from pathlib import Path
 
@@ -74,6 +75,23 @@ def _fresh_exposure_cache() -> None:
     from fund.attribution import clear_exposure_cache
 
     clear_exposure_cache()
+
+
+@pytest.fixture
+def http_loggers() -> Generator[tuple[str, ...], None, None]:
+    """Names of the HTTP-client loggers, restored to their level after the test.
+
+    ``silence_http_request_logs`` changes process-wide logger levels and the root
+    level is set by the tests that exercise it; without the restore, every later test
+    in the process would run with the request lines already silenced.
+    """
+    names = ("httpx", "httpx2", "httpcore", "httpcore2")
+    saved = {name: logging.getLogger(name).level for name in names}
+    root_level = logging.getLogger().level
+    yield names
+    for name, level in saved.items():
+        logging.getLogger(name).setLevel(level)
+    logging.getLogger().setLevel(root_level)
 
 
 @pytest.fixture(scope="session")
