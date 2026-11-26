@@ -70,11 +70,11 @@ _READ_TIMEOUT_SECONDS = 180.0
 
 # Model families whose APIs reject any non-default sampling temperature: OpenAI's
 # o-series ("o1", "o3-mini", "o4-mini", ...) answers HTTP 400, and langchain-anthropic
-# raises client-side for the Fable family. The fallback model goes through the same
-# builder, so sending the temperature=0 contract anyway would fail every request
-# with nothing for ModelFallbackMiddleware to fall back to.
+# raises client-side for the Fable family and Mythos 5.2. The fallback model goes
+# through the same builder, so sending the temperature=0 contract anyway would fail
+# every request with nothing for ModelFallbackMiddleware to fall back to.
 _OPENAI_REASONING_MODEL = re.compile(r"o\d")
-_ANTHROPIC_FIXED_SAMPLING_PREFIX = "claude-fable-5"
+_ANTHROPIC_FIXED_SAMPLING_PREFIXES = ("claude-fable-5", "claude-mythos-5-2")
 
 # Explicit completion budget for the providers whose SDK wrapper otherwise caps
 # output silently (ChatNVIDIA at 1024 tokens, the Hugging Face wrapper at 512). A
@@ -150,7 +150,7 @@ def _rejects_temperature(provider: str, model_name: str) -> bool:
     if provider in ("openai", "microsoft"):
         return _OPENAI_REASONING_MODEL.match(model_name) is not None
     if provider == "anthropic":
-        return model_name.startswith(_ANTHROPIC_FIXED_SAMPLING_PREFIX)
+        return model_name.startswith(_ANTHROPIC_FIXED_SAMPLING_PREFIXES)
     return False
 
 
@@ -315,9 +315,10 @@ def _build_anthropic(config: FundConfig, model_name: str) -> BaseChatModel:
     """Build a ``ChatAnthropic`` (Anthropic's Claude models).
 
     Requires ``ANTHROPIC_API_KEY``; ``temperature=0`` threads the D4 contract except
-    for the Fable family, which rejects it. ``reasoning=`` is Ollama-only and is
-    never passed here — Anthropic's extended thinking is an operator model-id /
-    separate-flag choice (SPEC Open Q2), not this constructor flag.
+    for the Fable family and Mythos 5.2, which reject it. ``reasoning=`` is
+    Ollama-only and is never passed here — Anthropic's extended thinking is an
+    operator model-id / separate-flag choice (SPEC Open Q2), not this constructor
+    flag.
     """
     from langchain_anthropic import ChatAnthropic
 

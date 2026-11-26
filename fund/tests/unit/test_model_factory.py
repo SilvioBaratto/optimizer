@@ -1380,10 +1380,13 @@ def _sent_temperature(llm: object) -> object:
     return payload.get("temperature", extra_body.get("temperature"))
 
 
-def test_anthropic_fable_request_payload_builds_without_a_temperature():
+@pytest.mark.parametrize("model_name", ["claude-fable-5", "claude-mythos-5-2"])
+def test_anthropic_fixed_sampling_request_payload_builds_without_a_temperature(
+    model_name,
+):
     cfg = FundConfig(llm_provider="anthropic", anthropic_api_key="sk-ant-test")
 
-    llm = model.build_chat_model(cfg, model_name="claude-fable-5")
+    llm = model.build_chat_model(cfg, model_name=model_name)
 
     assert _sent_temperature(llm) is None
 
@@ -1410,6 +1413,7 @@ def test_openai_reasoning_models_are_built_without_a_temperature(model_name):
     ("provider", "model_name", "expected"),
     [
         ("anthropic", "claude-fable-5", None),
+        ("anthropic", "claude-mythos-5-2", None),
         ("anthropic", "claude-sonnet-4-5", 0.0),
         ("openai", "o3-mini", None),
         ("openai", "gpt-4o", 0.0),
