@@ -764,6 +764,43 @@ def test_groq_without_key_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="llama-3.3-70b-versatile")
 
 
+@pytest.mark.criterion("REQ-FUND-019")
+def test_groq_real_client_takes_the_builder_kwargs_and_hides_the_key(monkeypatch):
+    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+
+    Construction only. The fakes above cannot notice ChatGroq renaming a keyword
+    the builder passes: it moves an unknown keyword into ``model_kwargs`` without
+    raising and falls back to its own temperature of 0.7, so each keyword is read
+    back as the effective attribute. langchain-groq 1.2 also added a LangSmith
+    gateway that swaps the base URL when ``LANGSMITH_GATEWAY`` is set, so this pins
+    the unset case: the key goes to the Groq host and into no serialized form.
+    """
+    pytest.importorskip("langchain_groq")
+    monkeypatch.delenv("LANGSMITH_GATEWAY", raising=False)
+    monkeypatch.delenv("GROQ_API_BASE", raising=False)
+    key = "gsk-groq-test"
+    cfg = FundConfig(llm_provider="groq", groq_api_key=key, model_temperature=0.25)
+
+    llm = model.build_chat_model(cfg, model_name="openai/gpt-oss-20b")
+
+    assert llm.model_name == "openai/gpt-oss-20b"
+    assert llm.temperature == cfg.model_temperature
+    assert llm.model_kwargs == {}
+    assert llm.groq_api_base is None
+    assert llm.groq_api_key.get_secret_value() == key
+    assert key not in repr(llm)
+    assert key not in str(llm)
+    assert key not in json.dumps(dumpd(llm), default=str)
+
+    # ChatGroq rewrites a temperature of exactly 0 to 1e-8, so the repo's
+    # temperature-0 contract is met by a value that is zero to within that margin.
+    deterministic = model.build_chat_model(
+        FundConfig(llm_provider="groq", groq_api_key=key),
+        model_name="openai/gpt-oss-20b",
+    )
+    assert deterministic.temperature == pytest.approx(0.0, abs=1e-6)
+
+
 # --- google / Gemini (langchain-google-genai / ChatGoogleGenerativeAI) -------
 
 
