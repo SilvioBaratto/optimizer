@@ -1,10 +1,11 @@
 """``fetch_yahoo_news`` when the ticker news feed fails instead of coming back empty.
 
-Yahoo retired the ``/xhr/ncp`` route behind ``Ticker.news``. Depending on what the
-error page says, yfinance 1.7.0 either returns an empty feed or raises
-``YFDataException("*** YAHOO! FINANCE IS CURRENTLY DOWN! ***")`` even though Yahoo
-itself is up. An empty feed already falls back to Yahoo search; a raised error has
-to reach the same fallback instead of failing every ticker.
+When Yahoo's news route is retired or broken, yfinance either returns an empty feed
+or raises ``YFDataException("*** YAHOO! FINANCE IS CURRENTLY DOWN! ***")`` even
+though Yahoo itself is up; every symbol failed that way under yfinance 1.7.0, whose
+``/xhr/ncp`` route Yahoo had retired. An empty feed already falls back to Yahoo
+search; a raised error has to reach the same fallback instead of failing every
+ticker.
 """
 
 from __future__ import annotations
