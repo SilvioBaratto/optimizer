@@ -980,7 +980,7 @@ wheels = [
 
 [[package]]
 name = "exchange-calendars"
-version = "4.13.2"
+version = "4.13.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "korean-lunar-calendar" },
@@ -990,9 +990,9 @@ dependencies = [
     { name = "toolz" },
     { name = "tzdata" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/47/73/460b0ece4e7444e3098b7738974c822787e134578d069d3a88b4be17d50a/exchange_calendars-4.13.2.tar.gz", hash = "sha256:a9459425dd64142cd54fbc639847403c7e0c33d60fbc326c94fc1d6bd127f002", size = 4137321, upload-time = "2026-03-10T03:24:38.536Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/de/8e/a18a7993d9b0c8d63f7d630cae8e18c18c5d87a1cdfac59e3a03bf6c5f7c/exchange_calendars-4.13.3.tar.gz", hash = "sha256:e4280cb77f58b32123ee1049018872533483bcecca70f74a5bc7fde2a6c73183", size = 4168413, upload-time = "2026-11-14T15:25:38.282Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c8/4c/0469b40057bc9f8d9594dcc6024202626b981ae4b52dfcd304552e8e1c3a/exchange_calendars-4.13.2-py3-none-any.whl", hash = "sha256:fc5a2ad0d61b5c3a6539a3061cd4cbb55c59f4a903455cec7926e4b798919996", size = 213306, upload-time = "2026-03-10T03:24:37.055Z" },
+    { url = "https://files.pythonhosted.org/packages/08/aa/aeb1e48faeca17e63487b959de88cb15003dfe5f872fe09f9168cf7fae47/exchange_calendars-4.13.3-py3-none-any.whl", hash = "sha256:02b95a738b3848ab9c52529330f84a15f76c765edeb7790cfbbf0d45d92cc2b5", size = 216086, upload-time = "2026-11-14T15:25:36.523Z" },
 ]
 
 [[package]]
@@ -2948,7 +2948,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = "==4.15.0" },
     { name = "certifi", specifier = "==2026.10.23" },
     { name = "cryptography", specifier = "==50.0.2" },
-    { name = "exchange-calendars", specifier = "==4.13.2" },
+    { name = "exchange-calendars", specifier = "==4.13.3" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "numpy", specifier = "==2.5.5" },
     { name = "pandas", specifier = "==3.0.6" },

@@ -406,7 +406,7 @@ the whole workspace inherits.
 
 **`portopt`** (ingestion): `yfinance==1.7.0`, `scikit-learn==1.9.1` (declared,
 for DBSCAN price-repair), `numpy==2.5.5`, `pandas==3.0.6`, `APScheduler==3.11.3`,
-`SQLAlchemy==2.0.52`, `exchange_calendars==4.13.2`, `httpx==0.28.1`,
+`SQLAlchemy==2.0.52`, `exchange_calendars==4.13.3`, `httpx==0.28.1`,
 `beautifulsoup4==4.15.0`, `requests==2.34.2`, `prometheus-client==0.26.0`,
 `typer==0.27.1`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==50.0.2`,
 `pydantic==2.14.4`, `pydantic-settings==2.15.0`, `python-dotenv==1.2.4`, plus
