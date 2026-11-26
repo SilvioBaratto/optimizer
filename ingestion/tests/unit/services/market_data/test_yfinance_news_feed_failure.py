@@ -145,7 +145,7 @@ class TestOtherErrorsAreNotHidden:
         assert gate.allows_request() is True
 
 
-class TestDeadFeedIsSkipped:
+class TestFailingFeedIsSkipped:
     """Once the feed has failed repeatedly it stops being called."""
 
     def test_feed_is_not_called_after_the_gate_opens(
