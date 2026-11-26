@@ -54,8 +54,8 @@ Also critical and tested:
   `fund/tests/unit/test_model_factory.py`, `fund/tests/unit/test_model_openai_family.py`,
   `ingestion/tests/unit/test_settings_repr.py`,
   `packages/portopt-db/tests/test_db_config_repr.py`.
-  REQ-FUND-017, REQ-FUND-018, REQ-FUND-019, REQ-FUND-020, REQ-FUND-021, REQ-FUND-025,
-  REQ-ING-008, REQ-DB-005.
+  REQ-FUND-017, REQ-FUND-018, REQ-FUND-019, REQ-FUND-020, REQ-FUND-021, REQ-FUND-022,
+  REQ-FUND-025, REQ-ING-008, REQ-DB-005.
 - Provider request lines kept out of the daemon log (`silence_http_request_logs`):
   `fund/tests/unit/test_config.py`. REQ-FUND-028.
 - No usage telemetry from a provider SDK (data minimisation, standard 2.15.11): the
