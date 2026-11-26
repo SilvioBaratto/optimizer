@@ -28,14 +28,14 @@ def chat_model() -> BaseChatModel:
     return model.build_chat_model(cfg, model_name="claude-sonnet-4-5")
 
 
-@pytest.mark.criterion("REQ-FUND-020")
+@pytest.mark.criterion("REQ-FUND-018")
 def test_repr_and_str_hide_the_anthropic_api_key(chat_model: BaseChatModel) -> None:
     """Validates ``fund.agents.model._build_anthropic``."""
     assert _SENTINEL not in repr(chat_model)
     assert _SENTINEL not in str(chat_model)
 
 
-@pytest.mark.criterion("REQ-FUND-020")
+@pytest.mark.criterion("REQ-FUND-018")
 def test_serialised_forms_hide_the_anthropic_api_key(
     chat_model: BaseChatModel,
 ) -> None:

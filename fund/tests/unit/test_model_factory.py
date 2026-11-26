@@ -811,7 +811,7 @@ def test_groq_without_key_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="llama-3.3-70b-versatile")
 
 
-@pytest.mark.criterion("REQ-FUND-019")
+@pytest.mark.criterion("REQ-FUND-018")
 def test_groq_real_client_takes_the_builder_kwargs_and_hides_the_key(monkeypatch):
     """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
 
@@ -892,7 +892,7 @@ def test_google_without_key_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="gemini-2.5-flash")
 
 
-@pytest.mark.criterion("REQ-FUND-022")
+@pytest.mark.criterion("REQ-FUND-018")
 def test_google_api_key_is_absent_from_repr_str_and_serialized_form():
     """Validates ``fund.agents.model._build_google``.
 
@@ -909,7 +909,7 @@ def test_google_api_key_is_absent_from_repr_str_and_serialized_form():
     assert key not in json.dumps(dumpd(llm), default=str)
 
 
-@pytest.mark.criterion("REQ-FUND-022")
+@pytest.mark.criterion("REQ-FUND-018")
 def test_google_api_key_is_sent_as_a_header_but_not_handed_to_callbacks(fake_gemini):
     """Validates ``fund.agents.model._build_google``."""
     key = "gk-google-secret-value"
@@ -1088,7 +1088,7 @@ def aws_env(monkeypatch, tmp_path):
     return dict(_AWS_SENTINELS)
 
 
-@pytest.mark.criterion("REQ-FUND-023")
+@pytest.mark.criterion("REQ-FUND-018")
 def test_aws_credentials_are_absent_from_repr_and_serialized_form(aws_env):
     # The class copies the boto3 credentials from the environment into its own
     # fields, and LangChain falls back to repr() as the serialized form it hands
@@ -1588,7 +1588,7 @@ def test_nvidia_usage_telemetry_stays_off_on_both_real_clients_despite_the_env(
     assert llm._async_client.usage_telemetry_enabled is False
 
 
-@pytest.mark.criterion("REQ-FUND-021")
+@pytest.mark.criterion("REQ-FUND-018")
 @pytest.mark.usefixtures("nvidia_construction_stays_offline")
 def test_nvidia_api_key_is_absent_from_repr_and_serialized_form(monkeypatch):
     """Validates ``fund.agents.model._build_nvidia``: the key stays out of every dump.
@@ -1924,7 +1924,7 @@ def test_the_huggingface_builder_switches_the_hub_telemetry_off(monkeypatch):
     assert "torch/" not in user_agent
 
 
-@pytest.mark.criterion("REQ-FUND-025")
+@pytest.mark.criterion("REQ-FUND-018")
 def test_huggingface_token_stays_out_of_str_logs_and_error_text(
     hub_transport, caplog, monkeypatch
 ):

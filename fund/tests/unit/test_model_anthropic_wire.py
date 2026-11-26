@@ -249,7 +249,7 @@ def test_a_failed_request_shows_nothing_of_the_key_in_its_error_or_logs(
     assert _KEY not in caplog.text
 
 
-@pytest.mark.criterion("REQ-FUND-020")
+@pytest.mark.criterion("REQ-FUND-018")
 def test_no_rendering_of_the_chat_model_shows_the_key_once_the_sdk_clients_exist(
     stub: _Stub,
 ) -> None:

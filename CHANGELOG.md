@@ -95,10 +95,10 @@ The entries under Security affect privacy or configuration and come first.
   rewrites a URL that starts with `postgresql://` to `postgresql+psycopg2://` and leaves every
   other URL (an explicit driver, SQLite, an empty string) untouched. The engine, Alembic's
   `env.py` and the live-Postgres test fixtures use it, see SQLAlchemy 2.1 below.
-- **docs**: requirements REQ-FUND-018 to REQ-FUND-023 and REQ-FUND-025 (the API key or token
-  of the OpenAI family, Groq, Anthropic, NVIDIA, Google, AWS and Hugging Face models stays out
-  of `repr`, `str` and the serialised form), REQ-FUND-026 (NVIDIA telemetry off), REQ-FUND-027
-  (the gateway check), REQ-FUND-028 (no request line in the log), REQ-FUND-029 and
+- **docs**: requirement REQ-FUND-018 (the API key or token of the OpenAI family, Groq,
+  Anthropic, NVIDIA, Google, AWS and Hugging Face models stays out of `repr`, `str` and the
+  serialised form), REQ-FUND-026 (NVIDIA telemetry off), REQ-FUND-027 (the gateway check),
+  REQ-FUND-028 (no request line in the log), REQ-FUND-029 and
   REQ-FUND-030 (what an `anthropic` and a `groq` request may carry), REQ-FUND-032 (the `google`
   provider never uses Application Default Credentials) and REQ-FUND-037 (the Hugging Face path
   never loads `hf_xet`), each with tests, in `docs/requirements.md` and `docs/test-plan.md`.
