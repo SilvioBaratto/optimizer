@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Generator
+from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 
@@ -129,26 +130,38 @@ def fake_groq(monkeypatch) -> Generator[list[Request], None, None]:
         yield requests
 
 
-@pytest.mark.criterion("REQ-FUND-030")
-@pytest.mark.parametrize(
-    ("custom_headers", "operator_header_names"),
-    [
-        (None, frozenset()),
+@dataclass(frozen=True)
+class _Sent:
+    """The one request a built model sent, and the headers its operator added."""
+
+    path: str
+    headers: dict[str, str]
+    body: bytes
+    operator_header_names: frozenset[str]
+
+
+# ``GROQ_CUSTOM_HEADERS`` is the SDK's own way to add headers to every request, so the
+# second case shows that what an operator sets there is the only addition.
+_CUSTOM_HEADER_CASES = [
+    pytest.param((None, frozenset()), id="no-custom-headers"),
+    pytest.param(
         (
             "X-Operator-Trace: trace-1\nX-Second: 2",
             frozenset({"x-operator-trace", "x-second"}),
         ),
-    ],
-    ids=["no-custom-headers", "operator-custom-headers"],
-)
-def test_groq_request_sends_the_key_only_as_bearer_and_adds_no_unreviewed_header(
-    monkeypatch, fake_groq, custom_headers, operator_header_names
-):
-    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+        id="operator-custom-headers",
+    ),
+]
 
-    ``GROQ_CUSTOM_HEADERS`` is the SDK's own way to add headers to every request, so
-    the second case shows that what an operator sets there is the only addition.
+
+@pytest.fixture(params=_CUSTOM_HEADER_CASES)
+def sent(request, monkeypatch, fake_groq) -> _Sent:
+    """Send one request through the real ``ChatGroq`` and return what the stub got.
+
+    Runs once without and once with ``GROQ_CUSTOM_HEADERS`` set, so each test that
+    takes it holds for both.
     """
+    custom_headers, operator_header_names = request.param
     if custom_headers is not None:
         monkeypatch.setenv("GROQ_CUSTOM_HEADERS", custom_headers)
     llm = model.build_chat_model(
@@ -159,18 +172,47 @@ def test_groq_request_sends_the_key_only_as_bearer_and_adds_no_unreviewed_header
 
     assert len(fake_groq) == 1
     path, headers, body = fake_groq[0]
-    expected = _HTTP_HEADERS | _SDK_DESCRIPTOR_HEADERS | operator_header_names
-    assert set(headers) - _TIMEOUT_HEADER == expected
-    assert path == "/openai/v1/chat/completions"
-    assert headers["authorization"] == f"Bearer {_SENTINEL}"
+    return _Sent(path, headers, body, operator_header_names)
+
+
+@pytest.mark.criterion("REQ-FUND-030")
+def test_groq_request_adds_no_header_beyond_the_reviewed_set(sent):
+    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+
+    The plain HTTP headers, the SDK's eight self-descriptions and the operator's own
+    ``GROQ_CUSTOM_HEADERS`` are the whole set; a header a release adds is not.
+    """
+    expected = _HTTP_HEADERS | _SDK_DESCRIPTOR_HEADERS | sent.operator_header_names
+
+    assert set(sent.headers) - _TIMEOUT_HEADER == expected
+
+
+@pytest.mark.criterion("REQ-FUND-030")
+def test_groq_request_sends_the_key_only_as_bearer_in_the_authorization_header(sent):
+    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+
+    The key authenticates the request as a bearer token and appears in no other
+    header, in the path or in the body, where a log or an error would show it.
+    """
+    assert sent.headers["authorization"] == f"Bearer {_SENTINEL}"
     elsewhere = {
-        name: value for name, value in headers.items() if name != "authorization"
+        name: value for name, value in sent.headers.items() if name != "authorization"
     }
     assert not [name for name, value in elsewhere.items() if _SENTINEL in value]
-    assert _SENTINEL not in path
-    assert _SENTINEL not in body.decode()
-    assert headers["content-type"] == "application/json"
-    payload = json.loads(body)
+    assert _SENTINEL not in sent.path
+    assert _SENTINEL not in sent.body.decode()
+
+
+@pytest.mark.criterion("REQ-FUND-030")
+def test_groq_request_is_a_json_chat_completion_of_the_prompt(sent):
+    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+
+    The request goes to Groq's chat-completions route as JSON and names the model and
+    the prompt the caller gave.
+    """
+    assert sent.path == "/openai/v1/chat/completions"
+    assert sent.headers["content-type"] == "application/json"
+    payload = json.loads(sent.body)
     assert payload["model"] == _MODEL
     assert payload["messages"][-1]["content"] == "hello"
 
