@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import types
@@ -1271,7 +1272,22 @@ def test_nvidia_switches_the_sdk_usage_telemetry_off(monkeypatch, base_url):
 _NVIDIA_STATIC_TABLE_MODEL = "meta/llama-3.1-70b-instruct"
 
 
+@pytest.fixture
+def nvidia_construction_stays_offline(monkeypatch):
+    """Fail on a non-loopback connection that ``except Exception`` cannot swallow."""
+    real_connect = socket.socket.connect
+
+    def _loopback_only(sock, address):
+        host = address[0] if isinstance(address, tuple) else "localhost"
+        if host not in ("127.0.0.1", "::1", "localhost"):
+            pytest.fail(f"a unit test opened a connection to {host}")
+        return real_connect(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", _loopback_only)
+
+
 @pytest.mark.criterion("REQ-FUND-026")
+@pytest.mark.usefixtures("nvidia_construction_stays_offline")
 @pytest.mark.parametrize(
     ("base_url", "is_hosted"),
     [(None, True), ("http://localhost:8000/v1", False)],
@@ -1284,6 +1300,7 @@ def test_nvidia_usage_telemetry_stays_off_on_both_real_clients_despite_the_env(
 
     The env var is the SDK's own switch; the explicit constructor argument must
     win over an ambient "true" so no process setting can turn the egress back on.
+    The offline fixture fails the test if an SDK table change makes it call out.
     """
     monkeypatch.setenv("NVIDIA_USAGE_TELEMETRY_ENABLED", "true")
     # The SDK falls back to this variable when no base_url is passed.
@@ -1301,11 +1318,13 @@ def test_nvidia_usage_telemetry_stays_off_on_both_real_clients_despite_the_env(
 
 
 @pytest.mark.criterion("REQ-FUND-021")
+@pytest.mark.usefixtures("nvidia_construction_stays_offline")
 def test_nvidia_api_key_is_absent_from_repr_and_serialized_form(monkeypatch):
     """Validates ``fund.agents.model._build_nvidia``: the key stays out of every dump.
 
     ChatNVIDIA holds the key as a SecretStr; LangChain hands repr() and the
-    serialized form to every tracer and debug log.
+    serialized form to every tracer and debug log. The offline fixture fails the
+    test if an SDK table change makes it call out.
     """
     monkeypatch.delenv("NVIDIA_BASE_URL", raising=False)
     key = "nvapi-secret-key-value"
