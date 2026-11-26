@@ -17,7 +17,7 @@ dependencies = [
     # Database: the engine/models/migrations live in portopt-db (inherited via
     # the workspace dep below). SQLAlchemy stays a direct dep — services type
     # against Session / use text(); psycopg2-binary + alembic are transitive.
-    "SQLAlchemy==2.0.52",
+    "SQLAlchemy==2.1.9",
     # Financial Data
     "exchange_calendars==4.13.2",
     "yfinance==1.7.0",

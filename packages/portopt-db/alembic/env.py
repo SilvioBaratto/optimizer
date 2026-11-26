@@ -4,6 +4,7 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 
 from alembic import context
+from portopt_db.config import pin_postgres_driver
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -25,7 +26,11 @@ _db_url = os.getenv("DATABASE_URL")
 if _db_url:
     # Alembic keeps option values in a ConfigParser that treats '%' as an
     # interpolation marker; a percent-encoded password would otherwise raise.
-    config.set_main_option("sqlalchemy.url", _db_url.replace("%", "%%"))
+    # The driver is pinned because SQLAlchemy 2.1 would resolve a bare
+    # postgresql:// to psycopg 3, which migrations were never run against.
+    config.set_main_option(
+        "sqlalchemy.url", pin_postgres_driver(_db_url).replace("%", "%%")
+    )
 elif not context.is_offline_mode():
     raise RuntimeError(
         "DATABASE_URL is not set — refusing to run online migrations against "

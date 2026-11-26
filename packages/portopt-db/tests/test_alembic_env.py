@@ -65,18 +65,44 @@ def test_offline_run_accepts_percent_encoded_database_url(
 def test_online_run_hands_percent_encoded_url_to_engine_unchanged(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The engine must receive the URL exactly as exported, '%' included."""
-    db_file = tmp_path / "p%40ss.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_file}")
+    """env.py's '%' escaping for ConfigParser must not reach the engine."""
+    exported = tmp_path / "p%40ss.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{exported}")
 
     command.stamp(_config(), "head")
 
-    # SQLite takes the database path verbatim, so the file only appears under
-    # this exact name when env.py neither decoded nor doubled the '%'.
-    assert db_file.exists()
-    with create_engine(f"sqlite:///{db_file}").connect() as conn:
+    # SQLAlchemy 2.1 unescapes the database portion of a URL, so the file is
+    # named after the decoded path. A '%%' left behind by env.py's escaping
+    # would decode to 'p%@ss.db' instead. The exact URL handed to the engine is
+    # asserted by the Postgres test below.
+    created = tmp_path / "p@ss.db"
+    assert created.exists()
+    with create_engine(f"sqlite:///{exported}").connect() as conn:
         version = conn.execute(text("SELECT version_num FROM alembic_version"))
         assert version.scalar_one() == _head()
+
+
+class _EngineBuilt(Exception):
+    """Raised by the stand-in engine factory to end the Alembic run early."""
+
+
+def test_online_run_binds_a_bare_postgres_url_to_psycopg2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Migrations keep the psycopg2 driver that SQLAlchemy 2.1 no longer defaults to."""
+    seen: dict[str, str] = {}
+
+    def fake_engine_from_config(section: dict[str, str], **_kwargs: object) -> None:
+        seen.update(section)
+        raise _EngineBuilt
+
+    monkeypatch.setattr("sqlalchemy.engine_from_config", fake_engine_from_config)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p%40ss@localhost:1/db")
+
+    with pytest.raises(_EngineBuilt):
+        command.stamp(_config(), "head")
+
+    assert seen["sqlalchemy.url"] == "postgresql+psycopg2://u:p%40ss@localhost:1/db"
 
 
 def _create_unmanaged_table(engine: Engine, tablename: str) -> None:
