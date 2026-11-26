@@ -395,7 +395,7 @@ Each member declares its own; the single shared venv installs one version of
 each shared pin. Exact runtime pins:
 
 **`portopt-core`** (library): `numpy==2.5.5`, `pandas==3.0.6`, `scipy==1.18.1`,
-`scikit-learn==1.9.1`, `skfolio==1.12.5`, `jinja2==3.1.6`, `plotly==7.0.0`.
+`scikit-learn==1.9.1`, `skfolio==1.12.5`, `jinja2==3.1.6`, `plotly==7.2.0`.
 *(`arch` is **not** declared — it reaches bootstrap uncertainty-set classes
 transitively via skfolio. Code importing it directly must guard with
 `try/except ImportError` or declare it.)*
