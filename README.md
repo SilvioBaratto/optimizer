@@ -400,7 +400,7 @@ each shared pin. Exact runtime pins:
 transitively via skfolio. Code importing it directly must guard with
 `try/except ImportError` or declare it.)*
 
-**`portopt-db`** (DB layer): `SQLAlchemy==2.0.52`, `psycopg2-binary==2.9.12`,
+**`portopt-db`** (DB layer): `SQLAlchemy==2.0.52`, `psycopg2-binary==2.9.13`,
 `alembic==1.19.1`, `pandas==3.0.6`, `pydantic==2.14.4`. Owns the SQLAlchemy pin
 the whole workspace inherits.
 
