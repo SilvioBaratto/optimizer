@@ -85,6 +85,8 @@ def http_loggers() -> Generator[tuple[str, ...], None, None]:
     level is set by the tests that exercise it; without the restore, every later test
     in the process would run with the request lines already silenced.
     """
+    # Deliberately not imported from fund.config: an independent pin, so dropping a
+    # name from the production tuple fails the tests instead of shrinking them too.
     names = ("httpx", "httpx2", "httpcore", "httpcore2")
     saved = {name: logging.getLogger(name).level for name in names}
     root_level = logging.getLogger().level

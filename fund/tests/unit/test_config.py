@@ -646,7 +646,7 @@ def test_silencing_http_logs_keeps_request_lines_out_of_info(http_loggers):
 
     ``httpx2`` is what ``openai``, ``anthropic`` and ``langsmith`` use, ``httpx`` is
     what ``groq``, ``ollama`` and ``google-genai`` still use, and each logs under its
-    own name.
+    own name. Validates ``fund.config.silence_http_request_logs``.
     """
     from fund.config import silence_http_request_logs
 
@@ -665,7 +665,10 @@ def test_silencing_http_logs_keeps_request_lines_out_of_info(http_loggers):
 def test_silencing_http_logs_covers_the_transport_loggers_of_both_stacks(
     http_loggers,
 ):
-    """``httpcore2`` logs per connection step (``httpcore2.http11`` ...) at DEBUG."""
+    """``httpcore2`` logs per connection step (``httpcore2.http11`` ...) at DEBUG.
+
+    Validates ``fund.config.silence_http_request_logs``.
+    """
     from fund.config import silence_http_request_logs
 
     logging.getLogger().setLevel(logging.DEBUG)
