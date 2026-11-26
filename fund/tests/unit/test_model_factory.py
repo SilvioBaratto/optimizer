@@ -1867,6 +1867,48 @@ def test_a_huggingface_call_writes_no_request_line_to_the_daemon_log(
     assert "router.huggingface.co" not in caplog.text
 
 
+@pytest.mark.criterion("REQ-FUND-037")
+@pytest.mark.parametrize("call", ["invoke", "ainvoke"])
+def test_a_huggingface_call_never_imports_the_xet_transfer_client(
+    call, hub_transport, monkeypatch
+):
+    """``hf_xet`` 1.7 and later send a report to the Hub after every transfer.
+
+    Validates ``fund.agents.model._build_huggingface``: the chat path only talks to
+    the Inference API, so the transfer client must not even be imported. A model
+    download added later fails here instead of starting those reports.
+    """
+    import importlib
+    import importlib.abc
+
+    requested: list[str] = []
+
+    # Refusing the import, rather than only noting it, keeps the Rust extension from
+    # being loaded a second time in a process that may already hold it.
+    class _XetImportBlocker(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname.split(".")[0] == "hf_xet":
+                requested.append(fullname)
+                raise ModuleNotFoundError(fullname)
+            return None
+
+    monkeypatch.delitem(sys.modules, "hf_xet", raising=False)
+    monkeypatch.setattr(sys, "meta_path", [_XetImportBlocker(), *sys.meta_path])
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("hf_xet")
+    assert requested == ["hf_xet"], "the blocker must see an import of hf_xet"
+    requested.clear()
+    llm = _hf_chat_model()
+
+    if call == "invoke":
+        llm.invoke("hi")
+    else:
+        asyncio.run(llm.ainvoke("hi"))
+
+    assert hub_transport.requests, "the call must have reached the hub transport"
+    assert requested == []
+
+
 @pytest.mark.criterion("REQ-FUND-025")
 def test_huggingface_token_stays_out_of_str_logs_and_error_text(
     hub_transport, caplog, monkeypatch

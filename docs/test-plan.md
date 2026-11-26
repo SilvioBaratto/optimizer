@@ -73,6 +73,10 @@ Also critical and tested:
   (data minimisation, standard 2.15.11): a model built from `GOOGLE_API_KEY` never calls
   `google.auth.default()` and connects only to its Gemini endpoint.
   `fund/tests/unit/test_model_factory.py`. REQ-FUND-032.
+- No transfer-client telemetry from the Hugging Face path (data minimisation, standard
+  2.15.11): the `huggingface` chat path never imports `hf_xet`, whose 1.7 and later
+  releases report each transfer to the Hub: `fund/tests/unit/test_model_factory.py`.
+  REQ-FUND-037.
 - No chat model is built while `LANGSMITH_GATEWAY` is set, so prompts and keys never reach
   the LangSmith gateway: `fund/tests/unit/test_model_openai_family.py`. REQ-FUND-027.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
