@@ -30,6 +30,7 @@ lazily; the first request happens later at call time.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -75,6 +76,13 @@ _READ_TIMEOUT_SECONDS = 180.0
 # every request with nothing for ModelFallbackMiddleware to fall back to.
 _OPENAI_REASONING_MODEL = re.compile(r"o\d")
 _ANTHROPIC_FIXED_SAMPLING_PREFIXES = ("claude-fable-5", "claude-mythos-5-2")
+
+# langchain-core reads this process variable (`true`, or a gateway URL) and a provider
+# class that applies it sends any model whose endpoint the builder did not pass to the
+# LangSmith gateway host, prompts and API key included. The values below are the ones
+# langchain-core itself treats as "off"; anything else enables the gateway.
+_LANGSMITH_GATEWAY_ENV = "LANGSMITH_GATEWAY"
+_LANGSMITH_GATEWAY_OFF_VALUES = frozenset({"false", "0", "no"})
 
 # Explicit completion budget for the providers whose SDK wrapper otherwise caps
 # output silently (ChatNVIDIA at 1024 tokens, the Hugging Face wrapper at 512). A
@@ -122,6 +130,29 @@ def _require(value: str | None, env_name: str) -> str:
             f"{env_name} is required to build a chat model; set it in the environment."
         )
     return value
+
+
+def _reject_langsmith_gateway() -> None:
+    """Refuse to build a chat model while the LangSmith gateway is enabled.
+
+    The check lives here, once, instead of in each builder: which provider classes
+    apply the gateway changes with every release of their package, and a builder that
+    passes no endpoint (``openai`` without ``OPENAI_BASE_URL``, ``anthropic``,
+    ``google``, ``aws``) would otherwise send portfolio data to a host nobody chose.
+    The process environment is read directly because that is where the SDKs read it,
+    whatever ``FundConfig`` was loaded from. The value is not repeated in the error: a
+    gateway URL can carry credentials.
+
+    Raises:
+        RuntimeError: ``LANGSMITH_GATEWAY`` is set to anything but a false value.
+    """
+    value = os.environ.get(_LANGSMITH_GATEWAY_ENV)
+    if value and value.lower() not in _LANGSMITH_GATEWAY_OFF_VALUES:
+        raise RuntimeError(
+            f"{_LANGSMITH_GATEWAY_ENV} is set, which makes the provider SDK send "
+            "prompts and the API key to the LangSmith gateway instead of the "
+            f"provider's own host. Unset {_LANGSMITH_GATEWAY_ENV} for this process."
+        )
 
 
 class _BearerAuth:
@@ -611,6 +642,8 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
     Dispatches on ``config.llm_provider``:
 
     * unknown provider → :class:`RuntimeError` listing the valid providers;
+    * ``LANGSMITH_GATEWAY`` enabled in the process environment →
+      :class:`RuntimeError`, for every provider (see :func:`_reject_langsmith_gateway`);
     * a provider whose SDK package is not installed → the builder's
       ``ModuleNotFoundError`` is re-raised as a :class:`RuntimeError` naming the
       ``uv sync --package portopt-fund --extra <extra>`` command, where ``<extra>``
@@ -626,6 +659,7 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
             f"Unknown LLM provider {config.llm_provider!r}; valid providers: {valid}."
         ) from None
 
+    _reject_langsmith_gateway()
     try:
         return builder(config, model_name)
     except ModuleNotFoundError as exc:
