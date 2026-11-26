@@ -33,7 +33,7 @@ _ADVISORY_FLOORS = {
     "soupsieve": "4.0.0",
     # CVE-2026-132276: with default flags a pattern holding several `*` wildcards takes
     # O(n^k) time to reject a crafted file name. deepagents matches paths with it, so
-    # 11.2 is the first release that fixes it; 12.x would be a major jump for no gain.
+    # 11.2 is the first release that fixes it, and the 12.x line keeps the fix.
     "wcmatch": "11.2",
 }
 
