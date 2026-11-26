@@ -39,6 +39,7 @@ visible from another run's backend; see :func:`build_backend`.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import os
 import shutil
@@ -47,7 +48,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import IO, TYPE_CHECKING, Any
 
 from fund.agents.skills import SKILLS_BY_AGENT, SKILLS_DIR, STAGED_SKILLS_ROOT
@@ -57,7 +58,12 @@ if TYPE_CHECKING:
     from deepagents import FilesystemPermission
     from deepagents.backends import CompositeBackend, FilesystemBackend
 
-__all__ = ["build_backend", "read_only_permissions", "stage_theory"]
+__all__ = [
+    "build_backend",
+    "guarded_filesystem_backend",
+    "read_only_permissions",
+    "stage_theory",
+]
 
 # ``…/fund/src/fund/agents/backend.py`` → parents[3] = ``fund/``, .parent = repo root.
 _FUND_DIR: Path = Path(__file__).resolve().parents[3]
@@ -304,6 +310,62 @@ def _run_scratch_dir(root: Path, run_id: uuid.UUID | str) -> Path:
     return scratch
 
 
+_READ_ONLY_REFUSAL = (
+    "Error: permission denied: a path with a dot-prefixed part is read-only"
+)
+
+
+def _has_dot_prefixed_part(file_path: str) -> bool:
+    """Whether any part of a virtual path starts with a dot, ``..`` included."""
+    return any(part.startswith(".") for part in PurePosixPath(file_path).parts)
+
+
+@functools.cache
+def guarded_filesystem_backend() -> type[FilesystemBackend]:
+    """The ``FilesystemBackend`` class that refuses to change a dot-prefixed path.
+
+    :func:`read_only_permissions` denies writes with the glob ``/**``, which deepagents
+    matches without wcmatch's ``DOTGLOB`` flag: ``*`` and ``**`` skip every
+    dot-prefixed name, so ``/.git/config`` and ``/docs/.x.md`` were not denied. No glob
+    covers a path of any depth (``**`` does not cross a hidden directory either), so
+    the backend refuses write, edit and delete itself, by path alone: deepagents' own
+    offloading uses plain names and is unaffected. The async calls delegate to these.
+
+    Returns:
+        A ``FilesystemBackend`` subclass; imported lazily so this module needs no
+        agent stack.
+    """
+    from deepagents.backends import FilesystemBackend
+    from deepagents.backends.protocol import DeleteResult, EditResult, WriteResult
+
+    class _GuardedFilesystemBackend(FilesystemBackend):
+        """A filesystem backend where a dot-prefixed path is read-only."""
+
+        def write(self, file_path: str, content: str) -> WriteResult:
+            """Write a file, unless a part of its path starts with a dot."""
+            if _has_dot_prefixed_part(file_path):
+                return WriteResult(error=_READ_ONLY_REFUSAL)
+            return super().write(file_path, content)
+
+        def edit(self, file_path: str, *args: Any, **kwargs: Any) -> EditResult:
+            """Edit a file, unless a part of its path starts with a dot.
+
+            The remaining arguments are the base class's (old and new string, and
+            whether to replace every occurrence).
+            """
+            if _has_dot_prefixed_part(file_path):
+                return EditResult(error=_READ_ONLY_REFUSAL)
+            return super().edit(file_path, *args, **kwargs)
+
+        def delete(self, file_path: str) -> DeleteResult:
+            """Delete a path, unless a part of it starts with a dot."""
+            if _has_dot_prefixed_part(file_path):
+                return DeleteResult(error=_READ_ONLY_REFUSAL)
+            return super().delete(file_path)
+
+    return _GuardedFilesystemBackend
+
+
 def build_backend(
     config: FundConfig = settings, *, run_id: uuid.UUID | str | None = None
 ) -> FilesystemBackend | CompositeBackend:
@@ -330,24 +392,25 @@ def build_backend(
     Raises:
         ValueError: If ``run_id`` is not a UUID.
     """
-    from deepagents.backends import CompositeBackend, FilesystemBackend
+    from deepagents.backends import CompositeBackend
 
+    backend_class = guarded_filesystem_backend()
     root = stage_theory(config)
     if run_id is None:
-        return FilesystemBackend(root_dir=root, virtual_mode=config.agent_virtual_mode)
+        return backend_class(root_dir=root, virtual_mode=config.agent_virtual_mode)
 
     # Routed backends receive prefix-stripped paths, which only resolve against
     # their root in virtual mode.
     routes: dict[str, Any] = (
         {
-            f"/{sub}/": FilesystemBackend(root_dir=root / sub, virtual_mode=True)
+            f"/{sub}/": backend_class(root_dir=root / sub, virtual_mode=True)
             for sub in (_STAGE_SUBDIR, STAGED_SKILLS_ROOT)
         }
         if config.preload_theory
         else {}
     )
     return CompositeBackend(
-        default=FilesystemBackend(
+        default=backend_class(
             root_dir=_run_scratch_dir(root, run_id),
             virtual_mode=config.agent_virtual_mode,
         ),

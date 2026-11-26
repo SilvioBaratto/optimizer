@@ -32,16 +32,18 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from fund.config import FundConfig, settings
+from fund.config import FundConfig, settings, silence_http_request_logs
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     from langchain_core.language_models import BaseChatModel
 
@@ -380,8 +382,30 @@ def _build_groq(config: FundConfig, model_name: str) -> BaseChatModel:
         "model": model_name,
         "api_key": api_key,
         "temperature": config.model_temperature,
+        "timeout": _READ_TIMEOUT_SECONDS,
     }
     return ChatGroq(**kwargs)
+
+
+# google-genai picks its backend from these when it is not told, and
+# langchain-google-genai tells it only for Vertex, never against it.
+_GOOGLE_BACKEND_SWITCHES = ("GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE")
+_ENVIRONMENT_LOCK = threading.Lock()
+
+
+@contextmanager
+def _environment_without(names: tuple[str, ...]) -> Iterator[None]:
+    """Hide ``names`` from ``os.environ`` for the block, then give them back.
+
+    The lock keeps two builders from restoring over each other; nothing else in this
+    process reads the variables this is used for.
+    """
+    with _ENVIRONMENT_LOCK:
+        held = {name: os.environ.pop(name) for name in names if name in os.environ}
+        try:
+            yield
+        finally:
+            os.environ.update(held)
 
 
 def _build_google(config: FundConfig, model_name: str) -> BaseChatModel:
@@ -392,16 +416,23 @@ def _build_google(config: FundConfig, model_name: str) -> BaseChatModel:
     this stays consistent with the other builders. ``reasoning=`` is Ollama-only
     and is never passed here — Gemini's thinking budget is an operator model-id /
     separate-parameter choice (SPEC Open Q2), not this constructor flag.
+
+    This is always the Gemini Developer API: ``vertexai=False`` is passed, and the
+    ambient Vertex switches are hidden while the client is built, because the
+    google-genai client reads them itself and would otherwise turn the key into a
+    Vertex AI client.
     """
     from langchain_google_genai import ChatGoogleGenerativeAI
 
     api_key = _require(config.google_api_key, "GOOGLE_API_KEY")
-    return ChatGoogleGenerativeAI(
-        model=model_name,
-        api_key=api_key,
-        temperature=config.model_temperature,
-        request_timeout=_READ_TIMEOUT_SECONDS,
-    )
+    with _environment_without(_GOOGLE_BACKEND_SWITCHES):
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            api_key=api_key,
+            temperature=config.model_temperature,
+            request_timeout=_READ_TIMEOUT_SECONDS,
+            vertexai=False,
+        )
 
 
 def _build_aws(config: FundConfig, model_name: str) -> BaseChatModel:
@@ -526,6 +557,19 @@ def _build_nvidia(config: FundConfig, model_name: str) -> BaseChatModel:
     return llm
 
 
+def _switch_hub_telemetry_off() -> None:
+    """Stop ``huggingface-hub`` from describing this process to Hugging Face.
+
+    With telemetry on, the user agent of every hub request names the AI agent harness
+    the process runs under (found by fetching a registry from huggingface.co) and the
+    installed torch. The hub reads its switch once, at import, so the module attribute
+    is set: that also wins over an import that happened before this builder ran.
+    """
+    from huggingface_hub import constants as hub_constants
+
+    hub_constants.HF_HUB_DISABLE_TELEMETRY = True
+
+
 def _build_huggingface(config: FundConfig, model_name: str) -> BaseChatModel:
     """Build a ``ChatHuggingFace`` over the Hugging Face Inference API (cloud-only).
 
@@ -552,6 +596,7 @@ def _build_huggingface(config: FundConfig, model_name: str) -> BaseChatModel:
 
     from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 
+    _switch_hub_telemetry_off()
     token = _require(config.hf_api_token, "HUGGINGFACEHUB_API_TOKEN")
     endpoint_kwargs: dict[str, Any] = {
         "repo_id": model_name,
@@ -640,6 +685,25 @@ def _missing_sdk_error(provider: str, exc: ModuleNotFoundError) -> RuntimeError 
     )
 
 
+_SDK_LOGGERS = ("groq", "openai", "anthropic")
+
+
+def _undo_sdk_logging_switches() -> None:
+    """Undo what ``GROQ_LOG``, ``OPENAI_LOG`` and ``ANTHROPIC_LOG`` did on import.
+
+    Each SDK reads its variable when it is first imported and then sets its own
+    logger, and the ``httpx`` logger of its stack, to INFO or DEBUG. The import is
+    lazy, so it lands after the entry point silenced the HTTP loggers, and at DEBUG
+    the SDK logger writes the URL, the response headers and the whole request body
+    (the prompt). A record that comes up from a child logger is not checked against
+    the root level, so only the logger itself can hold it back. ``NOTSET`` gives
+    the SDK logger back the level it has without the variable.
+    """
+    silence_http_request_logs()
+    for name in _SDK_LOGGERS:
+        logging.getLogger(name).setLevel(logging.NOTSET)
+
+
 def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
     """Return a ``BaseChatModel`` for ``model_name`` from the provider registry.
 
@@ -665,12 +729,14 @@ def build_chat_model(config: FundConfig, *, model_name: str) -> BaseChatModel:
 
     _reject_langsmith_gateway()
     try:
-        return builder(config, model_name)
+        llm = builder(config, model_name)
     except ModuleNotFoundError as exc:
         hint = _missing_sdk_error(config.llm_provider, exc)
         if hint is None:
             raise
         raise hint from exc
+    _undo_sdk_logging_switches()
+    return llm
 
 
 # FundConfig's built-in model ids are Ollama Cloud DeepSeek names. A value still

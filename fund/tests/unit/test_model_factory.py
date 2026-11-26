@@ -1002,6 +1002,33 @@ def test_google_provider_never_asks_google_auth_for_credentials(
     assert len(fake_gemini) == 1
 
 
+@pytest.mark.criterion("REQ-FUND-041")
+@pytest.mark.parametrize(
+    "variable", ["GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE"]
+)
+def test_google_provider_stays_on_the_gemini_api_whatever_the_environment_says(
+    fake_gemini, monkeypatch, variable
+):
+    """Validates ``fund.agents.model._build_google``: ``google`` is not ``vertex``.
+
+    The google-genai client reads both switches itself when the caller does not pass
+    ``vertexai``, and langchain-google-genai passes none for a model it decided is
+    not Vertex, so an ambient ``true`` would turn a key meant for the Gemini Developer
+    API into a Vertex AI client. The check is on the built client, before any call:
+    in Vertex mode the first request would leave for Google Cloud.
+    """
+    monkeypatch.setenv(variable, "true")
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+    assert not llm.client._api_client.vertexai
+    assert os.environ[variable] == "true", "the process environment is given back"
+    llm.invoke("hi")
+    assert len(fake_gemini) == 1
+    assert fake_gemini[0]["api_key"] == "gk-google-test"
+
+
 # --- aws / Bedrock Converse (langchain-aws / ChatBedrockConverse) ------------
 #
 # AWS is the first non-key provider: creds arrive via boto3 (AWS_ACCESS_KEY_ID /
@@ -1907,6 +1934,36 @@ def test_a_huggingface_call_never_imports_the_xet_transfer_client(
 
     assert hub_transport.requests, "the call must have reached the hub transport"
     assert requested == []
+
+
+@pytest.mark.criterion("REQ-FUND-039")
+def test_the_huggingface_builder_switches_the_hub_telemetry_off(monkeypatch):
+    """Validates ``fund.agents.model._build_huggingface`` against the 2.x hub client.
+
+    With telemetry on, the user agent of every hub request names the AI agent harness
+    the process runs under (found by fetching a registry from huggingface.co) and the
+    installed torch. The hub reads its switch once, at import, so a builder that only
+    set the environment would lose to an earlier import.
+    """
+    from huggingface_hub import constants as hub_constants
+    from huggingface_hub.utils import _headers as hub_headers
+
+    detections: list[str] = []
+
+    def _detect_agent() -> str:
+        detections.append("asked")
+        return "a-harness"
+
+    monkeypatch.setattr(hub_constants, "HF_HUB_DISABLE_TELEMETRY", False)
+    monkeypatch.setattr(hub_headers, "detect_agent", _detect_agent)
+
+    _hf_chat_model()
+
+    assert hub_constants.HF_HUB_DISABLE_TELEMETRY is True
+    user_agent = hub_headers.build_hf_headers()["user-agent"]
+    assert detections == []
+    assert "agent/" not in user_agent
+    assert "torch/" not in user_agent
 
 
 @pytest.mark.criterion("REQ-FUND-025")

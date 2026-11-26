@@ -70,8 +70,11 @@ _SDK_DESCRIPTOR_HEADERS = frozenset(
 )
 
 # Sent only when the client has a timeout, which ChatGroq leaves unset unless the
-# builder passes one.
+# builder passes one; the builder always does.
 _TIMEOUT_HEADER = frozenset({"x-stainless-read-timeout"})
+
+# The deadline the other provider builders already give a request.
+_DEADLINE_SECONDS = "180.0"
 
 # Everything in the environment that can redirect or decorate a Groq request.
 _AMBIENT_GROQ_VARIABLES = (
@@ -198,6 +201,22 @@ def test_groq_request_sends_the_key_only_as_bearer_and_adds_no_unreviewed_header
     payload = json.loads(body)
     assert payload["model"] == _MODEL
     assert payload["messages"][-1]["content"] == "hello"
+
+
+@pytest.mark.criterion("REQ-FUND-040")
+def test_groq_request_carries_a_deadline(fake_groq):
+    """Validates ``fund.agents.model._build_groq``: a hung call cannot block a run.
+
+    ``ChatGroq`` has no timeout unless the builder gives one, and the SDK tells the
+    server the read timeout it works to in ``X-Stainless-Read-Timeout``.
+    """
+    llm = model.build_chat_model(
+        FundConfig(llm_provider="groq", groq_api_key=_SENTINEL), model_name=_MODEL
+    )
+
+    llm.invoke("hello")
+
+    assert fake_groq[0][1]["x-stainless-read-timeout"] == _DEADLINE_SECONDS
 
 
 @pytest.mark.criterion("REQ-FUND-030")

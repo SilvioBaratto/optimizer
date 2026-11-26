@@ -58,7 +58,9 @@ Also critical and tested:
   REQ-FUND-017, REQ-FUND-018, REQ-FUND-019, REQ-FUND-020, REQ-FUND-021, REQ-FUND-022,
   REQ-FUND-023, REQ-FUND-025, REQ-FUND-029, REQ-ING-008, REQ-DB-005.
 - Provider request lines kept out of the daemon log (`silence_http_request_logs`):
-  `fund/tests/unit/test_config.py`, `fund/tests/unit/test_model_factory.py`. REQ-FUND-028.
+  `fund/tests/unit/test_config.py`, `fund/tests/unit/test_model_factory.py`; the SDK log
+  variables `GROQ_LOG`, `OPENAI_LOG` and `ANTHROPIC_LOG` in a fresh interpreter:
+  `fund/tests/unit/test_model_sdk_log_switches.py`. REQ-FUND-028.
 - No usage telemetry from a provider SDK (data minimisation, standard 2.15.11): the
   `nvidia` chat model is built with the SDK's telemetry switched off, whatever the
   environment holds. `fund/tests/unit/test_model_factory.py`. REQ-FUND-026.
@@ -77,6 +79,18 @@ Also critical and tested:
   2.15.11): the `huggingface` chat path never imports `hf_xet`, whose 1.7 and later
   releases report each transfer to the Hub: `fund/tests/unit/test_model_factory.py`.
   REQ-FUND-037.
+- The Hugging Face hub's telemetry is switched off for the `huggingface` chat model, so the
+  user agent names no agent harness or torch version (data minimisation, standard 2.15.11):
+  `fund/tests/unit/test_model_factory.py`. REQ-FUND-039.
+- The `google` provider is always the Gemini Developer API, whatever the Vertex switches in
+  the environment say (data minimisation, standard 2.15.11):
+  `fund/tests/unit/test_model_factory.py`. REQ-FUND-041.
+- A Groq request carries a read timeout, so a hung call cannot block a run:
+  `fund/tests/unit/test_model_groq_sdk_wire.py`. REQ-FUND-040.
+- The portfolio-manager, profiler and Ask agents cannot write, edit or delete a
+  dot-prefixed path, which the glob rule does not match (standard 2.15.1):
+  `fund/tests/unit/test_backend_stage.py`, `fund/tests/unit/test_ask_agent.py`.
+  REQ-FUND-038.
 - No chat model is built while `LANGSMITH_GATEWAY` is set, so prompts and keys never reach
   the LangSmith gateway: `fund/tests/unit/test_model_openai_family.py`. REQ-FUND-027.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
