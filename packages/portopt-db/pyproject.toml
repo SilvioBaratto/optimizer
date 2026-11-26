@@ -20,7 +20,7 @@ dependencies = [
     "alembic==1.19.1",
     "pandas==3.0.6",
     # RepositoryBase's generic CRUD is typed against pydantic schemas.
-    "pydantic==2.14.1",
+    "pydantic==2.14.4",
 ]
 
 [project.optional-dependencies]
