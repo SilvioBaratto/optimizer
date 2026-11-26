@@ -136,6 +136,8 @@ class TestConfigMapping:
             st.environment = "test"
             st.database_lock_timeout_ms = 7_000
             st.database_statement_timeout_ms = 45_000
+            st.database_breaker_failure_threshold = 5
+            st.database_breaker_reset_timeout_s = 30.0
             cfg = _build_config()
 
         assert cfg.lock_timeout_ms == 7_000

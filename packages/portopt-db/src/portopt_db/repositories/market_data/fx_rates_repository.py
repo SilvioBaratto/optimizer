@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import select
 
 from portopt_db.models.market_data.fx_rates import FxRate
+from portopt_db.ports import FxRatePoint
 from portopt_db.repository import RepositoryBase
 
 
@@ -91,6 +92,32 @@ class FxRatesRepository(RepositoryBase):
             stmt = stmt.where(FxRate.date <= end)
         stmt = stmt.order_by(FxRate.quote_currency, FxRate.date)
         return list(self.session.execute(stmt).scalars().all())
+
+    def rates_for(
+        self,
+        base: str,
+        quotes: Sequence[str] | None = None,
+        start: dt.date | None = None,
+        end: dt.date | None = None,
+    ) -> list[FxRatePoint]:
+        """Return the rates :meth:`get_rates` reads, as DTOs.
+
+        Args:
+            base: Base currency the returned rates are expressed in.
+            quotes: Restrict to these quote currencies; ``None`` returns all.
+            start: Inclusive lower date bound; ``None`` leaves it open.
+            end: Inclusive upper date bound; ``None`` leaves it open.
+
+        Returns:
+            The rates ordered by ``(quote_currency, date)``, each as a ``float``;
+            empty when nothing matches.
+        """
+        return [
+            FxRatePoint(
+                quote_currency=row.quote_currency, date=row.date, rate=float(row.rate)
+            )
+            for row in self.get_rates(base, quotes, start, end)
+        ]
 
 
 __all__ = ["FxRatesRepository"]

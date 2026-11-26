@@ -25,9 +25,9 @@ from typing import Any
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
+from fund import ask_context as ask_module
 from fund import observe
 from fund.agents import ask_agent
-from fund.tui import ask as ask_module
 
 PID = uuid.UUID("11111111-2222-3333-4444-555555555555")
 OTHER = uuid.UUID("99999999-9999-9999-9999-999999999999")
@@ -471,7 +471,7 @@ def test_a_focused_conversation_lists_and_snapshots_only_its_portfolio(
     ]
     assert tools["fund_snapshot"].invoke({}) == '["line one", "line two"]'
     assert calls["pending_hitl"] == ((SAVER, None), {})
-    assert calls["build_context"] == ((SAVER, PID, ""), {})
+    assert calls["build_context"] == ((SAVER, PID), {})
 
 
 # ------------------------------------------------------------ the fund-wide view
@@ -493,7 +493,7 @@ def test_the_fund_wide_view_reads_and_lists_every_portfolio(monkeypatch) -> None
     assert calls["performance_summary"][0] == (OTHER,)
     assert tools["list_portfolios"].invoke({}) == f'["{PID}", "{OTHER}"]'
     assert len(json.loads(tools["pending_gates"].invoke({}))) == 2
-    assert calls["build_context"] == ((SAVER, None, ""), {})
+    assert calls["build_context"] == ((SAVER, None), {})
 
 
 @pytest.mark.parametrize(

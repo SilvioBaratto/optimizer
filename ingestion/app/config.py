@@ -4,6 +4,12 @@ import logging
 import os
 from pathlib import Path
 
+from portopt_db.resilience import (
+    DEFAULT_FAILURE_THRESHOLD,
+    DEFAULT_RESET_TIMEOUT_S,
+    parse_failure_threshold,
+    parse_reset_timeout,
+)
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -54,6 +60,33 @@ class Settings(BaseSettings):
     # mid-fetch.
     database_lock_timeout_ms: int = Field(default=60_000, ge=0)
     database_statement_timeout_ms: int = Field(default=0, ge=0)
+    # Circuit breaker on DatabaseManager.get_session (see docs/adr/0008):
+    # consecutive connectivity failures that open it, and seconds it refuses
+    # sessions before it admits a probe.
+    database_breaker_failure_threshold: int = Field(
+        default=DEFAULT_FAILURE_THRESHOLD, ge=1, strict=True
+    )
+    database_breaker_reset_timeout_s: float = Field(
+        default=DEFAULT_RESET_TIMEOUT_S, gt=0, allow_inf_nan=False, strict=True
+    )
+
+    # fund reads the same two variables; parsing both through portopt_db keeps the
+    # two daemons from accepting different spellings of one value.
+    @field_validator("database_breaker_failure_threshold", mode="before")
+    @classmethod
+    def _parse_breaker_threshold(cls, value: object) -> object:
+        if isinstance(value, str):
+            return parse_failure_threshold(
+                value, name="DATABASE_BREAKER_FAILURE_THRESHOLD"
+            )
+        return value
+
+    @field_validator("database_breaker_reset_timeout_s", mode="before")
+    @classmethod
+    def _parse_breaker_timeout(cls, value: object) -> object:
+        if isinstance(value, str):
+            return parse_reset_timeout(value, name="DATABASE_BREAKER_RESET_TIMEOUT_S")
+        return value
 
     log_level: str = Field(default="INFO")
     log_format: str = Field(default="json")
@@ -232,6 +265,75 @@ class Settings(BaseSettings):
             "for a ticker's news, so the news sites are not hit back to back. "
             "Must be in [0, 10]; 0 scrapes without a pause."
         ),
+    )
+
+    # External HTTP sources. A breaker's max_attempts is the failure count at which
+    # it refuses calls while its back-off window is open; request attempts count
+    # the first try; timeouts are passed to requests.
+    breaker_yfinance_max_attempts: int = Field(
+        default=10, ge=1, alias="BREAKER_YFINANCE_MAX_ATTEMPTS"
+    )
+    breaker_fred_max_attempts: int = Field(
+        default=8, ge=1, alias="BREAKER_FRED_MAX_ATTEMPTS"
+    )
+    breaker_tradingeconomics_max_attempts: int = Field(
+        default=5, ge=1, alias="BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS"
+    )
+    breaker_ilsole_max_attempts: int = Field(
+        default=5, ge=1, alias="BREAKER_ILSOLE_MAX_ATTEMPTS"
+    )
+    breaker_trading_212_max_attempts: int = Field(
+        default=5, ge=1, alias="BREAKER_TRADING_212_MAX_ATTEMPTS"
+    )
+    fred_request_attempts: int = Field(default=5, ge=1, alias="FRED_REQUEST_ATTEMPTS")
+    tradingeconomics_request_attempts: int = Field(
+        default=3, ge=1, alias="TRADINGECONOMICS_REQUEST_ATTEMPTS"
+    )
+    ilsole_request_attempts: int = Field(
+        default=3, ge=1, alias="ILSOLE_REQUEST_ATTEMPTS"
+    )
+    trading_212_request_attempts: int = Field(
+        default=5, ge=1, alias="TRADING_212_REQUEST_ATTEMPTS"
+    )
+    fred_request_timeout_seconds: float = Field(
+        default=30.0, gt=0, allow_inf_nan=False, alias="FRED_REQUEST_TIMEOUT_SECONDS"
+    )
+    tradingeconomics_request_timeout_seconds: float = Field(
+        default=20.0,
+        gt=0,
+        allow_inf_nan=False,
+        alias="TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS",
+    )
+    ilsole_request_timeout_seconds: float = Field(
+        default=10.0, gt=0, allow_inf_nan=False, alias="ILSOLE_REQUEST_TIMEOUT_SECONDS"
+    )
+    trading_212_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        allow_inf_nan=False,
+        alias="TRADING_212_REQUEST_TIMEOUT_SECONDS",
+    )
+    fred_retry_base_delay_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        allow_inf_nan=False,
+        alias="FRED_RETRY_BASE_DELAY_SECONDS",
+        description=(
+            "Base of the full-jitter exponential backoff between FRED attempts: each "
+            "wait is drawn from 0 to the smaller of FRED_RETRY_MAX_DELAY_SECONDS and "
+            "base * 2**attempt. An error that is_transient_network_error flags trips "
+            "the FRED circuit breaker instead; when attempts remain it sleeps a short "
+            "jitter this base does not scale, and the next attempt goes through the "
+            "breaker's check, which, while a window is open, sleeps it out, or refuses "
+            "the attempt when BREAKER_FRED_MAX_ATTEMPTS or more failures are counted."
+        ),
+    )
+    fred_retry_max_delay_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        allow_inf_nan=False,
+        alias="FRED_RETRY_MAX_DELAY_SECONDS",
+        description="Cap on one wait of that backoff.",
     )
 
     news_retention_days: int = Field(

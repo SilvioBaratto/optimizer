@@ -97,6 +97,28 @@ class HumanAuditLogRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
+    def latest_idempotency_key(self, run_id: uuid.UUID, action: str) -> str | None:
+        """Return the newest idempotency key logged for ``action`` on ``run_id``.
+
+        Rows logged without a key are skipped.
+
+        Args:
+            run_id: The run the action resolved.
+            action: The logged action kind.
+
+        Returns:
+            The key of the newest keyed row by ``created_at``, or ``None`` when no
+            keyed row matches.
+        """
+        return self.session.execute(
+            select(HumanAuditLog.idempotency_key)
+            .where(HumanAuditLog.run_id == run_id)
+            .where(HumanAuditLog.action == action)
+            .where(HumanAuditLog.idempotency_key.is_not(None))
+            .order_by(HumanAuditLog.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
     def list_recent(
         self,
         *,

@@ -158,6 +158,7 @@ def _seed_ragged_panel(db_session, young_days: int = _RAGGED_YOUNG_DAYS) -> None
 
 
 class TestRiskCheck:
+    @pytest.mark.criterion("REQ-FUND-001")
     def test_long_only_fully_invested_passes(self) -> None:
         result = risk_check({"AAA": 0.5, "BBB": 0.3, "CCC": 0.2})
 
@@ -165,6 +166,7 @@ class TestRiskCheck:
         assert result["data"]["passed"] is True
         assert result["data"]["violations"] == []
 
+    @pytest.mark.criterion("REQ-FUND-001")
     def test_negative_weight_flags_min_violation(self) -> None:
         # Sum is still 1.0 (budget ok) so the min-weight breach is isolated.
         result = risk_check({"AAA": 1.2, "BBB": -0.2})
@@ -177,6 +179,7 @@ class TestRiskCheck:
             for v in data["violations"]
         )
 
+    @pytest.mark.criterion("REQ-FUND-001")
     def test_concentration_cap_flags_max_violation(self) -> None:
         result = risk_check({"AAA": 0.7, "BBB": 0.3}, constraints={"max_weights": 0.5})
 
@@ -187,6 +190,7 @@ class TestRiskCheck:
             for v in data["violations"]
         )
 
+    @pytest.mark.criterion("REQ-FUND-001")
     def test_budget_breach_flags_budget_violation(self) -> None:
         # Weights each in [0, 1] but sum to 0.8 ≠ 1 → only the budget breaches.
         result = risk_check({"AAA": 0.5, "BBB": 0.3})
@@ -207,6 +211,7 @@ class TestRiskCheck:
         assert result["ok"] is False
         assert "error" in result
 
+    @pytest.mark.criterion("REQ-FUND-001")
     def test_nan_weight_is_blocked_not_silently_passed(self) -> None:
         # A degenerate optimiser can emit a non-finite weight. Every min/max/budget
         # comparison against NaN is False, so without an explicit guard the gate
@@ -221,6 +226,7 @@ class TestRiskCheck:
             for v in data["violations"]
         )
 
+    @pytest.mark.criterion("REQ-FUND-001")
     def test_inf_weight_is_blocked(self) -> None:
         result = risk_check({"AAA": float("inf"), "BBB": 0.0})
 
@@ -233,6 +239,7 @@ class TestRiskCheck:
 
         assert risk_check(weights) == risk_check(weights)
 
+    @pytest.mark.criterion("REQ-FUND-002")
     def test_drawdown_past_the_hard_ceiling_is_a_violation(self) -> None:
         result = risk_check(
             {"AAA": 0.6, "BBB": 0.4},
@@ -251,6 +258,7 @@ class TestRiskCheck:
             for v in data["violations"]
         )
 
+    @pytest.mark.criterion("REQ-FUND-002")
     def test_drawdown_past_the_absolute_stop_names_the_nu3_tier(self) -> None:
         result = risk_check(
             {"AAA": 0.6, "BBB": 0.4},
@@ -266,6 +274,7 @@ class TestRiskCheck:
         assert data["passed"] is False
         assert any(v["type"] == "drawdown_nu3" for v in data["violations"])
 
+    @pytest.mark.criterion("REQ-FUND-002")
     def test_drawdown_between_soft_and_hard_tier_warns_without_blocking(self) -> None:
         result = risk_check(
             {"AAA": 0.6, "BBB": 0.4},
@@ -281,6 +290,7 @@ class TestRiskCheck:
         assert data["passed"] is True
         assert [w["type"] for w in data["warnings"]] == ["drawdown_nu1"]
 
+    @pytest.mark.criterion("REQ-FUND-002")
     def test_drawdown_inside_every_tier_is_clean(self) -> None:
         result = risk_check(
             {"AAA": 0.6, "BBB": 0.4},
@@ -296,6 +306,7 @@ class TestRiskCheck:
         assert data["passed"] is True
         assert data["warnings"] == []
 
+    @pytest.mark.criterion("REQ-FUND-002")
     def test_non_finite_drawdown_is_blocked_not_silently_passed(self) -> None:
         result = risk_check(
             {"AAA": 0.6, "BBB": 0.4},
@@ -311,6 +322,7 @@ class TestRiskCheck:
         assert data["passed"] is False
         assert any(v["type"] == "drawdown_unverified" for v in data["violations"])
 
+    @pytest.mark.criterion("REQ-FUND-001")
     def test_weight_on_an_esg_excluded_asset_is_a_violation(self) -> None:
         result = risk_check(
             {"AAA": 0.6, "BBB": 0.4}, constraints={"excluded_assets": ["BBB"]}
@@ -323,6 +335,7 @@ class TestRiskCheck:
             for v in data["violations"]
         )
 
+    @pytest.mark.criterion("REQ-FUND-001")
     def test_zero_weight_on_an_esg_excluded_asset_is_allowed(self) -> None:
         result = risk_check(
             {"AAA": 1.0, "BBB": 0.0}, constraints={"excluded_assets": ["BBB"]}

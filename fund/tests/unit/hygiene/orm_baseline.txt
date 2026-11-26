@@ -1,0 +1,26 @@
+# ORM and SQL statement calls outside the fund repositories, allowed until moved.
+#
+# Read by test_no_orm_outside_repositories.py, whose docstring lists the calls it
+# counts and the forms it does not detect. In short: sqlalchemy select/insert/update/
+# delete/text constructors bound by import, .execute/.query/.add_all on any receiver,
+# .scalar/.scalars with a positional argument, and .get(Model, ...)/.add(Model(...))
+# with a model imported from portopt_db.models, in every module under fund/src/fund
+# except the files directly under fund/audit/ whose name ends in repository.py.
+#
+# One line per key, <dotted module>::<scope>::<kind>, where scope is the dotted chain
+# of enclosing classes and functions (Class.method, outer.inner; the literal <module>
+# at module level) and kind is the constructor name or the .method called. " xN"
+# follows the key when that scope makes the call N times (N >= 2). Keys hold no line
+# numbers, so moving a call inside its function does not break the file; moving it to
+# another function or class changes its key. The test fails on a call not listed here
+# and on an entry the tree no longer matches: when a call moves into a repository,
+# delete or lower its line. Never add a line.
+fund.agents.ask_agent::_read_only::.execute
+fund.agents.ask_agent::_read_only::text
+fund.audit.persistence::_bootstrap_lock::.execute
+fund.audit.persistence::create_schema::.execute
+fund.tools.universe::_investable::select
+fund.tools.universe::list_universe::.execute x3
+fund.tools.universe::list_universe::select
+fund.tools.universe::uninvestable_reasons::.execute
+fund.tools.universe::uninvestable_reasons::select

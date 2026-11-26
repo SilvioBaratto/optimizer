@@ -168,30 +168,60 @@ Use conventional commit style:
 
 ## Releasing
 
-`main` receives releases only; direct commits to it are blocked.
+`main` receives releases only; direct commits to it are blocked. While the major
+version is 0, a breaking change raises the minor version (0.1.0 to 0.2.0): SemVer 2.0.0
+item 4 treats major version zero as initial development, so this is the one place the
+repository departs from the MAJOR rule of standard 5.1.1, until 1.0.0.
 
 1. Branch `release/0.x.0` from `development`
 2. Set the version to `0.x.0` in the root `pyproject.toml` and keep the three member
-   `pyproject.toml` files equal to it, then refresh `uv.lock`
-3. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[0.x.0]` section
+   `pyproject.toml` files equal to it, then refresh `uv.lock`. Two modules hold the
+   version as a literal (`fund/src/fund/__init__.py` and
+   `packages/portopt-db/src/portopt_db/__init__.py`), `fund/tests/unit/test_package.py`
+   asserts the `fund` one, and `CITATION.cff` carries the version and the release date,
+   so change those too
+3. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[0.x.0]` section dated the
+   day the tag is pushed
 4. Open a pull request from the release branch into `main` and merge it once green
 5. Tag the merge commit on `main`: `git tag -a v0.x.0` and `git push origin v0.x.0`
 6. The release workflow rejects the tag unless its commit is on `main` and the tag
    equals `v` plus the `pyproject.toml` version, re-runs the full CI workflow, and
-   only then publishes `portopt-core` to PyPI
+   only then builds the `portopt-core` sdist and wheel. Nothing is uploaded to PyPI
+7. Merge `main` back into `development` through a pull request, so that `development`
+   carries the release version, the new `[0.x.0]` section and the empty `[Unreleased]`
 
 ## Test traceability (documented deviation from standard 6.6)
 
-Standard 6.6 asks every test to cite the requirement ID it verifies. This
-repository's requirement registry (`docs/requirements.md`) is still empty, so most tests
-name only the code they cover in their docstring. That is a known non-compliance (standard 1.3).
+Standard 6.6 asks every test to cite the requirement ID it verifies. Here requirement
+IDs are bound to tests of the critical functions in `docs/test-plan.md`, of the items
+under its table that show an id, and of the traceability check and its wiring. The registry
+`docs/requirements.md` holds the ids, of the form `REQ-<AREA>-NNN`, and a test cites one
+with the `criterion(id)` pytest marker. Tests written before the registry were tagged
+only where they assert one of the registered requirements, so most tests cite no id.
+Of the fixes made before the `defect` marker existed, only the regression test for
+issue 1125 carries one, so the other fixes of that time are not linked to their issues
+in the trace. Both are known non-compliances (standard 1.3).
 
-Corrective action: a registry of requirement IDs (`docs/requirements.md`, ids of the
-form `REQ-<AREA>-NNN`), the `criterion(id)` pytest marker on the tests of each
-critical function, and a CI step that fails when a registered requirement has no
-test or a marker cites an unknown id. Until it lands, a new regression test names
-the function it guards in its docstring and the fix is described in the
-`CHANGELOG.md` entry. Do not invent ids outside the registry.
+Corrective action in place: the `lint` CI job collects the four suites with
+`--traceability-out` and runs `scripts/ci/traceability.py check`, which fails when a
+registered requirement has no test, a test cites a `REQ-` id the registry does not
+list, or a test carries a `defect(issue)` marker but no `REQ-` id. A new test for a
+critical function cites the requirement it asserts, with a new registry row when none
+fits, and a regression test for a GitHub issue also carries `defect(<issue>)`. Do not
+invent ids outside the registry, or issue numbers.
+
+To run the check locally, from the repository root:
+
+```bash
+TRACE="$PWD/.tmp/traceability"
+uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/core.csv"
+(cd ingestion && uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/ingestion.csv")
+(cd packages/portopt-db && uv run pytest --collect-only -qqq --traceability-out="$TRACE/portopt-db.csv")
+(cd fund && uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/fund.csv")
+uv run python scripts/ci/traceability.py check --requirements docs/requirements.md \
+  --csv "$TRACE/core.csv" --csv "$TRACE/ingestion.csv" \
+  --csv "$TRACE/portopt-db.csv" --csv "$TRACE/fund.csv"
+```
 
 ## Questions?
 

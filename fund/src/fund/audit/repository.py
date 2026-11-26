@@ -13,7 +13,7 @@ import hashlib
 import json
 import threading
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, TypeVar, cast
 
@@ -548,6 +548,27 @@ class AgentRunRepository(RepositoryBase):
     def get_run(self, run_id: uuid.UUID) -> AgentRun | None:
         """Return the run by id, or ``None``."""
         return self.session.get(AgentRun, run_id)
+
+    def insert_run_if_absent(
+        self, run: Mapping[str, Any], decisions: Iterable[Mapping[str, Any]]
+    ) -> None:
+        """Insert a run and its decisions from column snapshots unless the run exists.
+
+        Re-creates a run whose own transaction was rolled back, from the
+        ``to_dict()`` snapshots of its rows. A run already on record is left as it is
+        and none of ``decisions`` is added. The run row is flushed and the decisions
+        are only added to the session; nothing is committed, the caller owns the
+        transaction.
+
+        Args:
+            run: Column values of the ``agent_runs`` row, ``id`` included.
+            decisions: Column values of each of its ``agent_decisions`` rows.
+        """
+        if self.session.get(AgentRun, run["id"]) is not None:
+            return
+        self.session.add(AgentRun(**run))
+        self.session.flush()
+        self.session.add_all(AgentDecision(**row) for row in decisions)
 
     def list_runs_for_portfolio(
         self,

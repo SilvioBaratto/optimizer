@@ -221,3 +221,27 @@ def test_module_declares_no_agent_stack_imports():
             names.append(node.module)
     offenders = [n for n in names if any(n.startswith(f) for f in forbidden)]
     assert offenders == [], f"agent-stack imports leaked into the module: {offenders}"
+
+
+def test_newest_nav_dates_reads_the_portfolio_newest_first_up_to_the_bound(
+    db_session,
+):
+    """Test ``NavHistoryRepository.newest_nav_dates``: dates come newest first, capped
+    at ``limit``, bounded by ``on_or_before``."""
+    repo = NavHistoryRepository(db_session)
+    days = [dt.date(2026, 10, d) for d in (1, 2, 5, 6)]
+    repo.upsert_navs([_row(_PID, day, 100.0 + i) for i, day in enumerate(days)])
+    repo.upsert_navs([_row(_PID2, dt.date(2026, 10, 9), 50.0)])
+
+    assert repo.newest_nav_dates(_PID, on_or_before=None, limit=2) == [
+        dt.date(2026, 10, 6),
+        dt.date(2026, 10, 5),
+    ]
+    assert repo.newest_nav_dates(_PID, on_or_before=dt.date(2026, 10, 4), limit=2) == [
+        dt.date(2026, 10, 2),
+        dt.date(2026, 10, 1),
+    ]
+    assert repo.newest_nav_dates(_PID, on_or_before=dt.date(2026, 10, 1), limit=2) == [
+        dt.date(2026, 10, 1)
+    ]
+    assert repo.newest_nav_dates(uuid.uuid4(), on_or_before=None, limit=2) == []

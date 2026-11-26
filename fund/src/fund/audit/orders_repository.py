@@ -11,8 +11,8 @@ finds an existing ticket so ``place_orders`` can be re-run safely under the HITL
 ``Command(resume=…)`` gotcha (SPEC D3) without double-placing.
 
 Concurrency: the get-then-create is find-or-create, not atomic. That is safe under
-the D1 model (one daemon, one sync writer per run — see ``CLAUDE.md`` reaper is
-host-scoped). Should two writers ever race the same key, the DB-level
+the D1 model (one daemon per database, one sync writer per run; see the reaper
+gotcha in ``CLAUDE.md``). Should two writers ever race the same key, the DB-level
 ``UNIQUE(portfolio_id, asof, weights_hash)`` is the backstop: the second insert
 raises ``IntegrityError``, which ``tool_envelope`` degrades to ``{ok: false}``
 rather than double-placing. The caller owns the transaction boundary (D1), so it —
@@ -24,12 +24,76 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 
+from portopt_db.base import ClockTimestamp
 from portopt_db.models import PaperOrder
 from portopt_db.repository import RepositoryBase
-from sqlalchemy import select
+from sqlalchemy import Select, select, update
+
+
+@dataclass(frozen=True)
+class FilledTicket:
+    """One paper ticket's id, fill bar, ``created_at``, notional and lines.
+
+    ``frozen`` blocks attribute assignment, not edits to the dicts in ``lines``:
+    they are the loaded row's own line dicts, so editing one edits the loaded row.
+
+    Attributes:
+        id: The ticket's primary key.
+        fill_date: The ticket's stored fill bar; a line may carry its own.
+        created_at: When the ticket was stored, or last re-stamped by
+            :meth:`OrderRepository.restamp_created_at`.
+        notional: The paper notional the weights were sized against.
+        lines: The stored per-ticker fill lines, in stored order, as a tuple of the
+            row's line dicts.
+    """
+
+    id: uuid.UUID
+    fill_date: date
+    created_at: datetime
+    notional: float
+    lines: tuple[dict[str, Any], ...]
+
+
+def _filled_ticket(order: PaperOrder) -> FilledTicket:
+    return FilledTicket(
+        id=order.id,
+        fill_date=order.fill_date,
+        created_at=order.created_at,
+        notional=order.notional,
+        lines=tuple(order.lines),
+    )
+
+
+def _ticket_rank() -> tuple[Any, ...]:
+    """Sort keys that rank paper tickets from oldest to newest, with no ties.
+
+    Tickets for the same decision bar can share ``asof`` and ``fill_date`` yet carry
+    different weights (a re-run after a reject, a sweep plus a manual run), so those
+    two keys alone leave their order to the database. ``created_at`` then ``id``
+    make the newest ticket supersede the others deterministically. NAV and the
+    holdings table read the ascending order (the holdings take its last ticket as the
+    current book) and ``marked_weights`` reads the newest ticket, so under the same
+    fill bound all three treat the same ticket as the newest.
+    """
+    return (
+        PaperOrder.fill_date,
+        PaperOrder.asof,
+        PaperOrder.created_at,
+        PaperOrder.id,
+    )
+
+
+def _filled_through(
+    portfolio_id: uuid.UUID, through: date | None
+) -> Select[tuple[PaperOrder]]:
+    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
+    if through is not None:
+        stmt = stmt.where(PaperOrder.fill_date <= through)
+    return stmt
 
 
 def weights_hash(weights: dict[str, float]) -> str:
@@ -153,5 +217,60 @@ class OrderRepository(RepositoryBase):
         )
         return self.session.execute(stmt).scalars().first()
 
+    def filled_tickets(
+        self, portfolio_id: uuid.UUID, *, filled_through: date | None
+    ) -> list[FilledTicket]:
+        """Return a portfolio's tickets oldest first, the chain NAV is built from.
 
-__all__ = ["OrderRepository", "weights_hash"]
+        Ranked by fill bar, then decision bar, then ``created_at``, then ``id``.
+
+        Args:
+            portfolio_id: Portfolio to query.
+            filled_through: Inclusive upper bound on ``fill_date``; ``None`` reads
+                every ticket of the portfolio.
+
+        Returns:
+            The tickets in rank order; empty when none matches.
+        """
+        stmt = _filled_through(portfolio_id, filled_through).order_by(*_ticket_rank())
+        return [_filled_ticket(order) for order in self.session.execute(stmt).scalars()]
+
+    def latest_filled_ticket(
+        self, portfolio_id: uuid.UUID, *, filled_through: date | None
+    ) -> FilledTicket | None:
+        """Return the ticket that ranks last in :meth:`filled_tickets`.
+
+        Args:
+            portfolio_id: Portfolio to query.
+            filled_through: Inclusive upper bound on ``fill_date``; ``None`` reads
+                every ticket of the portfolio.
+
+        Returns:
+            The newest ticket, or ``None`` when none matches.
+        """
+        stmt = _filled_through(portfolio_id, filled_through).order_by(
+            *(column.desc() for column in _ticket_rank())
+        )
+        order = self.session.execute(stmt).scalars().first()
+        return None if order is None else _filled_ticket(order)
+
+    def restamp_created_at(self, order_id: uuid.UUID) -> None:
+        """Set a ticket's ``created_at`` to the database clock's current time.
+
+        Issued as a bulk ``UPDATE`` with ``synchronize_session=False``, so a
+        ``PaperOrder`` already loaded in the session keeps the ``created_at`` it was
+        loaded with. It calls neither ``flush`` nor ``commit``: the caller owns the
+        transaction.
+
+        Args:
+            order_id: The ticket to re-stamp.
+        """
+        self.session.execute(
+            update(PaperOrder)
+            .where(PaperOrder.id == order_id)
+            .values(created_at=ClockTimestamp())
+            .execution_options(synchronize_session=False)
+        )
+
+
+__all__ = ["FilledTicket", "OrderRepository", "weights_hash"]

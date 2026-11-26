@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Callable, Generator
@@ -715,6 +716,7 @@ def test_drift_monitor_default_decision_bar_leaves_a_fill_bar_for_place_orders(
 # --- run_drift_monitor ------------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_enqueues_only_breached(session_factory, monkeypatch):
     _seed_mandate(
         session_factory, PID_A, cron=False, drift=True, threshold=0.1
@@ -743,6 +745,7 @@ def test_drift_monitor_enqueues_only_breached(session_factory, monkeypatch):
     assert _job_rows(session_factory, "fund_drift_monitor")[0].status == "completed"
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_skips_already_paused(session_factory, monkeypatch):
     _seed_mandate(session_factory, PID_A, cron=False, drift=True, threshold=0.1)
     _seed_paused_run(session_factory, PID_A)  # already awaiting HITL
@@ -764,6 +767,7 @@ def test_drift_monitor_skips_already_paused(session_factory, monkeypatch):
     assert driven == []  # breached but already paused → skipped (no stacking)
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_ignores_a_proposal_no_adviser_approved(
     session_factory, monkeypatch
 ):
@@ -815,6 +819,7 @@ def _seed_drifted_invested_portfolio(
     )
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_does_not_rerun_a_never_approved_rejected_portfolio(
     session_factory, monkeypatch
 ):
@@ -849,6 +854,7 @@ def test_drift_monitor_does_not_rerun_a_never_approved_rejected_portfolio(
     assert driven == []
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_waits_out_the_cooldown_after_a_rejected_rebalance(
     session_factory, monkeypatch
 ):
@@ -866,6 +872,7 @@ def test_drift_monitor_waits_out_the_cooldown_after_a_rejected_rebalance(
     assert driven == []  # the adviser's rejection is not overridden on the next tick
 
 
+@pytest.mark.criterion("REQ-FUND-014")
 def test_drift_monitor_retries_once_the_cooldown_has_elapsed(
     session_factory, monkeypatch
 ):
@@ -1218,6 +1225,7 @@ def test_sweep_marks_slot_failed_on_infra_error(session_factory, monkeypatch):
     assert _job_rows(session_factory, "fund_rebalance_sweep")[0].status == "failed"
 
 
+@pytest.mark.criterion("REQ-FUND-015")
 def test_drift_monitor_skips_when_slot_busy(session_factory, monkeypatch):
     with session_factory() as session:
         FundJobRepository(session).claim_or_create("fund_drift_monitor")  # occupy
@@ -1229,6 +1237,7 @@ def test_drift_monitor_skips_when_slot_busy(session_factory, monkeypatch):
     assert ok is False
 
 
+@pytest.mark.criterion("REQ-FUND-015")
 def test_drift_monitor_marks_slot_failed_on_infra_error(session_factory, monkeypatch):
     _seed_mandate(session_factory, PID_A, cron=False, drift=True)
     monkeypatch.setattr(
@@ -1311,29 +1320,43 @@ def test_heartbeat_thread_pulses_repeatedly(session_factory):
     assert pulses >= 2  # immediate pulse plus at least one loop iteration
 
 
+# Five pulses mean three ran after the failing second one. The wait for them is capped
+# so a dead pulse thread fails the test instead of hanging it.
+_WANTED_PULSES = 5
+_PULSE_WAIT_CAP_S = 10.0
+
+
 def test_heartbeat_keeps_pulsing_after_a_failed_pulse(session_factory, monkeypatch):
+    """Test ``fund.scheduler._heartbeat``: a pulse that raises does not stop the
+    thread, which goes on renewing the lease."""
     with session_factory() as session:
         repo = FundJobRepository(session)
         job_id = repo.claim_or_create("fund_rebalance_sweep")
         repo.mark_running(job_id)
 
     calls: list[uuid.UUID] = []
+    enough_pulses = threading.Event()
     original = FundJobRepository.update_heartbeat
 
     def _flaky(self, jid):
         calls.append(jid)
+        if len(calls) >= _WANTED_PULSES:
+            enough_pulses.set()
         if len(calls) == 2:
             raise RuntimeError("connection reset")  # one transient DB blip
         return original(self, jid)
 
     monkeypatch.setattr(FundJobRepository, "update_heartbeat", _flaky)
 
+    # Each pulse commits to a file-backed SQLite database, so on a loaded machine the
+    # pulses can outlast a fixed sleep; wait for them instead, with a cap.
     with _heartbeat(job_id, cadence=0.02, session_factory=session_factory):
-        time.sleep(0.4)
+        reached = enough_pulses.wait(timeout=_PULSE_WAIT_CAP_S)
 
     # A dead pulse thread would leave the lease unrenewed past the blip and let the
     # reaper fail a step that is still running.
-    assert len(calls) >= 5
+    assert reached
+    assert len(calls) >= _WANTED_PULSES
 
 
 # --- work transaction: per-portfolio commit/rollback ------------------------
@@ -1438,6 +1461,7 @@ def test_aborted_sweep_does_not_commit_partial_work_with_the_failed_mark(
     assert _run_portfolios(session_factory) == set()
 
 
+@pytest.mark.criterion("REQ-FUND-015")
 def test_drift_monitor_survives_a_portfolio_that_poisons_the_session(
     session_factory, monkeypatch
 ):
@@ -1469,6 +1493,7 @@ def _arrange_drift_breach(
     monkeypatch.setattr(observe, "reprofile_status", _not_due)
 
 
+@pytest.mark.criterion("REQ-FUND-015")
 def test_drift_monitor_rolls_back_a_failed_portfolio_and_keeps_the_others(
     session_factory, monkeypatch
 ):

@@ -21,8 +21,7 @@ import re
 from collections.abc import Collection, Iterable
 from typing import TYPE_CHECKING, Any
 
-from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
-
+from fund.readers import price_reader
 from fund.schemas.enums import GicsSector
 
 if TYPE_CHECKING:
@@ -117,11 +116,11 @@ def mandate_breaches(
     if not excluded and not no_complex and not no_leverage:
         return []
 
-    repo = YFinanceRepository(session)
+    catalog = price_reader(session)
     breaches: list[dict[str, Any]] = []
     for ticker in tickers:
-        instrument = repo.get_instrument_by_yfinance_ticker(ticker)
-        profile = repo.get_profile(instrument.id) if instrument is not None else None
+        instrument = catalog.instrument_for(ticker)
+        profile = catalog.profile_for(instrument.id) if instrument is not None else None
 
         if excluded:
             sector = profile.sector if profile is not None else None
@@ -215,10 +214,10 @@ def constraint_set_breaches(
 
 def _etf_tickers(session: Session, tickers: Iterable[str]) -> list[str]:
     """The distinct ``tickers`` whose instrument is an ETF."""
-    repo = YFinanceRepository(session)
+    catalog = price_reader(session)
     funds: list[str] = []
     for ticker in dict.fromkeys(tickers):
-        instrument = repo.get_instrument_by_yfinance_ticker(ticker)
+        instrument = catalog.instrument_for(ticker)
         kind = instrument.instrument_type if instrument is not None else None
         if (kind or "").strip().upper() == "ETF":
             funds.append(ticker)

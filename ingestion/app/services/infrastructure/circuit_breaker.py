@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 
 
 class CircuitOpenError(RuntimeError):
-    """The breaker refused a call because the service keeps rate-limiting us.
+    """The breaker refused a call: window open, count at ``max_attempts`` or more.
+
+    What counts as a failure is up to the code that calls ``trigger()``, so the
+    message, built in ``check()``, names the open breaker, its failure count and
+    its limit, not a cause.
 
     A ``RuntimeError`` subclass so callers that already catch the generic error
     keep working, while resilience wrappers can tell a refused call from any
@@ -18,21 +22,23 @@ class CircuitOpenError(RuntimeError):
 class CircuitBreaker:
     """Exponential-backoff circuit breaker for rate-limited services.
 
-    Tracks consecutive failures and blocks callers via ``check()`` for a
-    back-off window proportional to ``base_wait_minutes * 2**attempt``, capped
-    at ``max_wait_minutes``.
-    Decays the attempt counter on each successful recovery so the breaker
-    self-heals over time.
+    Counts failures. A ``trigger()`` outside an open window raises the count to
+    n and opens a window of ``base_wait_minutes * 2**n / 2`` minutes, or of
+    ``min_wait_seconds`` seconds when that is longer, capped at
+    ``max_wait_minutes``. While a window is open, ``check()`` sleeps until it
+    ends, or raises when the count is at ``max_attempts`` or more. ``reset()``
+    and the half-open branch of ``check()`` take one off the count, so it can
+    come back down.
 
     Args:
         service_name: Human-readable name used in error messages.
         max_attempts: Failure count at which ``check()`` raises
-            ``RuntimeError`` instead of sleeping, for as long as the current
+            ``CircuitOpenError`` instead of sleeping, for as long as the current
             back-off window is open.
         base_wait_minutes: Scaling factor for the back-off formula.
         max_wait_minutes: Upper bound on a single back-off window. Uncapped,
-            the window reaches hours, and every worker sleeping through it
-            keeps its job's heartbeat alive and outlasts the upstream ban.
+            the window reaches hours, and a worker sleeping through it keeps
+            its job's heartbeat alive and outlasts the upstream ban.
     """
 
     service_name: str = "external service"
@@ -44,11 +50,16 @@ class CircuitBreaker:
     _attempt: int = field(default=0, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
-    def trigger(self) -> None:
+    def trigger(self, *, min_wait_seconds: float = 0.0) -> None:
         """Record a failure and extend the back-off window.
 
         Idempotent while the current window is still open — a second trigger
         during an active back-off does not reset the window.
+
+        Args:
+            min_wait_seconds: Shortest window to open, for a service that said
+                when it will take calls again. The window is still capped at
+                ``max_wait_minutes``.
         """
         with self._lock:
             if self._active:
@@ -57,8 +68,9 @@ class CircuitBreaker:
                     return
 
             self._attempt += 1
+            backoff_seconds = (2**self._attempt) * 60 * self.base_wait_minutes / 2
             wait_seconds = min(
-                (2**self._attempt) * 60 * self.base_wait_minutes / 2,
+                max(backoff_seconds, min_wait_seconds),
                 self.max_wait_minutes * 60,
             )
             resume_time = time.time() + wait_seconds
@@ -69,9 +81,10 @@ class CircuitBreaker:
     def check(self) -> None:
         """Block until the back-off window elapses, then return.
 
-        Once the window has elapsed the breaker is half-open: the attempt
-        counter decays by one and the caller proceeds as a probe, even when
-        *max_attempts* had been reached.
+        Once the window has elapsed the breaker is half-open: the caller
+        proceeds as a probe, even when *max_attempts* had been reached, and the
+        attempt counter decays by one, unless ``is_active`` already closed the
+        window while the count was below *max_attempts*.
 
         Raises:
             CircuitOpenError: If *max_attempts* has been reached and the back-off
@@ -85,9 +98,9 @@ class CircuitBreaker:
             if self._active and now < self._until:
                 if self._attempt >= self.max_attempts:
                     raise CircuitOpenError(
-                        f"{self.service_name} rate limit persists after "
-                        f"{self._attempt} attempts. Backing off until cooldown "
-                        "elapses, then retrying."
+                        f"{self.service_name} circuit breaker open: failure count "
+                        f"{self._attempt}, limit {self.max_attempts}, inside its "
+                        "back-off window."
                     )
                 should_wait = True
                 wait_time = self._until - now
@@ -123,8 +136,18 @@ class CircuitBreaker:
             return True
 
     @property
+    def is_open(self) -> bool:
+        """True while ``check()`` would raise :class:`CircuitOpenError`."""
+        with self._lock:
+            return (
+                self._active
+                and time.time() < self._until
+                and self._attempt >= self.max_attempts
+            )
+
+    @property
     def attempt_count(self) -> int:
-        """Current consecutive-failure count."""
+        """Current failure count, net of the decrements ``reset`` and ``check`` make."""
         with self._lock:
             return self._attempt
 

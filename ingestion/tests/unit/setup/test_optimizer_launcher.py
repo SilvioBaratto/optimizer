@@ -28,6 +28,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _LAUNCHER = _REPO_ROOT / "scripts" / "optimizer"
 _LAUNCHER_CMD = _REPO_ROOT / "scripts" / "optimizer.cmd"
 _PS_CALL = "docker compose --profile fund ps --services --filter status=running"
+_PORTFOLIO_ID = "3f2b8c1e-5d4a-4e7b-9a10-2c6d8e0f1a3b"
+_COMPACT_ID = _PORTFOLIO_ID.replace("-", "")
+# One group joined without its hyphen: neither the canonical nor the compact shape.
+_HALF_HYPHENATED_ID = _PORTFOLIO_ID.replace("-4e7b-", "4e7b-")
 
 
 def _launcher_text() -> str:
@@ -194,15 +198,85 @@ def test_launcher_bare_invocation_opens_the_fund_wide_shell(tmp_path: Path) -> N
     ]
 
 
-def test_launcher_forwards_the_portfolio_id_to_the_tui(tmp_path: Path) -> None:
-    """A portfolio id is passed to fund-tui verbatim so the shell opens focused on it."""
-    result, calls = _run_launcher_with_stubs(tmp_path, "some-portfolio-id")
+@pytest.mark.parametrize(
+    "portfolio_id",
+    [_PORTFOLIO_ID, _PORTFOLIO_ID.upper(), _COMPACT_ID],
+    ids=["canonical", "uppercase", "unhyphenated"],
+)
+def test_launcher_forwards_the_portfolio_id_to_the_tui(
+    tmp_path: Path, portfolio_id: str
+) -> None:
+    """A portfolio id is passed to fund-tui verbatim so the shell opens focused on it.
+
+    These are the two spellings the launcher accepts: 8-4-4-4-12 with hyphens, or 32
+    hex digits, in any case. The braced and ``urn:uuid:`` forms that ``uuid.UUID`` also
+    takes are not accepted."""
+    result, calls = _run_launcher_with_stubs(tmp_path, portfolio_id)
     assert result.returncode == 0, result.stderr
     assert calls == [
         "portopt start",
         _PS_CALL,
-        "docker compose --profile fund exec fund fund-tui some-portfolio-id",
+        f"docker compose --profile fund exec fund fund-tui {portfolio_id}",
     ]
+
+
+@pytest.mark.parametrize(
+    "argument",
+    [
+        "status",
+        "--help",
+        "3f2b8c1e",
+        "",
+        f"-{_COMPACT_ID}",
+        f"--{_COMPACT_ID}",
+        f"{_COMPACT_ID}-",
+        _HALF_HYPHENATED_ID,
+        "z" * len(_COMPACT_ID),
+        _COMPACT_ID[:-1],
+        f"{_COMPACT_ID}0",
+        f"{{{_PORTFOLIO_ID}}}",
+        f"urn:uuid:{_PORTFOLIO_ID}",
+    ],
+    ids=[
+        "word",
+        "help-flag",
+        "short-hex",
+        "empty",
+        "leading-hyphen",
+        "leading-double-hyphen",
+        "trailing-hyphen",
+        "half-hyphenated",
+        "non-hex",
+        "31-digits",
+        "33-digits",
+        "braced",
+        "urn",
+    ],
+)
+def test_launcher_rejects_a_non_uuid_argument_before_starting_the_stack(
+    tmp_path: Path, argument: str
+) -> None:
+    """`optimizer status` once rebuilt the images and asked for the passphrase, then
+    crashed in the cockpit with a UUID traceback. The argument is checked first, so a
+    typo costs nothing and the message points at the `portopt` lifecycle commands. An
+    option-shaped token must not slip through either: `fund-tui` would parse it as a
+    flag after the stack had already started."""
+    result, calls = _run_launcher_with_stubs(tmp_path, argument)
+    assert result.returncode == 2
+    assert calls == []
+    assert f"'{argument}' is not a portfolio id" in result.stderr
+    assert "portopt" in result.stderr
+
+
+def test_launcher_rejects_more_than_one_argument_before_starting_the_stack(
+    tmp_path: Path,
+) -> None:
+    """`fund-tui` takes at most one portfolio id, so a second argument is a usage error
+    caught before the stack starts, not a parser failure afterwards."""
+    result, calls = _run_launcher_with_stubs(tmp_path, _PORTFOLIO_ID, _PORTFOLIO_ID)
+    assert result.returncode == 2
+    assert calls == []
+    assert "at most one portfolio id" in result.stderr
 
 
 def test_launcher_does_not_attach_when_the_fund_is_not_running(
@@ -240,7 +314,7 @@ def test_launcher_outside_a_repo_reports_helpful_error(tmp_path: Path) -> None:
     env = {**os.environ, "HOME": str(home)}
     env.pop("OPTIMIZER_REPO", None)
     result = subprocess.run(  # noqa: S603 - fixed bash path + our own launcher script
-        [bash, str(stray), "some-portfolio-id"],
+        [bash, str(stray), _PORTFOLIO_ID],
         capture_output=True,
         text=True,
         env=env,
@@ -286,7 +360,7 @@ def test_launcher_pins_the_resolved_repo_for_portopt_start(tmp_path: Path) -> No
     env.pop("OPTIMIZER_REPO", None)
     env.pop("MSYSTEM", None)
     result = subprocess.run(  # noqa: S603 - fixed bash path + our own launcher copy
-        [bash, str(launcher), "some-portfolio-id"],
+        [bash, str(launcher), _PORTFOLIO_ID],
         capture_output=True,
         text=True,
         env=env,

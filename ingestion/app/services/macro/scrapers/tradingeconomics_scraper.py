@@ -11,17 +11,22 @@ from typing import Any
 import requests
 from bs4 import BeautifulSoup, Tag
 
+from app.config import settings
 from app.services.infrastructure import (
-    CircuitBreaker,
     RateLimiter,
     retry_with_backoff,
+)
+from app.services.infrastructure.external_calls import (
+    ExternalService,
+    process_breaker,
+    timed_request,
 )
 from app.services.infrastructure.retry import is_transient_network_error
 from app.services.macro.scrapers.exceptions import ParseStructureError
 
 logger = logging.getLogger(__name__)
 
-_te_circuit_breaker = CircuitBreaker(service_name="Trading Economics", max_attempts=5)
+_te_circuit_breaker = process_breaker(ExternalService.TRADING_ECONOMICS)
 
 # Every page lives on one host, so the minimum interval has to be shared by all
 # of them; keying the limiter by URL would let each distinct page go out at once.
@@ -370,17 +375,22 @@ class TradingEconomicsIndicatorsScraper:
 
     def __init__(
         self,
-        timeout: int = 20,
+        timeout: float | None = None,
         rate_limit_delay: float = _DEFAULT_RATE_LIMIT_DELAY,
     ):
         """Create a scraper with its own HTTP session and request pacing.
 
         Args:
-            timeout: Per-request timeout in seconds.
+            timeout: Per-request timeout in seconds;
+                ``TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS`` when omitted.
             rate_limit_delay: Minimum seconds between any two requests this
                 scraper sends to Trading Economics, whatever the page.
         """
-        self.timeout = timeout
+        self.timeout = (
+            settings.tradingeconomics_request_timeout_seconds
+            if timeout is None
+            else timeout
+        )
         self.rate_limit_delay = rate_limit_delay
         self._rate_limiter = RateLimiter(delay=rate_limit_delay)
         self.session = requests.Session()
@@ -430,20 +440,7 @@ class TradingEconomicsIndicatorsScraper:
         country_slug = COUNTRY_MAPPING[country]
         url = f"{self.BASE_URL}/{country_slug}/indicators"
 
-        def _fetch() -> requests.Response:
-            _te_circuit_breaker.check()
-            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
-            resp = self.session.get(url, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp
-
-        response = retry_with_backoff(
-            _fetch,
-            max_retries=3,
-            is_rate_limit_error=is_transient_network_error,
-            on_rate_limit=_te_circuit_breaker.trigger,
-            on_success=lambda _: _te_circuit_breaker.reset(),
-        )
+        response = self._fetch_page(url)
         if response is None:
             return {
                 "country": country,
@@ -639,20 +636,7 @@ class TradingEconomicsIndicatorsScraper:
         country_slug = COUNTRY_MAPPING[country]
         url = f"{self.BASE_URL}/{country_slug}/government-bond-yield"
 
-        def _fetch() -> requests.Response:
-            _te_circuit_breaker.check()
-            self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
-            resp = self.session.get(url, timeout=self.timeout)
-            resp.raise_for_status()
-            return resp
-
-        response = retry_with_backoff(
-            _fetch,
-            max_retries=3,
-            is_rate_limit_error=is_transient_network_error,
-            on_rate_limit=_te_circuit_breaker.trigger,
-            on_success=lambda _: _te_circuit_breaker.reset(),
-        )
+        response = self._fetch_page(url)
         if response is None:
             return {
                 "status": "error",
@@ -870,13 +854,14 @@ class TradingEconomicsIndicatorsScraper:
         def _fetch() -> requests.Response:
             _te_circuit_breaker.check()
             self._rate_limiter.acquire(_TE_RATE_LIMIT_KEY)
-            resp = self.session.get(url, timeout=self.timeout)
-            resp.raise_for_status()
+            with timed_request(ExternalService.TRADING_ECONOMICS):
+                resp = self.session.get(url, timeout=self.timeout)
+                resp.raise_for_status()
             return resp
 
         return retry_with_backoff(
             _fetch,
-            max_retries=3,
+            max_retries=settings.tradingeconomics_request_attempts,
             is_rate_limit_error=is_transient_network_error,
             on_rate_limit=_te_circuit_breaker.trigger,
             on_success=lambda _: _te_circuit_breaker.reset(),

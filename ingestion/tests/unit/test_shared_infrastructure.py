@@ -9,6 +9,7 @@ import requests
 
 from app.services.infrastructure import (
     CircuitBreaker,
+    CircuitOpenError,
     RateLimiter,
     retry_with_backoff,
 )
@@ -42,7 +43,10 @@ class TestCircuitBreaker:
             service_name="TestService", max_attempts=1, base_wait_minutes=2.0
         )
         cb.trigger()
-        with pytest.raises(RuntimeError, match="TestService rate limit persists"):
+        with pytest.raises(
+            RuntimeError,
+            match="TestService circuit breaker open: failure count 1, limit 1, inside",
+        ):
             cb.check()
 
     def test_reset_decrements(self):
@@ -103,7 +107,7 @@ class TestCircuitBreaker:
         assert second_wait == 2 * first_wait
 
     # ------------------------------------------------------------------
-    # Uncovered branch: lines 57-58 — cooldown-elapsed half-open decay
+    # check() once the cooldown has elapsed: the half-open decay
     # ------------------------------------------------------------------
 
     def test_check_when_cooldown_elapsed_clears_active_and_decrements_attempt(self):
@@ -120,7 +124,7 @@ class TestCircuitBreaker:
             mock_time.time.return_value = cb._until + 1.0
 
             # check() must NOT raise, must NOT sleep, and must enter the
-            # half-open decay branch (lines 57-58).
+            # half-open decay branch.
             cb.check()
 
         mock_time.sleep.assert_not_called()
@@ -128,7 +132,7 @@ class TestCircuitBreaker:
         assert cb.is_active is False
 
     # ------------------------------------------------------------------
-    # Uncovered branch: lines 76-77 — is_active expiry-clearing
+    # is_active once the window has elapsed: it clears the flag
     # ------------------------------------------------------------------
 
     def test_is_active_when_time_past_until_clears_and_returns_false(self):
@@ -171,7 +175,7 @@ class TestCircuitBreaker:
         t2.join()
 
         # First trigger arms the breaker; all subsequent calls inside the same
-        # active window are no-ops (guard at line 19-22).  With two threads
+        # active window are no-ops (trigger()'s open-window guard).  With two threads
         # firing simultaneously exactly ONE trigger may land before the guard
         # is set, meaning attempt_count must be <= 2, not 20.
         assert cb.attempt_count <= 2
@@ -199,6 +203,7 @@ def fake_clock():
         yield clock
 
 
+@pytest.mark.criterion("REQ-ING-007")
 class TestCircuitBreakerRecovery:
     def _latch(self, cb: CircuitBreaker, clock: _FakeClock) -> None:
         """Drive the breaker to ``max_attempts`` the way sustained failures do."""
@@ -211,7 +216,9 @@ class TestCircuitBreakerRecovery:
         cb = CircuitBreaker(service_name="svc", max_attempts=3)
         self._latch(cb, fake_clock)
 
-        with pytest.raises(RuntimeError, match="svc rate limit persists"):
+        with pytest.raises(
+            RuntimeError, match="svc circuit breaker open: failure count 3, limit 3"
+        ):
             cb.check()
 
         fake_clock.now = cb._until + 1.0
@@ -240,7 +247,9 @@ class TestCircuitBreakerRecovery:
         cb.trigger()
 
         assert cb.attempt_count == cb.max_attempts
-        with pytest.raises(RuntimeError, match="svc rate limit persists"):
+        with pytest.raises(
+            RuntimeError, match="svc circuit breaker open: failure count 3, limit 3"
+        ):
             cb.check()
 
     def test_backoff_window_is_capped(self, fake_clock):
@@ -299,6 +308,61 @@ class TestCircuitBreakerRecovery:
             )
 
         assert result == "ok"
+
+
+class TestReportedWaitAndOpenState:
+    """A service's own wait sets a floor on the window; ``is_open`` mirrors ``check``."""
+
+    def test_a_reported_wait_longer_than_the_backoff_sets_the_window(self, fake_clock):
+        """The window lasts as long as the service asked."""
+        cb = CircuitBreaker(service_name="svc")
+
+        cb.trigger(min_wait_seconds=500.0)
+
+        assert cb._until - fake_clock.now == 500.0
+
+    def test_a_reported_wait_shorter_than_the_backoff_leaves_the_backoff(
+        self, fake_clock
+    ):
+        """The exponential window still applies when it is the longer one."""
+        cb = CircuitBreaker(service_name="svc")
+
+        cb.trigger(min_wait_seconds=5.0)
+
+        assert cb._until - fake_clock.now == 120.0
+
+    def test_a_reported_wait_never_exceeds_the_cap(self, fake_clock):
+        """A huge or infinite report is held to ``max_wait_minutes``."""
+        cb = CircuitBreaker(service_name="svc", max_wait_minutes=2.0)
+
+        cb.trigger(min_wait_seconds=float("inf"))
+
+        assert cb._until - fake_clock.now == 120.0
+
+    def test_trigger_without_a_reported_wait_keeps_the_backoff(self, fake_clock):
+        """A caller that passes nothing gets the plain back-off window."""
+        cb = CircuitBreaker(service_name="svc")
+
+        cb.trigger()
+
+        assert cb._until - fake_clock.now == 120.0
+
+    def test_is_open_only_while_check_would_refuse(self, fake_clock):
+        """Backing off below ``max_attempts`` is not open; an elapsed window is not."""
+        cb = CircuitBreaker(service_name="svc", max_attempts=2)
+        assert cb.is_open is False
+
+        cb.trigger()
+        assert cb.is_open is False
+
+        fake_clock.now = cb._until
+        cb.trigger()
+        assert cb.is_open is True
+        with pytest.raises(CircuitOpenError):
+            cb.check()
+
+        fake_clock.now = cb._until
+        assert cb.is_open is False
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +475,7 @@ class TestTransientErrorDetection:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-ING-004")
 class TestRetryWithBackoff:
     @patch("app.services.infrastructure.retry._full_jitter", return_value=0.0)
     def test_returns_on_first_success(self, _mock_jitter):
@@ -500,15 +565,15 @@ class TestRetryWithBackoff:
         assert action.call_count == 2
 
     # ------------------------------------------------------------------
-    # Uncovered branch: line 106 False path — on_rate_limit is None
+    # A rate-limited error with on_rate_limit=None
     # ------------------------------------------------------------------
 
     @patch("app.services.infrastructure.retry._full_jitter", return_value=0.0)
     def test_rate_limit_error_with_no_on_rate_limit_callback_returns_none(
         self, _mock_jitter
     ):
-        # is_rate_limit_error fires, but on_rate_limit=None — line 106 False
-        # branch must be taken without AttributeError or crash.
+        # is_rate_limit_error fires, but on_rate_limit=None — the callback is
+        # skipped without AttributeError or crash.
         action = MagicMock(
             side_effect=requests.exceptions.HTTPError("429 Too Many Requests")
         )
