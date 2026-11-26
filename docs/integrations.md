@@ -301,6 +301,18 @@ Metrics, served by the worker when metrics are enabled:
   Providers hang intermittently (one Ollama Cloud call blocked for 180 s), so a round can
   stall until its deadline. From 1.5 the NVIDIA SDK also posts hourly usage aggregates to
   an NVIDIA host unless told not to; the `nvidia` builder switches that off.
+- **Anthropic SDK 2.x**: the `anthropic` package sends the key as
+  `Authorization: Bearer`, where 1.x used `X-Api-Key`; a proxy or log filter that reads
+  `X-Api-Key` must read `Authorization`. Since 1.14 it also opens an OpenTelemetry span per
+  call (metadata only by default) and adds trace-context headers, but only through a tracer
+  provider the process registers. `fund` registers none and the lock holds the OpenTelemetry
+  API without an SDK or exporter, so nothing is recorded or sent. If an operator installs
+  one, `ANTHROPIC_OPEN_TELEMETRY=false` switches the spans and headers off, and
+  `ANTHROPIC_OPEN_TELEMETRY_TRACES_CONTENT_MODE=content` would add prompts to the spans:
+  never set it. `langchain-anthropic` keeps `anthropic-version` at `2023-06-01`, the version
+  that still accepts the `temperature` contract; `test_model_anthropic_wire.py` fails if
+  that stops being true. The SDK warns when a request names a model it lists as deprecated
+  (`claude-sonnet-4-5` ends on 2026-11-30, `claude-opus-4-5` on 2027-01-22).
 - **Code**: `fund/src/fund/agents/model.py`, `fund/src/fund/config.py`,
   `fund/src/fund/agents/graph.py`, `fund/src/fund/tools/orders.py`,
   `fund/src/fund/actions.py`.
