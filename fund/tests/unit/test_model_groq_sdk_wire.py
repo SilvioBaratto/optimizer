@@ -10,13 +10,13 @@ header, an endpoint or a new place for the key that nobody reviewed fails here.
 from __future__ import annotations
 
 import json
-import socket
-import threading
-from collections.abc import Callable, Generator
+from collections.abc import Generator
+from dataclasses import dataclass
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 import pytest
+from _provider_stubs import loopback_only, loopback_url, serve_on_loopback
 
 from fund.agents import model
 from fund.config import FundConfig
@@ -87,12 +87,6 @@ _AMBIENT_GROQ_VARIABLES = (
     "LANGSMITH_GATEWAY",
 )
 
-# The stub's bind address, the NO_PROXY exemption and GROQ_API_BASE must name the same
-# host, or the request goes through a proxy or past the stub.
-_STUB_HOST = "127.0.0.1"
-_LOOPBACK_HOSTS = (_STUB_HOST, "::1", "localhost")
-_SERVER_JOIN_SECONDS = 5
-
 # (path, headers with lower-cased names, body) of one request the stub received.
 Request = tuple[str, dict[str, str], bytes]
 
@@ -119,19 +113,6 @@ def _recording_handler(requests: list[Request]) -> type[BaseHTTPRequestHandler]:
     return _Handler
 
 
-def _loopback_only(real_connect: Callable[..., None]) -> Callable[..., None]:
-    """Wrap ``socket.connect`` so only a loopback connection is allowed."""
-
-    def connect(sock, address):
-        """Connect over loopback only; fail the test on any other host."""
-        host = address[0] if isinstance(address, tuple) else "localhost"
-        if host not in _LOOPBACK_HOSTS:
-            pytest.fail(f"a unit test opened a connection to {host}")
-        return real_connect(sock, address)
-
-    return connect
-
-
 @pytest.fixture
 def fake_groq(monkeypatch) -> Generator[list[Request], None, None]:
     """A localhost stub of Groq's chat-completions route; yields what it received.
@@ -142,41 +123,45 @@ def fake_groq(monkeypatch) -> Generator[list[Request], None, None]:
     """
     for name in _AMBIENT_GROQ_VARIABLES:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("NO_PROXY", _STUB_HOST)
-    monkeypatch.setattr(socket.socket, "connect", _loopback_only(socket.socket.connect))
+    loopback_only(monkeypatch)
     requests: list[Request] = []
-    server = ThreadingHTTPServer((_STUB_HOST, 0), _recording_handler(requests))
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    monkeypatch.setenv("GROQ_API_BASE", f"http://{_STUB_HOST}:{server.server_port}")
-    try:
+    with serve_on_loopback(monkeypatch, _recording_handler(requests)) as port:
+        monkeypatch.setenv("GROQ_API_BASE", loopback_url(port))
         yield requests
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=_SERVER_JOIN_SECONDS)
 
 
-@pytest.mark.criterion("REQ-FUND-030")
-@pytest.mark.parametrize(
-    ("custom_headers", "operator_header_names"),
-    [
-        (None, frozenset()),
+@dataclass(frozen=True)
+class _Sent:
+    """The one request a built model sent, and the headers its operator added."""
+
+    path: str
+    headers: dict[str, str]
+    body: bytes
+    operator_header_names: frozenset[str]
+
+
+# ``GROQ_CUSTOM_HEADERS`` is the SDK's own way to add headers to every request, so the
+# second case shows that what an operator sets there is the only addition.
+_CUSTOM_HEADER_CASES = [
+    pytest.param((None, frozenset()), id="no-custom-headers"),
+    pytest.param(
         (
             "X-Operator-Trace: trace-1\nX-Second: 2",
             frozenset({"x-operator-trace", "x-second"}),
         ),
-    ],
-    ids=["no-custom-headers", "operator-custom-headers"],
-)
-def test_groq_request_sends_the_key_only_as_bearer_and_adds_no_unreviewed_header(
-    monkeypatch, fake_groq, custom_headers, operator_header_names
-):
-    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+        id="operator-custom-headers",
+    ),
+]
 
-    ``GROQ_CUSTOM_HEADERS`` is the SDK's own way to add headers to every request, so
-    the second case shows that what an operator sets there is the only addition.
+
+@pytest.fixture(params=_CUSTOM_HEADER_CASES)
+def sent(request, monkeypatch, fake_groq) -> _Sent:
+    """Send one request through the real ``ChatGroq`` and return what the stub got.
+
+    Runs once without and once with ``GROQ_CUSTOM_HEADERS`` set, so each test that
+    takes it holds for both.
     """
+    custom_headers, operator_header_names = request.param
     if custom_headers is not None:
         monkeypatch.setenv("GROQ_CUSTOM_HEADERS", custom_headers)
     llm = model.build_chat_model(
@@ -187,18 +172,47 @@ def test_groq_request_sends_the_key_only_as_bearer_and_adds_no_unreviewed_header
 
     assert len(fake_groq) == 1
     path, headers, body = fake_groq[0]
-    expected = _HTTP_HEADERS | _SDK_DESCRIPTOR_HEADERS | operator_header_names
-    assert set(headers) - _TIMEOUT_HEADER == expected
-    assert path == "/openai/v1/chat/completions"
-    assert headers["authorization"] == f"Bearer {_SENTINEL}"
+    return _Sent(path, headers, body, operator_header_names)
+
+
+@pytest.mark.criterion("REQ-FUND-030")
+def test_groq_request_adds_no_header_beyond_the_reviewed_set(sent):
+    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+
+    The plain HTTP headers, the SDK's eight self-descriptions and the operator's own
+    ``GROQ_CUSTOM_HEADERS`` are the whole set; a header a release adds is not.
+    """
+    expected = _HTTP_HEADERS | _SDK_DESCRIPTOR_HEADERS | sent.operator_header_names
+
+    assert set(sent.headers) - _TIMEOUT_HEADER == expected
+
+
+@pytest.mark.criterion("REQ-FUND-030")
+def test_groq_request_sends_the_key_only_as_bearer_in_the_authorization_header(sent):
+    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+
+    The key authenticates the request as a bearer token and appears in no other
+    header, in the path or in the body, where a log or an error would show it.
+    """
+    assert sent.headers["authorization"] == f"Bearer {_SENTINEL}"
     elsewhere = {
-        name: value for name, value in headers.items() if name != "authorization"
+        name: value for name, value in sent.headers.items() if name != "authorization"
     }
     assert not [name for name, value in elsewhere.items() if _SENTINEL in value]
-    assert _SENTINEL not in path
-    assert _SENTINEL not in body.decode()
-    assert headers["content-type"] == "application/json"
-    payload = json.loads(body)
+    assert _SENTINEL not in sent.path
+    assert _SENTINEL not in sent.body.decode()
+
+
+@pytest.mark.criterion("REQ-FUND-030")
+def test_groq_request_is_a_json_chat_completion_of_the_prompt(sent):
+    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+
+    The request goes to Groq's chat-completions route as JSON and names the model and
+    the prompt the caller gave.
+    """
+    assert sent.path == "/openai/v1/chat/completions"
+    assert sent.headers["content-type"] == "application/json"
+    payload = json.loads(sent.body)
     assert payload["model"] == _MODEL
     assert payload["messages"][-1]["content"] == "hello"
 

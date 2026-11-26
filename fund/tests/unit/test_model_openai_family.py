@@ -15,14 +15,14 @@ they cross the wire. Nothing leaves the machine.
 from __future__ import annotations
 
 import json
-import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from typing import Any
 
 import pytest
+from _provider_stubs import loopback_url, serve_on_loopback
 from langchain_core.load import dumpd
 from pydantic import BaseModel
 
@@ -39,7 +39,6 @@ _AZURE_KEY = "az-S3CRET"
 
 _AZURE_DEPLOYMENT = "my-deploy"
 _AZURE_API_VERSION = "2024-06-01"
-_SERVER_JOIN_SECONDS = 5
 
 # Every variable langchain-openai or the OpenAI SDK would read in place of a value
 # the builder did not pass, so a developer's shell cannot change what is asserted.
@@ -93,7 +92,6 @@ class _Stub:
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in _AMBIENT_ENV:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
 
 
 def _completion(state: _Stub, body: dict[str, Any]) -> bytes:
@@ -131,7 +129,7 @@ def _completion(state: _Stub, body: dict[str, Any]) -> bytes:
 
 
 @pytest.fixture
-def stub() -> Iterator[_Stub]:
+def stub(monkeypatch: pytest.MonkeyPatch) -> Iterator[_Stub]:
     """A localhost OpenAI-style ``chat/completions`` endpoint."""
     state = _Stub(base_url="")
 
@@ -152,16 +150,9 @@ def stub() -> Iterator[_Stub]:
         def log_message(self, *args: object) -> None:
             """Keep the test output free of per-request access lines."""
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    state.base_url = f"http://127.0.0.1:{server.server_port}"
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
+    with serve_on_loopback(monkeypatch, _Handler) as port:
+        state.base_url = loopback_url(port)
         yield state
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=_SERVER_JOIN_SECONDS)
 
 
 def _openai_cfg(stub: _Stub) -> FundConfig:
