@@ -7,10 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> **Most entries below concern the repository's ingestion service (`ingestion/`,
-> formerly `api/`) and its tooling.** The exceptions are the library breaking
-> changes in **Removed (BREAKING — library)** and **Changed (BREAKING — library)**
-> immediately below.
+## [0.2.0] - 2026-11-18
+
+> **Upgrading from 0.1.0.**
+>
+> - **Library users:** the distribution is now `portopt-core` (it was `portopt` in 0.1.0;
+>   the import name `optimizer` is unchanged, so uninstall the old `portopt` before you
+>   install it). It needs Python 3.12 or newer, pins exact dependency versions, and is
+>   licensed under PolyForm Noncommercial 1.0.0 instead of BSD-3-Clause. The `optimizer`
+>   console command and `optimizer.pipeline` are gone (compose runs from the primitives;
+>   `build_portfolio_pipeline` now lives in `optimizer.pre_selection`), and so are the HMM
+>   and DMM moment blending and several other names the subpackages used to export.
+>   Several `optimizer.factors` configs validate at construction, and `CPCVConfig` purges
+>   and embargoes by default. The two BREAKING sections below list the main breaks: the
+>   removed names, the packaging and dependency changes and some behaviour changes. They are
+>   not complete. The configs and builders that are still exported also lost or renamed
+>   fields, presets and parameters and changed some defaults, and most of those are not
+>   itemised: for example `MomentEstimationConfig` takes `ew_mu_half_life` and
+>   `ew_cov_half_life` where it took `ew_mu_alpha` and `ew_cov_alpha`, `RiskBudgetingConfig`
+>   no longer has `risk_measure`, `DistanceConfig` has `estimator` where it had
+>   `distance_type`, and `WalkForwardConfig.purged_size` defaults to 5 where it was 0. Check
+>   the signatures you call against the 0.1.0 source and run your code against this
+>   release before you rely on it.
+> - **Docker users:** dump the database first, because four migrations cannot be
+>   downgraded (`d1e2f3a4b5c6`, which drops 17 tables, and three later ones,
+>   `a5ac0fa9b0ec`, `a6f1c8d3e2b7` and `b9c8d7e6f5a4`) and `a5ac0fa9b0ec` deletes rows
+>   from `trading_economics_indicators` and `trading_economics_observations`. Every
+>   compose service now sits behind a profile, so a bare `docker compose up` starts
+>   nothing (use `--profile ingestion` or `--profile fund`). The scheduler reads its API
+>   keys from `.env`, `.env.scheduler` or the `./secrets/` files, so a key exported only
+>   in the shell no longer reaches it. The database (54320) and Adminer (18081) ports are
+>   published on `127.0.0.1` only, so other hosts can no longer reach them.
+>   `docker-compose.yml` pins the project name to `optimizer`, so a checkout under
+>   another directory name needs the steps in the **Fixed** entry on that pin before it
+>   upgrades.
+
+> **Many entries below concern the repository's ingestion service (`ingestion/`,
+> formerly `api/`) and its tooling.** The itemised library breaking changes are in
+> **Removed (BREAKING — library)** and **Changed (BREAKING — library)** immediately
+> below; the `fund` bridge, the shared `portopt-db` layer and CI have entries of
+> their own further down. The **Added** entries that cite #36 to #53 were already
+> listed as unreleased in the 0.1.0 changelog, and some of what they describe (the
+> release workflow, the Makefile, the `NullHandler`) is in the 0.1.0 tag too, so they
+> are not new in 0.2.0.
 
 ### Removed (BREAKING — library)
 
@@ -21,26 +60,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PortfolioResult`. `build_portfolio_pipeline` (pre-selection → optimiser
   composition) moved to `optimizer.pre_selection`. Opinionated, DB-connected
   orchestration (FX conversion, delisting correction, universe/factor selection,
-  rebalancing decisions, persistence) now belongs to the planned `fund/` bridge,
+  rebalancing decisions, persistence) now belongs to the `fund/` bridge,
   keeping `optimizer` DB-agnostic. Compose runs from primitives:
   `build_portfolio_pipeline(optimizer)` + `optimizer.validation.run_cross_val`.
-- **`optimizer.factors` config knobs that no code path read.** Setting them
-  changed nothing while implying a protection or a switch, so they are removed
-  and passing them now raises `TypeError` (or `ImportError` for the names).
+- **The `optimizer` console command and the `cli` package.** 0.1.0 installed an
+  `optimizer` command (`cli:app`) and a top-level `cli` package next to the
+  `optimizer` import package. The library distribution now installs neither; the
+  `portopt` command belongs to the separate ingestion distribution. The `portopt setup`
+  wizard puts a launcher that is also named `optimizer` on your `PATH` by default (it
+  brings the fund stack up and opens its terminal shell); it is not the removed command.
+- **HMM and DMM moment blending.** `optimizer.moments` no longer exports `HMMConfig`,
+  `HMMResult`, `HMMBlendedCovariance`, `HMMBlendedMu`, `fit_hmm`, `select_hmm_n_states`,
+  `blend_moments_by_regime`, `DMMConfig`, `DMMResult`, `fit_dmm` or `blend_moments_dmm`.
+  The `hmmlearn` dependency and the `dmm` extra (`torch`, `pyro-ppl`) went with them.
+- **Names `optimizer.optimization` no longer exports:** `RegimeRiskConfig`,
+  `build_regime_risk_budgeting`, `compute_regime_budget`, `compute_blended_risk_measure`,
+  `build_regime_blended_optimizer`, `RobustConfig`, `bootstrap_covariance_uncertainty`,
+  `CovarianceUncertaintyResult`, `ClusteringConfig`, `build_clustering_estimator`,
+  `build_distance_estimator`, `DistanceType` and `ExtraRiskMeasureType`. `DistanceConfig`
+  and `LinkageMethodType` are importable from `optimizer.distance` and `optimizer.cluster`
+  instead (`DistanceConfig` changed shape on the way: `estimator` replaces `distance_type`,
+  and `threshold` defaults to `None` instead of 0.5). Where the capability remains it has
+  new entry points, not drop-in
+  replacements, so read their signatures: `build_regime_blended_mean_risk` and
+  `RobustMeanRiskConfig` in `optimizer.optimization`, `build_covariance_uncertainty_set`
+  and `build_mu_uncertainty_set` in `optimizer.uncertainty_set`,
+  `HierarchicalClusteringConfig` and `build_hierarchical_clustering` in `optimizer.cluster`,
+  and `build_distance` in `optimizer.distance`.
+- **The `docs` extra** (MkDocs) and the `Documentation` project URL, with the `examples/`
+  directory and the MkDocs site they served (see the entry further down).
+- **`optimizer.factors` config knobs that no code path reads any more.** Setting
+  them implied a protection or a switch, so they are removed and passing them now
+  raises `TypeError` (or `ImportError` for the names).
   - `FactorIntegrationConfig.max_weight` — never applied; cap positions with
     `MeanRiskConfig.max_weights`.
-  - `FactorConstructionConfig.publication_lag` — never read, so it gave no
-    point-in-time protection; shift fundamentals with
-    `align_to_pit(lag_days=...)`, taking the lag from the matching
-    `PublicationLagConfig` field, before computing factors.
+  - `FactorConstructionConfig.publication_lag` — nothing reads it, so it gives no
+    point-in-time protection. In 0.1.0 its only reader was the removed
+    `run_full_pipeline_with_selection`, which used `macro_days` (default 63) to lag
+    macro data before regime classification, so lag the macro data yourself before
+    `classify_regime`. Shift fundamentals with `align_to_pit(lag_days=...)`, taking
+    the lag from the matching `PublicationLagConfig` field, before computing factors.
   - `FactorValidationConfig.fmp_top_pct` / `fmp_bottom_pct` — mimicking-portfolio
     legs are set through the builder's `quantile` argument.
   - `GroupICAggregationConfig`, `ICWeightingMethod`, `ICNegativeFilterPolicy`,
     `GroupICResult` — no group-IC aggregation by t-stat weight or negative-IC
     filter existed.
 
+  `FactorIntegrationConfig.max_weight` and the four group-IC names did not exist in
+  0.1.0 (they were added after it and removed again before this release), so only the
+  `publication_lag` and `fmp_*` knobs can affect a 0.1.0 user.
+
 ### Changed (BREAKING — library)
 
+Some entries below are about things that did not exist in 0.1.0: the
+`SectorRegimeBandsConfig` line of the construction-time validation entry, and the
+entries on `resolve_sector_bands`, `RegimeThresholdConfig.for_rolling_percentile` and
+`MomentEstimationConfig.for_regime_adjusted_ew`, plus the factor exposure band entry
+(nothing in 0.1.0 read the `exposure_*_bound` fields) and the `RobustMeanRiskConfig`
+entry (its presets
+share their names with the `RobustConfig` presets that 0.1.0 had and this release
+removes, see above). They were added after 0.1.0 and changed again before this
+release, so they record later changes and ask nothing of a 0.1.0 user. Other entries
+mix older and newer names, and only the newer ones are later additions:
+`PreSelectionConfig.zero_variance_threshold`, `CleaningConfig` and `for_low_volatility`,
+`CompositeScoringConfig.ic_decay_halflife`, `implied_annualization_factor`,
+`apply_no_trade_band`, `min_sector_weights`, `to_returns`, the `optimizer.online`
+searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0, while
+`winsorize_threshold`, `ICIR`, `CovEstimatorType.IMPLIED`, `compute_drifted_weights` and
+`SyntheticDataConfig` did, so read those entries in full.
+
+- **The library distribution is renamed from `portopt` to `portopt-core`.** The import
+  name `optimizer` is unchanged. In this repository the name `portopt` now belongs to
+  the ingestion daemon's distribution (`ingestion/`), which the release workflow does
+  not publish. Switch a dependency on the library to `portopt-core`; `portopt` gets no
+  further library releases. The 0.1.0 `portopt` distribution and `portopt-core` both
+  install the `optimizer` package, so uninstall `portopt` before you install `portopt-core`.
+- **The Python floor rises from 3.10 to 3.12** (`requires-python = ">=3.12"`). The
+  pinned `numpy` and `scipy` need Python 3.12 or newer; CI runs 3.12 and 3.13.
+- **Runtime dependencies are exact pins and fewer.** `numpy==2.5.4`, `pandas==3.0.6`,
+  `scipy==1.18.1`, `scikit-learn==1.9.1` and `skfolio==1.12.5` replace the 0.1.0 ranges
+  (`numpy>=1.24`, `pandas>=2.0`, `scipy>=1.11`, `scikit-learn>=1.6`, `skfolio>=0.5`), so
+  installing the library fixes those versions (pandas 3 in particular) in the
+  environment. `skfolio` is pinned to the 1.x release 1.12.5, whose API differs from the
+  0.x versions its 0.1.0 range allowed (for example the EW estimators take `half_life`
+  where they took `alpha`), and that shows through the estimators the builders return.
+  `jinja2==3.1.6` is a new runtime dependency, and `hmmlearn` and `arch` are no longer
+  declared.
+- **The licence changes from BSD-3-Clause to PolyForm Noncommercial 1.0.0** (see
+  `LICENSE`).
 - **`optimizer.factors` configs now validate at construction and raise
   `ConfigurationError`** for values that previously failed late or produced
   silently wrong output:
@@ -57,11 +164,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ic_lookback=36`, group IC histories longer than 36 periods are trimmed, so
   existing ICIR-weighted composites change; set a larger `ic_lookback` to keep
   the old whole-history behaviour.
-- **Factor exposure band is relative to the selected set.**
-  `FactorIntegrationConfig.exposure_lower_bound` / `exposure_upper_bound` now
-  bound the exposure around the equal-weight exposure of the selected tickers,
-  not around the universe mean (z-score 0). The old absolute bounds were
-  infeasible for any top-N selection; a full-universe selection is unchanged.
+- **Factor exposure band is relative to the selected set.** In 0.1.0 nothing applied
+  `FactorIntegrationConfig.exposure_lower_bound` / `exposure_upper_bound`.
+  `build_factor_integration`, added after 0.1.0, bounds the exposure within them
+  around the equal-weight exposure of the selected tickers, not around the universe
+  mean (z-score 0), because absolute bounds were infeasible for any top-N selection; a
+  full-universe selection is unchanged. `build_factor_exposure_constraints`, which
+  0.1.0 already had, still takes absolute bounds.
 - **`resolve_sector_bands` honours `SectorRegimeBandsConfig.enable`.** A disabled
   config (`SectorRegimeBandsConfig.disabled()`) now yields no sector constraints
   instead of an 11-sector, 33%-floor set, and an enabled config with no bands is
@@ -85,10 +194,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   maximise worst-case mean-variance utility, not the Sharpe ratio.** The ratio
   problem is infeasible whenever the worst-case excess return is non-positive,
   which is the normal case on 1-2 years of daily data.
-- **`implied_annualization_factor` is required for an implied covariance.**
-  `build_cov_estimator` raises `ConfigurationError` without a positive value;
-  skfolio never inferred it from the index (it uses 252), so weekly data was
-  de-annualised by the wrong factor.
+- **The implied covariance estimator needs `implied_annualization_factor`.** 0.1.0's
+  `build_cov_estimator` returned a bare `ImpliedCovariance()` for
+  `CovEstimatorType.IMPLIED`; it now raises `ConfigurationError` unless
+  `MomentEstimationConfig.implied_annualization_factor` (new since 0.1.0) is positive,
+  for example 252 for daily returns. skfolio never inferred it from the index (it uses
+  252), so weekly data was de-annualised by the wrong factor.
 - **`MomentEstimationConfig.for_regime_adjusted_ew()` uses the EW mean estimator**,
   so it fits a ragged panel like its covariance does.
 - **Rebalancing treats weights that sum below 1 as cash.** `apply_no_trade_band`
@@ -107,8 +218,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`UserWarning`) when `n_assets * max_weights` is below the budget, naming the cap,
   the asset count and the number of assets needed, instead of leaving only the
   solver's generic infeasibility error. The presets that default to
-  `max_weights=0.10` need at least ten assets. Fitting, cloning and failure handling
-  are otherwise unchanged.
+  `max_weights=0.10` need at least ten assets. The returned estimators are the
+  subclasses `CapacityCheckedMeanRisk` and `CapacityCheckedMaximumDiversification`
+  (0.1.0 returned skfolio's own `MeanRisk` and `MaximumDiversification`); fitting,
+  cloning and failure handling are otherwise unchanged.
 - **`beta_neutral` factor-mimicking portfolios hedge with a lagged expanding
   beta** (NaN for the first 12 shared dates) instead of a full-sample beta, which
   used later data on earlier dates. `scores` must lead `returns`.
@@ -365,7 +478,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and dividers instead of showing the markdown marks, with a blank line between
   turns.
 - Structured logging with `NullHandler` pattern across all modules (#36)
-- CI Python version matrix testing (3.10, 3.11, 3.12) (#38)
+- CI Python version matrix testing (3.10, 3.11, 3.12) (#38); the matrix is now 3.12
+  and 3.13 (see **Changed (BREAKING — library)**)
 - Test coverage reporting with Codecov integration (#39)
 - This CHANGELOG file (#40)
 - CI restructure: parallel jobs, concurrency control, format checking (#41)
@@ -538,8 +652,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CLI rather than curl-and-poll drivers against HTTP endpoints
 - **docker**: compose service `api` → `scheduler`; the API port is gone and 9000
   (metrics) is published instead
-- Type-check target raised to Python 3.12 (see Fixed). Runtime 3.10 support is
-  unchanged, still enforced by ruff, pyright, and the 3.10 CI matrix leg
+- Type-check target raised to Python 3.12 (see Fixed). The runtime floor is 3.12
+  as well (see **Changed (BREAKING — library)**)
 - **api**: renamed to **`ingestion/`** — the folder is a schedule-driven worker,
   not an HTTP service, so the name now describes the domain rather than a
   removed transport layer. Docker (`ingestion/Dockerfile`), CI (job renamed
@@ -794,8 +908,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ANTHROPIC_API_KEY` from `.env.example`. None were read by any code — Trading
   Economics and Il Sole 24 Ore are scraped from HTML and take no key
 - The `examples/` directory and the MkDocs documentation site (#50, #51). Both were
-  added and removed while unreleased, so the entries above are corrected rather
-  than carried forward as history
+  part of the 0.1.0 tree
 - **ingestion**: code nothing called. `ArticleScraper.fetch_multiple` and its
   `ArticleScraperProtocol` declaration.
   `TradingEconomicsIndicatorsScraper.get_all_portfolio_countries`. The `__main__`
@@ -995,5 +1108,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **universe**: Investability screening with hysteresis-based entry/exit thresholds
 - **factors**: Factor construction, standardization, composite scoring, stock selection, regime tilts, validation, mimicking portfolios, integration with optimization
 
-[Unreleased]: https://github.com/SilvioBaratto/optimizer/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/SilvioBaratto/optimizer/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/SilvioBaratto/optimizer/releases/tag/v0.2.0
 [0.1.0]: https://github.com/SilvioBaratto/optimizer/releases/tag/v0.1.0
