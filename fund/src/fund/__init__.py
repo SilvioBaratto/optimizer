@@ -7,4 +7,4 @@ nowhere else; the ingestion daemon and the DB layer stay clean, guarded by
 import-scan hygiene tests on both sides.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

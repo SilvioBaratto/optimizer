@@ -82,6 +82,8 @@ def _run_pipeline(
 class TestEmptyUniverseBootstrap:
     """An empty `instruments` table gets a universe build ahead of the daily steps."""
 
+    @pytest.mark.criterion("REQ-ING-009")
+    @pytest.mark.defect(1125)
     def test_builds_the_universe_before_any_other_step(self):
         """The universe step leads, so fx and yfinance see the new instruments."""
         assert _run_pipeline(empty=True) == _FULL_ORDER
@@ -142,6 +144,7 @@ class TestEmptyUniverseBootstrap:
         )
 
     @pytest.mark.parametrize("universe_result", [False, RuntimeError("screener down")])
+    @pytest.mark.criterion("REQ-ING-009")
     def test_a_failed_or_skipped_build_leaves_the_rest_of_the_pipeline_intact(
         self, universe_result, caplog: pytest.LogCaptureFixture
     ):
@@ -169,8 +172,9 @@ class TestEmptyUniverseBootstrap:
             r.exc_info and "screener down" in str(r.exc_info[1]) for r in caplog.records
         )
 
+    @pytest.mark.criterion("REQ-ING-009")
     def test_an_interrupt_during_the_build_still_propagates(self):
-        """Ctrl-C and SystemExit are not build failures and must not be swallowed."""
+        """A keyboard interrupt is not a build failure: it propagates."""
         with pytest.raises(KeyboardInterrupt):
             _run_pipeline(empty=True, universe_result=KeyboardInterrupt())
 
@@ -178,6 +182,7 @@ class TestEmptyUniverseBootstrap:
 class TestPopulatedUniverse:
     """A populated universe leaves the daily pipeline exactly as it was."""
 
+    @pytest.mark.criterion("REQ-ING-009")
     def test_does_not_run_the_universe_step(self, caplog: pytest.LogCaptureFixture):
         """No universe build and no bootstrap notice when instruments exist."""
         with caplog.at_level(logging.INFO, logger=M):
@@ -187,6 +192,7 @@ class TestPopulatedUniverse:
         assert not [r for r in caplog.records if _BOOTSTRAP_NOTICE in r.getMessage()]
 
 
+@pytest.mark.criterion("REQ-ING-009")
 class TestUniverseIsEmpty:
     """The probe counts only non-delisted rows and never raises."""
 

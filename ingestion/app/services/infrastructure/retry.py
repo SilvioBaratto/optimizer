@@ -52,6 +52,12 @@ _HTTP_429_IN_TEXT = re.compile(
     re.IGNORECASE,
 )
 
+# A rate-limited error leaves the long wait to the breaker on_rate_limit trips, where
+# one is passed, so the retry's own sleep only staggers threads: its upper bound starts
+# at the base and doubles per attempt up to the cap.
+_RATE_LIMIT_JITTER_BASE_SECONDS = 1.0
+_RATE_LIMIT_JITTER_CAP_SECONDS = 10.0
+
 
 def _carries_429_status(error: Exception) -> bool:
     # ``status_code`` is requests/curl_cffi, ``status`` aiohttp, ``code`` urllib.
@@ -85,6 +91,13 @@ def _full_jitter(attempt: int, base: float, cap: float) -> float:
     Full jitter avoids thundering-herd when many tickers retry simultaneously.
     """
     return random.uniform(0, min(cap, base * (2**attempt)))
+
+
+def _rate_limit_stagger(attempt: int) -> float:
+    """Draw the short sleep that follows a rate-limited attempt."""
+    return _full_jitter(
+        attempt, _RATE_LIMIT_JITTER_BASE_SECONDS, _RATE_LIMIT_JITTER_CAP_SECONDS
+    )
 
 
 def _log_exhausted(max_retries: int, last_exc: Exception | None) -> None:
@@ -175,7 +188,7 @@ def retry_with_backoff(
                 # Small jitter before next circuit-breaker check() to avoid
                 # thread pileup; the circuit breaker handles the long sleep.
                 if attempt < max_retries - 1:
-                    time.sleep(_full_jitter(attempt, 1.0, 10.0))
+                    time.sleep(_rate_limit_stagger(attempt))
                 continue
 
             if attempt < max_retries - 1:

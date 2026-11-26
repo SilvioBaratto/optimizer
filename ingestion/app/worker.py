@@ -92,8 +92,15 @@ def _serve_metrics() -> None:
     # Every BackgroundJobService registers its domain's series at zero when it
     # is built (at import of the scheduler module, above). Importing app.metrics
     # here keeps the families on /metrics even if no service was built.
-    import app.metrics  # noqa: F401
+    import app.metrics
+    from app.services.infrastructure.external_calls import (
+        ExternalService,
+        process_breaker,
+    )
 
+    app.metrics.track_db_breaker(database_manager.breaker)
+    for service in ExternalService:
+        app.metrics.track_external_breaker(service.value, process_breaker(service))
     start_http_server(settings.metrics_port)
     logger.info("Prometheus metrics served on :%d/metrics", settings.metrics_port)
 

@@ -798,16 +798,18 @@ def run_scheduled_nav_mark(
     config: FundConfig = settings,
     now: datetime | None = None,
 ) -> bool:
-    """Run :func:`run_nav_mark` once today's ingestion price sweep has settled.
+    """Run :func:`run_nav_mark` once today's ingestion price sweep has settled, or late.
 
-    Fired by the daily NAV-mark cron and by a periodic re-check. From
-    ``background_jobs`` alone it marks when every ``yfinance_fetch`` sweep started
-    today has completed or failed and no NAV mark has completed since the last of
-    them finished. Past ``fund_nav_mark_wait_seconds`` after the cron's due time,
-    with the sweep still unsettled, it marks once on the closes stored so far and
-    logs a warning; a sweep that settles after that still earns a fresh mark. Any
-    other call returns at once, so the single-worker scheduler is never held up
-    while the sweep runs.
+    Fired by the daily NAV-mark cron and by a periodic re-check. From the cron's due
+    time on, and from ``background_jobs`` alone, it marks when at least one
+    ``yfinance_fetch`` sweep started since UTC midnight, every such sweep has
+    completed or failed, and no NAV mark that started at or after the last of them
+    finished has completed. Past ``fund_nav_mark_wait_seconds`` after the due time,
+    with no sweep started today or one still unsettled, it marks on the closes stored
+    so far if no NAV mark started today has completed, logging a warning when the wait
+    is above zero; a sweep that settles after that still earns a fresh mark. Any other
+    call returns without marking, so the single-worker scheduler is not held up while
+    the sweep runs.
 
     Args:
         session_factory: Session source; the daemon's database when omitted.
@@ -818,8 +820,7 @@ def run_scheduled_nav_mark(
         ``True`` when a mark ran and completed; ``False`` when none was due, or the
         mark itself did not complete.
     """
-    from portopt_db.models import BackgroundJob
-    from sqlalchemy import select
+    from fund.audit.fund_job_repository import FundJobRepository
 
     factory = _resolve_factory(session_factory)
     moment = now if now is not None else datetime.now(UTC)
@@ -830,17 +831,9 @@ def run_scheduled_nav_mark(
         return False
 
     with factory() as session:
-        rows = session.execute(
-            select(
-                BackgroundJob.job_type,
-                BackgroundJob.status,
-                BackgroundJob.started_at,
-                BackgroundJob.finished_at,
-            ).where(
-                BackgroundJob.job_type.in_((_INGESTION_PRICE_JOB, JOB_NAV_MARK)),
-                BackgroundJob.started_at >= midnight,
-            )
-        ).all()
+        rows = FundJobRepository(session).jobs_started_since(
+            (_INGESTION_PRICE_JOB, JOB_NAV_MARK), midnight
+        )
     sweeps = [row for row in rows if row.job_type == _INGESTION_PRICE_JOB]
     # A mark reads the stored closes as it goes, so it is only as fresh as the moment
     # it began: one that began before the sweep settled may have read portfolios the

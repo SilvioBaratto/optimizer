@@ -145,7 +145,10 @@ class TestTransportClassification:
             requests.exceptions.ReadTimeout("slow"),
             _http_error(429),
             _http_error(503),
-            CircuitOpenError("Yahoo rate limit persists after 10 attempts"),
+            CircuitOpenError(
+                "Yahoo circuit breaker open: failure count 10, limit 10, inside its "
+                "back-off window."
+            ),
         ],
     )
     def test_unreachable_or_refusing_yahoo_is_a_transport_error(
@@ -257,7 +260,10 @@ class TestRequestOutcomes:
 
         assert outcomes.answered == 0
         assert len(outcomes.failures) == 1
-        assert "rate limit persists" in outcomes.failures[0]
+        assert (
+            "Yahoo circuit breaker open: failure count 1, limit 1"
+            in (outcomes.failures[0])
+        )
 
     def test_requests_outside_a_tracking_scope_are_not_recorded(
         self, client: YFinanceClient

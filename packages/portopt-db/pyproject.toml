@@ -4,10 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "portopt-db"
-version = "0.1.0"
+version = "0.2.0"
 description = "Shared SQLAlchemy models, repositories, engine and Alembic migrations for the portopt Postgres database."
 readme = "README.md"
-# 3.12 floor: matches the workspace (pandas==3.0.5 requires Python>=3.12).
+# 3.12 floor: matches the workspace (the root pins numpy==2.5.4 and scipy==1.18.1, which
+# require Python>=3.12).
 requires-python = ">=3.12"
 authors = [{ name = "Silvio Baratto" }]
 
@@ -48,9 +49,13 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-p no:cacheprovider"
+# The traceability plugin (`--traceability-out`) is one file in scripts/ci, outside
+# every package, shared by the four suites; this path lets `-p traceability` load it.
+pythonpath = ["../../scripts/ci"]
+addopts = "-p no:cacheprovider -p traceability"
 markers = [
-    "criterion: tag a test with the spec criterion it covers",
+    "criterion(id): cite requirement <id> of docs/requirements.md (a REQ- id) or an acceptance-criterion label",
+    "defect(issue): link this regression test to GitHub issue <issue>",
     "integration: needs a real PostgreSQL server (PORTOPT_TEST_DATABASE_URL)",
 ]
 

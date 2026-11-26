@@ -949,7 +949,7 @@ def test_build_context_is_nonempty_and_grounded(db_session):
     saver = MemorySaver()
     _seed_gate(db_session, saver, portfolio_id=_PID_A, thread_id="t-a")
 
-    context = ask.build_context(db_session, saver, _PID_A, "how are we doing?")
+    context = ask.build_context(db_session, saver, _PID_A)
 
     assert context  # never empty
     assert "FUND STATE" in context
@@ -959,7 +959,7 @@ def test_build_context_is_nonempty_and_grounded(db_session):
 
 def test_build_context_fund_wide_without_focus(db_session):
     """A fund-wide build omits the focus block but still grounds the fund state."""
-    context = ask.build_context(db_session, MemorySaver(), None, "any gates?")
+    context = ask.build_context(db_session, MemorySaver(), None)
 
     assert "FUND STATE" in context
     assert "FOCUS portfolio" not in context  # nothing focused → no focus block

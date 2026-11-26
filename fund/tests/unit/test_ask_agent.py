@@ -1357,7 +1357,7 @@ def test_all_eleven_tools_work_through_the_real_agent(
         repo_root=repo,
         runtime_root=runtime,
     )
-    from fund.tui import ask as ask_module
+    from fund import ask_context as ask_module
 
     monkeypatch.setattr(ask_module, "build_context", lambda *a, **k: "FUND STATE")
 

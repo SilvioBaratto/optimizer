@@ -1,9 +1,9 @@
 """Fund daemon entrypoint: ``python -m fund.worker``.
 
 The wiring counterpart to ``fund.scheduler`` (which holds the testable steps).
-This module builds and drives the long-lived process that owns the fund's
-scheduled work — the weekly rebalance sweep, the 15-minute drift monitor, and the
-orphan reaper — mirroring ``ingestion/app/worker.py`` with the fund deltas.
+This module builds and drives the long-lived process that owns the fund's scheduled
+work (the weekly rebalance sweep, the 15-minute drift monitor, the daily NAV mark and
+its re-check, the orphan reaper), mirroring ``ingestion/app/worker.py`` with deltas.
 
 Boot sequence (``main``):
 
@@ -157,49 +157,32 @@ def _reconcile_orphans(*, session_factory: SessionFactory | None = None) -> None
 
 
 def _fail_in_flight_slots(*, session_factory: SessionFactory | None = None) -> None:
-    """Fail this process's active fund slots so an abandoned step is not left running.
+    """Fail this process's active fund slots before the process exits.
 
-    Run only after a timed-out drain, when the process is about to exit and the
-    heartbeat thread dies with it. Without this the slot would stay ``running`` until
-    its lease expired, blocking the next scheduled run of that type. Only the rows this
-    process claimed are failed (``worker_pid`` and ``worker_host`` as stamped at claim):
-    a manual ``python -m fund.scheduler`` run holds a slot of its own, and failing it
-    would end its heartbeats and let the next daemon claim the same job type while that
-    run is still driving the portfolio. Status-guarded, so the abandoned step's own late
-    ``mark_done`` can no longer flip the row back to ``completed``. **Non-fatal**: a DB
-    failure logs and returns so the exit is never blocked.
+    ``main`` calls it when the process is about to exit, after a timed-out drain or
+    after the APScheduler thread died; any step's heartbeat thread dies with the
+    process. Without this an active slot would stay active, blocking the next
+    scheduled run of that type, until a reaper fails it after its lease has expired.
+    Only rows stamped at claim with this process's ``worker_pid`` and ``worker_host``
+    are failed: a manual ``python -m fund.scheduler`` run holds a slot of its own, and
+    failing it would end its heartbeats and let the next daemon claim the same job type
+    while that run is still driving the portfolio. ``mark_done`` moves only active
+    rows, so once a slot is failed here an abandoned step's late ``mark_done`` cannot
+    flip it to ``completed``. **Non-fatal**: an exception is logged and swallowed, so a
+    database error does not stop the exit.
     """
-    from datetime import UTC, datetime
-
-    from portopt_db.models import BackgroundJob
-    from portopt_db.models.jobs.background_job import FUND_JOB_TYPES
-    from sqlalchemy import update
+    from fund.audit.fund_job_repository import FundJobRepository
 
     factory = session_factory or database_manager.get_session
     try:
-        now = datetime.now(UTC)
         with factory() as session:
-            result = session.execute(
-                update(BackgroundJob)
-                .where(
-                    BackgroundJob.job_type.in_(FUND_JOB_TYPES),
-                    BackgroundJob.status.in_(("pending", "running")),
-                    BackgroundJob.worker_pid == os.getpid(),
-                    BackgroundJob.worker_host == socket.gethostname(),
-                )
-                .values(
-                    status="failed",
-                    error="abandoned at shutdown — drain timeout exceeded",
-                    finished_at=now,
-                    updated_at=now,
-                ),
-                execution_options={"synchronize_session": False},
+            failed = FundJobRepository(session).fail_active_slots_of(
+                os.getpid(),
+                socket.gethostname(),
+                error="abandoned at shutdown — drain timeout exceeded",
             )
             session.commit()
-        logger.warning(
-            "Failed %d in-flight fund job(s) abandoned at shutdown",
-            int(getattr(result, "rowcount", 0) or 0),
-        )
+        logger.warning("Failed %d in-flight fund job(s) abandoned at shutdown", failed)
     except Exception as exc:
         logger.warning("Could not fail in-flight fund jobs at shutdown: %s", exc)
 

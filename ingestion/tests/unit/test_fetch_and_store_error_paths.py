@@ -2,7 +2,8 @@
 
 Validates ``app/services/market_data/yfinance_data_service.py``
 (``YFinanceDataService.fetch_and_store`` and the ``_fetch_and_store`` sweep it
-wraps). No requirement id is registered for this function yet.
+wraps). Only the tests with a ``criterion`` marker cite REQ-ING-001 or REQ-ING-002
+of ``docs/requirements.md``; some others here touch the same behaviour uncited.
 
 The sweep runs one block per data category: check freshness, fetch from Yahoo,
 store a non-empty answer inside a savepoint, and turn an exception into an error
@@ -614,6 +615,7 @@ def _remembered(
 
 
 @pytest.mark.parametrize("category", CATEGORIES, ids=_name)
+@pytest.mark.criterion("REQ-ING-001")
 def test_category_failure_is_recorded_and_other_categories_still_store(
     category: Category,
 ) -> None:
@@ -634,6 +636,7 @@ def test_category_failure_is_recorded_and_other_categories_still_store(
 
 
 @pytest.mark.parametrize("category", CATEGORIES, ids=_name)
+@pytest.mark.criterion("REQ-ING-001")
 def test_category_write_failure_is_recorded_and_other_categories_still_store(
     category: Category,
 ) -> None:
@@ -665,6 +668,7 @@ _EMPTY_ANSWERS = [
 
 
 @pytest.mark.parametrize(("category", "empty"), _EMPTY_ANSWERS)
+@pytest.mark.criterion("REQ-ING-001")
 def test_empty_answer_is_counted_as_zero_not_errored(
     category: Category, empty: Any
 ) -> None:
@@ -683,6 +687,7 @@ def test_empty_answer_is_counted_as_zero_not_errored(
 
 
 @pytest.mark.parametrize("category", _GATED, ids=_name)
+@pytest.mark.criterion("REQ-ING-002")
 def test_incremental_fresh_category_is_skipped(category: Category) -> None:
     """Skip a category whose markers sit inside its window.
 
@@ -709,6 +714,7 @@ def test_incremental_fresh_category_is_skipped(category: Category) -> None:
 
 
 @pytest.mark.parametrize("category", _GATED, ids=_name)
+@pytest.mark.criterion("REQ-ING-002")
 def test_incremental_category_past_its_window_is_fetched(category: Category) -> None:
     """Fetch and store a category whose markers are just past its own window."""
     result = _sweep(_answering_client(), "incremental", staleness=_stamped(category, 1))
@@ -750,6 +756,7 @@ def test_recent_empty_answer_settles_the_category_like_a_fresh_marker(
     assert result["counts"] == _stored_counts(*sharing)
 
 
+@pytest.mark.criterion("REQ-ING-002")
 def test_all_fresh_short_circuits_without_network() -> None:
     """Return before touching the client when every category and price is current.
 

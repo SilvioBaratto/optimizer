@@ -45,6 +45,7 @@ def _seed_stock_share(
     session.flush()
 
 
+@pytest.mark.criterion("REQ-FUND-007")
 class TestCommodityLabelIsNotAnExemptionForAStockFund:
     """A name-derived ``commodity`` label cannot excuse a fund that owns equities."""
 

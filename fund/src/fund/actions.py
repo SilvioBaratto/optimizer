@@ -1243,10 +1243,8 @@ def resolution_key(
         GateMovedError: ``expected_gate`` is set and the run now waits at a different
             gate.
     """
-    from portopt_db.models import HumanAuditLog
-    from sqlalchemy import select
-
     from fund import observe
+    from fund.audit.human_audit_repository import HumanAuditLogRepository
     from fund.audit.repository import AgentRunRepository
 
     rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
@@ -1261,14 +1259,7 @@ def resolution_key(
                 "reopen it and review the new orders before deciding"
             )
         return f"{rid}:{action}:{gate}"
-    logged = session.execute(
-        select(HumanAuditLog.idempotency_key)
-        .where(HumanAuditLog.run_id == rid)
-        .where(HumanAuditLog.action == action)
-        .where(HumanAuditLog.idempotency_key.is_not(None))
-        .order_by(HumanAuditLog.created_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
+    logged = HumanAuditLogRepository(session).latest_idempotency_key(rid, action)
     return logged or f"{rid}:{action}"
 
 
@@ -1415,18 +1406,15 @@ def _check_tradeable(session: Session, mandate: Any) -> list[str]:
     """
     if not mandate.tradeable_only:
         return []
-    from portopt_db.repositories.universe.universe_repository import (
-        UniverseRepository,
-    )
-
+    from fund.readers import universe_reader
     from fund.tools.eligibility import unchecked_names_note
 
     # An empty list asks about nothing rather than everything: with no allowlist the
     # whole refusal list would be thousands of names, and only the "not evaluated"
     # answer is worth a warning.
     tickers = _normalised_tickers(mandate.eligible_tickers)
-    repo = UniverseRepository(session)
-    refused = repo.get_t212_untradeable_tickers(tickers)
+    overlay = universe_reader(session)
+    refused = overlay.get_t212_untradeable_tickers(tickers)
     warnings: list[str] = []
     if refused is None:
         warnings.append(
@@ -1440,7 +1428,7 @@ def _check_tradeable(session: Session, mandate: Any) -> list[str]:
                 f"eligible tickers not on Trading 212: {', '.join(refused)}; they "
                 "stay barred (not_t212_tradeable) while tradeable_only is set"
             )
-        unchecked = repo.get_t212_unevaluated_tickers(
+        unchecked = overlay.get_t212_unevaluated_tickers(
             [t for t in tickers if t not in refused]
         )
         if unchecked:

@@ -698,3 +698,56 @@ def test_finalize_run_replaying_the_same_terminal_status_is_a_noop(db_session):
     assert replayed.status == "completed"
     assert replayed.weights == {"AAA": 1.0}
     assert replayed.finished_at == stamped
+
+
+def _snapshot_failed_run(session) -> tuple[dict, list[dict]]:
+    """A failed run with two decisions, as column snapshots, then rolled back."""
+    repo = AgentRunRepository(session)
+    run = _new_run(repo)
+    repo.append_decision(run.id, agent="pm", step="plan")
+    repo.append_decision(run.id, agent="pm", step="optimize")
+    run.status = "failed"
+    session.flush()
+    session.refresh(run)
+    snapshot = run.to_dict()
+    decisions = [
+        decision.to_dict()
+        for decision in sorted(run.decisions, key=lambda d: d.decision_index)
+    ]
+    session.rollback()
+    return snapshot, decisions
+
+
+def test_insert_run_if_absent_recreates_a_rolled_back_run(committing_session):
+    """Test ``AgentRunRepository.insert_run_if_absent``: the run and its decisions come
+    back from their snapshots; the caller commits."""
+    snapshot, decisions = _snapshot_failed_run(committing_session)
+    assert committing_session.get(AgentRun, snapshot["id"]) is None
+
+    AgentRunRepository(committing_session).insert_run_if_absent(snapshot, decisions)
+    committing_session.commit()
+
+    stored = committing_session.get(AgentRun, snapshot["id"])
+    assert stored is not None
+    assert stored.status == "failed"
+    assert [(d.decision_index, d.step) for d in stored.decisions] == [
+        (0, "plan"),
+        (1, "optimize"),
+    ]
+
+
+def test_insert_run_if_absent_leaves_a_recorded_run_as_it_is(committing_session):
+    """Test ``AgentRunRepository.insert_run_if_absent``: a run already on record keeps
+    its row and gains no decision."""
+    snapshot, decisions = _snapshot_failed_run(committing_session)
+    repo = AgentRunRepository(committing_session)
+    repo.insert_run_if_absent(snapshot, decisions[:1])
+    committing_session.commit()
+
+    repo.insert_run_if_absent({**snapshot, "status": "completed"}, decisions)
+    committing_session.commit()
+
+    stored = committing_session.get(AgentRun, snapshot["id"])
+    assert stored is not None
+    assert stored.status == "failed"
+    assert len(stored.decisions) == 1

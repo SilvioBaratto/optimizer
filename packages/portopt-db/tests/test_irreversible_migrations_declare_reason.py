@@ -12,6 +12,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 _VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
 
 _EXPECTED_IRREVERSIBLE = {
@@ -65,11 +67,13 @@ def _irreversible_revisions() -> dict[str, ast.Module]:
     return found
 
 
+@pytest.mark.criterion("REQ-DB-006")
 def test_the_scan_finds_exactly_the_known_irreversible_revisions() -> None:
     """A new one-way revision must be added here on purpose, with its reason."""
     assert set(_irreversible_revisions()) == _EXPECTED_IRREVERSIBLE
 
 
+@pytest.mark.criterion("REQ-DB-006")
 def test_every_irreversible_revision_declares_a_reason() -> None:
     """Each one-way revision carries a non-empty ``IRREVERSIBLE_REASON``."""
     missing = [
@@ -80,6 +84,7 @@ def test_every_irreversible_revision_declares_a_reason() -> None:
     assert missing == []
 
 
+@pytest.mark.criterion("REQ-DB-006")
 def test_a_revision_without_the_constant_is_reported() -> None:
     """The check can fail: a synthetic one-way revision has no reason."""
     tree = ast.parse("def downgrade():\n    raise NotImplementedError('x')\n")
@@ -88,6 +93,7 @@ def test_a_revision_without_the_constant_is_reported() -> None:
     assert declared_reason(tree) is None
 
 
+@pytest.mark.criterion("REQ-DB-006")
 def test_a_reversible_revision_is_not_flagged() -> None:
     """A downgrade that does work needs no reason."""
     tree = ast.parse("def downgrade():\n    op.drop_table('t')\n")

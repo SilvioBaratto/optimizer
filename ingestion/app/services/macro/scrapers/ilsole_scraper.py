@@ -13,16 +13,21 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+from app.config import settings
 from app.services.infrastructure import (
-    CircuitBreaker,
     RateLimiter,
     retry_with_backoff,
+)
+from app.services.infrastructure.external_calls import (
+    ExternalService,
+    process_breaker,
+    timed_request,
 )
 from app.services.infrastructure.retry import is_transient_network_error
 
 logger = logging.getLogger(__name__)
 
-_ilsole_circuit_breaker = CircuitBreaker(service_name="IlSole24Ore", max_attempts=5)
+_ilsole_circuit_breaker = process_breaker(ExternalService.IL_SOLE)
 _ilsole_rate_limiter = RateLimiter(delay=0.5)
 
 
@@ -107,8 +112,16 @@ class IlSoleScraper:
         "Sudafrica": "South Africa",
     }
 
-    def __init__(self, timeout: int = 10):
-        self.timeout = timeout
+    def __init__(self, timeout: float | None = None):
+        """Create a scraper with its own HTTP session.
+
+        Args:
+            timeout: Per-request timeout in seconds;
+                ``ILSOLE_REQUEST_TIMEOUT_SECONDS`` when omitted.
+        """
+        self.timeout = (
+            settings.ilsole_request_timeout_seconds if timeout is None else timeout
+        )
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -116,10 +129,10 @@ class IlSoleScraper:
                 # Pin the encoding rather than inherit requests' default, which
                 # silently becomes "gzip, deflate, br" as soon as brotli is
                 # importable anywhere on sys.path. No brotli decoder ships with
-                # this image, so a "br" response body would arrive undecodable,
-                # every parse would match 0 rows, and the circuit breaker would
-                # latch open — exactly the failure that froze the Trading
-                # Economics table for 16 days (see tradingeconomics_scraper).
+                # this image, so a "br" response body would arrive undecodable
+                # and the parsers would find no rows in it, the failure that
+                # froze the Trading Economics table for 16 days (see
+                # tradingeconomics_scraper).
                 # gzip/deflate are decoded by requests natively.
                 "Accept-Encoding": "gzip, deflate",
             }
@@ -131,13 +144,14 @@ class IlSoleScraper:
         def _action() -> BeautifulSoup:
             _ilsole_circuit_breaker.check()
             _ilsole_rate_limiter.acquire(endpoint)
-            response = self.session.get(url, timeout=self.timeout)
-            response.raise_for_status()
+            with timed_request(ExternalService.IL_SOLE):
+                response = self.session.get(url, timeout=self.timeout)
+                response.raise_for_status()
             return BeautifulSoup(response.content, "html.parser")
 
         return retry_with_backoff(
             _action,
-            max_retries=3,
+            max_retries=settings.ilsole_request_attempts,
             is_rate_limit_error=is_transient_network_error,
             on_rate_limit=_ilsole_circuit_breaker.trigger,
             on_success=lambda _: _ilsole_circuit_breaker.reset(),

@@ -3,16 +3,19 @@
 The compute core behind the oversight TUI's "how are we doing?" question. It
 reconstructs the paper portfolio's FX-normalized NAV time series, computes
 multi-horizon returns + risk metrics versus the mandate benchmark, and marks each
-holding to market. Reads ``paper_orders`` / ``positions`` / ``price_history`` /
-``fx_rates`` from an injected session and FX-converts listing-currency prices to
-the mandate base currency via ``optimizer.fx`` (the only package allowed to do so
-in the fund).
+holding to market. Reads ``paper_orders`` / ``nav_history`` / ``instruments`` /
+``price_history`` / ``fx_rates`` from an injected session and FX-converts
+listing-currency prices to the mandate base currency via ``optimizer.fx``.
 
 Agent-stack-free: imports ``optimizer`` / ``skfolio`` (allowed) but never the
-deep-agent stack (``deepagents`` / ``langgraph``) nor ``fund.audit`` — so the
-daily NAV-mark scheduler step can lazy-import it without pulling that weight into
-a bare ``import fund.scheduler``. Degrades gracefully: short/empty/absent history
-yields an empty series or ``None`` fields, never a fabricated number.
+deep-agent stack (``deepagents`` / ``langgraph``), so the daily NAV-mark scheduler
+step can lazy-import it without pulling that weight into a bare
+``import fund.scheduler``. Tickets and NAV dates are read through the ``fund.audit``
+repositories, which the reading functions import when called; the ``fund.audit``
+package loads langgraph only on demand, and ``test_performance_nav.py`` imports this
+module and each module it names in an import statement in a fresh interpreter to
+check that none of them loads the agent stack. Degrades gracefully:
+short/empty/absent history yields an empty series or ``None`` fields.
 """
 
 from __future__ import annotations
@@ -23,12 +26,15 @@ import logging
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import numpy as np
 import pandas as pd
 
 from fund.periods import periods_per_year
+
+if TYPE_CHECKING:
+    from fund.audit.orders_repository import FilledTicket
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +81,35 @@ class NavPoint:
     date: dt.date
     nav: float
     benchmark: float | None
+
+
+# NAV points ordered by date, as :func:`compute_nav` returns them.
+NavSeries: TypeAlias = list[NavPoint]
+
+
+@dataclass(frozen=True, eq=False)
+class NavInputs:
+    """The tickets, base-currency marks and settings :func:`compute_nav` marks from.
+
+    ``eq=False``: a ``DataFrame`` has no single truth value to compare by.
+
+    Attributes:
+        tickets: The filled paper tickets to mark, oldest first.
+        base_prices: Base-currency marks, bars by ticker (see
+            :func:`_carried_base_prices`).
+        benchmark: Column of ``base_prices`` whose value on each emitted bar is that
+            point's benchmark level (``None`` where the value is NaN); ``None`` emits
+            no benchmark level.
+        capital: Mandate capital the first ticket is denominated in; ``None`` keeps the
+            ticket's own notional.
+        since: Lower date bound on the emitted points; ``None`` sets no bound.
+    """
+
+    tickets: tuple[FilledTicket, ...]
+    base_prices: pd.DataFrame
+    benchmark: str | None
+    capital: float | None
+    since: dt.date | None
 
 
 @dataclass(frozen=True)
@@ -287,19 +322,17 @@ def _load_price_frame(
         ``(prices, currency_map)`` — the price frame (empty when nothing loads) and
         the raw ``{ticker: price_unit}`` map.
     """
-    from portopt_db.repositories.market_data.yfinance_repository import (
-        YFinanceRepository,
-    )
+    from fund.readers import price_reader
 
-    repo = YFinanceRepository(session)
+    reader = price_reader(session)
     series: dict[str, pd.Series] = {}
     currency_map: dict[str, str] = {}
     for ticker in tickers:
-        instrument = repo.get_instrument_by_yfinance_ticker(ticker)
+        instrument = reader.instrument_for(ticker)
         if instrument is None:
             continue
         if newest is None:
-            rows = repo.get_price_history(
+            rows = reader.price_bars_for(
                 instrument.id,
                 start_date=start,
                 end_date=end,
@@ -307,7 +340,7 @@ def _load_price_frame(
                 ascending=True,
             )
         else:
-            rows = repo.get_price_history(
+            rows = reader.price_bars_for(
                 instrument.id, start_date=start, end_date=end, limit=newest
             )
         # The newest bar's unit stands for the series however the rows were ordered, so
@@ -397,11 +430,9 @@ def _load_fx_rates_frame(
     Returns:
         A ``DatetimeIndex`` × currency-column rate frame; empty when no rows match.
     """
-    from portopt_db.repositories.market_data.fx_rates_repository import (
-        FxRatesRepository,
-    )
+    from fund.readers import fx_rate_reader
 
-    rows = FxRatesRepository(session).get_rates(base.upper(), quotes, start, end)
+    rows = fx_rate_reader(session).rates_for(base.upper(), quotes, start, end)
     if not rows:
         return pd.DataFrame()
     data: dict[str, dict[dt.date, float]] = {}
@@ -667,24 +698,6 @@ def _as_date(value: Any) -> dt.date | None:
     return None
 
 
-def _ticket_order_columns(paper_order: Any) -> tuple[Any, ...]:
-    """Sort keys that rank paper tickets from oldest to newest, with no ties.
-
-    Tickets for the same decision bar share ``asof`` and ``fill_date`` but may carry
-    different weights (a re-run after a reject, a sweep plus a manual run), so those
-    two keys alone leave their order to the database. ``created_at`` then ``id``
-    make the newest ticket supersede the others deterministically; NAV reads the
-    ascending order and the holdings table the descending one, so both follow the
-    same ticket.
-    """
-    return (
-        paper_order.fill_date,
-        paper_order.asof,
-        paper_order.created_at,
-        paper_order.id,
-    )
-
-
 def _ticket_book(
     ticket: Any, base_prices: pd.DataFrame
 ) -> dict[str, tuple[float, dt.date, float]]:
@@ -899,6 +912,10 @@ def build_nav_series(
 ) -> list[NavPoint]:
     """Reconstruct the paper portfolio's NAV series, marked to market in base ccy.
 
+    The composition of :func:`load_nav_inputs`, which reads the tickets, closes and
+    FX rates and turns the closes into the base-currency mark frame, and
+    :func:`compute_nav`, which marks the tickets on that frame.
+
     Shares are re-derived forward from ``paper_orders.lines`` (no look-ahead: a
     fill counts from its ``fill_date``) as ``notional_base / price_base@fill``,
     with ``price_base`` FX-converted from listing currency via ``optimizer.fx``.
@@ -915,9 +932,9 @@ def build_nav_series(
 
     NAV is **gross** of paper execution costs: shares are reconstructed from the
     fill-bar *close*, so NAV at the fill equals the deployed base notional. The
-    slippage and commission the paper fill modelled (``tools.orders``, default
-    ~5 bps and ~1 bps) are intentionally excluded — this tracks deployed capital,
-    not a cost-adjusted book.
+    slippage and commission the paper fill modelled (``fund.pricing.price_ticket``;
+    ``place_orders`` defaults to 5 and 1 bps) are intentionally excluded — this
+    tracks deployed capital, not a cost-adjusted book.
 
     Args:
         portfolio_id: Portfolio whose paper book to reconstruct.
@@ -947,36 +964,113 @@ def build_nav_series(
             has no resolvable price currency at all — marking would silently mix
             currencies, so it fails loud instead.
     """
-    from portopt_db.models.orders.paper_order import PaperOrder
-    from sqlalchemy import select
-
-    tickets = list(
-        session.execute(
-            select(PaperOrder)
-            .where(PaperOrder.portfolio_id == portfolio_id)
-            .order_by(*_ticket_order_columns(PaperOrder))
-        )
-        .scalars()
-        .all()
+    inputs = load_nav_inputs(
+        portfolio_id,
+        session=session,
+        base_currency=base_currency,
+        benchmark=benchmark,
+        asof=asof,
+        since=since,
+        capital=capital,
     )
-    if not tickets:
-        return []
+    return [] if inputs is None else compute_nav(inputs)
 
+
+def load_nav_inputs(
+    portfolio_id: uuid.UUID,
+    *,
+    session: Any,
+    base_currency: str,
+    benchmark: str | None = None,
+    asof: dt.date | None = None,
+    since: dt.date | None = None,
+    capital: float | None = None,
+) -> NavInputs | None:
+    """Load and prepare what :func:`compute_nav` needs to mark the portfolio's NAV.
+
+    Reads the portfolio's filled tickets, the closes of their listings and of the
+    benchmark, and the FX rates; applies the currency and FX-coverage guards; converts
+    the closes into the base-currency mark frame (:func:`_carried_base_prices`: the FX
+    conversion, a closed market's last close carried over gaps, and bars left unpriced
+    where the rate is stale); and picks the benchmark column to emit, with a warning
+    when the benchmark is left out. The arguments mean what they mean in
+    :func:`build_nav_series`.
+
+    Returns:
+        The inputs, or ``None`` when there is nothing to mark: no filled ticket, or no
+        price row left once the listings without a known currency are dropped.
+
+    Raises:
+        FxCoverageError: As :func:`build_nav_series` documents.
+    """
+    tickets = _tickets_through(session, portfolio_id, None)
+    if not tickets:
+        return None
     holding_tickers = {line["ticker"] for t in tickets for line in t.lines}
+    first_fill = min(t.fill_date for t in tickets)
+    raw_prices, currency_map = _nav_raw_prices(
+        session, holding_tickers, benchmark, first_fill, asof
+    )
+    if raw_prices.empty:
+        return None
+    fx_rates = _nav_fx_rates(
+        session, base_currency, currency_map, holding_tickers, first_fill, asof
+    )
+    base_prices = _carried_base_prices(
+        raw_prices,
+        base_currency=base_currency,
+        currency_map=currency_map,
+        fx_rates=fx_rates,
+    )
+    return NavInputs(
+        tickets=tuple(tickets),
+        base_prices=base_prices,
+        benchmark=_emitted_benchmark(
+            benchmark, base_currency, base_prices, currency_map, fx_rates
+        ),
+        capital=capital,
+        since=since,
+    )
+
+
+def _nav_raw_prices(
+    session: Any,
+    holding_tickers: set[str],
+    benchmark: str | None,
+    first_fill: dt.date,
+    asof: dt.date | None,
+) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Listing-currency closes of the holdings and the benchmark from the first fill.
+
+    Raises:
+        FxCoverageError: A holding has no resolvable price currency.
+    """
     load_tickers = sorted(holding_tickers)
     if benchmark and benchmark not in load_tickers:
         load_tickers.append(benchmark)
-
-    first_fill = min(t.fill_date for t in tickets)
     raw_prices, currency_map = _load_price_frame(
         session, load_tickers, start=first_fill, end=asof
     )
     raw_prices = _require_known_currencies(
         raw_prices, currency_map, holdings=holding_tickers
     )
-    if raw_prices.empty:
-        return []
+    return raw_prices, currency_map
 
+
+def _nav_fx_rates(
+    session: Any,
+    base_currency: str,
+    currency_map: dict[str, str],
+    holding_tickers: set[str],
+    first_fill: dt.date,
+    asof: dt.date | None,
+) -> pd.DataFrame:
+    """FX rates for the quoted currencies, checked against the holdings' currencies.
+
+    Raises:
+        FxCoverageError: A holding's foreign currency has no rate column under
+            ``base_currency``.
+    """
     quotes = sorted({_major_currency(code) for code in currency_map.values()})
     fx_rates = _load_fx_rates_frame(
         session,
@@ -996,13 +1090,17 @@ def build_nav_series(
     _require_fx_coverage(
         base_currency, holding_currency_map, fx_rates, every_currency=True
     )
-    base_prices = _carried_base_prices(
-        raw_prices,
-        base_currency=base_currency,
-        currency_map=currency_map,
-        fx_rates=fx_rates,
-    )
+    return fx_rates
 
+
+def _emitted_benchmark(
+    benchmark: str | None,
+    base_currency: str,
+    base_prices: pd.DataFrame,
+    currency_map: dict[str, str],
+    fx_rates: pd.DataFrame,
+) -> str | None:
+    """The benchmark column to emit beside NAV; ``None`` (warned) if left out."""
     # A benchmark whose currency could not be converted is dropped, not emitted raw:
     # a local-currency index level beside a base-currency NAV would make excess,
     # tracking error and beta compare two currencies with no FX return between them.
@@ -1023,29 +1121,58 @@ def build_nav_series(
             benchmark,
             reason,
         )
+    return benchmark if bench_in_base else None
 
+
+def compute_nav(inputs: NavInputs) -> NavSeries:
+    """Mark the NAV series of ``inputs`` without a session or a database read.
+
+    The marking maths: each ticket's shares from its lines and the base-currency price
+    on each line's fill bar, the chain-linked scale and cash of each ticket
+    (:func:`_chain_links`), then a point for each bar on or after both ``since`` and
+    the fill of the first ticket with a priced line, when the active book can be
+    marked on it. The per-line warnings of :func:`_ticket_shares` are logged here.
+
+    Returns:
+        NAV points ordered by date; empty when no ticket line has a base-currency
+        price at its fill, or when no such bar can be marked.
+    """
     priced = [
         (
             ticket.fill_date,
-            _ticket_book(ticket, base_prices),
+            _ticket_book(ticket, inputs.base_prices),
             float(ticket.notional or 0),
         )
-        for ticket in tickets
+        for ticket in inputs.tickets
     ]
     priced = [entry for entry in priced if entry[1]]
     if not priced:
         return []
     ticket_books = [(fill_date, book) for fill_date, book, _ in priced]
     links = _chain_links(
-        ticket_books, [gross for _, _, gross in priced], base_prices, capital
+        ticket_books,
+        [gross for _, _, gross in priced],
+        inputs.base_prices,
+        inputs.capital,
     )
     scaled_books = [
         _scaled_book(book, link.scale)
         for (_, book), link in zip(ticket_books, links, strict=True)
     ]
     earliest = ticket_books[0][0]
-    mark_from = earliest if since is None else max(earliest, since)
+    mark_from = earliest if inputs.since is None else max(earliest, inputs.since)
+    return _mark_bars(inputs, ticket_books, scaled_books, links, mark_from)
 
+
+def _mark_bars(
+    inputs: NavInputs,
+    ticket_books: list[tuple[dt.date, dict[str, tuple[float, dt.date, float]]]],
+    scaled_books: list[dict[str, tuple[float, dt.date, float]]],
+    links: list[_ChainLink],
+    mark_from: dt.date,
+) -> NavSeries:
+    """One point per bar from ``mark_from`` on whose active book can be marked."""
+    base_prices, benchmark = inputs.base_prices, inputs.benchmark
     points: list[NavPoint] = []
     for ts in base_prices.index:
         day = ts.date()
@@ -1059,7 +1186,7 @@ def build_nav_series(
             continue
         nav = raw_nav + links[index].offset
         bench_level: float | None = None
-        if benchmark and bench_in_base:
+        if benchmark:
             raw = base_prices.at[ts, benchmark]
             if pd.notna(raw):
                 bench_level = float(raw)
@@ -1344,30 +1471,24 @@ def _series_returns(
     return r1d, _window(30), _window(365)
 
 
-def _active_ticket(session: Any, portfolio_id: uuid.UUID, asof: dt.date | None) -> Any:
+def _active_ticket(
+    session: Any, portfolio_id: uuid.UUID, asof: dt.date | None
+) -> FilledTicket | None:
     """The latest paper ticket filled at or before ``asof`` (``None`` when absent)."""
-    from portopt_db.models.orders.paper_order import PaperOrder
-    from sqlalchemy import select
+    from fund.audit.orders_repository import OrderRepository
 
-    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
-    if asof is not None:
-        stmt = stmt.where(PaperOrder.fill_date <= asof)
-    stmt = stmt.order_by(*(c.desc() for c in _ticket_order_columns(PaperOrder)))
-    return session.execute(stmt).scalars().first()
+    return OrderRepository(session).latest_filled_ticket(
+        portfolio_id, filled_through=asof
+    )
 
 
 def _tickets_through(
     session: Any, portfolio_id: uuid.UUID, asof: dt.date | None
-) -> list[Any]:
+) -> list[FilledTicket]:
     """Every paper ticket filled at or before ``asof``, oldest first (the NAV chain)."""
-    from portopt_db.models.orders.paper_order import PaperOrder
-    from sqlalchemy import select
+    from fund.audit.orders_repository import OrderRepository
 
-    stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
-    if asof is not None:
-        stmt = stmt.where(PaperOrder.fill_date <= asof)
-    stmt = stmt.order_by(*_ticket_order_columns(PaperOrder))
-    return list(session.execute(stmt).scalars().all())
+    return OrderRepository(session).filled_tickets(portfolio_id, filled_through=asof)
 
 
 def _ticket_lines(ticket: Any) -> tuple[list[str], dict[str, dict[str, Any]]]:
@@ -1503,17 +1624,14 @@ def _nav_last_interval(
 
     Returns:
         ``(prior date, last date)`` of the last NAV step; ``None`` with fewer than two
-        persisted points or a NAV that lags ``last_bar`` (callers then use the
-        holdings' own last two bars).
+        persisted points on or before ``asof`` or a NAV that lags ``last_bar`` (the
+        caller then falls back to the holdings' own last two bars, when there are
+        two).
     """
-    from portopt_db.models import NavHistory
-    from sqlalchemy import select
+    from fund.audit.nav_history_repository import NavHistoryRepository
 
-    stmt = select(NavHistory.date).where(NavHistory.portfolio_id == portfolio_id)
-    if asof is not None:
-        stmt = stmt.where(NavHistory.date <= asof)
-    dates = list(
-        session.execute(stmt.order_by(NavHistory.date.desc()).limit(2)).scalars()
+    dates = NavHistoryRepository(session).newest_nav_dates(
+        portfolio_id, on_or_before=asof, limit=2
     )
     if len(dates) < 2 or dates[0] < last_bar:
         return None
@@ -1800,11 +1918,15 @@ def marked_weights(
 __all__ = [
     "FxCoverageError",
     "HoldingMark",
+    "NavInputs",
     "NavPoint",
+    "NavSeries",
     "PerformanceSummary",
     "build_nav_series",
+    "compute_nav",
     "convert_prices_to_base",
     "holding_marks",
+    "load_nav_inputs",
     "marked_weights",
     "nav_return_series",
     "portfolio_metrics",

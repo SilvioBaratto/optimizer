@@ -26,6 +26,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from portopt_db.resilience import (
+    DEFAULT_FAILURE_THRESHOLD,
+    DEFAULT_RESET_TIMEOUT_S,
+    parse_failure_threshold,
+    parse_reset_timeout,
+)
+
 # Rolling 3y (~756 trading days) moments/backtest lookback. A run records it and the
 # drill-down replay re-reads it, so both must share one value or a replayed backtest
 # trains on a different window than the risk gate evaluated.
@@ -61,6 +68,12 @@ class FundConfig:
     # pool connection forever. 0 disables it. Shares the ingestion daemon's
     # DATABASE_LOCK_TIMEOUT_MS knob. ---
     db_lock_timeout_ms: int = 60_000
+    # --- Circuit breaker on DatabaseManager.get_session (docs/adr/0008):
+    # consecutive connectivity failures that open it, and seconds it refuses
+    # sessions before it admits a probe. Shares the ingestion daemon's
+    # DATABASE_BREAKER_* knobs. ---
+    db_breaker_failure_threshold: int = DEFAULT_FAILURE_THRESHOLD
+    db_breaker_reset_timeout_s: float = DEFAULT_RESET_TIMEOUT_S
 
     # --- D3 LangGraph persistence: dedicated `langgraph` schema via search_path ---
     langgraph_schema: str = "langgraph"
@@ -329,6 +342,43 @@ def silence_http_request_logs() -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
+_BREAKER_THRESHOLD_VAR = "DATABASE_BREAKER_FAILURE_THRESHOLD"
+_BREAKER_TIMEOUT_VAR = "DATABASE_BREAKER_RESET_TIMEOUT_S"
+
+
+def _db_session_settings(
+    env: Mapping[str, str], defaults: FundConfig
+) -> dict[str, Any]:
+    """Read the ORM-session knobs fund shares with the ingestion daemon.
+
+    The breaker variables go through the parsers the ingestion daemon uses, so a
+    value starts both processes or neither.
+
+    Raises:
+        ValueError: A breaker variable is not a plain number that can drive a
+            breaker, and the message starts with the variable's name; or
+            ``DATABASE_LOCK_TIMEOUT_MS`` is not an integer, and ``int()``'s
+            message does not name it.
+    """
+    threshold = env.get(_BREAKER_THRESHOLD_VAR)
+    timeout = env.get(_BREAKER_TIMEOUT_VAR)
+    return {
+        "db_lock_timeout_ms": int(
+            env.get("DATABASE_LOCK_TIMEOUT_MS", defaults.db_lock_timeout_ms)
+        ),
+        "db_breaker_failure_threshold": (
+            defaults.db_breaker_failure_threshold
+            if threshold is None
+            else parse_failure_threshold(threshold, name=_BREAKER_THRESHOLD_VAR)
+        ),
+        "db_breaker_reset_timeout_s": (
+            defaults.db_breaker_reset_timeout_s
+            if timeout is None
+            else parse_reset_timeout(timeout, name=_BREAKER_TIMEOUT_VAR)
+        ),
+    }
+
+
 def _env_flag(env: Mapping[str, str], name: str) -> bool:
     """Return whether ``name`` holds a truthy word (``1``/``true``/``yes``/``on``)."""
     return env.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
@@ -364,9 +414,7 @@ def load_config(
         fred_api_key=_read_secret(env, "FRED_API_KEY"),
         # NOT a secret file: SSL_CERT_FILE is itself the CA-bundle path (verbatim).
         ssl_cert_file=env.get("SSL_CERT_FILE"),
-        db_lock_timeout_ms=int(
-            env.get("DATABASE_LOCK_TIMEOUT_MS", defaults.db_lock_timeout_ms)
-        ),
+        **_db_session_settings(env, defaults),
         # D4 provider registry: LLM_PROVIDER + shared model ids + Ollama base_url;
         # missing → dataclass default (env-free load stays on DeepSeek/Ollama Cloud).
         llm_provider=env.get("LLM_PROVIDER", defaults.llm_provider),

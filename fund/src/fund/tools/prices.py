@@ -1,7 +1,7 @@
 """``get_prices``: the first node of the allocator critical path.
 
-Reads daily price history out of the shared ``portopt_db`` layer via
-``YFinanceRepository`` and hands the agent a JSON-serialisable shape/coverage
+Reads daily price history out of the shared ``portopt_db`` layer through its
+``PriceReader`` port and hands the agent a JSON-serialisable shape/coverage
 **summary** plus a bounded set of per-ticker statistics (level, horizon changes,
 realised volatility, drawdown) — never the raw price matrix. The tool is a pure
 function of ``(session, asof, tickers, field)``: same seeded data + same args ⇒
@@ -24,9 +24,9 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import pandas as pd
-from portopt_db.repositories.market_data.yfinance_repository import YFinanceRepository
 
 from fund.performance import convert_prices_to_base
+from fund.readers import price_reader
 from fund.tools._base import (
     ToolResult,
     coerce_date,
@@ -112,19 +112,19 @@ def load_price_frame(
             and none of their currencies has an FX rate under that base.
     """
     end_date = coerce_date(asof)
-    repo = YFinanceRepository(session)
+    prices = price_reader(session)
 
     series_by_ticker: dict[str, pd.Series] = {}
     currency_map: dict[str, str] = {}
     excluded: list[str] = []
     for ticker in tickers:
-        instrument = repo.get_instrument_by_yfinance_ticker(ticker)
+        instrument = prices.instrument_for(ticker)
         if instrument is None:
             continue
         if instrument.delisted_at is not None and instrument.delisted_at <= end_date:
             excluded.append(ticker)
             continue
-        rows = repo.get_price_history(instrument.id, end_date=end_date)
+        rows = prices.price_bars_for(instrument.id, end_date=end_date)
         values = {
             row.date: float(getattr(row, field))
             for row in rows

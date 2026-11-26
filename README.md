@@ -80,7 +80,21 @@ prices → preprocessing → pre_selection → moments → views
 
 Plus the cross-cutting modules `factors/`, `synthetic/`, `scoring/`,
 `universe/`, `distance/`, `cluster/`, `uncertainty_set/`, `linear_model/`,
-`online/`, `fx/` — **18 submodules** in total.
+`online/`, `fx/` and eight research tools that sit beside the pipeline and are not
+part of it — **26 submodules** in total:
+
+| Tool | What it gives you |
+|------|-------------------|
+| `risk/` | Value-at-Risk (historical, parametric, Cornish-Fisher, Monte Carlo) with expected shortfall, and a Kupiec / Christoffersen backtest of the forecasts |
+| `simulation/` | GBM and bootstrap price paths, path summaries, and a Kelly-criterion toolkit |
+| `strategies/` | Moving-average and momentum signals and a no-look-ahead weight backtest with proportional costs |
+| `regression/` | OLS with Newey-West errors, a CAPM report, a security market line and Fama-French-style factor regressions |
+| `plotting/` | plotly figures: correlation heatmap, efficient frontier, returns and volatility, security market line |
+| `derivatives/` | Black-Scholes prices, Greeks and implied volatility, a binomial tree, a delta-hedging simulator |
+| `credit/` | The Merton structural credit model: asset value and volatility, distance to default, spread |
+| `statarb/` | Cointegration tests, a Kalman hedge ratio, z-score signals and PCA residual models (research only: the fund is long-only and paper-only) |
+
+`validation/` also holds the probabilistic and deflated Sharpe ratio.
 
 The `optimization` module exposes **fifteen optimizer builders** (each a frozen
 config + `build_*` factory): Mean-Risk (`build_mean_risk`) and its
@@ -125,8 +139,8 @@ those unpublished names up on PyPI), so install those two through uv.
 
 The daemon ships an install wizard. The one-line bootstrap needs **git**: it clones
 this repo, installs `uv`, installs the `portopt` CLI straight from it (the CLI and the
-daemon are never published to PyPI; `release.yml` builds only the `portopt-core`
-library), then launches the wizard:
+daemon are never published to PyPI, and this repo uploads nothing there;
+`release.yml` builds only the `portopt-core` library), then launches the wizard:
 
 ```bash
 # macOS / Linux
@@ -381,7 +395,7 @@ Each member declares its own; the single shared venv installs one version of
 each shared pin. Exact runtime pins:
 
 **`portopt-core`** (library): `numpy==2.5.4`, `pandas==3.0.6`, `scipy==1.18.1`,
-`scikit-learn==1.9.1`, `skfolio==1.12.5`, `jinja2==3.1.6`.
+`scikit-learn==1.9.1`, `skfolio==1.12.5`, `jinja2==3.1.6`, `plotly==7.0.0`.
 *(`arch` is **not** declared — it reaches bootstrap uncertainty-set classes
 transitively via skfolio. Code importing it directly must guard with
 `try/except ImportError` or declare it.)*
@@ -441,7 +455,8 @@ suite.
 
 **CI** (`.github/workflows/ci.yml`, push/PR to `main` and `development`, Ubuntu, Python 3.12 &
 3.13, uv-driven) runs eleven jobs: `lint` (ruff check → ruff format --check on
-all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.414`), `test`
+all four members → the complexity ratchet → the requirement traceability check →
+shellcheck → pip-audit), `typecheck` (mypy), `pyright` (pinned `1.1.414`), `test`
 (`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
 `portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
 80%), `postgres-integration` (the Alembic upgrade to head on a real PostgreSQL,
@@ -449,9 +464,10 @@ all four members → shellcheck → pip-audit), `typecheck` (mypy), `pyright` (p
 `integration`-marked tests of `portopt-db` and `fund`), `changelog` (advisory, pull
 requests only: shipped code needs a `CHANGELOG.md` entry), `docker-images` (compose config + build of
 both images, then a boot of both stacks), and `windows-install` (`install.ps1` on a
-Windows runner under Windows PowerShell 5.1 and PowerShell 7). `release.yml` publishes `portopt-core` to PyPI on `v*` tags, but only
+Windows runner under Windows PowerShell 5.1 and PowerShell 7). `release.yml` builds `portopt-core` on `v*` tags, but only
 after checking that the tagged commit is on `main`, that the tag equals
-`v<pyproject version>`, and that the whole CI workflow passes on it.
+`v<pyproject version>`, and that the whole CI workflow passes on it. It uploads
+nothing to PyPI.
 
 ---
 

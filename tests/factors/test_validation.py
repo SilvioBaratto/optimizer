@@ -912,6 +912,7 @@ class TestComputeVIF:
         assert not inf_vals.isna().any(), "inf VIF values must not be NaN"
 
 
+@pytest.mark.criterion("REQ-CORE-001")
 class TestBenjaminiHochberg:
     def test_all_significant(self) -> None:
         p_values = pd.Series(
