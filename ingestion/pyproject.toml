@@ -19,7 +19,7 @@ dependencies = [
     # against Session / use text(); psycopg2-binary + alembic are transitive.
     "SQLAlchemy==2.0.52",
     # Financial Data
-    "exchange_calendars==4.13.2",
+    "exchange_calendars==4.13.3",
     "yfinance==1.8.0",
     # Required by yfinance price-repair (repair=True): its bad-print
     # reconstruction imports sklearn.cluster.DBSCAN. Without it, repair raises
