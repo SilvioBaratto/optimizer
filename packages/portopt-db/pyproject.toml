@@ -16,7 +16,7 @@ authors = [{ name = "Silvio Baratto" }]
 # consumer inherits (Python allows only one installed version).
 dependencies = [
     "SQLAlchemy==2.0.52",
-    "psycopg2-binary==2.9.12",
+    "psycopg2-binary==2.9.13",
     "alembic==1.19.1",
     "pandas==3.0.6",
     # RepositoryBase's generic CRUD is typed against pydantic schemas.

@@ -13,13 +13,13 @@ dependencies = [
     # Configuration
     "python-dotenv==1.2.4",
     "pydantic==2.14.4",
-    "pydantic-settings==2.15.0",
+    "pydantic-settings==2.16.3",
     # Database: the engine/models/migrations live in portopt-db (inherited via
     # the workspace dep below). SQLAlchemy stays a direct dep — services type
     # against Session / use text(); psycopg2-binary + alembic are transitive.
     "SQLAlchemy==2.0.52",
     # Financial Data
-    "exchange_calendars==4.13.2",
+    "exchange_calendars==4.13.3",
     "yfinance==1.7.0",
     # Required by yfinance price-repair (repair=True): its bad-print
     # reconstruction imports sklearn.cluster.DBSCAN. Without it, repair raises
@@ -35,7 +35,7 @@ dependencies = [
     # Imported directly (TLS bundle, the news scraper's connection pool, date
     # parsing); the host CLI installs `ingestion` alone, so these must not depend
     # on another package happening to pull them in.
-    "certifi==2026.10.23",
+    "certifi==2026.11.20",
     "urllib3==2.8.0",
     "python-dateutil==2.9.0.post0",
     # Scheduling
