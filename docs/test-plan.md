@@ -61,6 +61,9 @@ Also critical and tested:
 - No usage telemetry from a provider SDK (data minimisation, standard 2.15.11): the
   `nvidia` chat model is built with the SDK's telemetry switched off, whatever the
   environment holds. `fund/tests/unit/test_model_factory.py`. REQ-FUND-026.
+- What the `groq` SDK sends with a request is pinned, so a release of it cannot add a
+  header, an endpoint or a new place for the key unnoticed (data minimisation,
+  standard 2.15.11): `fund/tests/unit/test_model_groq_sdk_wire.py`. REQ-FUND-030.
 - No chat model is built while `LANGSMITH_GATEWAY` is set, so prompts and keys never reach
   the LangSmith gateway: `fund/tests/unit/test_model_openai_family.py`. REQ-FUND-027.
 - Irreversible migrations declare why: `packages/portopt-db/tests/test_irreversible_migrations_declare_reason.py`.
