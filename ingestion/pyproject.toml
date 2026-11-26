@@ -27,7 +27,7 @@ dependencies = [
     # filter silently drops live stocks. (Pulls scipy transitively.)
     "scikit-learn==1.9.1",
     "numpy==2.5.5",
-    "pandas==3.1.1",
+    "pandas==3.0.6",
     # HTTP & Web Scraping
     "httpx==0.28.1",
     "beautifulsoup4==4.15.0",
