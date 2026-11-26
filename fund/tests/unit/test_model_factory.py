@@ -1793,6 +1793,7 @@ def _hf_chat_model() -> BaseChatModel:
 _HTTP_LOGGER_NAMES = ("httpx", "httpx2", "httpcore", "httpcore2")
 
 
+@pytest.mark.criterion("REQ-FUND-028")
 @pytest.mark.parametrize("call", ["invoke", "ainvoke"])
 def test_a_huggingface_call_writes_no_request_line_to_the_daemon_log(
     call, hub_transport, caplog

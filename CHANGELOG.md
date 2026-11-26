@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+This section covers the dependency refresh of 2026-11 (`feature/dependency-refresh-2026-11`)
+and the dependency updates merged since 0.2.0. Versions are given as they were in 0.2.0 and
+as they are now; the 0.2.0 section below keeps the pins as they were when it was written.
+Three changes affect privacy or configuration and are listed first.
+
+### Security
 
 - **fund**: the daemon log no longer shows the `HTTP Request: <method> <url>` lines of
   the SDKs that use the `httpx2` stack (`openai`, which also serves OpenRouter and Azure
@@ -16,6 +21,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model call. `silence_http_request_logs` now also covers `httpx2` and `httpcore2`.
   Log files written before this fix may already contain such lines: review them and
   rotate or delete the ones that do.
+- **fund**: `build_chat_model` now refuses to build a chat model for any provider while the
+  environment variable `LANGSMITH_GATEWAY` is set to anything but `false`, `0`, `no` or empty.
+  The LangChain packages read that variable and, when a model has no explicit endpoint, send
+  its prompts and the provider API key to the LangSmith gateway instead of the provider's own
+  host. That applies to `openai` (without `OPENAI_BASE_URL`), `anthropic`, `google` and
+  `aws`, and, from `langchain-groq` 1.2, to `groq`. `openai` with a base URL, `openrouter`,
+  `microsoft`, `ollama`, `nvidia` and `huggingface` do not use it. The variable is unset
+  unless somebody sets it, and this repository never sets it, but the check fails closed:
+  if you set it on purpose for other tools, unset it for the fund process. The error does not
+  repeat the value, because a gateway URL can carry credentials (REQ-FUND-027;
+  `docs/integrations.md`, `.env.example`).
+- **fund**: usage telemetry to NVIDIA is switched off. `langchain-nvidia-ai-endpoints` 1.5.0
+  sends hourly, content-free usage totals (request, token and error counts, latency buckets,
+  connector and model family) to NVIDIA by default when it talks to the hosted API; a
+  self-hosted NIM sends nothing. The `nvidia` builder now passes
+  `usage_telemetry_enabled=False`, which also wins over the SDK's own
+  `NVIDIA_USAGE_TELEMETRY_ENABLED` variable (REQ-FUND-026).
+- **deps**: `certifi` 2026.10.23 -> 2026.11.20 removes five root certificates from the bundle
+  (Buypass Class 2 and Class 3, QuoVadis Root CA 1 G3 and 3 G3, Certigna Root CA). A host
+  whose chain ends in one of them fails TLS verification until it moves to a root that is
+  still included. `portopt setup --corp-ca` still adds the operating-system roots on top of
+  certifi. `pydantic-settings` 2.16.3 no longer follows symlinks that leave a `secrets_dir`
+  (this project sets none), and the `psycopg2-binary` 2.9.13 wheel bundles libpq 17.11 and
+  OpenSSL 3.5.8 and rejects over-long int64 array elements instead of overflowing a buffer.
+
+### Added
+
+- **portopt-db**: `portopt_db.config.pin_postgres_driver(url)`, public and exported. It
+  rewrites a URL that starts with `postgresql://` to `postgresql+psycopg2://` and leaves every
+  other URL (an explicit driver, SQLite, an empty string) untouched. The engine, Alembic's
+  `env.py` and the live-Postgres test fixtures use it, see SQLAlchemy 2.1 below.
+- **docs**: requirements REQ-FUND-018 to REQ-FUND-023 and REQ-FUND-025 (the API key or token
+  of the OpenAI family, Groq, Anthropic, NVIDIA, Google, AWS and Hugging Face models stays out
+  of `repr`, `str` and the serialised form), REQ-FUND-026 (NVIDIA telemetry off), REQ-FUND-027
+  (the gateway check) and REQ-FUND-028 (no request line in the log), each with tests, in
+  `docs/requirements.md` and `docs/test-plan.md`.
+
+### Changed
+
+Behaviour changes to know about:
+
+- **portopt-db, ingestion, fund**: SQLAlchemy 2.1 makes psycopg 3 the default driver for a
+  bare `postgresql://` URL. This project declares, tunes and tests against psycopg2 only
+  (connection keepalives, the circuit breaker's error classification), so the engine and
+  Alembic now keep psycopg2 through `pin_postgres_driver`. Existing `DATABASE_URL` values do
+  not need to change. A URL that names its own driver is respected as written.
+- **library**: skfolio 1.14: `prices_to_returns(fill_nan=False)` now keeps the rows after a
+  delisting as NaN returns where 1.12 dropped them (`ReturnsConfig.fill_nan` is documented
+  accordingly); `OnlineGridSearch.best_estimator_` ends on the final weights; views with a
+  negative correlation now fit. Seeded optimizer runs were bit-identical on about 75 probes.
+- **ingestion**: yfinance 1.8.0 reads `Ticker.news` from Yahoo's GraphQL news API again
+  (nested articles). The Yahoo search fallback stays for an empty feed and for yfinance's
+  "Yahoo is down" error, and the news readers accept both article shapes. The release may
+  send one extra 2-year hourly request while it repairs prices, outside the rate limiter,
+  and its level-shift repair can change stored prices for a few tickers. It also caches an
+  empty feed answer per `Ticker` object, so a transient feed fault means search-only news
+  for that symbol while the object lives. `multitasking` is no longer installed, and
+  `curl-cffi` moves to 0.17.0.
+- **ingestion**: typer 0.29: `--help` shows a `<bool>` or `<list[str]>` column for each
+  option, validation errors are worded differently and typer now depends on pydantic. Exit
+  codes are unchanged (2 for a usage error).
+- **ingestion**: exchange-calendars 4.13.3 corrects session data: Hong Kong has two fewer
+  sessions in 2023 (the weather closures of 1 and 8 September) and Korea one fewer in 2026, so
+  the history-length guard expects slightly fewer sessions for those two venues.
+- **fund**: Google SDK 2.x -> 3.x (`google-genai` 2.23.0 -> 3.6.1, pulled by
+  `langchain-google-genai` 4.5): the SDK's default API version is now `v1`, which
+  `langchain-google-genai` pins back to `v1beta` so requests are unchanged, and it verifies
+  TLS with the operating-system trust store instead of certifi unless `SSL_CERT_FILE` or
+  `SSL_CERT_DIR` is set. `huggingface-hub` 2.x does the same trust-store switch and adds the
+  `httpx2` stack (see the Security entry on request lines). A host behind a corporate CA may
+  need `SSL_CERT_FILE` at runtime.
+- **fund**: the `anthropic` builder no longer sends `temperature=0` to `claude-mythos-5-2`:
+  `ChatAnthropic` refuses any temperature but 1 for that model, as it already did for
+  `claude-fable-5*`.
+- **fund**: langchain-core 1.8.5 is used by every provider package. The `gpt-5.3-chat-latest`
+  profile no longer states `max_input_tokens`, and the NVIDIA profile table in
+  `langchain-nvidia-ai-endpoints` 1.5 dropped 54 earlier ids, so deepagents' summarization
+  falls back to its fixed thresholds (170,000 tokens for the OpenAI model) for models
+  without a profile; `FUND_SUMMARY_TOKEN_THRESHOLD` overrides it.
+- **dev tools**: mypy 2.4 uses its native parser by default and flagged one duplicate
+  `type: ignore` in `ingestion/app/repositories/jobs/background_job_repository.py`, now
+  removed. pyyaml 6.0.4 changes the precedence of YAML merge keys; the repository has none.
+  `plotly` 7.2.0 embeds plotly.js 4.1.1 in the HTML that `save_figure_html` writes, and its
+  wheel is about 0.6 MB larger.
+
+Version moves, from 0.2.0 to now:
+
+| Member | Package | From | To |
+|---|---|---|---|
+| library (`portopt-core`) | skfolio | 1.12.5 | 1.14.6 |
+| library | plotly | 7.0.0 | 7.2.0 |
+| library, ingestion | numpy | 2.5.4 | 2.5.5 |
+| ingestion, portopt-db | pydantic | 2.14.1 | 2.14.4 |
+| ingestion | python-dotenv | 1.2.3 | 1.2.4 |
+| ingestion | pydantic-settings | 2.15.0 | 2.16.3 |
+| ingestion | yfinance | 1.7.0 | 1.8.0 |
+| ingestion | typer | 0.27.1 | 0.29.3 |
+| ingestion | certifi | 2026.10.23 | 2026.11.20 |
+| ingestion | exchange_calendars | 4.13.2 | 4.13.3 |
+| ingestion, portopt-db | SQLAlchemy | 2.0.52 | 2.1.9 |
+| portopt-db | alembic | 1.19.1 | 1.20.1 |
+| portopt-db | psycopg2-binary | 2.9.12 | 2.9.13 |
+| fund | deepagents | 0.7.35 | 0.7.42 |
+| fund | langgraph (and langgraph-prebuilt) | 1.2.20 (1.1.0) | 1.2.24 (1.1.3) |
+| fund | langgraph-checkpoint-postgres | 3.2.0 | 3.2.1 |
+| fund | psycopg (and psycopg-binary) | 3.3.5 | 3.3.9 |
+| fund | langchain-ollama (ollama client) | 1.1.0 (0.6.2) | 1.2.0 (0.6.3) |
+| fund | langchain-huggingface | 1.2.3 | 1.3.0 |
+| fund | huggingface-hub (tokenizers) | 1.33.0 (0.23.2) | 2.4.0 (0.23.3) |
+| fund | langchain-anthropic | 1.7.10 | 1.7.13 |
+| fund | langchain-groq | 1.1.3 | 1.2.1 |
+| fund | langchain-nvidia-ai-endpoints | 1.4.3 | 1.5.0 |
+| fund | langchain-openai | 1.6.5 | 1.8.5 |
+| fund | langchain-google-genai (google-genai) | 4.4.3 (2.23.0) | 4.5.3 (3.6.1) |
+| fund | langchain-aws | 1.9.3 | 1.10.0 |
+| fund, ingestion (tests) | pytest-asyncio | 1.4.1 | 1.5.0 |
+| dev | ruff (also the pre-commit hook `rev`) | 0.17.3 | 0.17.6 |
+| dev | pre-commit | 4.6.2 | 4.7.0 |
+| dev | mypy | 2.3.1 | 2.4.1 |
+| dev | hypothesis | 6.168.5 | 6.170.17 |
+| dev | pyyaml | 6.0.3 | 6.0.4 |
+| CI | astral-sh/setup-uv | v10.3.3 | v10.4.0 |
+
+The lock also moves, without a declaration of its own: langchain 1.4.9 -> 1.5.2, langchain-core
+1.7.7 -> 1.8.5, langchain-protocol 0.0.20 -> 0.0.22, langsmith 0.14.17 -> 0.16.2,
+curl-cffi 0.16.2 -> 0.17.0; `greenlet` and `multitasking` are no longer installed.
+The comments in `pyproject.toml` and `packages/portopt-db/pyproject.toml` now name
+`numpy==2.5.5`. deepagents 0.7.41 and later need langgraph 1.2.24 or newer, which is why
+the two move together; the Ask agent, summarization, backend, skills and containment tests
+pass unchanged on 0.7.42.
+
+### Known / not done
+
+- **pandas 3.1.1** is not adopted (pandas stays at 3.0.6; the work sits on a draft pull
+  request). `exchange_calendars` 4.13.3 cannot build the Tel Aviv (`XTAE`) calendar under
+  pandas 3.1, and without that calendar the history-length guard is lost for that venue.
+  It waits for an `exchange_calendars` release that contains upstream pull request 633.
+- **python-dateutil 4.0.0** is not adopted: `botocore`, reached through `langchain-aws` (the
+  `aws` and `all-llm` extras), caps it below 3.0.
+- **Transitive major releases** that the new provider packages now allow are not taken, and the
+  lock keeps `anthropic` 1.6.0, `groq` 0.37.1, `websockets` 16.1.1, `uuid-utils` 0.17.1,
+  `multidict` 6.9.1 and `wcmatch` 11.2. They need their own pass.
+- **claude-sonnet-5-5** also makes `ChatAnthropic` refuse a temperature other than 1, but the
+  `anthropic` builder still sends 0 for it (as it did before this refresh). Adding the model
+  family to the fixed-sampling list in `fund/src/fund/agents/model.py` is a one-token fix.
+- What only a live provider can confirm was not exercised, because the tests use fakes and
+  local stubs: Gemini, Bedrock, Groq and NVIDIA NIM structured output and tool calls, the
+  extra yfinance repair request and its effect on stored prices, and the news feed's article
+  ids against search ids (a story may appear twice per ticker).
 
 ## [0.2.0] - 2026-11-18
 
