@@ -283,10 +283,11 @@ Metrics, served by the worker when metrics are enabled:
   URL) from the process environment, and a provider class that applies it sends a model
   whose endpoint the builder did not pass to the gateway host instead of the provider's
   own, with its prompts and the provider key. Checked on 2026-11-26 at the locked
-  versions: `openai` without `OPENAI_BASE_URL`, `anthropic`, `google` and `aws` (the
-  Bedrock endpoint) are redirected; `openrouter`, `microsoft`, `openai` with a base URL,
-  `groq`, `ollama`, `nvidia` and `huggingface` are not, though a later release of a
-  provider package can change that. No gateway key is needed for the redirect.
+  versions: `openai` without `OPENAI_BASE_URL`, `anthropic`, `google`, `groq` (its base
+  URL becomes the gateway's `/groq` route) and `aws` (the Bedrock endpoint) are
+  redirected; `openrouter`, `microsoft`, `openai` with a base URL, `ollama`, `nvidia`
+  and `huggingface` are not, though a later release of a provider package can change
+  that. No gateway key is needed for the redirect.
   `build_chat_model` therefore refuses to build any provider's model while the variable
   is set to anything but `false`, `0`, `no` or empty (`RuntimeError`, before the
   provider builder runs; the value is not echoed). Unset it for the process that runs
