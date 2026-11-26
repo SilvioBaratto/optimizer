@@ -1,13 +1,22 @@
 """``fund.agents.model`` — the provider-registry chat-model factory (unit slice).
 
-Construction only: the SDK class is built but never invoked, so no network is
-touched. The tests assert the frozen ``FundConfig`` is threaded onto the
-model — base URL, model id, ``temperature``, non-thinking ``reasoning`` route, and
-the ``OLLAMA_API_KEY`` bearer header — that ``build_chat_model`` dispatches on
-``config.llm_provider`` (unknown provider / uninstalled extra raise clear
-``RuntimeError``\\s), that the Ollama cloud-vs-local key rule holds, and that a
-missing key raises at *build* time (never at import, so a bare
-``import fund.agents.model`` stays green in CI).
+No test reaches a real provider. Most build the chat class and read what the builder
+passed it, through a recording fake of the provider module or through the real SDK
+class, which is built but not called. The tests that do call a model send the request
+to a stub on the loopback interface (Ollama, NVIDIA, Gemini), to an in-memory Converse
+client (AWS) or to an in-memory transport (Hugging Face). Where an SDK could otherwise
+call out, a guard fails the test on any connection beyond loopback.
+
+They assert that the frozen ``FundConfig`` is threaded onto each provider's model
+(model id, ``temperature``, completion budget, base URL, key or token), that
+``build_chat_model`` dispatches on ``config.llm_provider`` (an unknown provider or an
+uninstalled extra raises a clear ``RuntimeError``), that a missing key raises at
+*build* time and never at import, so a bare ``import fund.agents.model`` stays green in
+CI, that a credential reaches only the host it was meant for and stays out of
+``repr``, ``str`` and the serialized form, and that the telemetry and request-log
+switches the repo relies on stay off. What each real SDK puts on the wire is pinned in
+``test_model_openai_family``, ``test_model_anthropic_wire`` and
+``test_model_groq_sdk_wire``.
 """
 
 from __future__ import annotations
@@ -149,8 +158,9 @@ def fake_gemini(monkeypatch):
     Yields ``requests``, one ``{"path", "api_key"}`` record per call, so a test can
     assert which API version and credential actually crossed the wire. The
     google-genai SDK reads ``GOOGLE_GEMINI_BASE_URL`` when no base URL is passed,
-    which aims a model built by the repo's own builder at the stub. Every ambient
-    variable that moves the SDK to another backend, version or gateway is cleared.
+    which aims a model built by the repo's own builder at the stub. The ambient API
+    keys and every variable that moves the SDK to another backend, version or gateway
+    are cleared.
     """
     for name in (
         "GOOGLE_API_KEY",
@@ -997,7 +1007,7 @@ def test_google_provider_stays_on_the_gemini_api_whatever_the_environment_says(
 
 # --- aws / Bedrock Converse (langchain-aws / ChatBedrockConverse) ------------
 #
-# AWS is the first non-key provider: creds arrive via boto3 (AWS_ACCESS_KEY_ID /
+# AWS has no API key of its own: creds arrive via boto3 (AWS_ACCESS_KEY_ID /
 # AWS_SECRET_ACCESS_KEY / IAM role), so the builder requires only `region_name`.
 
 
@@ -1288,9 +1298,9 @@ def test_microsoft_missing_any_azure_var_raises_naming_it(
 
 # --- nvidia (langchain-nvidia-ai-endpoints / ChatNVIDIA) ---------------------
 #
-# NVIDIA has two paths, branched on `nvidia_base_url`: hosted (build.nvidia.com)
-# *requires* `NVIDIA_API_KEY`; a self-hosted NIM sets `NVIDIA_BASE_URL` and needs
-# no key.
+# NVIDIA has two paths, branched on `nvidia_base_url`: no URL, or an https URL on one
+# of NVIDIA's own hosts, is the hosted API (build.nvidia.com) and *requires*
+# `NVIDIA_API_KEY`; any other `NVIDIA_BASE_URL` is a self-hosted NIM and needs no key.
 
 
 def _nvidia_module_name() -> str:
@@ -1966,9 +1976,10 @@ def test_huggingface_token_stays_out_of_str_logs_and_error_text(
 
 # --- temperature is sent only to models that accept it -----------------------
 #
-# Anthropic's Fable family and OpenAI's o-series reject a non-default sampling
-# temperature. These tests use the real SDK classes and inspect the request body
-# the SDK would send, because construction alone succeeds for every model id.
+# Anthropic's Fable family, Mythos 5.2 and Sonnet 5.5, and OpenAI's o-series, reject a
+# non-default sampling temperature. These tests use the real SDK classes and inspect
+# the request body the SDK would send, because construction alone succeeds for every
+# model id.
 
 
 def _sent_temperature(llm: object) -> object:
