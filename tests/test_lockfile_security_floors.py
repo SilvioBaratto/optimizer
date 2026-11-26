@@ -1,10 +1,12 @@
 """Guard: ``uv.lock`` must not pin third-party packages below their advisory fixes.
 
 Both Docker images install with ``uv sync --frozen``, so whatever the lockfile pins is
-exactly what ships; CI's ``pip-audit`` only runs on pull requests to ``main`` and so
-never sees a stale lock on ``development``. Each floor below is the first release
-that fixes the published advisories for that package (``pip-audit`` fix versions).
-Raise a floor when a new advisory lands; never lower one.
+exactly what ships. CI's ``pip-audit --strict`` (the ``lint`` job, on every push and
+pull request) finds a vulnerable pin only with network access and only in that job;
+these floors give the same protection in a plain offline ``pytest`` run and record why
+each version was chosen. Each floor below is the first release that fixes the published
+advisories for that package (``pip-audit`` fix versions). Raise a floor when a new
+advisory lands; never lower one.
 """
 
 from __future__ import annotations
@@ -29,6 +31,10 @@ _ADVISORY_FLOORS = {
     # HTML (`:has()` with a sibling combinator, deep descendant combinators). The
     # scrapers parse third-party pages, so 4.0.0 is the first release that fixes both.
     "soupsieve": "4.0.0",
+    # CVE-2026-132276: with default flags a pattern holding several `*` wildcards takes
+    # O(n^k) time to reject a crafted file name. deepagents matches paths with it, so
+    # 11.2 is the first release that fixes it; 12.x would be a major jump for no gain.
+    "wcmatch": "11.2",
 }
 
 
@@ -63,3 +69,11 @@ def test_virtualenv_floor_rejects_the_last_vulnerable_release() -> None:
     """virtualenv 21.14.9 still carries GHSA-4f8h-vr72-p32c; only 21.14.10 clears it."""
     lock_text = '[[package]]\nname = "virtualenv"\nversion = "21.14.9"\n'
     assert _stale_copies(lock_text, "virtualenv") == ["21.14.9"]
+
+
+def test_wcmatch_floor_rejects_the_release_that_failed_pip_audit() -> None:
+    """wcmatch 11.0.1 carries CVE-2026-132276, and 11.2 is the first clean release."""
+    stale = '[[package]]\nname = "wcmatch"\nversion = "11.0.1"\n'
+    fixed = '[[package]]\nname = "wcmatch"\nversion = "11.2"\n'
+    assert _stale_copies(stale, "wcmatch") == ["11.0.1"]
+    assert _stale_copies(fixed, "wcmatch") == []

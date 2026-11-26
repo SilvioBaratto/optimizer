@@ -80,7 +80,21 @@ prices → preprocessing → pre_selection → moments → views
 
 Plus the cross-cutting modules `factors/`, `synthetic/`, `scoring/`,
 `universe/`, `distance/`, `cluster/`, `uncertainty_set/`, `linear_model/`,
-`online/`, `fx/` — **18 submodules** in total.
+`online/`, `fx/` and eight research tools that sit beside the pipeline and are not
+part of it — **26 submodules** in total:
+
+| Tool | What it gives you |
+|------|-------------------|
+| `risk/` | Value-at-Risk (historical, parametric, Cornish-Fisher, Monte Carlo) with expected shortfall, and a Kupiec / Christoffersen backtest of the forecasts |
+| `simulation/` | GBM and bootstrap price paths, path summaries, and a Kelly-criterion toolkit |
+| `strategies/` | Moving-average and momentum signals and a no-look-ahead weight backtest with proportional costs |
+| `regression/` | OLS with Newey-West errors, a CAPM report, a security market line and Fama-French-style factor regressions |
+| `plotting/` | plotly figures: correlation heatmap, efficient frontier, returns and volatility, security market line |
+| `derivatives/` | Black-Scholes prices, Greeks and implied volatility, a binomial tree, a delta-hedging simulator |
+| `credit/` | The Merton structural credit model: asset value and volatility, distance to default, spread |
+| `statarb/` | Cointegration tests, a Kalman hedge ratio, z-score signals and PCA residual models (research only: the fund is long-only and paper-only) |
+
+`validation/` also holds the probabilistic and deflated Sharpe ratio.
 
 The `optimization` module exposes **fifteen optimizer builders** (each a frozen
 config + `build_*` factory): Mean-Risk (`build_mean_risk`) and its
@@ -381,7 +395,7 @@ Each member declares its own; the single shared venv installs one version of
 each shared pin. Exact runtime pins:
 
 **`portopt-core`** (library): `numpy==2.5.4`, `pandas==3.0.6`, `scipy==1.18.1`,
-`scikit-learn==1.9.1`, `skfolio==1.12.5`, `jinja2==3.1.6`.
+`scikit-learn==1.9.1`, `skfolio==1.12.5`, `jinja2==3.1.6`, `plotly==7.0.0`.
 *(`arch` is **not** declared — it reaches bootstrap uncertainty-set classes
 transitively via skfolio. Code importing it directly must guard with
 `try/except ImportError` or declare it.)*
