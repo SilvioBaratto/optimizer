@@ -62,6 +62,7 @@ def test_empty_secret_file_keeps_env_value(
     assert s.fred_api_key == "env-key"
 
 
+@pytest.mark.criterion("REQ-ING-017")
 def test_empty_secret_file_with_no_env_stays_empty(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

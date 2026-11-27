@@ -185,6 +185,7 @@ def test_run_start_restarts_a_running_fund_whose_provider_key_was_rotated(
     assert patched["compose"] == ["restart:fund", "up"]
 
 
+@pytest.mark.criterion("REQ-ING-016")
 def test_run_start_restarts_the_scheduler_when_its_key_was_rotated(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:

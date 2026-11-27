@@ -8,6 +8,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.services.universe.builder.builder import UniverseBuilder
 from app.services.universe.builder.config import UniverseBuilderConfig
 
@@ -227,6 +229,7 @@ class TestBuilderMarkDelistedSkipWhenMethodAbsent:
 class TestBuilderDelistingDetection:
     """Covers: builder.py lines 206-216 — dropped tickers are marked as delisted."""
 
+    @pytest.mark.criterion("REQ-ING-015")
     def test_ticker_dropped_from_the_source_response_is_marked_delisted(self) -> None:
         """Validates ``app.services.universe.builder.builder.UniverseBuilder.build``
         marks delisted an active ticker the source no longer returns."""

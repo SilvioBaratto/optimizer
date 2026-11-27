@@ -365,6 +365,7 @@ class TestTimedRequest:
 
         assert _request_count("FRED API", "ok") == before + 1
 
+    @pytest.mark.criterion("REQ-ING-018")
     def test_a_block_that_raises_is_an_error_and_the_exception_propagates(
         self,
     ) -> None:

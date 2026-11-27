@@ -222,6 +222,7 @@ def test_tags_instrument_type(monkeypatch: pytest.MonkeyPatch) -> None:
     assert by_ticker == {"AAPL": "STOCK", "BND": "ETF"}
 
 
+@pytest.mark.criterion("REQ-ING-015")
 def test_satisfies_the_builder_protocols(monkeypatch: pytest.MonkeyPatch) -> None:
     """Validates ``app.services.universe.yfinance_source.YFinanceUniverseSource``
     satisfies the builder's ``UniverseSourceClient`` and ``PassThroughTickerMapper``

@@ -36,6 +36,7 @@ def test_render_writes_all_declared_secret_files(tmp_path: Path) -> None:
             assert (tmp_path / name).read_text(encoding="utf-8") == ""
 
 
+@pytest.mark.criterion("REQ-ING-016")
 def test_render_overwrites_a_docker_planted_directory(tmp_path: Path) -> None:
     """Validates ``app.setup.compose_secrets.render`` replaces a directory Docker
     planted at a secret's path with the value file."""
@@ -58,6 +59,7 @@ def test_compose_declares_a_file_for_every_secret_name() -> None:
         assert f"file: ./secrets/{name}" in compose
 
 
+@pytest.mark.criterion("REQ-ING-016")
 def test_secret_names_cover_the_fred_key_and_every_provider_key() -> None:
     """Validates ``app.setup.compose_secrets.SECRET_NAMES`` declares the FRED key next
     to the fund's provider keys, each once."""

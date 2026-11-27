@@ -146,6 +146,7 @@ class TestCreatesTheRow:
         row = _row(db_session, "IEGA.DE", xetra)
         assert (row.fi_subclass, row.duration_bucket) == ("government", "long")
 
+    @pytest.mark.criterion("REQ-ING-014")
     def test_isin_and_name_overrides_are_stored(self, db_session) -> None:
         """Validates ``app.services.universe.add_instrument.add_instrument`` stores an
         operator-supplied ISIN and name on the row."""
@@ -247,6 +248,7 @@ class TestIdempotency:
         assert row.delisted_at is None
         assert row.delisting_return is None
 
+    @pytest.mark.criterion("REQ-ING-014")
     def test_rerun_without_name_or_isin_keeps_the_stored_values(
         self, db_session
     ) -> None:
