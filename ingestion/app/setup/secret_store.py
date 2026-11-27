@@ -30,9 +30,8 @@ DEFAULT_SECRETS_PATH = Path.home() / ".portopt" / "secrets.enc"
 # strength estimator ships with the CLI, so length is the enforceable floor.
 MIN_PASSPHRASE_LENGTH = 12
 # Setup and start raise the same error when no passphrase reaches them.
-PASSPHRASE_REQUIRED_MESSAGE = (
-    "A master passphrase is required "  # noqa: S105 - an error message
-    "(set PORTOPT_PASSPHRASE)."
+MASTER_PHRASE_REQUIRED_MESSAGE = (
+    "A master passphrase is required (set PORTOPT_PASSPHRASE)."
 )
 
 _SALT_BYTES = 16

@@ -58,9 +58,9 @@ DAEMON_REFUSAL_MESSAGE = (
 )
 START_REFUSAL_MESSAGE = (
     "Yahoo's terms have not been acknowledged, so the ingestion daemon would refuse "
-    "to start. Run `portopt setup` to read and accept them, or export "
-    f"{ACKNOWLEDGEMENT_ENV_VAR}=1 before `portopt start` once you have read them "
-    f"({YAHOO_TERMS_URL})."
+    "to start. Run `portopt setup` to read and accept them, or set the environment "
+    f"variable {ACKNOWLEDGEMENT_ENV_VAR}=1 for `portopt start` once you have read "
+    f"them ({YAHOO_TERMS_URL})."
 )
 
 

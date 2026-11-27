@@ -112,7 +112,7 @@ def test_interactive_setup_aborts_when_yahoo_terms_declined(
 
 @pytest.mark.criterion("REQ-ING-026")
 def test_terms_prompt_shows_the_terms_and_defaults_to_no() -> None:
-    """Validates terms.confirm_yahoo_terms: the question carries the text, default No."""
+    """Validates terms.confirm_yahoo_terms: the question holds the text, default No."""
     prompter = MagicMock()
     prompter.confirm.return_value = False
 
@@ -272,7 +272,7 @@ def test_compose_passes_the_acknowledgement_to_the_scheduler(
 
 @pytest.mark.criterion("REQ-ING-027")
 def test_settings_default_is_unacknowledged(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Validates config.Settings.yahoo_terms_acknowledged: off unless the env says so."""
+    """Validates config.Settings.yahoo_terms_acknowledged: off unless env sets it."""
     monkeypatch.delenv(terms.ACKNOWLEDGEMENT_ENV_VAR, raising=False)
 
     assert Settings(_env_file=None).yahoo_terms_acknowledged is False

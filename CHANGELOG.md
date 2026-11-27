@@ -127,7 +127,7 @@ The entries under Security affect privacy or configuration and come first.
   setup wizard's LLM provider prompt now says that the portfolio data you enter
   (holdings, constraints, questionnaire answers) is sent to the provider you choose,
   and `fund profile --help` says the answers go to the configured LLM provider
-  (REQ-ING-026, REQ-ING-027, REQ-ING-028, REQ-ING-029).
+  (REQ-ING-026, REQ-ING-027, REQ-ING-028, REQ-ING-029, REQ-ING-030).
 
 ### Changed
 
@@ -139,10 +139,10 @@ Behaviour changes to know about:
   connection or calls Yahoo, and the container restarts into the same refusal. The
   container's entrypoint still waits for the database and applies the migrations
   first; only then does the worker refuse. `portopt start` checks the acknowledgement
-  before `docker compose up` and stops with a message naming `portopt setup` when it is
+  before it touches Docker and stops with a message naming `portopt setup` when it is
   missing. **Upgrading**: an existing install must re-run `portopt setup` once (it asks
   for the acknowledgement and keeps everything else) and then `portopt start`, or set
-  `YAHOO_TERMS_ACKNOWLEDGED=1` for the daemon: exported in the shell for
+  `YAHOO_TERMS_ACKNOWLEDGED=1` for the daemon: in the environment of
   `portopt start`, in the shell or the root `.env` for a plain `docker compose up`, in
   the shell or `ingestion/.env` for a daemon run on the host. A script that runs
   `portopt setup --non-interactive` for a first install must add

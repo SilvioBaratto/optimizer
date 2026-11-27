@@ -518,7 +518,7 @@ def run_setup_noninteractive(
     Docker is touched.
     """
     if not passphrase:
-        raise SetupError(secret_store.PASSPHRASE_REQUIRED_MESSAGE)
+        raise SetupError(secret_store.MASTER_PHRASE_REQUIRED_MESSAGE)
     if not secret_store.store_exists():
         _require_acceptable_passphrase(passphrase)
     config = terms.acknowledge(

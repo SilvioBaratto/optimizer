@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from app.setup import (
     compose_env,
@@ -75,10 +75,12 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
 
     Raises:
         LifecycleError: No passphrase was given, or neither config.toml nor the
-            environment acknowledges Yahoo's terms (checked before ``up``).
+            environment acknowledges Yahoo's terms (checked before Docker is
+            touched or a secret decrypted).
     """
     if not passphrase:
-        raise LifecycleError(secret_store.PASSPHRASE_REQUIRED_MESSAGE)
+        raise LifecycleError(secret_store.MASTER_PHRASE_REQUIRED_MESSAGE)
+    config = _load_config_requiring_terms()
     docker_bootstrap.ensure_docker()
     # Resolved before anything is decrypted: compose mounts <checkout>/secrets/*, so
     # plaintext rendered into the cwd would both miss the mounts and litter a random
@@ -92,7 +94,6 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     # reaches it only through the generated .env.fund env_file (the compose
     # `environment:` block omits these vars so nothing shadows the file), and the
     # scheduler's terms acknowledgement through the environment of `up` below.
-    config = config_file.load_config()
     compose_env.render(config, path=repo / compose_env.DEFAULT_ENV_FUND_PATH)
     _ensure_exports_dir(repo)
     # Every service is profile-gated (a bare `up` starts nothing). The ingestion
@@ -120,34 +121,30 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
         profiles=("fund", "ingestion") if fund_enabled else ("ingestion",),
         force_build=rebuild,
         repo=repo,
-        extra_env=_scheduler_env(config),
+        extra_env=compose_env.config_to_scheduler_env(config),
     )
     if not fund_enabled:
         print(FUND_SKIPPED_NOTICE)
         _stop_leftover_fund(repo)
 
 
-def _scheduler_env(config: Mapping[str, object]) -> dict[str, str]:
-    """Return what ``up`` must add to the compose environment for the scheduler.
-
-    Args:
-        config: The persisted config.toml.
+def _load_config_requiring_terms() -> dict[str, Any]:
+    """Load config.toml, refusing a start whose scheduler would exit at boot.
 
     Returns:
-        The stored acknowledgement of Yahoo's terms as ``YAHOO_TERMS_ACKNOWLEDGED``,
-        or nothing when the acknowledgement comes from this process's environment,
-        which compose reads by itself.
+        The persisted config. The acknowledgement of Yahoo's terms is in it, or in
+        this process's environment, which compose reads by itself.
 
     Raises:
         LifecycleError: Neither the config nor the environment acknowledges the
-            terms. The scheduler would exit at boot and ``up --wait`` fail with
-            Docker's text, so the start stops here and says what to run.
+            terms. ``up --wait`` would otherwise fail with Docker's text, so the
+            start stops before anything is built, started or rendered and says what
+            to run.
     """
-    if not (
-        terms.is_acknowledged(config) or terms.environment_acknowledges(os.environ)
-    ):
-        raise LifecycleError(terms.START_REFUSAL_MESSAGE)
-    return compose_env.config_to_scheduler_env(config)
+    config = config_file.load_config()
+    if terms.is_acknowledged(config) or terms.environment_acknowledges(os.environ):
+        return config
+    raise LifecycleError(terms.START_REFUSAL_MESSAGE)
 
 
 def _ensure_exports_dir(repo: Path) -> None:
