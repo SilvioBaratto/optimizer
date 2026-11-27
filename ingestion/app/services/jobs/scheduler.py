@@ -293,7 +293,7 @@ def _report_db_unavailable(
     The refusal is expected while the database is down, and each step of a
     pipeline can meet it, so a traceback per step would bury the line that
     matters. The next scheduled run retries the step, unless its row is still
-    active (ADR-0008, Known limits).
+    active.
     """
     logger.error("%s: step stopped, %s", label, exc)
     if not settings.enable_metrics:
@@ -409,8 +409,8 @@ def _run_step(
     While the database circuit breaker is open, a refused job-slot claim costs
     one log line and one ``jobs_db_unavailable_total`` count instead of a
     traceback. A refusal later in the step can add lines and a
-    ``jobs_failed_status_refused_total`` count; ADR-0008 (Known limits) lists
-    them. The next scheduled run retries the step, unless its row is still active.
+    ``jobs_failed_status_refused_total`` count. The next scheduled run retries the
+    step, unless its row is still active.
     """
     if _scheduler is not None and _scheduler.draining:
         logger.warning("%s: skipped — scheduler is shutting down", label)

@@ -5,8 +5,7 @@ models, repositories, the `DatabaseManager` engine/session layer, and the **sing
 Alembic migration tree.
 
 Internal workspace package (not published), consumed by `ingestion` and by `fund`.
-`portopt-core` (the optimizer library) must **never** depend on this — it stays DB-free
-(see [ADR-0002](../../docs/adr/0002-four-package-uv-workspace.md)).
+`portopt-core` (the optimizer library) must **never** depend on this — it stays DB-free.
 
 ## Consumers and versioning
 
@@ -17,8 +16,7 @@ consumer may rely on is the surface it imports: the models, the repositories, `R
 protocols and the frozen dataclasses they return) and `portopt_db.resilience` (the `CircuitBreaker` protocol, `DbCircuitBreaker`,
 `BreakerConfig`, `DatabaseUnavailableError`, `BreakerState`, `ProbeTicket`,
 `is_connectivity_failure`, the breaker defaults, the validator and the environment parsers
-`parse_failure_threshold` and `parse_reset_timeout`; see
-[ADR-0008](../../docs/adr/0008-database-circuit-breaker.md)). A change to that surface, or to a table a consumer reads, goes in
+`parse_failure_threshold` and `parse_reset_timeout`). A change to that surface, or to a table a consumer reads, goes in
 `CHANGELOG.md`, and the consumer's tests change in the same pull request.
 
 ## Migrations

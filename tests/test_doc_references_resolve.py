@@ -3,7 +3,7 @@
 The architecture and decision records used to live in the git-ignored ``todo/``
 folder, so every pointer to them led to a file that exists only on one machine, and
 three further names (``SPEC.md``, ``deep_agent.md``, ``tasks/plan.md``) were cited
-for years although they were never committed. The records now live in ``docs/``.
+for years although they were never committed.
 """
 
 from __future__ import annotations
@@ -71,20 +71,11 @@ def _offending_lines(pattern: re.Pattern[str]) -> list[str]:
     return offenders
 
 
-def test_design_documents_are_tracked_under_docs() -> None:
-    """The architecture and decision records are versioned, not machine-local."""
-    tracked = set(_tracked_files())
-
-    missing = [name for name in _DESIGN_DOCS if f"docs/{name}" not in tracked]
-
-    assert missing == []
-
-
 def test_no_tracked_file_cites_a_document_that_was_never_committed() -> None:
     """``SPEC.md``, ``deep_agent.md`` and ``tasks/plan.md`` do not exist."""
     assert _offending_lines(_NEVER_COMMITTED) == []
 
 
 def test_no_tracked_file_uses_the_old_todo_path_of_a_moved_document() -> None:
-    """Moved records are cited as ``docs/...``, never ``todo/...``."""
+    """No tracked file cites a design record under the git-ignored ``todo/``."""
     assert _offending_lines(_MOVED_FROM_TODO) == []
