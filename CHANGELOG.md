@@ -296,6 +296,18 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   `REQ-` id or a requirement with no test. The `criterion` and `defect` markers stay
   registered, because tests use them, but they are now plain labels that nothing verifies.
   CONTRIBUTING.md loses its "Test traceability" section and its two ADR links.
+- **fund**: the Trading 212 broker scope. `PortfolioMandate.tradeable_only`, the
+  `fund mandate set --tradeable-only` / `--no-tradeable-only` options, the "tradeable"
+  line of `fund mandate show`, the Mandate view's "Tradeable on Trading 212 only" box, the
+  `tradeable_only` parameter of `resolve_eligibility` and `list_universe`, the
+  `not_t212_tradeable` bar reason, `Eligibility.has_allowlist`, `Eligibility.untradeable`
+  and `Eligibility.has_broker_bar`, the mandate-save warnings about names the broker lacks,
+  and the broker paragraphs of the PM seed are gone. A mandate stored with a
+  `tradeable_only` key still loads and the key has no effect, so a portfolio that used the
+  broker scope loses that restriction silently and may now propose names the broker does
+  not carry; list the instruments you want in `--eligible` instead. **portopt-db**: the
+  `UniverseReader` port no longer declares `get_t212_untradeable_tickers` and
+  `get_t212_unevaluated_tickers` (the repository methods stay for now).
 
 ### Known / not done
 

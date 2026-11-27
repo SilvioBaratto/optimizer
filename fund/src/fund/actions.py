@@ -1393,51 +1393,6 @@ def _check_eligible(session: Session, mandate: Any) -> list[str]:
     return [warning]
 
 
-def _check_tradeable(session: Session, mandate: Any) -> list[str]:
-    """Warnings when the broker scope is on but cannot bite as the adviser expects.
-
-    Three cases: no instrument has been checked against Trading 212 yet (the scope is a
-    no-op until the annotation step runs, and the resolver says so on every run too),
-    some eligible tickers are known to be absent from the broker (they stay barred as
-    ``not_t212_tradeable``), or some eligible tickers could not be checked at all (no
-    ISIN to match, so they are kept: a clean save would otherwise read as a verified
-    scope). The mandate is saved anyway, like an unpriced ticker: the catalogue
-    refreshes independently of the adviser's edit.
-    """
-    if not mandate.tradeable_only:
-        return []
-    from fund.readers import universe_reader
-    from fund.tools.eligibility import unchecked_names_note
-
-    # An empty list asks about nothing rather than everything: with no allowlist the
-    # whole refusal list would be thousands of names, and only the "not evaluated"
-    # answer is worth a warning.
-    tickers = _normalised_tickers(mandate.eligible_tickers)
-    overlay = universe_reader(session)
-    refused = overlay.get_t212_untradeable_tickers(tickers)
-    warnings: list[str] = []
-    if refused is None:
-        warnings.append(
-            "tradeable_only is set but no instrument has been checked against the "
-            "Trading 212 catalogue yet, so it restricts nothing until the "
-            "annotation step has run"
-        )
-    else:
-        if refused:
-            warnings.append(
-                f"eligible tickers not on Trading 212: {', '.join(refused)}; they "
-                "stay barred (not_t212_tradeable) while tradeable_only is set"
-            )
-        unchecked = overlay.get_t212_unevaluated_tickers(
-            [t for t in tickers if t not in refused]
-        )
-        if unchecked:
-            warnings.append(unchecked_names_note(unchecked))
-    for warning in warnings:
-        logger.warning("actions: %s", warning)
-    return warnings
-
-
 def _check_capacity(session: Session, mandate: Any) -> list[str]:
     """One warning when the allowlist is shorter than the book needs names.
 
@@ -1486,7 +1441,6 @@ def _check_mandate(session: Session, mandate: Any) -> tuple[Any, list[str]]:
         *checked.stored_value_warnings(),
         *warnings,
         *_check_eligible(session, checked),
-        *_check_tradeable(session, checked),
         *_check_capacity(session, checked),
     ]
 
