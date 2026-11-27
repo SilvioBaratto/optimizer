@@ -4,7 +4,7 @@
 # checkout.
 #
 #   curl -LsSf https://raw.githubusercontent.com/SilvioBaratto/optimizer/development/install.sh | bash
-#   curl -LsSf .../install.sh | bash -s -- --non-interactive --llm-provider openrouter …
+#   curl -LsSf .../install.sh | bash -s -- --non-interactive --accept-yahoo-terms --llm-provider openrouter …
 #
 # The checkout lands in ~/optimizer (override with PORTOPT_HOME, or its alias
 # PORTOPT_DIR); a re-run updates it. PORTOPT_REF may be a branch, a tag or a commit

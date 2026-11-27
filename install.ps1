@@ -3,7 +3,7 @@
 # launch the interactive setup wizard.
 #
 #   powershell -c "irm https://raw.githubusercontent.com/SilvioBaratto/optimizer/development/install.ps1 | iex"
-#   powershell -File install.ps1 --non-interactive --llm-provider openrouter …
+#   powershell -File install.ps1 --non-interactive --accept-yahoo-terms --llm-provider openrouter …
 #
 # No /dev/tty dance is needed here (unlike install.sh): PowerShell's pipeline passes
 # objects, not process stdin handles, so `portopt setup` inherits the console stdin
