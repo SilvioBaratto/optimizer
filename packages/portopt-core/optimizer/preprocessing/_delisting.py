@@ -6,7 +6,7 @@ import datetime as dt
 import logging
 import math
 from collections.abc import Mapping
-from typing import TypeAlias
+from typing import TypeAlias, cast
 
 import numpy as np
 import pandas as pd
@@ -84,9 +84,12 @@ def _terminal_position(
     when = _delisting_timestamp(ticker, delisted_at[ticker], index)
     pos = int(index.searchsorted(when, side="right")) - 1
     if pos < 0:
+        # pandas >= 3.1 annotates ``DatetimeIndex[int]`` as ``DatetimeIndex | Any``,
+        # whose ``.date`` is an array; at runtime the label is a Timestamp.
+        first_row = cast(pd.Timestamp, index[0])
         raise DataError(
             f"Delisting date {when.date()} for {ticker!r} precedes the first "
-            f"row of returns ({index[0].date()})"
+            f"row of returns ({first_row.date()})"
         )
     return pos
 

@@ -829,5 +829,9 @@ class UniverseRepository(RepositoryBase):
         rows = self.session.execute(stmt).all()
         coverage: dict[str, tuple[int, date | None]] = dict.fromkeys(tickers, (0, None))
         for ticker, count, latest in rows:
+            # The column is nullable and the IN filter already excludes NULL; the
+            # guard states that for the row type SQLAlchemy 2.1 now infers.
+            if ticker is None:
+                continue
             coverage[ticker] = (int(count or 0), latest)
         return coverage

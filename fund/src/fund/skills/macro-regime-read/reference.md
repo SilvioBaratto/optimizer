@@ -11,7 +11,7 @@ unobservable (see SKILL.md, step 4) — chosen from the statistics below, not vi
 | Statistic | Meaning | Read as | Theory |
 |---|---|---|---|
 | Financial turbulence | Mahalanobis distance of returns | high → turbulent | `28:22`, `28:36` |
-| Two-state (Chow) mixture | calm vs turbulent covariance mix + prob | high stress prob → de-risk | `28:52`, `28:62` |
+| Two-state (Chow) mixture | calm vs turbulent covariance, each state with its own mean (Gaussian mixture) + stress prob | high stress prob → de-risk | `28:52`, `28:62` |
 | Absorption ratio | share of variance in the top PCs | rising → fragile / systemic | `28:94` |
 
 ## Macro signals (from the DB)

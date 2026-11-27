@@ -22,9 +22,10 @@ Value-at-Risk of [CVaR optimization](../optimization/cvar-optimization.md), the
 portfolio's behavior under ordinary conditions by estimating risk from historically observed
 statistical relations. Stress testing addresses the complementary question: what happens at the
 extremes, when large shocks materialize. It shares the Mahalanobis machinery of
-[turbulence and systemic risk](../regimes/turbulence-and-systemic-risk.md) and, through the
-Maximum Loss Contribution, connects to the Euler decomposition of
-[risk attribution, budget and limits](./risk-attribution-budget-limits.md).
+[turbulence and systemic risk](../regimes/turbulence-and-systemic-risk.md); its Maximum Loss
+Contribution is a stand-alone, in general non-additive contribution, unlike the Euler
+contributions of [risk attribution, budget and limits](./risk-attribution-budget-limits.md),
+which always sum to the total.
 
 ## Beyond risk under normal conditions
 
@@ -47,8 +48,9 @@ The depth and duration of the financial crisis led many banks and supervisors to
 whether pre-crisis stress-testing practices were sufficient: the crisis proved more severe than
 banks' stress-test results indicated, and was possibly aggravated by weaknesses in the practices
 themselves. The Basel Committee identifies four areas of weakness. On **use and governance**,
-stress testing was often an isolated exercise of the risk function with little business-line
-interaction — deemed not credible or merely mechanical — and many banks lacked an overarching
+at some banks stress testing was mainly an isolated exercise of the risk function with little
+business-line interaction, so business areas often deemed it not credible, and at some banks it
+was merely mechanical; many banks lacked an overarching
 program, running separate tests per risk or portfolio with limited firm-wide integration,
 reducing the ability to spot correlated tail exposures and concentrations. On **methodology**,
 most risk models used historical statistical relations assuming a known, constant process; after
@@ -56,8 +58,8 @@ a long stable period the backward-looking information indicated benign condition
 severe shocks and the buildup of vulnerabilities, and historical relations such as correlations
 proved unreliable once events unfolded. On **scenario selection**, most tests were not designed
 to capture the extreme events actually experienced — mild shocks, shorter durations, understated
-correlations — and pre-crisis "severe" scenarios typically produced losses no larger than a
-quarter of earnings, with senior management often judging more extreme scenarios implausible. On
+correlations — and pre-crisis "severe" scenarios typically produced losses no larger than one
+quarter's earnings (and typically much less), with senior management often judging more extreme scenarios implausible. On
 **specific risks and products**, complex structured products under stressed liquidity, pipeline
 and securitization risk, basis risk, counterparty credit risk, contingent risks and funding
 liquidity risk were insufficiently covered — structured-product tests failing to recognize that
@@ -96,11 +98,13 @@ implausible scenarios confronts management with the awkward question of whether 
 alarming results from highly implausible scenarios. Breuer, Jandačka, Rheinberger and Summer give
 operational precision to the three Basel requirements — **plausibility**, **severity** and
 **suggestiveness of risk-reduction actions** (usefulness): define an appropriate plausibility
-region in terms of the risk-factor distribution and systematically search for the maximum-loss
-scenario over it. In their setting each position's value at a future horizon depends on $n$
-systematic risk factors $\boldsymbol r=(r_1,\dots,r_n)$ and $m$ idiosyncratic factors; the
-systematic distribution is restricted to the elliptical class (with covariance $\mathrm{Cov}$ and
-mean $\boldsymbol\mu$), to which the standard distributions of classical risk management belong,
+region in terms of the risk-factor distribution, estimated from historical data, and
+systematically search for the maximum-loss scenario over it. In their setting each position's
+value at a future horizon depends on $`n`$ systematic risk factors $`\boldsymbol r=(r_1,\dots,r_n)`$
+and $`m`$ idiosyncratic factors; the systematic distribution is restricted to the elliptical class
+(with covariance $`\mathrm{Cov}`$ and mean $`\boldsymbol\mu`$, assuming finite second moments and a
+nonsingular $`\mathrm{Cov}`$, so a sample covariance from no more observations than factors needs
+regularizing), to which the standard distributions of classical risk management belong,
 while the idiosyncratic distribution may be arbitrary.
 
 ## Plausibility: the Mahalanobis distance
@@ -109,18 +113,20 @@ How plausible is an imagined extreme realization? An intuitive approach compares
 measuring distance in standard deviations; for multivariate moves plausibility must also depend
 on correlations, since a move congruent with the correlations is more plausible than one against
 them. The statistical concept formalizing this is the **Mahalanobis distance**
-$$ \mathrm{Maha}(\boldsymbol r) := \sqrt{(\boldsymbol r-\boldsymbol\mu)^{T}\,\mathrm{Cov}^{-1}\,(\boldsymbol r-\boldsymbol\mu)}, $$
+
+$$\mathrm{Maha}(\boldsymbol r) := \sqrt{(\boldsymbol r-\boldsymbol\mu)^{T}\,\mathrm{Cov}^{-1}\,(\boldsymbol r-\boldsymbol\mu)},$$
+
 the distance of the test point from the center of mass divided by the ellipsoid's width in that
 direction, interpreted as the number of standard deviations of the multivariate move and
 accounting for both the correlation structure and the factors' standard deviations. Plausibility
-is defined directly in terms of $\mathrm{Maha}(\boldsymbol r)$ — a high Maha means low
+is defined directly in terms of $`\mathrm{Maha}(\boldsymbol r)`$ — a high Maha means low
 plausibility. Earlier work defined plausibility via the *probability mass* of the ellipsoid of
 all scenarios of equal or smaller Maha, which creates the **dimensional dependence of maximum
 loss**: with a fixed-mass ellipsoid the maximum loss would depend on the arbitrary number of risk
-factors. In one example, a bond portfolio with two yield curves in ten currencies modeled with
-seven maturity buckets uses 150 factors, another with fifteen buckets 310 factors; at a 95%-mass
-ellipsoid the second computes a maximum loss 1.4 times the first for the same portfolio and
-plausibility — a problem that does not arise when plausibility is defined via the Mahalanobis
+factors. In one example, a bond portfolio with two yield curves in ten foreign currencies modeled
+with seven maturity buckets uses 150 factors, another with fifteen buckets 310 factors; at a
+95%-mass ellipsoid the second computes a maximum loss 1.4 times the first (for normal factors and
+a portfolio linear in them) for the same portfolio and plausibility — a problem that does not arise when plausibility is defined via the Mahalanobis
 radius rather than probability mass.
 
 ## Partial scenarios: treating the unstressed factors
@@ -129,10 +135,13 @@ Portfolios are typically modeled with hundreds or thousands of factors; full-fac
 numerically intractable and hard to interpret, so *partial scenarios* involving only a few
 factors (say a given FX move or GDP drop) are used. The unfixed factors can be treated four ways:
 (i) held at their last observed value; (ii) at their unconditional expected value; (iii) at their
-expected value *conditional* on the fixed factors, giving $\boldsymbol r_C$; (iv) left distributed
-according to the conditional distribution, giving $\boldsymbol r_D$. Assuming an elliptical
-distribution with density strictly decreasing in Maha,
-$$ \mathrm{Maha}(\boldsymbol r_C) = \mathrm{Maha}(\boldsymbol r_D), $$
+expected value *conditional* on the fixed factors, giving $`\boldsymbol r_C`$; (iv) left distributed
+according to the conditional distribution, with $`\boldsymbol r_D`$ the vector of the fixed
+factors alone. Assuming an elliptical distribution with density strictly decreasing in Maha, and
+taking $`\mathrm{Maha}(\boldsymbol r_D)`$ under the marginal distribution of the fixed factors,
+
+$$\mathrm{Maha}(\boldsymbol r_C) = \mathrm{Maha}(\boldsymbol r_D),$$
+
 and this is the maximum plausibility attainable among all macro scenarios agreeing on the fixed
 factors. Practically, method (iv) maximizes plausibility, but equivalent plausibility is achieved
 with the computationally cheaper method (iii) — setting unfixed factors to their conditional
@@ -143,35 +152,44 @@ expected value; any other assignment yields less plausible macro scenarios.
 The key drawback of hand-picked scenarios is the danger of ignoring damaging but plausible
 scenarios, creating an illusion of safety. Searching systematically over a plausible admissible
 domain for the most damaging macro scenarios guarantees no damaging-but-plausible scenario is
-missed. The admissible domain contains all scenarios with Maha below a threshold $k$,
-$$ \mathrm{Ell}_k := \{\boldsymbol r : \mathrm{Maha}(\boldsymbol r) \le k\}, $$
+missed, within the assumed risk-factor model and provided the search finds the global optimum of
+what is in general a non-convex problem. The admissible domain contains all scenarios with Maha below a threshold $`k`$,
+
+$$\mathrm{Ell}_k := \{\boldsymbol r : \mathrm{Maha}(\boldsymbol r) \le k\},$$
+
 an ellipsoid shaped by the factors' covariance matrix. Since a partial scenario specifies a
 *distribution* of conditional values rather than a single value, severity is measured by the
 Conditional Expected Profit (CEP): a partial scenario is severe if it has low CEP, and the method
 reduces to
-$$ \min_{\boldsymbol r\in\mathrm{Ell}_k}\mathrm{CEP}(\boldsymbol r). $$
+
+$$\min_{\boldsymbol r\in\mathrm{Ell}_k}\mathrm{CEP}(\boldsymbol r).$$
+
 The difference between the lowest CEP in the domain and the CEP in the expected scenario is the
 **Maximum Loss** over the admissible domain — a concept that overcomes dimensional dependence,
-since the maximum expected loss on $\mathrm{Ell}_k$ is unaffected by including or excluding factors
+since the maximum expected loss on $`\mathrm{Ell}_k`$ is unaffected by including or excluding factors
 irrelevant to portfolio value. Worst-case search has three advantages over standard stress
-testing: a controlled plausibility/severity trade-off governed by $k$ (higher $k$ gives worse but
+testing: a controlled plausibility/severity trade-off governed by $`k`$ (higher $`k`$ gives worse but
 less plausible scenarios); it overcomes historical bias by considering all plausible scenarios,
-including ones not yet realized; and worst-case scenarios reflect portfolio-specific dangers —
+including ones not yet realized (though $`\mathrm{Ell}_k`$ still rests on a covariance estimated
+from history, so the dependence on historical correlations remains); and worst-case scenarios reflect portfolio-specific dangers —
 what is worst for one portfolio may be harmless for another.
 
 ## Useful scenarios: key risk factors and risk-reduction action
 
 Risk-reduction action is suggested by identifying the **key risk factors** — those contributing
-most to the expected loss in the worst-case scenario. The Loss Contribution of factor $i$ in
-scenario $\boldsymbol r$ is
-$$ LC(i,\boldsymbol r) := \frac{CEP(\boldsymbol\mu) - CEP(\mu_1,\dots,\mu_{i-1}, r_i, \mu_{i+1},\dots,\mu_n)}{CEP(\boldsymbol\mu) - CEP(\boldsymbol r)}, $$
-the loss if factor $i$ alone took its scenario value while the others stayed at $\boldsymbol\mu$,
-as a percentage of the scenario loss; evaluated at the worst-case scenario $\boldsymbol r^{WC}$ it
-is the **Maximum Loss Contribution** $MLC(i):=LC(i,\boldsymbol r^{WC})$. The contributions do not
-in general sum to 100%. Assuming continuous second derivatives, $\sum_i LC(i,\boldsymbol r)=1$ for
-all scenarios *if and only if* the CEP is additive $CEP(\boldsymbol r)=\sum_i g_i(r_i)$, i.e. all
-cross-derivatives $\partial^2 CEP/\partial r_i\partial r_j$ ($i\ne j$) vanish. The sum measures
-the role of factor interaction: greater than one means positive interaction (total loss below the
+most to the expected loss in the worst-case scenario. The Loss Contribution of factor $`i`$ in
+scenario $`\boldsymbol r`$ is
+
+$$LC(i,\boldsymbol r) := \frac{CEP(\boldsymbol\mu) - CEP(\mu_1,\dots,\mu_{i-1}, r_i, \mu_{i+1},\dots,\mu_n)}{CEP(\boldsymbol\mu) - CEP(\boldsymbol r)},$$
+
+defined if $`CEP(\boldsymbol r)\ne CEP(\boldsymbol\mu)`$: the loss if factor $`i`$ alone took its
+scenario value while the others stayed at $`\boldsymbol\mu`$, as a percentage of the scenario loss; evaluated at the worst-case scenario $`\boldsymbol r^{WC}`$ it
+is the **Maximum Loss Contribution** $`MLC(i):=LC(i,\boldsymbol r^{WC})`$. The contributions do not
+in general sum to 100%. Assuming continuous second derivatives, $`\sum_i LC(i,\boldsymbol r)=1`$ for
+all scenarios *if and only if* the CEP is additive $`CEP(\boldsymbol r)=\sum_i g_i(r_i)`$, i.e. all
+cross-derivatives $`\partial^2 CEP/\partial r_i\partial r_j`$ ($`i\ne j`$) vanish. The sum measures
+the role of factor interaction: for a scenario with a positive loss, greater than one means
+positive interaction (total loss below the
 sum of individual losses), and the most dangerous case is a sum *below one* — negative
 interaction, where simultaneous factor moves cause damage beyond the individual moves. A
 consequence outside stress testing is that analyzing market and credit risk separately and
@@ -183,18 +201,21 @@ key-factor moves.
 ## An illustration: foreign-currency loans
 
 The concepts are illustrated on floating-rate loans in domestic (EUR) or foreign (CHF) currency,
-each position's value depending on GDP, domestic rate $r_h$, foreign rate $r_f$ and FX change
-$E$, with the distribution from a time-series model and a Monte Carlo simulation of 100,000
-four-step trajectories used to estimate the annual covariance matrix. The hand-picked scenario
-"GDP contracts 3%" is a $5.42\sigma$ event; against the *same-plausibility* worst-case scenario,
+each position's value depending on GDP, domestic rate $`r_h`$, foreign rate $`r_f`$ and FX change
+$`E`$, with the distribution from a time-series model and a Monte Carlo simulation of 100,000
+four-step trajectories, whose non-normal distribution is used to estimate the annual covariance
+matrix; it is not shown to be elliptical, so here $`\mathrm{Ell}_k`$ and $`\boldsymbol r_C`$ are
+second-moment approximations. The hand-picked scenario
+"GDP contracts 3%" is a $`5.42\sigma`$ event; against the *same-plausibility* worst-case scenario,
 conditional expected profit is considerably lower in the worst case for every portfolio — the
 hand-picked GDP scenario reduces profits only moderately (a false sense of safety), while
 equally plausible far more damaging scenarios exist, with foreign-currency worst-case losses of
-about 11% exceeding the 8% total regulatory capital. Key factors are portfolio-dependent: for
+about 11% exceeding the total regulatory capital of 8% of the loan portfolio. Key factors are portfolio-dependent: for
 foreign-currency loans FX alone contributes between 65.3% and 100% of worst-case losses (others
 under 1%); for the domestic portfolio GDP contributes between 46.8% and 70.0%, with negative
-GDP–interest-rate interaction explaining about a third of the worst-case loss. For a domestic B+
-loan restricted to Maha below $k=6$ the two MLCs sum to $62.0+9.9=71.9\%$, well below 100% —
+GDP–interest-rate interaction explaining about 12% to 50% of the worst-case loss, more for larger
+$`k`$ and less for smaller $`k`$. For a domestic B+
+loan restricted to Maha below $`k=6`$ the two MLCs sum to $`62.0+9.9=71.9\%`$, well below 100% —
 signaling the joint-move loss considerably exceeds the sum of individual-move losses.
 
 ## Reverse stress testing
@@ -209,11 +230,15 @@ scenarios with contagion and systemic implications. Pre-crisis such analysis was
 value given the remote probability; banks now express the need to examine tail events, especially
 for business lines whose traditional models indicate an exceptionally good risk/reward trade-off,
 new products and markets untested by stress, and exposures lacking liquid two-sided markets. The
-systematic worst-case search is the quantitative counterpart: the direct test fixes $k$ and finds
-maximum loss within $\mathrm{Ell}_k$, while the inverse exercise moves from a loss and plausibility
-level and finds the scenario producing it — exhaustive search over the admissible domain ensuring
-no damaging-but-plausible scenario is lost while avoiding scenarios too implausible to be
-credible.
+systematic worst-case search suggests a quantitative counterpart, an extension Breuer et al. do
+not themselves discuss: the direct test fixes $`k`$ and finds maximum loss within $`\mathrm{Ell}_k`$,
+while the inverse exercise fixes a loss $`L`$ and finds the most plausible scenario producing it,
+$`\min_{\boldsymbol r}\mathrm{Maha}(\boldsymbol r)`$ subject to
+$`\mathrm{CEP}(\boldsymbol\mu)-\mathrm{CEP}(\boldsymbol r)\ge L`$ — since the $`\mathrm{Ell}_k`$
+are nested, a solution is the worst case on $`\mathrm{Ell}_{k^*}`$ for the smallest $`k^*`$ whose maximum loss
+reaches $`L`$. In the direct search, exhaustive search over the admissible domain ensures (within
+the model, and if the global minimum is found) that no damaging-but-plausible scenario is lost,
+while avoiding scenarios too implausible to be credible.
 
 ## Stress testing in the risk dashboard
 
@@ -228,9 +253,13 @@ sample experience — VaR quantifying a quantile, Conditional Value-at-Risk the 
 it — and [drawdown risk measures](../risk-measures/drawdown-risk-measures.md) describe cumulative
 peak-to-trough losses, while the stress test assesses robustness to severe-but-plausible scenarios
 that historical statistical relations fail to capture, precisely because those relations break
-down under stress. In the systematic formulation, severity is the maximum expected loss within the
-plausibility ellipsoid $\mathrm{Ell}_k$, and the severity/plausibility trade-off is governed by the
-Mahalanobis radius $k$ — the role $k$ plays for the stress test being the role the confidence level
-plays for VaR and CVaR, anchoring the scenario's extremity to a defined, non-arbitrary plausibility
-region. This compatibility with the standard quantitative risk-management framework is what makes
+down under stress; since $`\mathrm{Ell}_k`$ is itself built from an estimated covariance, capturing
+such broken-down relations needs a stressed or expert-adjusted covariance. In the systematic
+formulation, severity is the maximum expected loss within the plausibility ellipsoid
+$`\mathrm{Ell}_k`$, and the severity/plausibility trade-off is governed by the Mahalanobis radius
+$`k`$, for which the maximum loss does not depend on factors irrelevant to the portfolio. Only for a
+portfolio linear in normal factors does $`k`$ match a VaR confidence level $`\Phi(k)`$ ($`\Phi`$
+the standard normal distribution function); in general it is a judgment parameter with no
+probability interpretation, and the maximum loss still depends on how the risk factors are
+parametrized. The compatibility of these concepts with the standard quantitative risk-management framework is what makes
 the method directly graftable onto the existing dashboard.

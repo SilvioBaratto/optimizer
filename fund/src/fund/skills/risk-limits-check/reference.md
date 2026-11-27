@@ -30,13 +30,14 @@ wealth-path decline (`drawdown_basis: "compounded"`), so a reading just past a c
 is a breach on the basis the ceilings are judged on.
 
 ## Coherent risk & tail
-- Coherent risk axioms (monotonicity, subadditivity, ...): `04:18`.
+- Coherent risk axioms (monotonicity, subadditivity, ...): `04:18`. VaR violates
+  subadditivity, so VaR alone is not a coherent measure.
 - CVaR as a coherent objective: `16:28`, `16:121`.
 - Risk attribution / budgets (Euler, existence): `23:70`, `23:204`.
 
 ## Robustness & stress
 - Robust uncertainty set (prudent profiles), radius/geometry/norm in 1.0: `15:80`.
-- Stress plausibility (Mahalanobis) + reverse stress: `24:54`, `24:78`, `24:116`.
+- Stress plausibility (Mahalanobis) + reverse stress: `24:54`, `24:78`, `24:132`.
 
 ## Validation discipline
 - Walk-forward, `shuffle=False`; single-regime (constraints fixed per run).

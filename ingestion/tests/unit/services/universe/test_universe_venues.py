@@ -33,6 +33,7 @@ from app.services.universe.yfinance_source import (
     PassThroughTickerMapper,
     YFinanceUniverseSource,
 )
+from tests._fixtures.upstream_gaps import tolerate_tel_aviv_calendar_gap
 
 _BIG_CAP = 10_000
 
@@ -263,7 +264,10 @@ class TestNewVenues:
         assert _CODE_TO_REGION[code] == region
         assert UniverseBuilderConfig().get_yahoo_suffix(name) == suffix
 
-    @pytest.mark.parametrize("name", sorted({v[0] for v in _NEW_VENUES.values()}))
+    @pytest.mark.parametrize(
+        "name",
+        tolerate_tel_aviv_calendar_gap(sorted({v[0] for v in _NEW_VENUES.values()})),
+    )
     def test_new_exchange_has_a_working_trading_calendar(self, name: str) -> None:
         """The new exchange resolves a real session calendar over five years."""
         sessions = get_expected_trading_sessions(name, "5y")

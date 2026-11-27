@@ -17,7 +17,9 @@ verified:
 # Quickstart & Task-Routing Map
 
 This is the entry point for the theory wiki. The corpus is a monograph on **portfolio-selection theory**,
-running from choice under uncertainty to the revision of the optimal portfolio. It places portfolio
+running from choice under uncertainty and mean-variance selection, through estimation error, convex,
+robust and CVaR optimization and risk allocation, to signals, regimes, execution, stress testing and the
+mapping of conditional forecasts to portfolio weights. It places portfolio
 selection inside the investment decision process, formally defines a financial portfolio as a transfer of
 wealth under uncertainty, and builds up the quantitative tools — single-period return measurement, the
 mean/variance pair, and the mean-variance dominance criterion — before extending to advanced estimation,
@@ -32,38 +34,48 @@ them: **(1)** identify a tool to *measure* the uncertainty of an investment choi
 *efficiency criterion* that splits all possible choices into two mutually exclusive sets — efficient and
 inefficient; **(3)** specify an appropriate *optimization* approach to find, among the efficient choices,
 the optimal one. Optimization can take several forms: maximize return subject to a risk ceiling, minimize
-risk subject to a return floor, optimize a summary index such as $\text{return}-\lambda\cdot\text{risk}$
-(with $\lambda>0$ a risk-aversion measure), or maximize a von Neumann-Morgenstern utility.
+risk subject to a return floor, optimize a summary index such as $`\text{return}-\lambda\cdot\text{risk}`$
+(with $`\lambda>0`$ a risk-aversion measure), or maximize a von Neumann-Morgenstern utility.
 
 The starting object is the consumer's choice problem, extended to wealth transfer across time: a portfolio
-is the technical instrument that transfers wealth from one period to the next. Formally, given wealth $W$
-and $N$ investment choices, a portfolio is an $N$-vector $\mathbf x'=(x_1,\dots,x_N)$ with $x_i$ the
-fraction of $W$ invested in choice $i$ and $\sum_i x_i=1$. The monograph works in a single-period economy,
-where the consumption-savings decision has limited impact and portfolio selection can be formalized
-directly.
+is the technical instrument that transfers wealth from one period to the next. Formally, given wealth $`W`$
+and $`N`$ investment choices, a portfolio is an $`N`$-vector $`\mathbf x'=(x_1,\dots,x_N)`$ with $`x_i`$ the
+fraction of $`W`$ invested in choice $`i`$ and $`\sum_i x_i=1`$; no sign restriction is imposed, so short sales
+are allowed unless $`x_i\ge0`$ is added. Chapter 0 formalizes portfolio selection directly in a single-period
+economy, setting aside the consumption-savings decision (which in general is not independent of it); later
+chapters such as portfolio revision (ch. 7), signal decay (ch. 11), optimal execution (ch. 22) and
+conditional forecasts (ch. 30) are multi-period.
 
 ## Foundations — measuring, then choosing
 
 - **[Choice under uncertainty](./foundations/choice-under-uncertainty.md)** (ch. 1) — formalizes investor
   preferences under uncertainty and von Neumann-Morgenstern utility, the basis of the optimization
-  criterion. Start here for *why* a rational investor prefers more to less and is risk-averse.
+  criterion, and shows when the mean-variance ordering is consistent with expected utility (quadratic
+  utility, or jointly elliptical returns such as the normal). Start here for *how* non-satiation and risk
+  aversion are formalized: concavity, the Arrow-Pratt measures and the expected-utility theorem.
 - **[Mean-variance selection](./foundations/mean-variance-selection.md)** (ch. 2) — from the mean-variance
-  dominance criterion to Markowitz's efficient frontier and its construction. The theoretical core.
-- **[Black-Litterman](./foundations/black-litterman.md)** (ch. 3) — the sensitivity of the optimal
-  composition to input values, and the remedies based on views and robust estimation. Open this when the
-  optimizer's weights look unstable or extreme.
+  dominance criterion to Markowitz's efficient frontier and its construction, then the risk-free asset,
+  the tangency portfolio, the two mutual fund theorem and the marginal contribution to risk. The
+  theoretical core.
+- **[Black-Litterman](./foundations/black-litterman.md)** (ch. 3) — the six assumptions behind
+  mean-variance and where they break down, the practical choice of the target return, equal weights versus
+  the global minimum-variance portfolio, and the Black-Litterman model, which blends equilibrium returns
+  with the investor's views. Open this when the optimizer's weights look unstable or extreme.
 
 Single-period performance is measured either by the **net percentage return**
-$R_{\%}=(P_t+D-P_{t-\Delta t})/P_{t-\Delta t}$ or the **net log return**
-$R_{\ln}=\ln((P_t+D)/P_{t-\Delta t})$; the two are asymptotically equivalent for $R_{\%}\in(-100\%,100\%)$,
-but only the log return is additive over time. The mean of the return measures profitability and its
+$`R_{\%}=(P_t+D-P_{t-\Delta t})/P_{t-\Delta t}`$ or the **net log return**
+$`R_{\ln}=\ln((P_t+D)/P_{t-\Delta t})`$, with $`D`$ the dividend paid over the period; the two are close when
+$`|R_{\%}|`$ is small, as for daily to monthly returns ($`R_{\ln}=R_{\%}-R_{\%}^2/2+\dots`$). Only the log
+return is additive over time (with no dividends, or dividends reinvested), and only the percentage return
+is additive across assets, so mean-variance analysis uses percentage returns. The mean of the return measures profitability and its
 variance measures risk.
 
 ## Risk measures — beyond variance
 
-- **[Coherent risk measures](./risk-measures/coherent-risk-measures.md)** (ch. 4) — the properties a good
-  risk measure should satisfy, motivated by the limits of variance (which penalizes upside deviations
-  exactly like downside), semi-variance and mean-absolute deviation.
+- **[Coherent risk measures](./risk-measures/coherent-risk-measures.md)** (ch. 4) — Value-at-Risk and why it
+  is not coherent (not subadditive in general), coherent tail measures (AVaR/CVaR/expected shortfall, TCE,
+  WCE) and two-sided measures, and stable return distributions under which variance stops being a reliable
+  risk measure.
 - **[Drawdown risk measures](./risk-measures/drawdown-risk-measures.md)** (ch. 20) — path-dependent risk
   from peak-to-trough losses.
 
@@ -84,7 +96,8 @@ variance measures risk.
 ## Optimization — from convex theory to specialized objectives
 
 - **[Convex optimization](./optimization/convex-optimization.md)** (ch. 14) — cones, duality and KKT: the
-  machinery underlying every constrained portfolio problem.
+  machinery behind convex (LP, QP, QCQP, SOCP) portfolio problems; mixed-integer constraints (ch. 6) make
+  the problem non-convex and fall outside it.
 - **[Constraints and metaheuristics](./optimization/constraints-and-metaheuristics.md)** (ch. 6) — selection
   under operational constraints and the corresponding algorithms.
 - **[Robust optimization](./optimization/robust-optimization.md)** (ch. 15) — uncertainty sets and
@@ -132,13 +145,17 @@ variance measures risk.
 - **[Portfolio revision](./workflows/portfolio-revision.md)** (ch. 7) — when and whether to rebalance,
   given estimate variability, transaction costs and capital-gains taxes.
 - **[Optimal execution and market impact](./workflows/optimal-execution-and-market-impact.md)** (ch. 22) —
-  executing the resulting turnover at minimum cost.
+  executing the resulting turnover by trading impact cost off against timing risk.
 
 ## How to route a question
 
-- *"Which portfolio is optimal at one instant?"* → [mean-variance selection](./foundations/mean-variance-selection.md).
-- *"My optimizer gives extreme, unstable weights."* → [Black-Litterman](./foundations/black-litterman.md)
-  and [estimation error and shrinkage](./estimation/estimation-error-and-shrinkage.md).
+- *"Which portfolio is optimal at one instant?"* → [mean-variance selection](./foundations/mean-variance-selection.md)
+  for the frontier and the tangency portfolio, [choice under uncertainty](./foundations/choice-under-uncertainty.md)
+  for the investor's optimum by tangency with indifference curves, and [Black-Litterman](./foundations/black-litterman.md)
+  for the practical choice of the target return.
+- *"My optimizer gives extreme, unstable weights."* → [Black-Litterman](./foundations/black-litterman.md),
+  [estimation error and shrinkage](./estimation/estimation-error-and-shrinkage.md) and
+  [robust optimization](./optimization/robust-optimization.md).
 - *"Is variance the right risk measure?"* → [coherent risk measures](./risk-measures/coherent-risk-measures.md).
 - *"How do I know my backtest isn't overfit?"* → [validation, data snooping and overfitting](./validation/validation-data-snooping-overfitting.md).
 - *"How often should I rebalance, and is it worth it?"* → [portfolio revision](./workflows/portfolio-revision.md).

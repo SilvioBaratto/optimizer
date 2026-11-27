@@ -403,6 +403,13 @@ def compute_cross_factor_correlation(
     return factor_returns.corr(method="pearson")
 
 
+def _qcut_series(ranked: pd.Series, n_quantiles: int, labels: list[str]) -> pd.Series:
+    """Cut ranks into ``n_quantiles`` equal-count buckets named by ``labels``."""
+    # pandas >= 3.1 annotates ``qcut`` with a union of every input kind; a
+    # Series in gives a Series out.
+    return cast(pd.Series, pd.qcut(ranked, n_quantiles, labels=labels))
+
+
 def compute_quintile_spread(
     scores: pd.DataFrame,
     returns: pd.DataFrame,
@@ -466,11 +473,7 @@ def compute_quintile_spread(
         # Rank with ties broken by order → ranks 1..n, all distinct
         ranked = scores_c.rank(method="first")
         # qcut on uniform ranks gives exactly n_quantiles balanced buckets
-        q_labels = pd.qcut(
-            ranked,
-            n_quantiles,
-            labels=labels,
-        )
+        q_labels = _qcut_series(ranked, n_quantiles, labels)
         row: dict[str, float] = {}
         for lbl in labels:
             bucket_assets = q_labels[q_labels == lbl].index

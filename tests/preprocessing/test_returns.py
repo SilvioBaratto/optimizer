@@ -144,6 +144,45 @@ class TestNanThresholdFiltersRows:
         assert len(out) == 3
 
 
+class TestGapsWithoutForwardFill:
+    """``fill_nan=False`` keeps later gaps as NaN returns and drops only the lead."""
+
+    @staticmethod
+    def _panel_with_gaps(*, leading_nan: int, trailing_nan: int) -> pd.DataFrame:
+        idx = pd.date_range("2024-01-01", periods=10, freq="B")
+        px = pd.DataFrame(
+            {
+                "A": np.linspace(100.0, 109.0, 10),
+                "B": np.linspace(50.0, 59.0, 10),
+            },
+            index=idx,
+        )
+        px.iloc[:leading_nan, 1] = np.nan
+        if trailing_nan:
+            px.iloc[-trailing_nan:, 1] = np.nan
+        return px
+
+    def test_rows_after_a_delisting_stay_in_the_panel(self) -> None:
+        px = self._panel_with_gaps(leading_nan=0, trailing_nan=3)
+        out = to_returns(px, config=ReturnsConfig(fill_nan=False))
+        assert len(out) == len(px) - 1
+        assert out["A"].notna().all()
+        assert out["B"].isna().sum() == 3
+
+    def test_leading_incomplete_rows_are_still_dropped(self) -> None:
+        px = self._panel_with_gaps(leading_nan=2, trailing_nan=0)
+        out = to_returns(px, config=ReturnsConfig(fill_nan=False))
+        assert out.index[0] == px.index[3]
+        assert out.notna().all().all()
+
+    def test_leading_drop_and_trailing_gap_combine(self) -> None:
+        px = self._panel_with_gaps(leading_nan=2, trailing_nan=3)
+        out = to_returns(px, config=ReturnsConfig(fill_nan=False))
+        assert out.index[0] == px.index[3]
+        assert out.index[-1] == px.index[-1]
+        assert out["B"].isna().sum() == 3
+
+
 class TestDecimalCoercion:
     """DB price_history is Numeric(20, 6) -> Decimal (object dtype)."""
 

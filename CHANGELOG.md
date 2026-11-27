@@ -7,11 +7,264 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+This section covers the dependency refresh of 2026-11 (`feature/dependency-refresh-2026-11`),
+the second pass over the packages that no `pyproject.toml` declares (`feature/bump-transitive-refresh`)
+and the dependency updates merged since 0.2.0. Versions are given as they were in 0.2.0 and
+as they are now; the 0.2.0 section below keeps the pins as they were when it was written.
+The entries under Security affect privacy or configuration and come first.
+
 ### Security
 
-- **Dependencies:** `wcmatch` 11.0.1 -> 12.0.4 (and its helper `bracex` 3.0.1 -> 3.2.4) in
-  `uv.lock`. `pip-audit --strict` reports CVE-2026-132276 for `wcmatch` 11.0.1, which the
-  `deepagents` dependency pulls in, so the `lint` job failed on every change to `main`.
+- **fund**: the daemon log no longer shows the `HTTP Request: <method> <url>` lines of
+  the SDKs that use the `httpx2` stack (`openai`, which also serves OpenRouter and Azure
+  OpenAI, `anthropic`, `langsmith` and, from 2.0, `huggingface-hub`). The line carries the
+  full URL, so a query string or credentials in a base URL reached the log on every
+  model call. `silence_http_request_logs` now also covers `httpx2` and `httpcore2`.
+  Log files written before this fix may already contain such lines: review them and
+  rotate or delete the ones that do.
+- **fund**: `build_chat_model` now refuses to build a chat model for any provider while the
+  environment variable `LANGSMITH_GATEWAY` is set to anything but `false`, `0`, `no` or empty.
+  The LangChain packages read that variable and, when a model has no explicit endpoint, send
+  its prompts and the provider API key to the LangSmith gateway instead of the provider's own
+  host. That applies to `openai` (without `OPENAI_BASE_URL`), `anthropic`, `google` and
+  `aws`, and, from `langchain-groq` 1.2, to `groq`. `openai` with a base URL, `openrouter`,
+  `microsoft`, `ollama`, `nvidia` and `huggingface` do not use it. The variable is unset
+  unless somebody sets it, and this repository never sets it, but the check fails closed:
+  if you set it on purpose for other tools, unset it for the fund process. The error does not
+  repeat the value, because a gateway URL can carry credentials (REQ-FUND-027;
+  `docs/integrations.md`, `.env.example`).
+- **fund**: usage telemetry to NVIDIA is switched off. `langchain-nvidia-ai-endpoints` 1.5.0
+  sends hourly, content-free usage totals (request, token and error counts, latency buckets,
+  connector and model family) to NVIDIA by default when it talks to the hosted API; a
+  self-hosted NIM sends nothing. The `nvidia` builder now passes
+  `usage_telemetry_enabled=False`, which also wins over the SDK's own
+  `NVIDIA_USAGE_TELEMETRY_ENABLED` variable (REQ-FUND-026).
+- **deps**: `certifi` 2026.10.23 -> 2026.11.20 removes five root certificates from the bundle
+  (Buypass Class 2 and Class 3, QuoVadis Root CA 1 G3 and 3 G3, Certigna Root CA). A host
+  whose chain ends in one of them fails TLS verification until it moves to a root that is
+  still included. `portopt setup --corp-ca` still adds the operating-system roots on top of
+  certifi. `pydantic-settings` 2.16.3 no longer follows symlinks that leave a `secrets_dir`
+  (this project sets none), and the `psycopg2-binary` 2.9.13 wheel bundles libpq 17.11 and
+  OpenSSL 3.5.8 and rejects over-long int64 array elements instead of overflowing a buffer.
+- **fund**: no new telemetry reaches the daemon from the SDK moves, and tests now pin that.
+  `anthropic` 2.x can emit OpenTelemetry spans and trace headers, but only through a tracer
+  provider the process registers; the fund registers none and the lock holds only
+  `opentelemetry-api`, so nothing is recorded or sent (`ANTHROPIC_OPEN_TELEMETRY=false`
+  switches it off if one is ever added; REQ-FUND-029). `groq` 1.3 reads `GROQ_CUSTOM_HEADERS`
+  and adds those headers to every Groq request; nothing here sets it, and a test pins the exact
+  headers a Groq request may carry (REQ-FUND-030). The `google` provider never asks Google's
+  auth library for Application Default Credentials (REQ-FUND-032). `hf-xet` 1.7 and later
+  report each Hugging Face transfer to the Hub, but the chat path never loads it
+  (REQ-FUND-037). A new guard keeps the network-capable development tools (`virtualenv`,
+  `nodeenv`, `pip-audit`, `pre-commit`, `pyright`) out of everything that ships
+  (`tests/test_lockfile_dev_tooling_isolated.py`).
+- **fund**: the portfolio-manager, profiler and Ask agents can no longer write, edit or delete
+  a file whose path has a dot-prefixed part (`/.git/config`, `/docs/.x.md`,
+  `/code/fund/.hidden.py`). Their one permission rule denies writes to `/**`, and `deepagents`
+  matches globs without the dotfile flag, so the rule never matched such a path; in a scripted
+  run the Ask agent wrote, edited and deleted them. The writes landed in the virtual backend
+  (the staged copies and scratch), never in the checkout. A glob cannot cover a path of any
+  depth, so the backend now refuses the three mutating calls itself (REQ-FUND-038). The
+  offloaded history and tool results use plain names and are unaffected.
+- **fund**: the `huggingface` provider switches the Hugging Face hub's telemetry off. With it
+  on, `huggingface-hub` 2.x put the name of the AI agent harness it runs under and the installed
+  torch version into the user agent of every request, and fetched the harness list from
+  huggingface.co (REQ-FUND-039).
+- **fund**: `GROQ_LOG`, `OPENAI_LOG` and `ANTHROPIC_LOG` set to `info` or `debug` no longer
+  bring the `HTTP Request: <method> <url>` line back after `silence_http_request_logs` ran.
+  Each SDK sets its own logger and the `httpx` logger of its stack when it is first imported,
+  which happens after the entry point silenced the loggers, and at DEBUG the SDK logger
+  writes the URL, the response headers and the whole request body, which is the prompt.
+  `build_chat_model` now undoes that once the model is built (REQ-FUND-028).
+- **fund**: the `google` provider is always the Gemini Developer API. An ambient
+  `GOOGLE_GENAI_USE_VERTEXAI=true` (or `GOOGLE_GENAI_USE_ENTERPRISE=true`) used to turn the
+  model into a Vertex AI client even though an API key was passed, which put Application
+  Default Credentials and the metadata server on the request path (REQ-FUND-041).
+- **deps**: security fixes in packages that the lock pulls in: `websockets` 17.4 rejects a
+  message split into more than 4096 frames (a memory-exhaustion attack; this repository opens
+  no WebSocket itself, and `WEBSOCKETS_MAX_FRAGMENTS` tunes the limit), `lxml` 6.1.3 no longer
+  resolves external parameter entities by default (reached through yfinance's `read_html`),
+  `ormsgpack` 1.13.1 no longer spends memory and time on truncated MessagePack arrays (the
+  LangGraph checkpoints), `botocore` 1.44 refuses bearer-token authentication on a plain-HTTP
+  endpoint, `markdown-it-py` 4.3.0 and `mdit-py-plugins` 0.7.0 carry security releases (unused
+  here), and `wcmatch` 12.0.4 keeps the fix for the ReDoS in 11.x.
+
+### Added
+
+- **portopt-db**: `portopt_db.config.pin_postgres_driver(url)`, public and exported. It
+  rewrites a URL that starts with `postgresql://` to `postgresql+psycopg2://` and leaves every
+  other URL (an explicit driver, SQLite, an empty string) untouched. The engine, Alembic's
+  `env.py` and the live-Postgres test fixtures use it, see SQLAlchemy 2.1 below.
+- **docs**: requirement REQ-FUND-018 (the API key or token of the OpenAI family, Groq,
+  Anthropic, NVIDIA, Google, AWS and Hugging Face models stays out of `repr`, `str` and the
+  serialised form), REQ-FUND-026 (NVIDIA telemetry off), REQ-FUND-027 (the gateway check),
+  REQ-FUND-028 (no request line in the log), REQ-FUND-029 and
+  REQ-FUND-030 (what an `anthropic` and a `groq` request may carry), REQ-FUND-032 (the `google`
+  provider never uses Application Default Credentials) and REQ-FUND-037 (the Hugging Face path
+  never loads `hf_xet`), each with tests, in `docs/requirements.md` and `docs/test-plan.md`.
+  REQ-FUND-038 (no write to a dot-prefixed path), REQ-FUND-039 (Hugging Face hub telemetry
+  off), REQ-FUND-040 (a Groq request has a deadline) and REQ-FUND-041 (`google` ignores the
+  Vertex switches) follow, and REQ-FUND-028 now also covers the SDK log variables.
+
+### Changed
+
+Behaviour changes to know about:
+
+- **pandas 3.0.6 -> 3.1.1** in the library, `portopt-db` and `ingestion` (exact pins). The
+  library adds explicit casts where pandas 3.1's inline typing widened a result type. The one
+  casualty is the Tel Aviv trading calendar, see "Known / not done".
+- **portopt-db, ingestion, fund**: SQLAlchemy 2.1 makes psycopg 3 the default driver for a
+  bare `postgresql://` URL. This project declares, tunes and tests against psycopg2 only
+  (connection keepalives, the circuit breaker's error classification), so the engine and
+  Alembic now keep psycopg2 through `pin_postgres_driver`. Existing `DATABASE_URL` values do
+  not need to change. A URL that names its own driver is respected as written.
+- **library**: skfolio 1.14: `prices_to_returns(fill_nan=False)` now keeps the rows after a
+  delisting as NaN returns where 1.12 dropped them (`ReturnsConfig.fill_nan` is documented
+  accordingly); `OnlineGridSearch.best_estimator_` ends on the final weights; views with a
+  negative correlation now fit. Seeded optimizer runs were bit-identical on about 75 probes.
+- **ingestion**: yfinance 1.8.0 reads `Ticker.news` from Yahoo's GraphQL news API again
+  (nested articles). The Yahoo search fallback stays for an empty feed and for yfinance's
+  "Yahoo is down" error, and the news readers accept both article shapes. The release may
+  send one extra 2-year hourly request while it repairs prices, outside the rate limiter,
+  and its level-shift repair can change stored prices for a few tickers. It also caches an
+  empty feed answer per `Ticker` object, so a transient feed fault means search-only news
+  for that symbol while the object lives. `multitasking` is no longer installed, and
+  `curl-cffi` moves to 0.17.0.
+- **ingestion**: typer 0.29: `--help` shows a `<bool>` or `<list[str]>` column for each
+  option, validation errors are worded differently and typer now depends on pydantic. Exit
+  codes are unchanged (2 for a usage error).
+- **ingestion**: exchange-calendars 4.13.3 corrects session data: Hong Kong has two fewer
+  sessions in 2023 (the weather closures of 1 and 8 September) and Korea one fewer in 2026, so
+  the history-length guard expects slightly fewer sessions for those two venues.
+- **fund**: Google SDK 2.x -> 3.x (`google-genai` 2.23.0 -> 3.6.1, pulled by
+  `langchain-google-genai` 4.5): the SDK's default API version is now `v1`, which
+  `langchain-google-genai` pins back to `v1beta` so requests are unchanged. TLS is no longer
+  verified with certifi: the SDKs on the `httpx2` stack (`google-genai`, `anthropic`, `openai`
+  and `huggingface-hub` 2.x; see the Security entry on request lines) use the operating-system
+  trust store on macOS and Windows and, since `httpx2` 2.15, the system CA files on Linux
+  (OpenSSL's default location, for example `/etc/ssl/certs`, and the usual bundle paths).
+  `SSL_CERT_FILE` or `SSL_CERT_DIR` still wins. A host behind a corporate CA may need
+  `SSL_CERT_FILE` at runtime.
+- **fund**: the `anthropic` builder no longer sends `temperature=0` to `claude-mythos-5-2` or
+  `claude-sonnet-5-5`: `ChatAnthropic` refuses any temperature but 1 for those models, as it
+  already did for `claude-fable-5*`. With `langchain-anthropic` 1.7.13, `LLM_PROVIDER=anthropic`
+  and `claude-sonnet-5-5` failed every request before this change, and so did the fallback
+  model that goes through the same builder.
+- **fund**: `anthropic` 1.6.0 -> 2.14.0 (through `langchain-anthropic`) sends the API key as
+  `Authorization: Bearer` instead of `X-Api-Key`; the API accepts both. A proxy, gateway or
+  log filter that matches on `X-Api-Key` has to read `Authorization`. The request keeps the
+  `anthropic-version` of `2023-06-01` that `langchain-anthropic` sets, which is what lets the
+  `temperature` setting work; a wire test fails if that changes.
+- **fund**: AWS Bedrock calls retry less: `botocore` 1.44 defaults to its standard retry
+  mode, so a throttled or failing call is tried 3 times instead of 5, with shorter waits (about
+  3 s at most, was about 15 s). `AWS_MAX_ATTEMPTS` and `AWS_RETRY_MODE` change it.
+- **fund**: a Groq request now has a 180 second deadline, the same as the other providers
+  that set one. `ChatGroq` had none, so a call that hung blocked the run for good.
+- **fund**: an SDK error says less. `openai` 3.38 puts only the server's message in
+  `str(error)` (the body stays on `error.body`), so an alert that matches the text
+  `Error code: 4xx - {...}` now sees `Error code: 4xx - <message>`, and `openai` 3.59 strips the
+  `Authorization` header from the request attached to the error.
+- **fund**: the Ask agent's `glob` and `grep` listings can only shrink with `wcmatch` 12:
+  `*.env` and `*.*` no longer list dotfiles and `**/` no longer lists regular files. Over
+  182,546 pattern and path cases nothing started matching, the permission checks decided
+  1,416 cases identically, and a scripted Ask run gave the same write, edit and delete
+  outcomes.
+- **fund**: LangGraph checkpoints written by the earlier versions read back unchanged under
+  `ormsgpack` 1.13.1 and `langgraph-checkpoint` 4.3.2, and the reverse also holds, so a
+  rollback can read what the new versions wrote (checked on the real Postgres saver and store).
+- **library**: the solver stack moved (`cvxpy-base` 1.9.3 with `sparsediffpy` 0.6.1, `joblib`
+  1.6.0, `threadpoolctl` 3.8.0, `tzdata` and `pytz` 2026.6) and results did not: 122 seeded
+  optimizer problems (mean-risk with 14 risk measures, risk budgeting, distributionally robust
+  CVaR, maximum diversification, robust uncertainty sets, the benchmark tracker) gave weights
+  identical to the last digit. `joblib` 1.6.0 needs `cloudpickle`, a new package in the lock.
+  The time-zone data changes Cuba, Manitoba, Inuvik and some history before 1967; no zone
+  that the library, the scheduler or an exchange calendar uses is affected.
+- **fund**: langchain-core 1.8.5 is used by every provider package. The `gpt-5.3-chat-latest`
+  profile no longer states `max_input_tokens`, and the NVIDIA profile table in
+  `langchain-nvidia-ai-endpoints` 1.5 dropped 54 earlier ids, so deepagents' summarization
+  falls back to its fixed thresholds (170,000 tokens for the OpenAI model) for models
+  without a profile; `FUND_SUMMARY_TOKEN_THRESHOLD` overrides it.
+- **dev tools**: mypy 2.4 uses its native parser by default and flagged one duplicate
+  `type: ignore` in `ingestion/app/repositories/jobs/background_job_repository.py`, now
+  removed. pyyaml 6.0.4 changes the precedence of YAML merge keys; the repository has none.
+  `plotly` 7.2.0 embeds plotly.js 4.1.1 in the HTML that `save_figure_html` writes, and its
+  wheel is about 0.6 MB larger. `coverage` 7.17.5 measures the same percentages on all four
+  suites, `click` 8.5.1 leaves the `--help` screens of both CLIs as they were, `wcwidth` 0.9
+  ships an optional compiled extension (`WCWIDTH_PYTHON=1` turns it off) and `virtualenv`
+  21.15.9 and later also asks the package indexes in pip's configuration about yanked files
+  on its periodic update (`VIRTUALENV_NO_PERIODIC_UPDATE=1` stops all contact).
+
+Version moves, from 0.2.0 to now:
+
+| Member | Package | From | To |
+|---|---|---|---|
+| library (`portopt-core`) | skfolio | 1.12.5 | 1.14.6 |
+| library | plotly | 7.0.0 | 7.2.0 |
+| library, ingestion | numpy | 2.5.4 | 2.5.5 |
+| ingestion, portopt-db | pydantic | 2.14.1 | 2.14.4 |
+| ingestion | python-dotenv | 1.2.3 | 1.2.4 |
+| ingestion | pydantic-settings | 2.15.0 | 2.16.3 |
+| ingestion | yfinance | 1.7.0 | 1.8.0 |
+| ingestion | typer | 0.27.1 | 0.29.3 |
+| ingestion | certifi | 2026.10.23 | 2026.11.20 |
+| ingestion | exchange_calendars | 4.13.2 | 4.13.3 |
+| ingestion, portopt-db | SQLAlchemy | 2.0.52 | 2.1.9 |
+| portopt-db | alembic | 1.19.1 | 1.20.1 |
+| portopt-db | psycopg2-binary | 2.9.12 | 2.9.13 |
+| fund | deepagents | 0.7.35 | 0.7.42 |
+| fund | langgraph (and langgraph-prebuilt) | 1.2.20 (1.1.0) | 1.2.24 (1.1.3) |
+| fund | langgraph-checkpoint-postgres | 3.2.0 | 3.2.1 |
+| fund | psycopg (and psycopg-binary) | 3.3.5 | 3.3.9 |
+| fund | langchain-ollama (ollama client) | 1.1.0 (0.6.2) | 1.2.0 (0.6.3) |
+| fund | langchain-huggingface | 1.2.3 | 1.3.0 |
+| fund | huggingface-hub (tokenizers) | 1.33.0 (0.23.2) | 2.4.0 (0.23.3) |
+| fund | langchain-anthropic | 1.7.10 | 1.7.13 |
+| fund | langchain-groq | 1.1.3 | 1.2.1 |
+| fund | langchain-nvidia-ai-endpoints | 1.4.3 | 1.5.0 |
+| fund | langchain-openai | 1.6.5 | 1.8.5 |
+| fund | langchain-google-genai (google-genai) | 4.4.3 (2.23.0) | 4.5.3 (3.6.1) |
+| fund | langchain-aws | 1.9.3 | 1.10.0 |
+| fund, ingestion (tests) | pytest-asyncio | 1.4.1 | 1.5.0 |
+| dev | ruff (also the pre-commit hook `rev`) | 0.17.3 | 0.17.6 |
+| dev | pre-commit | 4.6.2 | 4.7.0 |
+| dev | mypy | 2.3.1 | 2.4.1 |
+| dev | hypothesis | 6.168.5 | 6.170.17 |
+| dev | pyyaml | 6.0.3 | 6.0.4 |
+| CI | astral-sh/setup-uv | v10.3.3 | v10.4.0 |
+
+The lock also moves, without a declaration of its own: langchain 1.4.9 -> 1.5.2, langchain-core
+1.7.7 -> 1.8.5, langchain-protocol 0.0.20 -> 0.0.22, langsmith 0.14.17 -> 0.16.2,
+curl-cffi 0.16.2 -> 0.17.0; `greenlet` and `multitasking` are no longer installed.
+The comments in `pyproject.toml` and `packages/portopt-db/pyproject.toml` now name
+`numpy==2.5.5`. deepagents 0.7.41 and later need langgraph 1.2.24 or newer, which is why
+the two move together; the Ask agent, summarization, backend, skills and containment tests
+pass unchanged on 0.7.42.
+
+The second pass moved every other package in the lock to its newest release. None has a
+declaration of its own, and `uv lock --upgrade` now has nothing left to move:
+
+- Provider SDKs: anthropic 1.6.0 -> 2.14.0 (adds `opentelemetry-api` 1.45.2), groq 0.37.1 -> 1.7.0,
+  openai 3.19.2 -> 3.60.0, boto3 and botocore 1.43.101 -> 1.44.12, s3transfer 0.19.2 -> 0.19.3,
+  google-auth 2.58.0 -> 2.63.1.
+- Other majors: websockets 16.1.1 -> 17.4, multidict 6.9.1 -> 7.2.1, wcmatch 11.2 -> 12.0.4;
+  uuid-utils 0.17.1 -> 0.19.0, jsonpatch 1.33 -> 1.48, jsonpointer 3.1.1 -> 3.12.
+- HTTP and runtime: httpx2 and httpcore2 2.13.0 -> 2.16.2, anyio 4.14.2 -> 4.16.0, idna 3.19 -> 3.20,
+  charset-normalizer 3.5.1 -> 3.5.3, truststore 0.10.4 -> 0.10.5, orjson 3.12.0 -> 3.13.0, ormsgpack
+  1.12.2 -> 1.13.1, jiter 0.17.0 -> 0.19.0, lxml 6.1.2 -> 6.1.3, regex 2026.9.10 -> 2026.11.25,
+  soupsieve 4.1 -> 4.1.3, hf-xet 1.6.0 -> 1.8.0, huggingface-hub 2.4.0 -> 2.5.0, langgraph-checkpoint
+  4.3.0 -> 4.3.2, langgraph-sdk 0.4.11 -> 0.4.14, annotated-doc 0.0.5 -> 0.0.7, typing-inspection
+  0.4.4 -> 0.4.5, toolz 1.1.0 -> 1.2.0.
+- Numerics and time zones: cvxpy-base 1.9.2 -> 1.9.3, sparsediffpy 0.3.0 -> 0.6.1, joblib 1.5.3 -> 1.6.0
+  (adds cloudpickle 3.1.3), threadpoolctl 3.6.0 -> 3.8.0, narwhals 2.25.0 -> 2.29.0, xxhash 4.0.1 -> 4.1.0,
+  pycparser 3.0 -> 3.12, pyparsing 3.3.2 -> 3.3.3, protobuf 7.36.0 -> 7.36.2, pytz 2026.3.post1 -> 2026.6,
+  tzdata 2026.3 -> 2026.6, tzlocal 5.4.4 -> 5.4.5.
+- Tooling and text: coverage 7.15.4 -> 7.17.5, pluggy 1.6.0 -> 1.7.0, iniconfig 2.3.0 -> 2.3.1,
+  cyclonedx-python-lib 11.12.0 -> 11.13.0, py-serializable 2.1.0 -> 2.2.0, pip-api 0.0.34 -> 0.0.35,
+  pip 26.2.1 -> 26.3, cachecontrol 0.14.4 -> 0.15.0, packaging 26.3 -> 26.4, virtualenv 21.14.13 ->
+  21.15.13, filelock 4.2.4 -> 4.3.1, platformdirs 4.11.4 -> 4.14.8, distlib 0.4.3 -> 0.4.4,
+  python-discovery 1.6.4 -> 1.9.7, identify 2.6.19 -> 2.6.20, nodeenv 1.10.0 -> 1.12.0, click 8.5.0 ->
+  8.5.1, markdown-it-py 4.2.0 -> 4.3.0, mdit-py-plugins 0.6.1 -> 0.7.0, mako 1.4.1 -> 1.4.3,
+  markupsafe 3.0.3 -> 3.0.4, tomli 2.4.1 -> 2.5.0, wcwidth 0.8.2 -> 0.9.5, peewee 4.4.0 -> 4.5.3.
 
 ### Removed
 
@@ -32,6 +285,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `REQ-` id or a requirement with no test. The `criterion` and `defect` markers stay
   registered, because tests use them, but they are now plain labels that nothing verifies.
   CONTRIBUTING.md loses its "Test traceability" section and its two ADR links.
+
+### Known / not done
+
+- **The Tel Aviv (`XTAE`) trading calendar does not build on pandas 3.1.**
+  `exchange_calendars` 4.13.3 raises while building it, so for Tel Aviv listings the
+  history-length check is skipped (the daemon logs a warning per instrument) until a release
+  contains upstream pull request 633. The two tests that cover that venue are strict expected
+  failures in `ingestion/tests/_fixtures/upstream_gaps.py`; once `exchange_calendars` is
+  fixed they pass, which fails the run, and the entry is deleted there.
+- **python-dateutil 4.0.0** is not adopted: `botocore`, reached through `langchain-aws` (the
+  `aws` and `all-llm` extras), caps it below 3.0.
+- **Releases that another package's cap holds back**: `uuid-utils` 1.x (`langsmith` requires
+  below 1.0, and `langchain-core` and `langsmith` still call the 0.x signature),
+  `sparsediffpy` 0.7 to 0.9 (`cvxpy-base` 1.9.3 requires below 0.7) and `soupsieve` 4.1.4 (on
+  GitHub, not on PyPI).
+- **At DEBUG, `botocore` and `websockets` log URLs, headers and credential ids.** The daemon
+  logs at INFO and has no DEBUG switch, so that is not reachable today.
+- **Test isolation in `portopt-db`**: running its unit tests and `tests/integration` in one
+  process with `PORTOPT_TEST_DATABASE_URL` set fails two log-capture tests, because Alembic's
+  `env.py` disables the existing loggers. CI runs them separately and passes.
+- What only a live provider can confirm was not exercised, because the tests use fakes and
+  local stubs: the Anthropic API accepting the key as `Authorization: Bearer` with the
+  `2023-06-01` version header, Gemini, Bedrock, Groq and NVIDIA NIM structured output and tool calls, the
+  extra yfinance repair request and its effect on stored prices, and the news feed's article
+  ids against search ids (a story may appear twice per ticker).
 
 ## [0.2.0] - 2026-11-18
 
@@ -265,6 +543,15 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
 
 ### Added
 
+- **validation**: probabilistic and deflated Sharpe ratio (Bailey and Lopez de Prado,
+  2014). `probabilistic_sharpe_ratio` gives the probability that the true Sharpe ratio
+  beats a benchmark, given the sample length, skewness and kurtosis;
+  `expected_max_sharpe` gives the best Sharpe ratio luck alone produces across a number
+  of trials; `minimum_track_record_length` gives the observations needed for a
+  confidence level. `run_deflated_sharpe` evaluates one selected return series against
+  its search, and `run_deflated_sharpe_from_trials` takes the matrix of every trial
+  (a grid search, or the candidates of a cross-validation), keeps the best one and
+  takes the number of trials and their dispersion from the columns.
 - **Requirement traceability (standard 6.6).** `docs/requirements.md` registers 35
   requirements, `REQ-<AREA>-NNN`, each one statement about one module that the tests
   citing it assert: the critical functions of `docs/test-plan.md`, the secret-hiding
@@ -287,6 +574,17 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
   tagged only where they assert one of the 35 requirements, so most tests cite no id.
   Running a suite's pytest config now needs `scripts/ci` from the checkout: without it,
   pytest stops because it cannot import `traceability`.
+- **risk**: new `optimizer.risk` module with a Value-at-Risk calculator and a backtest
+  of its forecasts. `compute_var` returns the VaR and the expected shortfall of a
+  return sample, as positive loss fractions, by the historical, parametric (normal),
+  Cornish-Fisher or bootstrap Monte Carlo method (`VarMethod`, `VarConfig`), at a
+  confidence level and a horizon of your choice; `cornish_fisher_quantile` exposes the
+  skewness and kurtosis adjustment on its own. `rolling_var_forecasts` makes one-step
+  forecasts from the window before each date, with no look-ahead. `backtest_var` counts
+  the days the loss beat the forecast and runs the Kupiec proportion-of-failures test,
+  the Christoffersen independence and conditional coverage tests, and the Basel
+  traffic-light zones (99% over 250 days). The Cornish-Fisher method raises `DataError`
+  when the sample's skewness and kurtosis put it outside the expansion's range.
 - **portopt-db: read ports for the repository reads `fund` runs.** `portopt_db.ports`
   defines three `runtime_checkable` protocols and the frozen dataclasses they return:
   `PriceReader` (`instrument_for`, `profile_for` and `price_bars_for`, returning
@@ -301,6 +599,19 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
   return type. `packages/portopt-db/tests/test_ports.py` checks that each repository
   has its protocol's parameters and type hints and that no protocol method's type hints
   name an ORM model.
+- **simulation**: new `optimizer.simulation` package for Monte Carlo scenarios and
+  Kelly sizing. `simulate_gbm` takes a `GbmConfig` and draws price paths of one asset
+  under geometric Brownian motion with the exact log-normal step and optional
+  antithetic variates; `simulate_correlated_gbm` does the same for several assets from
+  a covariance matrix (singular matrices are handled); `calibrate_gbm` estimates drift
+  and volatility from a price series and returns a `GbmFit`. `simulate_bootstrap`
+  takes a `BootstrapConfig` and compounds resampled returns into wealth paths, singly
+  or in moving blocks that keep short-range autocorrelation; `summarize_paths` returns
+  a `PathSummary` with the terminal distribution, the chance of a loss and the
+  drawdowns. `kelly_fraction_gaussian` and `kelly_fraction_empirical` give the
+  growth-optimal fraction, and `simulate_kelly_growth` shows growth, median wealth and
+  ruin probability over a grid of fractions. Settings raise `ConfigurationError` and
+  data arrays raise `DataError`.
 - **ingestion: the external-call breakers, attempts and timeouts are settings.** The
   ingestion daemon reads them from its environment; `docs/integrations.md` lists them with
   what they set. The defaults are the values the code used before, except
@@ -321,6 +632,17 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
   An attempt count that is not an integer of at least 1, or a duration that is not a
   finite number above 0, fails at startup with an error that names the variable. A
   scraper built with an explicit `timeout` keeps it.
+- **strategies**: new `optimizer.strategies` package with moving-average and momentum
+  strategies and a cost-aware weight backtest. `moving_average` (simple or exponential)
+  and `moving_average_crossover_positions` give a trend position per asset;
+  `momentum_scores` is the 12-1 momentum (return from `t-252` to `t-21` by default) and
+  `cross_sectional_momentum_weights` holds the top fraction of assets at equal weight,
+  optionally dollar neutral, rebalanced every N periods. `backtest_weights` simulates
+  holding any weight table: a weight decided at a date earns returns only from
+  `execution_lag` periods later (1 by default; 0 leaks the future and is for measuring
+  that), costs are `CostConfig.proportional_bps` of the drifted-weight turnover, and the
+  result has gross and net returns, held weights, turnover, equity curve, Sharpe
+  (risk-free rate 0), drawdown and the yearly return lost to costs.
 - **ingestion: metrics for the external HTTP sources.** `external_breaker_open{service}`
   reads 1 while the process-wide breaker of FRED, Trading Economics, Il Sole 24 Ore or
   Trading 212 would refuse a request, and `external_request_seconds{service,outcome}` times
@@ -370,6 +692,16 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
   the breaker is not closed as of the last poll, and says why on the status bar. The
   running daemons pick this up once their images are rebuilt and restarted. See
   `docs/adr/0008-database-circuit-breaker.md`.
+- **regression**: a new `optimizer.regression` module. `ols` is a least squares fit
+  with t-statistics, p-values and optional Newey-West standard errors for
+  autocorrelated residuals. `capm_regression` reports Jensen's alpha and beta of an
+  asset against the market net of a risk-free rate, with the Treynor ratio, tracking
+  error and information ratio; `rolling_beta` gives the trailing-window beta without
+  look-ahead; `security_market_line` fits the cross-sectional line and each asset's
+  distance from it. `multifactor_regression` and `fama_french_regression` regress an
+  excess return on factor series the caller supplies (the module loads no data) and
+  return the alpha, the loadings and their t-statistics. Missing, infinite or
+  misaligned data raises `DataError` instead of being dropped.
 - **Decision log, integration docs and a changelog check.** `docs/adr/` starts an
   architecture decision log with seven records (the strip to an ingestion pipeline,
   the four-package workspace, the removal of `optimizer.pipeline`, the heartbeat-lease
@@ -387,6 +719,20 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
   entrypoints, installers, dependency pins, agent prompts) without a `CHANGELOG.md`
   entry; the `skip-changelog` label overrides it and Dependabot is exempt. The `lint`
   job, `make lint` and pre-commit now also cover `scripts/`.
+- **plotting**: new `optimizer.plotting` package of plotly charts. `correlation_heatmap`
+  draws a correlation matrix (Pearson, Spearman or Kendall, or one you pass in) on a
+  diverging scale centred at zero, optionally ordered by hierarchical clustering so
+  related assets sit together; `efficient_frontier_figure` plots a frontier with named
+  highlighted portfolios, and `frontier_from_weights` turns a table of portfolio weights
+  into its risk and expected-return points; `returns_volatility_figure` stacks the
+  cumulative return, the rolling annualised volatility and the drawdown;
+  `security_market_line_figure` plots assets against the CAPM line; `save_figure_html`
+  writes any of them to a standalone HTML page. `ChartTheme` sets the template and
+  size and `CorrelationOrder` names the heatmap orderings (plain strings work too).
+  The package is imported only by `import optimizer.plotting`, never by
+  `import optimizer`. `plotly==7.0.0` is now declared as a runtime dependency of
+  `portopt-core`: skfolio already pulled it in, so the lockfile only gains the
+  declaration and no installed version changes.
 - **portopt-db PostgreSQL integration suite and migration checks in CI.** SQLite
   drops the `ON CONFLICT ON CONSTRAINT` target and never installs the
   `human_audit_log` triggers, so neither had a test. `packages/portopt-db/tests/
@@ -399,6 +745,17 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
   downgrade/upgrade round trip over the five most recent revisions. The six
   revisions whose `downgrade` raises now declare an `IRREVERSIBLE_REASON`, which a
   test requires of any future one-way revision.
+- **derivatives**: option pricing and hedging in the new `optimizer.derivatives`
+  package. `black_scholes_price` and `black_scholes_greeks` price European calls and
+  puts with a continuous dividend yield (Greeks: delta, gamma, vega per 1.00 of
+  volatility, theta per year, rho per 1.00 of rate) and accept numpy arrays that
+  broadcast, so a strike by volatility grid is one call. `implied_volatility` inverts
+  the price with Brent's method and rejects prices outside the no-arbitrage bounds.
+  `binomial_price` is a Cox-Ross-Rubinstein tree, European or American, that
+  converges to Black-Scholes. `simulate_delta_hedge` sells an option, hedges it with
+  the Black-Scholes delta at a chosen number of dates, with proportional trading
+  costs and a hedge volatility that may differ from the true one, and returns the
+  profit and loss of every simulated path.
 - **Ask is a read-only deep agent with a saved conversation.** A question is now
   answered by an agent that reads the fund's data (read-only tools over
   `fund.observe`) and a read-only staged copy of the docs and source, deciding its
@@ -408,6 +765,17 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
   conversation is saved per portfolio (and for the fund-wide view) and shown when
   Ask opens; `/clear`, behind a confirm, deletes the saved messages, the agent's
   memory and its offloaded history files.
+- **credit**: new `optimizer.credit` package with the Merton (1974) structural credit
+  model. `solve_merton` reads a firm's equity as a call option on its assets and
+  inverts the observed equity value and equity volatility into the asset value and
+  volatility, then reports the distance to default, the default probability (the
+  risk-neutral one, or the real-world one with `MertonConfig.asset_drift`), the
+  market value of the debt, its credit spread and the leverage.
+  `estimate_equity_volatility` annualises the volatility of an equity price series,
+  optionally over the latest `window` returns, and `merton_from_market` solves the
+  model from a market capitalisation, a price history and the total debt. A solve
+  that cannot reach `solver_tolerance` raises `ConvergenceError` instead of
+  returning an approximation.
 - **The Daily brief and Ask text is laid out to be read.** The market digest is a
   table (one macro series per line with value, date and signed change, then the
   markets and news themes), and Ask answers render their headings, bold, bullets
@@ -425,7 +793,7 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
 - Dependabot for dependency and GitHub Actions updates (#48)
 - Property-based testing with Hypothesis (#49)
 - Developer experience: Makefile (#50)
-- Automated release workflow (tag to PyPI publish) (#52)
+- Automated release workflow: tag check, CI gate and `portopt-core` build (#52)
 - Pyright compatibility configuration (#53)
 - **api**: `app/worker.py` — the ingestion daemon entrypoint. Serves Prometheus
   metrics, reaps orphaned jobs, bootstraps benchmarks off-thread, then runs
@@ -487,6 +855,19 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
   fresh baseline from the current measurement, so a deleted or emptied baseline
   file in a diff deserves a reviewer's attention. A source root that is missing
   fails the check instead of measuring nothing.
+- **statarb**: new research package `optimizer.statarb` for pairs trading and PCA
+  statistical arbitrage. `engle_granger` runs the two-step cointegration test: an OLS
+  hedge ratio, then an Augmented Dickey-Fuller test on the residuals with the lag count
+  chosen by the Akaike criterion. It uses the asymptotic MacKinnon critical values with
+  no finite-sample correction, so its decision is approximate for short samples.
+  `ou_half_life` gives the half-life of mean reversion of any series.
+  `kalman_hedge_ratio` tracks a drifting hedge ratio and returns the one-step-ahead
+  spread and its z-score, and `zscore_positions` turns a z-score into positions with
+  entry, exit and stop bands. `fit_pca_residual_model` and `pca_signals` implement the
+  Avellaneda and Lee (2010) eigenportfolio residual model: the Ornstein-Uhlenbeck fit
+  of each residual, its s-score and the paper's trading thresholds. These are research
+  tools that ignore costs and borrow limits and are not wired to the fund, whose
+  mandate is long-only and paper-only. They need numpy and scipy only.
 - **fund: execution venues, paper-ticket pricing without a session, and NAV marking
   without a session.** `fund.pricing` (`BPS_PER_UNIT`, `DUST_WEIGHT`, `CostModel`,
   `FillQuote`, `TicketLine`, `PricedTicket`, `held_weights`, `price_ticket`) and
@@ -499,6 +880,12 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
 
 ### Changed
 
+- **docs**: the README, `CLAUDE.md` and the `optimizer` package docstring list the
+  eight research tools added to the library (`risk`, `simulation`, `strategies`,
+  `regression`, `plotting`, `derivatives`, `credit`, `statarb`), so the library now has
+  26 submodules, and `validation` is described with the deflated Sharpe ratio.
+  `CLAUDE.md` no longer says `arch` arrives through skfolio: it does not, and neither
+  `arch`, `statsmodels`, `hmmlearn` nor `matplotlib` is installed.
 - **portopt-db: `newest_close_per_instrument` is renamed `newest_close_dates`** on the
   `PriceReader` port and on `YFinanceRepository`, since it returns bar dates, not
   closes. `fund.observe` calls the new name; a caller of the old name gets an
@@ -810,6 +1197,13 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
 
 ### Removed
 
+- **ci**: the `publish` job of `release.yml`. This project is no longer published to
+  PyPI: the `pypi` environment, the `id-token: write` grant and the
+  `pypa/gh-action-pypi-publish` step are gone, so a `v*` tag cannot upload anything.
+  A tag is still checked (on `main`, equal to the `pyproject.toml` version), runs
+  the full CI workflow and then builds the `portopt-core` sdist and wheel as the
+  `dist` artifact. `test_release_workflow_never_uploads_to_pypi` fails if an upload
+  step comes back, and the README, CONTRIBUTING and CLAUDE.md no longer describe one.
 - **api**: the entire HTTP layer — every `/api/v1/*` route, FastAPI, uvicorn, the
   API-key auth middleware, and the `api_keys` table
 - **api**: the portfolio, optimization, backtest, factor, risk, rebalancing,
@@ -854,9 +1248,26 @@ searches, `market_weights` and `AvailableAssetViewsPrior` did not exist in 0.1.0
   the current 4.1. `pip-audit --strict` failed on both, which turned the `lint`
   job red on every branch; `tests/test_lockfile_security_floors.py` now pins the
   4.0.0 floor.
+- **deps**: `wcmatch` 11.0.1 -> 11.2 and its helper `bracex` 3.0.1 -> 3.2.4 in
+  `uv.lock`. 11.2 is the first release that fixes CVE-2026-132276 (a glob pattern with
+  several `*` wildcards takes polynomial time to reject a crafted file name);
+  `deepagents` pulls it in. `pip-audit --strict` flagged it, which turned the `lint`
+  job red on every branch and on `development` itself;
+  `tests/test_lockfile_security_floors.py` now pins the 11.2 floor. The lock stays on
+  the 11 line, since 12.0 is a major release.
 
 ### Fixed
 
+- **launcher, fund**: `optimizer status`, or any argument that is not a portfolio
+  UUID, no longer rebuilds the images and asks for the master passphrase before
+  crashing the cockpit with a `ValueError: badly formed hexadecimal UUID string`
+  traceback. The launcher now rejects the argument first (exit 2) and points at the
+  `portopt` stack commands, and `fund-tui` reports a bad portfolio id as a usage
+  error instead of a traceback. The launcher accepts a UUID written with hyphens
+  (8-4-4-4-12) or as 32 hex digits, in any case, and rejects everything else: an
+  argument that starts with `-`, more than one argument, and the `{...}` and
+  `urn:uuid:` spellings. So `optimizer --help` now exits 2 with the same message
+  instead of starting the stack.
 - **fund, ingestion, portopt-db**: API keys, the broker secret, database
   passwords and the notification webhook URL no longer appear in `repr()` or
   `str()` of `FundConfig`, `DbConfig` or the ingestion `Settings`. A traceback that renders locals or a stray

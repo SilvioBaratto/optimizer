@@ -1,8 +1,10 @@
 """Model selection and cross-validation for portfolio backtesting.
 
 Includes Walk-Forward backtesting, Combinatorial Purged Cross-Validation
-(CPCV), Multiple Randomized Cross-Validation, and covariance forecast
-evaluation (offline + online paths).
+(CPCV), Multiple Randomized Cross-Validation, covariance forecast
+evaluation (offline + online paths), and the probabilistic / deflated
+Sharpe ratio, which corrects a backtested Sharpe ratio for the number of
+strategies that were tried to find it.
 
 Covariance forecast evaluation is **optimizer-agnostic** — use it to
 rank covariance estimators **before** plugging the winner into a
@@ -17,6 +19,15 @@ from optimizer.validation._config import (
     CPCVConfig,
     MultipleRandomizedCVConfig,
     WalkForwardConfig,
+)
+from optimizer.validation._deflated_sharpe import (
+    DeflatedSharpeConfig,
+    DeflatedSharpeResult,
+    expected_max_sharpe,
+    minimum_track_record_length,
+    probabilistic_sharpe_ratio,
+    run_deflated_sharpe,
+    run_deflated_sharpe_from_trials,
 )
 from optimizer.validation._factory import (
     CrossValFailureReport,
@@ -44,6 +55,8 @@ __all__ = [
     "CovarianceForecastComparison",
     "CovarianceForecastConfig",
     "CrossValFailureReport",
+    "DeflatedSharpeConfig",
+    "DeflatedSharpeResult",
     "MultipleRandomizedCVConfig",
     "OnlineCovarianceForecastConfig",
     "RegimeValidationConfig",
@@ -53,8 +66,13 @@ __all__ = [
     "build_multiple_randomized_cv",
     "build_walk_forward",
     "compute_optimal_folds",
+    "expected_max_sharpe",
+    "minimum_track_record_length",
+    "probabilistic_sharpe_ratio",
     "run_covariance_forecast_evaluation",
     "run_cross_val",
+    "run_deflated_sharpe",
+    "run_deflated_sharpe_from_trials",
     "run_online_covariance_forecast_evaluation",
     "run_regime_validation",
     "summarize_cv_failures",

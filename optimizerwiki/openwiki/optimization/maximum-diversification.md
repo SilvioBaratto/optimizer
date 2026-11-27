@@ -38,111 +38,121 @@ criterion recasts Markowitz's "only free lunch" of finance as the goal itself, f
 diversification and avoiding bets founded on return forecasts or on the implicit bets of
 cap-weighted benchmarks.
 
-The setting: an universe of $N$ risky assets with volatility vector $\sigma=(\sigma_i)$,
-correlation matrix $C=(\rho_{i,j})$, and covariance matrix
-$V=\Sigma=(\rho_{i,j}\sigma_i\sigma_j)$. A portfolio is a weight vector $w$ with
-$\sum_i w_i=1$; unless stated otherwise all portfolios are long-only (non-negative
+The setting: an universe of $`N`$ risky assets with volatility vector $`\sigma=(\sigma_i)`$,
+correlation matrix $`C=(\rho_{i,j})`$, and covariance matrix
+$`V=\Sigma=(\rho_{i,j}\sigma_i\sigma_j)`$. A portfolio is a weight vector $`w`$ with
+$`\sum_i w_i=1`$; unless stated otherwise all portfolios are long-only (non-negative
 weights).
 
 ## The diversification ratio
 
-Writing $\langle w\mid\sigma\rangle=\sum_i w_i\sigma_i$ for the weighted average of asset
-volatilities and $\sigma(w)=\sqrt{w'Vw}$ for portfolio volatility, the **diversification
-ratio** of a portfolio $P$ is
+Writing $`\langle w\mid\sigma\rangle=\sum_i w_i\sigma_i`$ for the weighted average of asset
+volatilities and $`\sigma(w)=\sqrt{w'Vw}`$ for portfolio volatility, the **diversification
+ratio** of a portfolio $`P`$ is
 
 $$D(w)=\frac{\langle w\mid\sigma\rangle}{\sigma(w)}=\frac{w'\sigma}{\sqrt{w'Vw}}.$$
 
 For a long-only portfolio the overall volatility is at most the weighted sum of the
-individual volatilities, so $D\ge1$ always, equalling $1$ exactly for a single-asset
-portfolio (no diversification) and being strictly greater than $1$ unless the portfolio
+individual volatilities, so $`D\ge1`$ always, equalling $`1`$ exactly for a single-asset
+portfolio (no diversification) and being strictly greater than $`1`$ unless the portfolio
 is equivalent to a mono-asset one. Two elementary cases fix intuition: an equal-weight
-portfolio of two independent equal-volatility assets has $D=\sqrt2$, and $N$ independent
-equal-volatility assets give $D=\sqrt N$. An operational example: with two assets of
+portfolio of two independent equal-volatility assets has $`D=\sqrt2`$, and $`N`$ independent
+equal-volatility assets give $`D=\sqrt N`$. An operational example: with two assets of
 volatility 15% and 30% and correlation below 1, wanting both to contribute equally to
 portfolio volatility makes the maximizing weights inversely proportional to
-volatilities — 66.6% on $A$, 33.3% on $B$. With three assets — two strongly correlated
-banks ($\rho=0.9$) and a weakly correlated pharma ($\rho=0.1$), all of equal volatility —
+volatilities — 66.6% on $`A`$, 33.3% on $`B`$. With three assets — two strongly correlated
+banks ($`\rho=0.9`$) and a weakly correlated pharma ($`\rho=0.1`$), all of equal volatility —
 the diversification-maximizing weights are 25.7% each bank and 48.6% pharma:
 diversification rewards the asset bringing more independent risk.
 
 ## Decomposition and degrees of freedom
 
-The diversification ratio decomposes into two levers. With $\bar w=w\odot\sigma$,
+The diversification ratio decomposes into two levers. With $`\bar w=w\odot\sigma`$,
 
 $$\frac{1}{D(w)^2}=(1-\rho(w))\,\mathrm{CR}(w)+\rho(w),$$
 
-where $\rho(w)$ is the volatility-weighted average correlation and $\mathrm{CR}(w)=\sum_i(w_i\sigma_i)^2/(\sum_i w_i\sigma_i)^2$
+where $`\rho(w)`$ is the volatility-weighted average correlation and $`\mathrm{CR}(w)=\sum_i(w_i\sigma_i)^2/(\sum_i w_i\sigma_i)^2`$
 is the **volatility-weighted concentration ratio**. A fully concentrated long-only
-portfolio has $\mathrm{CR}=1$ (mono-asset), while a volatility-equal-weighted portfolio
-has the minimum $\mathrm{CR}=1/N$; $\mathrm{CR}$ generalizes the Herfindahl-Hirschman
+portfolio has $`\mathrm{CR}=1`$ (mono-asset), while a volatility-equal-weighted portfolio
+has the minimum $`\mathrm{CR}=1/N`$; $`\mathrm{CR}`$ generalizes the Herfindahl-Hirschman
 index by weighting assets by volatility, so it measures concentration of *risk*, not just
-of weights. The decomposition shows $D$ grows as average correlation and/or concentration
-fall; if correlations tend to 1, $D=1$ regardless of $\mathrm{CR}$, and when pairwise
-correlations are equal, maximizing $D$ reduces to minimizing $\mathrm{CR}$. The square
-$D^2$ reads as the number of independent risk factors (degrees of freedom) represented in
-the portfolio: the MSCI World had $D=1.7$ at end-2010, so a passive investor was exposed
-to $1.7^2\approx3$ independent factors, whereas maximizing the ratio would have reached
-$D=2.6$, i.e. $\approx7$ effective degrees of freedom.
+of weights. The decomposition shows $`D`$ grows as average correlation and/or concentration
+fall; if correlations tend to 1, $`D=1`$ regardless of $`\mathrm{CR}`$, and when pairwise
+correlations are equal, maximizing $`D`$ reduces to minimizing $`\mathrm{CR}`$. A portfolio
+spreading its risk equally over $`F`$ independent factors has $`D^2=F`$; in general
+$`D^2`$ is not a count (with negative correlations it can exceed the number of assets) and
+is read, as a heuristic, as the effective number of independent risk factors (degrees of
+freedom) represented in the portfolio: the MSCI World had $`D=1.7`$ at end-2010, so a passive investor was exposed
+to $`1.7^2\approx3`$ independent factors, whereas maximizing the ratio would have reached
+$`D=2.6`$, i.e. $`\approx7`$ effective degrees of freedom.
 
 ## The Most-Diversified Portfolio: definition and optimality condition
 
-Under a set $\Gamma$ of linear weight constraints, the portfolio maximizing $D$ is the
-**Most-Diversified Portfolio (MDP)**, $w^{\mathrm{MDP}}=\arg\max_{w\in\Pi^+}D(w)$ in the
-long-only case. Because $D$ is invariant to scalar rescaling of the weights, the
+Under a set $`\Gamma`$ of linear weight constraints, the portfolio maximizing $`D`$ is the
+**Most-Diversified Portfolio (MDP)**, $`w^{\mathrm{MDP}}=\arg\max_{w\in\Pi^+}D(w)`$ in the
+long-only case. Because $`D`$ is invariant to positive rescaling of the weights, the
 maximization is equivalent to the quadratic program
 
 $$\min_w \tfrac12\,w'Vw \quad\text{s.t.}\quad w_i\ge0,\ \sum_i w_i\sigma_i=1,$$
 
 rescaling weights to sum to 1 afterward. This is a QP over a convex set (see
 [convex optimization](../optimization/convex-optimization.md)); existence follows, and
-uniqueness follows too if $V$ is definite — for the objective to be finite there must be
-no zero-volatility long-only portfolio carrying a positive premium. Applying the KKT
-theorem to $f(w)=\ln D(w)$, the optimum satisfies
+uniqueness follows too if $`V`$ is definite — for the objective to be finite there must be
+no zero-volatility long-only portfolio, which a definite $`V`$ guarantees. Applying the KKT
+theorem to $`f(w)=\ln D(w)`$, the optimum satisfies
 
 $$V\,w^{\mathrm{MDP}}=\frac{\sigma(w^{\mathrm{MDP}})}{D(w^{\mathrm{MDP}})}\,\sigma+\lambda,\qquad \min(\lambda,w^{\mathrm{MDP}})=0,$$
 
-with non-negative dual variables $\lambda$ satisfying complementarity; the stationarity
+with non-negative dual variables $`\lambda`$ satisfying complementarity; the stationarity
 condition is independent of the sum-to-one constraint, consistent with scale invariance.
 
 ## Geometric characterization: minimum variance on the correlation matrix
 
-The MDP has a transparent characterization: it is the minimum-variance portfolio computed
-on the **correlation matrix** rather than the covariance matrix, obtained by transferring
+With long-only or no constraints, the MDP has a transparent characterization: it is the
+minimum-variance portfolio computed on the **correlation matrix** rather than the
+covariance matrix, obtained by transferring
 the problem to a synthetic universe where all assets share the same volatility. Assuming
-lending/borrowing at a common rate, define synthetic assets
-$Y_i=X_i/\sigma_i+(1-1/\sigma_i)\$$ (with $\$$ the risk-free asset); each $Y_i$ has unit
-volatility, so the synthetic covariance matrix $V_S$ equals the original correlation
-matrix $C$ (correlation is leverage-invariant). Imposing $S'\Sigma_S=1$, maximizing the
-synthetic diversification ratio is minimizing $S'CS$ — minimizing variance in a universe
-of equal-volatility assets, exactly the benefit expected from diversification. If $C$ is
-invertible and $\Gamma=\varnothing$ the solution is $S\propto C^{-1}\mathbf1$, and
+lending/borrowing at a common rate (needed only to make the synthetic assets tradable; the
+characterization also follows from the first-order conditions alone), define synthetic assets
+$`Y_i=X_i/\sigma_i+(1-1/\sigma_i)\$`$ (with $`\$`$ the risk-free asset); each $`Y_i`$ has unit
+volatility, so the synthetic covariance matrix $`V_S`$ equals the original correlation
+matrix $`C`$ (correlation is leverage-invariant). Imposing $`S'\Sigma_S=1`$, maximizing the
+synthetic diversification ratio is minimizing $`S'CS`$ — minimizing variance in a universe
+of equal-volatility assets, exactly the benefit expected from diversification. If $`C`$ is
+invertible and $`\Gamma=\varnothing`$ the solution is $`S\propto C^{-1}\mathbf1`$, and
 reconstructing the real assets (dividing each synthetic weight by its volatility, then
 rescaling to 100% invested) gives
 
 $$M\propto \sigma^{-1}C^{-1}\mathbf1,$$
 
-with $\sigma$ the diagonal matrix of volatilities. The MDP is thus the minimum-variance
+with $`\sigma`$ the diagonal matrix of volatilities. The rescaling requires
+$`\mathbf1'\sigma^{-1}C^{-1}\mathbf1>0`$ (always true if $`C^{-1}\mathbf1>0`$; with a
+negative sum the normalised vector minimizes $`D`$), and with $`\Gamma=\varnothing`$ the
+weights may be negative: this is the long-short MDP. The MDP is thus the minimum-variance
 portfolio on the correlation matrix, rescaled by inverse volatilities.
 
 ## The core property: same correlation with the portfolio
 
-From $M=\kappa\,\sigma^{-1}C^{-1}\mathbf1$ follows a set of correlation properties. Since
-$VM=\kappa\,\sigma$, the correlation of any portfolio $P$ with $M$ is
-$\rho_{P,M}=D(P)\,\kappa/\sigma_M$ — proportional to $P$'s own diversification ratio.
-Applied to a single asset ($D=1$), $\rho_{i,M}=\kappa/\sigma_M$ is identical for every
+From $`M=\kappa\,\sigma^{-1}C^{-1}\mathbf1`$ (with $`\kappa>0`$ under the sign condition
+above) follows a set of correlation properties. Since
+$`VM=\kappa\,\sigma`$, the correlation of any portfolio $`P`$ with $`M`$ is
+$`\rho_{P,M}=D(P)\,\kappa/\sigma_M`$ — proportional to $`P`$'s own diversification ratio.
+Applied to a single asset ($`D=1`$), $`\rho_{i,M}=\kappa/\sigma_M`$ is identical for every
 asset: the MDP is the portfolio in which all assets share the same positive correlation
-with it. Identifying the constant gives $\rho_{P,M}=D(P)/D(M)$ and $\rho_{i,M}=1/D(M)$,
+with it. Identifying the constant gives $`\rho_{P,M}=D(P)/D(M)`$ and $`\rho_{i,M}=1/D(M)`$,
 yielding a single-(diversification-)factor model resembling the CAPM but identifying
 correlation with the ratio of diversification levels.
 
 In the constrained long-only case the equivalent **core property** states: every asset
-*not* held by the MDP is more correlated with it than any asset that *is* held, and all
+*not* held by the MDP is at least as correlated with it as any asset that *is* held
+(strictly more when its KKT multiplier is positive), and all
 held assets share the same correlation with it. So all universe assets are effectively
 represented even if not physically held — an MDP on a 500-stock index may hold about 50,
-the other 450 being more correlated with the portfolio than the 50 held, consistent with
-the MDP being the *non-diversifiable* portfolio. Equivalently, for any long-only $w$,
-$\rho_{w,w^{\mathrm{MDP}}}\ge D(w)/D(w^{\mathrm{MDP}})$: the more diversified a long-only
-portfolio, the higher its correlation with the MDP.
+the other 450 being at least as correlated with the portfolio as the 50 held, consistent with
+the MDP being the *non-diversifiable* portfolio. Equivalently, for any long-only $`w`$,
+$`\rho_{w,w^{\mathrm{MDP}}}\ge D(w)/D(w^{\mathrm{MDP}})`$, with equality when $`w`$ holds
+only assets the MDP holds: the more diversified a long-only portfolio, the higher its
+guaranteed minimum correlation with the MDP.
 
 ## The three invariances
 
@@ -151,17 +161,20 @@ identically. Choueifaty, Froidure and Reynier formalize three **invariance prope
 all satisfied by the MDP:
 
 1. **Duplication invariance** — duplicating an asset (e.g. multiple listings) leaves the
-   weights on original assets unchanged, since a redundant asset yields a redundant
-   first-order equation.
+   weights of the other assets and the total weight on the duplicated asset unchanged,
+   since a redundant asset yields a redundant first-order equation; the split of that
+   weight between the copies is indeterminate.
 2. **Leverage invariance** — if a company changes its leverage, all else equal the
    weights allocated to its underlying business do not change (cash exposure is handled
    separately).
 3. **Polico invariance** — adding a positive linear combination ("polico", e.g. a
    leveraged long-only ETF on a subset) does not alter the weights on original assets;
-   this follows from the core property, since any unselected asset has correlation above
-   $1/D(M)$ and a polico's diversification ratio exceeds 1, so it is never selected.
+   this follows from the core property, since any unselected asset has correlation of at
+   least $`1/D(M)`$ and a polico mixing at least two assets that are not perfectly
+   correlated has a diversification ratio above 1, so it is never selected (a leveraged
+   copy of a single asset is covered by leverage invariance).
 
-In a two-asset comparison ($\sigma_A=20\%$, $\sigma_B=10\%$, $\rho=50\%$) only the MDP
+In a two-asset comparison ($`\sigma_A=20\%`$, $`\sigma_B=10\%`$, $`\rho=50\%`$) only the MDP
 and the Equal-Risk-Contribution portfolio (ERC — see
 [risk budgeting and risk parity](../optimization/risk-budgeting-and-risk-parity.md))
 deliver a genuinely diversified risk allocation; equal weighting concentrates risk in the
@@ -173,40 +186,47 @@ ERC is leverage-invariant only; equal weighting satisfies none.
 
 The MDP sits in precise relation to two notable frontier portfolios. **Global minimum
 variance**: if all assets share the same volatility, the MDP coincides with the global
-minimum-variance portfolio, because minimizing $S'CS$ on the correlation matrix then
-equals minimizing $w'Vw$ on the covariance matrix up to scale. **Tangency and
-mean-variance optimality**: the MDP is mean-variance optimal exactly when assets' excess
-expected returns are proportional to their volatilities — "risk is homogeneously
-rewarded." In a homogeneous universe where all assets have identical *ex ante* Sharpe
-ratios, $E(r_i)-r_f=k\sigma_i$, so for any portfolio
-$E(r_w)-r_f=k\langle w\mid\sigma\rangle=k\,\sigma(w)D(w)$; dividing by $\sigma(w)$ shows
-maximizing $D$ equals maximizing the Sharpe ratio, making the MDP the tangency portfolio.
-Under CAPM assumptions a security-market-line relation reappears with the MDP playing the
+minimum-variance portfolio, because minimizing $`S'CS`$ on the correlation matrix then
+equals minimizing $`w'Vw`$ on the covariance matrix up to scale. **Tangency and
+mean-variance optimality**: if assets' excess expected returns are proportional to their
+volatilities — "risk is homogeneously rewarded" — the MDP is the tangency portfolio;
+without weight constraints and with $`V`$ invertible the converse holds too. In a homogeneous universe where all assets have identical *ex ante* Sharpe
+ratios, $`E(r_i)-r_f=k\sigma_i`$, so for any portfolio
+$`E(r_w)-r_f=k\langle w\mid\sigma\rangle=k\,\sigma(w)D(w)`$; dividing by $`\sigma(w)`$ shows
+maximizing $`D`$ equals maximizing the Sharpe ratio, making the MDP the tangency portfolio.
+If, besides the CAPM assumptions, all investors agree that excess returns are proportional
+to volatilities, a security-market-line relation reappears with the MDP playing the
 market portfolio's role,
-$E(r_i)-r_f=\rho_{\mathrm{MDP}}(\sigma_i/\sigma_{\mathrm{MDP}})(E(r_{\mathrm{MDP}})-r_f)$;
-by contrast the cap-weighted benchmark is optimal when excess returns are proportional to
+$`E(r_i)-r_f=\rho_{\mathrm{MDP}}(\sigma_i/\sigma_{\mathrm{MDP}})(E(r_{\mathrm{MDP}})-r_f)`$,
+where $`\rho_{\mathrm{MDP}}=1/D(\mathrm{MDP})`$ is the common correlation of every asset
+with the unconstrained MDP; by contrast the cap-weighted benchmark is optimal when excess returns are proportional to
 total risk and correlation with the benchmark, and minimum variance is optimal when all
 excess returns are equal.
 
 ## Empirical evidence and implementation
 
-Operationally the MDP is built by solving the long-only QP $\min_w\tfrac12 w'Vw$ subject
-to $w_i\ge0$ and $\sum_i w_i\sigma_i=1$ (rescaling afterward), or equivalently by
-maximizing $D(w)$ directly under the desired constraints $\Gamma$. In practice one adds
-per-asset weight caps, sector/region limits and turnover penalties, and estimates the
-covariance with the methods of
+Operationally the MDP is built by solving the long-only QP $`\min_w\tfrac12 w'Vw`$ subject
+to $`w_i\ge0`$ and $`\sum_i w_i\sigma_i=1`$ (rescaling afterward), or equivalently by
+maximizing $`D(w)`$ directly under the desired constraints $`\Gamma`$. In practice one adds
+per-asset weight caps $`w_i\le u`$, sector/region limits $`Aw\le b`$ and turnover
+penalties; these refer to weights summing to 1, so the QP equivalence holds only for cone
+constraints such as $`w\ge0`$, and caps and limits must be homogenised ($`y=t\,w`$ with
+$`t=\mathbf1'y`$, $`\sigma'y=1`$, $`y_i\le u\,t`$, $`Ay\le b\,t`$, then $`w=y/t`$), while
+a turnover penalty breaks scale invariance. One
+also estimates the covariance with the methods of
 [estimation error and shrinkage](../estimation/estimation-error-and-shrinkage.md) and
 [dynamic covariance](../estimation/dynamic-covariance.md); the long-only constraint alone
 acts like a robust estimation technique. Empirically, MDPs built monthly on US and
-Eurozone equity universes (1992-2008) with covariance from 250 daily returns and a 4%
-per-asset risk-contribution cap earned higher risk-adjusted returns than the cap
+Eurozone equity universes (1992-2008) with covariance from 250 daily returns, a 4%
+per-asset risk-contribution cap and UCITS III weight limits earned higher risk-adjusted returns than the cap
 benchmark, minimum variance and equal weighting, at lower volatility than the index
 (13.9% vs 17.9% Eurozone; 12.7% vs 13.4% US). On MSCI World (1999-2010) the MDP had the
 highest diversification ratio — its primary goal — and the highest Sharpe ratio, closest
 to tangency, while minimum variance realized the lowest *ex post* volatility; each keeps
-its promise. Fama-French three-factor regressions confirm the MDP produces the highest
-alpha among tested strategies. When the correlation matrix is singular the solution may be
-non-unique, but since all such portfolios deliver maximum diversification and are
-perfectly correlated, the choice is immaterial — the MDP stands as a solid candidate for
+its promise. In the same study, Fama-French three-factor regressions give the MDP the
+largest point-estimate alpha among tested strategies. When the correlation matrix is
+singular the solution may be non-unique, but provided the maximum is finite all such
+portfolios deliver maximum diversification and are perfectly correlated under the
+covariance matrix used, so the choice is immaterial in sample — the MDP stands as a solid candidate for
 the non-diversifiable portfolio that classical theory identifies with the equity risk
 premium.

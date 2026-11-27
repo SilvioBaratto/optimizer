@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from _fund_fakes import NoToolsChatModel
+from _fund_fakes import NoToolsChatModel, file_tree
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.memory import MemorySaver
@@ -806,6 +806,56 @@ def test_a_command_is_refused_and_nothing_is_run(repo, runtime) -> None:
 
     assert "not available" in " ".join(_tool_results(agent)).lower()
     assert not list(runtime.rglob("ran.txt"))
+
+
+@pytest.mark.criterion("REQ-FUND-038")
+def test_a_dot_prefixed_path_cannot_be_written_edited_or_deleted(repo, runtime) -> None:
+    """Validates ``fund.agents.backend.guarded_filesystem_backend`` through the agent.
+
+    The ``/**`` rule does not match a hidden path, so the backend must refuse it.
+    ``wcmatch`` leaves dot-prefixed names out of ``*`` and ``**`` unless told
+    otherwise, and deepagents does not tell it, so ``/.git/config``, ``/docs/.x.md``
+    and a file inside ``/code/fund/.hid`` slipped past the one deny rule.
+    """
+    root = _staged(repo, runtime)
+    (root / "code/fund/.hidden.py").write_text("# hidden\n")
+    (root / "code/fund/.hid").mkdir()
+    (root / "code/fund/.hid/den.py").write_text("# hid\n")
+    new_paths = [
+        "/.git/config",
+        "/a/.h/x",
+        "/code/fund/.new.py",
+        "/code/fund/.hid/new.py",
+        "/docs/.x.md",
+        "/docs/optimizerwiki/.obsidian/app.json",
+    ]
+    edit_paths = ["/code/fund/.hidden.py", "/code/fund/.hid/den.py"]
+    script = [
+        tool_call("write_file", {"file_path": p, "content": "x"}, f"w{i}")
+        for i, p in enumerate(new_paths)
+    ]
+    script += [
+        tool_call(
+            "edit_file",
+            {"file_path": p, "old_string": "#", "new_string": "PWN"},
+            f"e{i}",
+        )
+        for i, p in enumerate(edit_paths)
+    ]
+    script += [
+        tool_call("delete", {"file_path": p}, f"d{i}")
+        for i, p in enumerate([*edit_paths, "/code/fund/.hid"])
+    ]
+    script.append(AIMessage("done"))
+    _, agent = _agent(repo, runtime, script)
+    before = file_tree(runtime)
+
+    run_ask_turn(agent, scope="fund", question="change it", max_steps=40)
+
+    results = _tool_results(agent)
+    assert len(results) == len(script) - 1
+    assert all("permission denied" in r.lower() for r in results), results
+    assert file_tree(runtime) == before
 
 
 @pytest.mark.parametrize(

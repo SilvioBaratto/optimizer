@@ -80,6 +80,19 @@ class TestInitialize:
         assert kwargs["max_overflow"] == 13
         assert kwargs["pool_pre_ping"] is True
 
+    def test_bare_postgres_url_is_bound_to_psycopg2(self) -> None:
+        mgr, engine = _make_manager()
+        with patch(f"{M}.create_engine", return_value=engine) as create:
+            mgr.initialize()
+        assert create.call_args.args[0] == "postgresql+psycopg2://u:p@h:5432/db"
+
+    def test_non_postgres_url_reaches_the_engine_as_given(self, tmp_path) -> None:
+        url = f"sqlite:///{tmp_path / 'engine.db'}"
+        mgr, engine = _make_manager(cfg=_SqliteConfig(url=url))
+        with patch(f"{M}.create_engine", return_value=engine) as create:
+            mgr.initialize()
+        assert create.call_args.args[0] == url
+
     def test_server_timeouts_reach_the_driver_connect_args(self) -> None:
         mgr, engine = _make_manager(cfg=_cfg(lock_timeout_ms=4_000))
         with patch(f"{M}.create_engine", return_value=engine) as create:

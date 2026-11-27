@@ -36,6 +36,10 @@ the profile's objective.
 - Risk aversion `A` is quoted for variance utility; the tool rescales it for
   CVaR / CDaR / MaxDD so max_utility lands at the risk level that variance-utility
   `A` implies (neither collapsing into min_risk nor drifting to a riskier book).
+- `max` (MAXIMIZE_RATIO) assumes a tangency portfolio exists, which holds only if
+  the risk-free rate is below the expected return of the minimum-variance portfolio
+  (`02:185`). When the estimated returns leave no such portfolio, say so; do not
+  describe the result as a max-Sharpe book.
 - Recorded intent, never applied today: the robust uncertainty set for prudent
   profiles: `15:80` (radius/geometry/norm in 1.0), and the turnover penalty.
 - Objective / cone obligations: the curated map

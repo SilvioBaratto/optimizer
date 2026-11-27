@@ -28,11 +28,9 @@ TICKER_FEED_HEALTH = TickerFeedHealth()
 def _search_news(symbol: str, count: int) -> list[dict[str, Any]]:
     """Fetch articles from Yahoo's search endpoint.
 
-    ``Ticker.news`` requests ``/xhr/ncp``, which Yahoo now answers with 404, so it
-    yields nothing for every symbol: an empty list, or a raised
-    ``YFDataException`` when the error page carries yfinance's "right back" text.
-    The search endpoint still serves the same flat article shape
-    (``uuid``/``link``/``providerPublishTime``).
+    The fallback for a ticker feed that is empty or failing. The search endpoint
+    serves a flat article shape (``uuid``/``link``/``providerPublishTime``), where
+    the feed nests the fields under ``content``.
     """
     return list(yf.Search(symbol, max_results=0, news_count=count).news or [])
 
@@ -76,9 +74,9 @@ def fetch_yahoo_news(
     """Fetch a ticker's news, falling back to the search endpoint.
 
     The search endpoint is used when the ticker feed is empty and also when it
-    fails with ``YFDataException``, the error yfinance raises for any non-JSON
-    answer, including the 404 page of the retired route. After repeated failures
-    the feed is skipped for a while so a sweep does not pay for a dead route on
+    fails with ``YFDataException``, the error yfinance raises when Yahoo gives no
+    response or answers with its "right back" error page. After repeated failures
+    the feed is skipped for a while so a sweep does not pay for a failing feed on
     every ticker. Rate limits and network errors are not caught: they belong to the
     caller's retry and circuit-breaker logic.
 
@@ -208,9 +206,9 @@ class NewsClient:
         return news
 
     def _record_feed(self, symbol: str, news: list[dict[str, Any]] | None) -> None:
-        # yfinance turns a failing news endpoint (HTTP 404) into an empty
-        # stream, so one empty feed looks exactly like a quiet ticker. A run of
-        # them is the only observable symptom of a dead endpoint.
+        # yfinance turns a news endpoint that answers with a JSON error into an
+        # empty list, so one empty feed looks exactly like a quiet ticker. A run
+        # of them is the only observable symptom of a failing endpoint.
         if news:
             self._empty_feed_streak = 0
             return

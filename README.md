@@ -80,7 +80,21 @@ prices → preprocessing → pre_selection → moments → views
 
 Plus the cross-cutting modules `factors/`, `synthetic/`, `scoring/`,
 `universe/`, `distance/`, `cluster/`, `uncertainty_set/`, `linear_model/`,
-`online/`, `fx/` — **18 submodules** in total.
+`online/`, `fx/` and eight research tools that sit beside the pipeline and are not
+part of it — **26 submodules** in total:
+
+| Tool | What it gives you |
+|------|-------------------|
+| `risk/` | Value-at-Risk (historical, parametric, Cornish-Fisher, Monte Carlo) with expected shortfall, and a Kupiec / Christoffersen backtest of the forecasts |
+| `simulation/` | GBM and bootstrap price paths, path summaries, and a Kelly-criterion toolkit |
+| `strategies/` | Moving-average and momentum signals and a no-look-ahead weight backtest with proportional costs |
+| `regression/` | OLS with Newey-West errors, a CAPM report, a security market line and Fama-French-style factor regressions |
+| `plotting/` | plotly figures: correlation heatmap, efficient frontier, returns and volatility, security market line |
+| `derivatives/` | Black-Scholes prices, Greeks and implied volatility, a binomial tree, a delta-hedging simulator |
+| `credit/` | The Merton structural credit model: asset value and volatility, distance to default, spread |
+| `statarb/` | Cointegration tests, a Kalman hedge ratio, z-score signals and PCA residual models (research only: the fund is long-only and paper-only) |
+
+`validation/` also holds the probabilistic and deflated Sharpe ratio.
 
 The `optimization` module exposes **fifteen optimizer builders** (each a frozen
 config + `build_*` factory): Mean-Risk (`build_mean_risk`) and its
@@ -95,7 +109,7 @@ submodule's source and docstrings under `packages/portopt-core/optimizer/`.
 
 ## Requirements
 
-- **Python ≥ 3.12** (all four packages; the numpy 2.5 / pandas 3.0 pins make
+- **Python ≥ 3.12** (all four packages; the numpy 2.5 / pandas 3.1 pins make
   3.12 a hard floor). CI runs 3.12 and 3.13.
 - **[uv](https://docs.astral.sh/uv/)** — the workspace resolver / runner.
 - **Docker + the `docker compose` v2 plugin** — only for the ingestion daemon
@@ -125,8 +139,8 @@ those unpublished names up on PyPI), so install those two through uv.
 
 The daemon ships an install wizard. The one-line bootstrap needs **git**: it clones
 this repo, installs `uv`, installs the `portopt` CLI straight from it (the CLI and the
-daemon are never published to PyPI; `release.yml` builds only the `portopt-core`
-library), then launches the wizard:
+daemon are never published to PyPI, and this repo uploads nothing there;
+`release.yml` builds only the `portopt-core` library), then launches the wizard:
 
 ```bash
 # macOS / Linux
@@ -380,25 +394,25 @@ barred ticker with its reason.
 Each member declares its own; the single shared venv installs one version of
 each shared pin. Exact runtime pins:
 
-**`portopt-core`** (library): `numpy==2.5.4`, `pandas==3.0.6`, `scipy==1.18.1`,
-`scikit-learn==1.9.1`, `skfolio==1.12.5`, `jinja2==3.1.6`.
+**`portopt-core`** (library): `numpy==2.5.5`, `pandas==3.1.1`, `scipy==1.18.1`,
+`scikit-learn==1.9.1`, `skfolio==1.14.6`, `jinja2==3.1.6`, `plotly==7.2.0`.
 *(`arch` is **not** declared — it reaches bootstrap uncertainty-set classes
 transitively via skfolio. Code importing it directly must guard with
 `try/except ImportError` or declare it.)*
 
-**`portopt-db`** (DB layer): `SQLAlchemy==2.0.52`, `psycopg2-binary==2.9.12`,
-`alembic==1.19.1`, `pandas==3.0.6`, `pydantic==2.14.1`. Owns the SQLAlchemy pin
+**`portopt-db`** (DB layer): `SQLAlchemy==2.1.9`, `psycopg2-binary==2.9.13`,
+`alembic==1.20.1`, `pandas==3.1.1`, `pydantic==2.14.4`. Owns the SQLAlchemy pin
 the whole workspace inherits.
 
-**`portopt`** (ingestion): `yfinance==1.7.0`, `scikit-learn==1.9.1` (declared,
-for DBSCAN price-repair), `numpy==2.5.4`, `pandas==3.0.6`, `APScheduler==3.11.3`,
-`SQLAlchemy==2.0.52`, `exchange_calendars==4.13.2`, `httpx==0.28.1`,
+**`portopt`** (ingestion): `yfinance==1.8.0`, `scikit-learn==1.9.1` (declared,
+for DBSCAN price-repair), `numpy==2.5.5`, `pandas==3.1.1`, `APScheduler==3.11.3`,
+`SQLAlchemy==2.1.9`, `exchange_calendars==4.13.3`, `httpx==0.28.1`,
 `beautifulsoup4==4.15.0`, `requests==2.34.2`, `prometheus-client==0.26.0`,
-`typer==0.27.1`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==50.0.2`,
-`pydantic==2.14.1`, `pydantic-settings==2.15.0`, `python-dotenv==1.2.3`, plus
+`typer==0.29.3`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==50.0.2`,
+`pydantic==2.14.4`, `pydantic-settings==2.16.3`, `python-dotenv==1.2.4`, plus
 `portopt-db` (workspace; psycopg2-binary/alembic arrive transitively).
 
-**`portopt-fund`** (bridge): `deepagents==0.7.35` (the only exact pin),
+**`portopt-fund`** (bridge): `deepagents==0.7.42` (the only exact pin),
 `langgraph`, `langgraph-checkpoint-postgres`, `psycopg[binary]`, `psycopg-pool`,
 `langchain-ollama`, `APScheduler`, `typer`, `textual`, `pydantic`,
 `python-dotenv`, plus `portopt-core` + `portopt-db` (workspace).
@@ -449,9 +463,10 @@ all four members → the complexity ratchet → shellcheck → pip-audit), `type
 `integration`-marked tests of `portopt-db` and `fund`), `changelog` (advisory, pull
 requests only: shipped code needs a `CHANGELOG.md` entry), `docker-images` (compose config + build of
 both images, then a boot of both stacks), and `windows-install` (`install.ps1` on a
-Windows runner under Windows PowerShell 5.1 and PowerShell 7). `release.yml` publishes `portopt-core` to PyPI on `v*` tags, but only
+Windows runner under Windows PowerShell 5.1 and PowerShell 7). `release.yml` builds `portopt-core` on `v*` tags, but only
 after checking that the tagged commit is on `main`, that the tag equals
-`v<pyproject version>`, and that the whole CI workflow passes on it.
+`v<pyproject version>`, and that the whole CI workflow passes on it. It uploads
+nothing to PyPI.
 
 ---
 

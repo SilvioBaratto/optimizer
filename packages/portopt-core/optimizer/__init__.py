@@ -41,7 +41,8 @@ synthetic
     stress testing.
 validation
     Model selection and cross-validation (Walk-Forward, Combinatorial
-    Purged CV, Multiple Randomized CV).
+    Purged CV, Multiple Randomized CV) and the probabilistic / deflated
+    Sharpe ratio.
 scoring
     Performance scoring for model selection and hyperparameter tuning.
 tuning
@@ -59,6 +60,32 @@ online
 rebalancing
     Rebalancing frameworks (calendar-based, threshold-based,
     turnover computation, transaction cost estimation).
+
+Research tools that sit beside the optimization pipeline and are not part of
+it:
+
+risk
+    Value-at-Risk and expected shortfall (historical, parametric,
+    Cornish-Fisher, Monte Carlo) and a Kupiec / Christoffersen backtest.
+simulation
+    GBM and bootstrap price paths, path summaries and the Kelly criterion.
+strategies
+    Moving-average and momentum signals, and a weight backtest with
+    proportional costs and no look-ahead.
+regression
+    OLS with Newey-West errors, CAPM, the security market line and
+    Fama-French-style factor regressions.
+plotting
+    plotly figures for correlation, the efficient frontier, returns and
+    volatility, and the security market line.
+derivatives
+    Black-Scholes prices, Greeks and implied volatility, a binomial tree and
+    a delta-hedging simulator.
+credit
+    The Merton structural credit model.
+statarb
+    Cointegration, a Kalman hedge ratio, z-score signals and PCA residual
+    models. Research only.
 """
 
 import logging
