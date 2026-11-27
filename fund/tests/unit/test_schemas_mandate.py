@@ -320,29 +320,19 @@ def test_eligible_tickers_is_frozen():
         m.eligible_tickers = ("X",)  # type: ignore[misc]
 
 
-def test_tradeable_only_defaults_to_false_so_existing_mandates_are_unchanged():
-    assert _valid_mandate().tradeable_only is False
+@pytest.mark.criterion("REQ-FUND-042")
+def test_mandate_has_no_tradeable_only_field():
+    """Validates the mandate has no broker-scope field, in test_schemas_mandate.py."""
+    assert "tradeable_only" not in PortfolioMandate.model_fields
+    assert "tradeable_only" not in _valid_mandate().model_dump(mode="json")
 
 
-def test_old_serialised_mandate_validates_tradeable_only_to_false():
-    legacy = _valid_mandate().model_dump(mode="json")
-    legacy.pop("tradeable_only", None)
-    assert "tradeable_only" not in legacy
+@pytest.mark.criterion("REQ-FUND-042")
+def test_mandate_with_removed_tradeable_only_key_loads():
+    """Validates loading a mandate with the removed key, in test_schemas_mandate.py."""
+    stored = _valid_mandate().model_dump(mode="json") | {"tradeable_only": True}
 
-    assert PortfolioMandate.model_validate(legacy).tradeable_only is False
-    assert PortfolioMandate.from_stored(legacy).tradeable_only is False
+    loaded = PortfolioMandate.from_stored(stored)
 
-
-def test_tradeable_only_round_trips_and_stays_hashable():
-    m = _valid_mandate().model_copy(update={"tradeable_only": True})
-
-    round_tripped = PortfolioMandate.model_validate(m.model_dump(mode="json"))
-
-    assert round_tripped == m
-    assert round_tripped.tradeable_only is True
-    assert hash(m) == hash(round_tripped)
-
-
-def test_tradeable_only_is_frozen():
-    with pytest.raises(pydantic.ValidationError):
-        _valid_mandate().tradeable_only = True  # type: ignore[misc]
+    assert loaded == _valid_mandate()
+    assert not hasattr(loaded, "tradeable_only")

@@ -213,7 +213,7 @@ class FxRateReader(Protocol):
 
 @runtime_checkable
 class UniverseReader(Protocol):
-    """Reads of the instrument universe: classification and the Trading 212 overlay."""
+    """Reads of the instrument universe: the classification of listings."""
 
     def instrument_classes_for(self, tickers: Collection[str]) -> list[InstrumentClass]:
         """Return the classification of every row that carries one of ``tickers``.
@@ -228,32 +228,6 @@ class UniverseReader(Protocol):
             One entry per matching row, sorted by these keys in turn: not delisted
             before delisted, newer ``delisted_at`` first, newer ``created_at``
             first, then ``ticker`` and ``id``; empty when no row matches.
-        """
-        ...
-
-    def get_t212_untradeable_tickers(
-        self, tickers: Collection[str] | None = None
-    ) -> list[str] | None:
-        """Return the Yahoo symbols the overlay found absent from the broker.
-
-        Args:
-            tickers: Restrict the answer to these symbols. ``None`` asks about every
-                instrument; an empty collection asks about none.
-
-        Returns:
-            Sorted symbols flagged untradeable on every active row, or ``None`` when
-            the overlay has evaluated no row at all.
-        """
-        ...
-
-    def get_t212_unevaluated_tickers(self, tickers: Collection[str]) -> list[str]:
-        """Return the given Yahoo symbols whose broker status the overlay never judged.
-
-        Args:
-            tickers: Symbols to check; an empty collection asks about none.
-
-        Returns:
-            Sorted symbols that have an active row and no active row with a flag.
         """
         ...
 

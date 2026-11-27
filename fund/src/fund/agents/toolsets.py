@@ -428,7 +428,7 @@ def _get_macro_impl(ctx: RunContext, names: list[str]) -> ToolResult:
 def _list_universe_impl(
     ctx: RunContext, sector: str | None = None, limit: int = 100, offset: int = 0
 ) -> ToolResult:
-    if ctx.eligible is not None and ctx.eligible.has_allowlist:
+    if ctx.eligible is not None:
         # The portfolio's allowlist, already screened for ESG by the resolver, is the
         # whole universe: the market-cap ranking would bury every fund below it.
         if not ctx.eligible.allowed:
@@ -452,10 +452,6 @@ def _list_universe_impl(
         ctx.asof,
         exclusions=tuple(cs.esg.exclusions) if cs is not None else (),
         sector=sector,
-        # A broker scope with no allowlist cannot enumerate its names, so the listing
-        # drops the refused ones in SQL; the same predicate the resolver collected
-        # them with, and nothing to drop when it found none.
-        tradeable_only=ctx.eligible is not None and bool(ctx.eligible.untradeable),
         limit=limit,
         offset=offset,
     )
