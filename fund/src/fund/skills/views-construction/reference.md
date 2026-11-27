@@ -12,10 +12,14 @@ result, so the table below describes the bridge, not what a run does to the weig
 | Equilibrium prior Π* | theory: reverse-optimised market weights; the bridge never passes `market_weights`, so skfolio's `EquilibriumMu` uses equal weights (1/N) | `03:111` |
 | View (P, Q) | relative/absolute expected-return statements | `03:149` |
 | Confidence → Omega | higher confidence → smaller Omega variance | `03:123`, `03:149` |
-| Posterior (mu, Sigma) | computed by a Black-Litterman run, never by the LLM | `03:94` |
+| Posterior (mu, Sigma) | computed by a Black-Litterman run, never by the LLM; the covariance of returns is the prior covariance plus the posterior covariance of the mean | `03:94`, `03:202` |
 
 ## Regime → view bridge
-`21:152` (regime → BL view), `21:114` (four economically-interpretable regimes).
+`21:210` (regime → BL view), `21:154` (four economically-interpretable regimes).
+A Black-Litterman view carries expected returns only (P, Q). A regime also moves
+volatilities and correlations, but that is not a view: a view on a volatility or a
+correlation is not a Black-Litterman view (it needs entropy pooling), so a regime
+read yields return views only.
 
 ## Factor views
 - Factor-model structure and covariance: `05:71`, `05:121`.
