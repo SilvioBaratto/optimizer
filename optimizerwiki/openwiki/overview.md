@@ -48,8 +48,10 @@ qualitative, mixed), by **market posture** (conservative, moderate, aggressive),
 the investor, the market, and the asset classes, and produces real operational benefit only
 under six critical conditions: portfolio performance (real, total, risk-adjusted return),
 stability of asset relationships (structural breaks limit the use of past information),
-dependence between assets (high dependence nullifies diversification and rises long-term
-with globalization and short-term in panics), sensitivity of results (remedied by
+dependence between assets (high dependence erodes, without eliminating, the benefit of
+diversification; studies often find it highest in periods of market integration such as
+late-twentieth-century globalization and rising in bear markets, though part of the measured
+rise in turbulent periods is an upward bias of correlation estimates), sensitivity of results (remedied by
 Black-Litterman, robust estimation, and sensitivity analysis), rebalancing (frequency and
 conditions considering estimate variability, transaction costs, and stop-loss rules), and
 errors and fraud. These six factors direct the topics of the later chapters.
@@ -57,41 +59,50 @@ errors and fraud. These six factors direct the topics of the later chapters.
 ## Investing as the transfer of wealth under uncertainty
 
 The theory starts from the consumer's choice problem
-$\max_q u(q_1,\dots,q_N)$ subject to $\sum_i q_ip_i=M$, $q_i\ge0$, whose implicit
-assumption — the economy is born, lives, and dies at instant $t$ — is unrealistic, since
-many consumers transfer part of current income $M$ to future instants. A consumer faces
+$`\max_q u(q_1,\dots,q_N)`$ subject to $`\sum_i q_ip_i=M`$, $`q_i\ge0`$, whose implicit
+assumption — the economy is born, lives, and dies at instant $`t`$ — is unrealistic, since
+many consumers transfer part of current income $`M`$ to future instants. A consumer faces
 two correlated decisions: the consumption-saving decision and the portfolio-selection
 decision. The monograph's scope is the second — how to invest across assets to transfer
 wealth from the current to the future period. Because the future is largely unknown (the
 riskiness is roughly of a *random walk* type), investing is risky, and financial economics
 supplies the theory, methods, and tools for transferring wealth while managing uncertainty.
-The two decisions cannot in general be taken independently, but many important results
-follow more easily in a **single-period** setting where the consumption-saving allocation
-has limited substantive impact; the monograph therefore formalizes portfolio selection
-directly in a single-period economy. Investment choices are random variables: a set
-$\mathbb X=\{X_1,\dots,X_N\}$ of stochastic investments, each with outcomes and
-probabilities. The central object: given wealth $W$ and investments $\mathbb X$, a
-**financial portfolio** is an $N$-vector $\mathbf x'=(x_1,\dots,x_N)$ where $x_i$ is the
-percentage of $W$ invested in $X_i$, with $\sum_i x_i=1$ — the technical instrument that
+The two decisions cannot in general be taken independently. Mean-variance theory
+nonetheless addresses a one-period horizon, and relaxing that restrictive assumption brings
+the consumption-saving decision back in (Constantinides and Malliaris); the introductory
+chapter therefore formalizes portfolio selection directly in a **single-period** economy,
+which keeps the derivations simple. Investment choices are random variables: a set
+$`\mathbb X=\{X_1,\dots,X_N\}`$ of stochastic investments, each with outcomes and
+probabilities. The central object: given wealth $`W`$ and investments $`\mathbb X`$, a
+**financial portfolio** is an $`N`$-vector $`\mathbf x'=(x_1,\dots,x_N)`$ where $`x_i`$ is the
+fraction of $`W`$ invested in $`X_i`$, with $`\sum_i x_i=1`$ and no sign restriction (short
+sales are allowed unless $`x_i\ge0`$ is imposed) — the technical instrument that
 transfers wealth from one period to the next.
 
 ## Measuring single-period performance
 
 How single-period performance is measured depends on the price-dynamics law chosen.
 Financial-mathematics convention adopts the **net percentage return**: from
-$P_t=P_{t-\Delta t}(1+R_{\%,\Delta t})-D$ one gets
-$R_{\%,\Delta t}=(P_t+D-P_{t-\Delta t})/P_{t-\Delta t}$, but this dynamics admits an
-inadmissible negative price when the return is sufficiently negative. Mathematical-finance
-convention instead adopts the **net logarithmic return**: from
-$P_t=P_{t-\Delta t}e^{R_{\ln,\Delta t}}-D$ one gets
-$R_{\ln,\Delta t}=\ln((P_t+D)/P_{t-\Delta t})$, which keeps $P_t>0$ for any return when
-$D=0$. The two are **asymptotically equivalent**: $R_{\ln,\Delta t}=\ln(1+R_{\%,\Delta t})=R_{\%,\Delta t}-R_{\%,\Delta t}^2/2+\dots$
-for $R_{\%,\Delta t}\in(-100\%,100\%)$, which holds when $\Delta t$ is small enough (daily,
-weekly, monthly). Despite this, percentage returns are **not additive over time** while log
-returns are: over prices $P_0,P_1,P_2$, $R_{\ln,(0,1]}+R_{\ln,(1,2]}=R_{\ln,(0,2]}$ but the
-percentage sum does not equal $R_{\%,(0,2]}$. Numerically, prices 100/125/100 give
+$`P_t=P_{t-\Delta t}(1+R_{\%,\Delta t})-D`$ one gets
+$`R_{\%,\Delta t}=(P_t+D-P_{t-\Delta t})/P_{t-\Delta t}`$, but this dynamics gives an
+inadmissible negative price when $`R_{\%,\Delta t}<D/P_{t-\Delta t}-1`$ (below $`-100\%`$
+when $`D=0`$). Mathematical-finance convention instead adopts the **net logarithmic
+return**: from $`P_t=P_{t-\Delta t}e^{R_{\ln,\Delta t}}-D`$ one gets
+$`R_{\ln,\Delta t}=\ln((P_t+D)/P_{t-\Delta t})`$, which keeps $`P_t>0`$ for any return when
+$`D=0`$; with $`D>0`$ the price is negative when $`R_{\ln,\Delta t}<\ln(D/P_{t-\Delta t})`$.
+The two are **asymptotically equivalent** as $`R_{\%,\Delta t}\to0`$:
+$`R_{\ln,\Delta t}=\ln(1+R_{\%,\Delta t})=R_{\%,\Delta t}-R_{\%,\Delta t}^2/2+\dots`$, a series
+that converges for $`R_{\%,\Delta t}\in(-100\%,100\%]`$ but is close to its first term only
+when $`|R_{\%,\Delta t}|\ll1`$, as for daily, weekly or monthly returns. Despite this,
+percentage returns are **not additive over time** while log returns are (with no dividends,
+or dividends reinvested): over prices $`P_0,P_1,P_2`$, $`R_{\ln,(0,1]}+R_{\ln,(1,2]}=R_{\ln,(0,2]}`$,
+while the percentage sum differs in general from $`R_{\%,(0,2]}`$ by the cross term
+$`R_{\%,(0,1]}R_{\%,(1,2]}`$. Numerically, prices 100/125/100 give
 one-period percentage returns of 25.00% and −20.00% summing to 5.00% (not the 0.00%
-two-period figure), while log returns 22.31% and −22.31% sum to exactly 0.00%.
+two-period figure), while log returns 22.31% and −22.31% sum to exactly 0.00%. Across
+assets the roles are reversed: a portfolio's percentage return is the weighted sum of its
+assets' percentage returns, while log returns do not aggregate this way, so single-period
+mean-variance analysis uses percentage (linear) returns.
 
 ## Mean and variance as reward and risk measures
 
@@ -100,45 +111,55 @@ Portfolio selection under uncertainty unfolds in three steps: (1) identify a too
 investments into a mutually exclusive efficient set and inefficient set; (3) specify an
 optimization approach to find, among efficient choices, the optimal one — as maximizing
 return under a risk cap, minimizing risk under a return floor, optimizing a summary index
-(e.g. maximizing $\text{return}-\lambda\cdot\text{risk}$), or maximizing a von
-Neumann-Morgenstern utility. For step one the tool is a pair of statistical indices of the
+(e.g. maximizing $`\text{return}-\lambda\cdot\text{risk}`$, with $`\lambda>0`$ measuring risk
+aversion), or maximizing the expected value of a von Neumann-Morgenstern utility. For step one the tool is a pair of statistical indices of the
 single-period return random variable: its **mean** and **variance**, following the rule that
 the investor treats expected return as desirable and return variance as undesirable
 (Markowitz). Markowitz's innovation was to measure portfolio risk via the joint
 (multivariate) distribution of all asset returns — marginal properties through the first
 two moments, dependence through the pairwise Pearson linear correlation. The **mean**
-$\mathbb E(R)=r$ measures profitability (any odd moment can serve as a reward measure), and
-the **variance** $\mathrm{Var}(R)=\sigma^2$ measures risk (any even moment can serve as a
-risk measure); in general mean and variance do not fully characterize a random variable.
+$`\mathbb E(R)=r`$ measures profitability and the **variance** $`\mathrm{Var}(R)=\sigma^2`$
+measures risk, provided both are finite (for continuous variables they may not exist);
+investors prefer larger odd and smaller even central moments of higher order only under
+conditions on the utility function. In general mean and variance do not fully characterize a random
+variable.
 
 ## A limit of variance: semi-variance and mean absolute deviation
 
 Variance is not, in general, a "good" risk measure. For
-$R=\{(1\%,\tfrac14),(3\%,\tfrac15),(9\%,\tfrac14),(10\%,\tfrac15),(12\%,\tfrac1{10})\}$ the
-mean is 6.3% and the variance $(4.124318\%)^2=17.01\%^2$; the deviations from the mean are
+$`R=\{(1\%,\tfrac14),(3\%,\tfrac15),(9\%,\tfrac14),(10\%,\tfrac15),(12\%,\tfrac1{10})\}`$ the
+mean is 6.3% and the variance $`(4.124318\%)^2=17.01\%^2`$; the deviations from the mean are
 −5.3%, −3.3%, 2.7%, 3.7%, 5.7%, and variance penalizes the positive deviations (returns
 *above* expectation, not risky) exactly like the negative ones by squaring all of them.
 The **semi-variance** considers only negative deviations,
-$\sum_i(\min\{0,x_i-\mathbb E(R)\})^2 p_i$, giving $(3.03323\%)^2=9.2005\%^2<17.01\%^2$;
+$`\sum_i(\min\{0,x_i-\mathbb E(R)\})^2 p_i`$, giving $`(3.03323\%)^2=9.2005\%^2<17.01\%^2`$;
 Markowitz proposed it because only downside risk matters to the investor. The **mean
-absolute deviation (MAD)** $\sum_i|x_i-\mathbb E(R)|p_i=3.97\%$ has $\mathrm{MAD}^2=15.76\%^2<17.01\%^2$;
-its use as a portfolio risk function is due to Konno and Yamazaki. Still, neither semi-variance
-nor MAD is a better risk measure than variance, which has analytical advantages other
-variability measures lack — the properties a risk measure should satisfy are taken up in
+absolute deviation (MAD)** $`\sum_i|x_i-\mathbb E(R)|p_i=3.97\%`$ has $`\mathrm{MAD}^2=15.76\%^2<17.01\%^2`$;
+its use as a portfolio risk function is due to Konno and Yamazaki. Variance has analytical
+advantages other variability measures lack, while semi-variance and MAD have their own (a
+downside focus, a linear program for MAD and, for MAD and the semideviation under a bounded
+mean-risk trade-off, consistency with second-order stochastic dominance), so neither is better in general — the properties a risk measure should satisfy are taken up in
 [coherent risk measures](./risk-measures/coherent-risk-measures.md).
 
 ## The mean-variance dominance criterion
 
-For step two, the efficiency criterion rests on mean and variance. $X_1$ **dominates**
-$X_2$ ($X_1\succ_{MV}X_2$) if $\mathbb E(X_1)\ge\mathbb E(X_2)$ and
-$\mathrm{Var}(X_1)\le\mathrm{Var}(X_2)$ with at least one strict inequality. This induces
-only a **partial ordering**: with means/variances $(4,3),(2,7),(6,5)$, $X_1\succ_{MV}X_2$
-and $X_3\succ_{MV}X_2$, but $X_1$ and $X_3$ are incomparable ($X_3$ has both higher mean and
-higher variance). In the $(\mathrm{Var},\mathbb E)$ plane, dominance is determined in the
+For step two, the efficiency criterion rests on mean and variance. $`X_1`$ **dominates**
+$`X_2`$ ($`X_1\succ_{MV}X_2`$) if $`\mathbb E(X_1)\ge\mathbb E(X_2)`$ and
+$`\mathrm{Var}(X_1)\le\mathrm{Var}(X_2)`$ with at least one strict inequality. It agrees with
+expected-utility preferences when utility is quadratic (on its increasing range) or, for
+every risk-averse investor, when returns are jointly elliptical, for example normal, as
+[choice under uncertainty](./foundations/choice-under-uncertainty.md) shows; otherwise a
+risk-averse investor can prefer a dominated choice. This induces only a **partial
+ordering** (of mean-variance pairs; on random variables it is a preorder, since distinct
+variables can share mean and variance): with means/variances $`(4,3),(2,7),(6,5)`$, $`X_1\succ_{MV}X_2`$
+and $`X_3\succ_{MV}X_2`$, but $`X_1`$ and $`X_3`$ are incomparable ($`X_3`$ has both higher mean and
+higher variance). In the $`(\mathrm{Var},\mathbb E)`$ plane, dominance is determined in the
 higher-mean/lower-variance (and lower-mean/higher-variance) quadrants and indeterminate in
-the other two. Applied financially, fixing an expected-return level $\bar r$ the criterion
+the other two. Applied financially, fixing an expected-return level $`\bar r`$ the criterion
 selects the minimum-variance choice among all with that mean; iterating over all return
-levels constructs, point by point, the efficient set — anticipating the efficient frontier
+levels constructs, point by point, the minimum-variance set. Its part with expected return
+at least that of the global minimum-variance choice is the efficient set, since the global
+minimum-variance choice dominates every point below it — anticipating the efficient frontier
 developed in [mean-variance selection](./foundations/mean-variance-selection.md).
 
 ## Map of the corpus
@@ -148,13 +169,16 @@ criterion, optimize — and extends it to later theory and operational applicati
 foundational chapters run: choice under uncertainty (formalizing preferences and vNM
 utility, the basis of the optimization criterion); mean-variance selection (from the
 dominance criterion to Markowitz's efficient frontier); the limits of MPT and the
-Black-Litterman model (sensitivity of the optimum to inputs, remedied by views and robust
-estimation); coherent risk measures (properties beyond variance/semi-variance/MAD); factor
-models; constraints and metaheuristics; and portfolio revision (rebalancing over time with
+Black-Litterman model (the six assumptions of mean-variance theory and where they fail, the
+choice of the target return, equal weights versus the global minimum-variance portfolio,
+and Black-Litterman's update of equilibrium returns with the investor's views); coherent
+risk measures (Value-at-Risk and why it is not coherent, tail measures such as CVaR, and
+stable return distributions under which variance stops being reliable); factor models; constraints and metaheuristics; and portfolio revision (rebalancing over time with
 estimate variability, transaction costs, and intervention rules). Subsequent chapters cover
-estimation, quantitative selection and construction, validation and overfitting, signal
-decay and turnover, the fundamental law of active management, convex and robust and CVaR
-optimization, risk budgeting, dynamic covariance, maximum diversification, drawdown risk,
+estimation error and shrinkage, security selection on fundamentals, validation and
+overfitting, signal decay and turnover, the fundamental law of active management,
+quantitative selection and construction, convex and robust and CVaR optimization, risk
+budgeting and risk parity, dynamic covariance, maximum diversification, drawdown risk,
 market regimes and view formation, optimal execution, risk attribution, stress testing,
 alternative-data signals, market states, factor timing, systemic risk, macro signals, and
 the mapping from conditional forecasts to weights.

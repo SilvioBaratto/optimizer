@@ -1,5 +1,5 @@
 ---
-title: "Portfolio Review"
+title: "Portfolio Revision"
 chapter: 7
 tags:
   - optimizer
@@ -13,7 +13,7 @@ generated: 2026-07-10
 
 ## Between Static Management and Dynamic Management
 
-The mean-variance model discussed in [[02 Selezione media-varianza]] indicates how to select a portfolio at a single point in time [Smith1967]. In an ideal single-period economy, developing from $`t`$ to $`t+\Delta t`$, this prescription is sufficient: the economic agent selects their optimal portfolio at $`t`$ and "releases" it, that is, liquidates it, at $`t+\Delta t`$.
+The mean-variance model discussed in [Chapter 2: Mean-Variance Selection](02_mean_variance_selection.md) indicates how to select a portfolio at a single point in time [Smith1967]. In an ideal single-period economy, developing from $`t`$ to $`t+\Delta t`$, this prescription is sufficient: the economic agent selects their optimal portfolio at $`t`$ and "releases" it, that is, liquidates it, at $`t+\Delta t`$.
 
 In reality, however, the economic agent operates in an economy that is (at least) multi-period, articulated over the intervals from $`t`$ to $`t+\Delta t`$, from $`t+\Delta t`$ to $`t+2\Delta t`$, and in general from $`t+i\Delta t`$ to $`t+(i+1)\Delta t`$. In this context the agent:
 
@@ -23,7 +23,7 @@ In reality, however, the economic agent operates in an economy that is (at least
 
 The question then arises: in a multi-period economy, what does managing the portfolio at the instants $`t+\Delta t`$, $`t+2\Delta t`$, \ldots consist of?
 
-In an *ideal* multi-period economy the means, variances, and linear correlation coefficients relating to the various investment choices remain the same at any point in time considered. Consequently, the optimal portfolio selected at $`t`$ remains optimal also at $`t+\Delta t`$, at $`t+2\Delta t`$, \ldots, at $`t+i\Delta t`$, \ldots, and dynamic management coincides with static management.
+In an *ideal* multi-period economy the means, variances, and linear correlation coefficients relating to the various investment choices remain the same at any point in time considered. Consequently, for an agent who applies the same one-period criterion at every instant, the optimal portfolio weights selected at $`t`$ remain optimal also at $`t+\Delta t`$, at $`t+2\Delta t`$, \ldots, at $`t+i\Delta t`$, \ldots, and dynamic management coincides with static management, apart from the trades that bring the holdings, which drift as prices move, back to those weights. Repeating the one-period optimum is also the best multi-period policy only under particular preferences and return processes, such as log utility, or power utility with serially independent returns.
 
 But, in general, in reality these means, variances, and linear correlation coefficients change as the point in time considered changes. Therefore the optimal portfolio selected at $`t`$ may no longer be either optimal or efficient at $`t+\Delta t`$, and/or at $`t+2\Delta t`$, \ldots, and/or at $`t+i\Delta t`$, \ldots. This is the boundary that separates static management from dynamic management and that makes portfolio review necessary.
 
@@ -49,23 +49,23 @@ Estimate the means, variances, and linear correlation coefficients of the rates 
 | $`\rho_{1,3}`$ | $`-7.665\text{E}{-}02`$ | $`-8.291\text{E}{-}02`$ |
 | $`\rho_{2,3}`$ | 4.074\text{E}{-}01 | 4.150\text{E}{-}01 |
 
-Imposing a target expected rate of return $`\pi = 0.00041`$ in the base mean-variance portfolio problem [Markowitz1952], the optimal investment percentages turn out to be:
+Imposing a target expected rate of return $`\pi = 0.0011`$ in the base mean-variance portfolio problem [Markowitz1952], without the non-negativity constraints that Markowitz imposed, that is, with only the budget and target-return constraints (short sales allowed, no risk-free asset), whose closed-form solution is given in [Merton1972], the optimal investment percentages turn out to be:
 
 | Percentages | A | B |
 |---|---|---|
-| $`x_1^*`$ | 0.69193 | 0.96600 |
-| $`x_2^*`$ | 0.52029 | 0.09500 |
-| $`x_3^*`$ | $`-0.21223`$ | $`-0.06100`$ |
+| $`x_1^*`$ | 0.13875 | 0.11975 |
+| $`x_2^*`$ | $`-0.11094`$ | 0.07218 |
+| $`x_3^*`$ | 0.97220 | 0.80808 |
 
-In the $`\mathrm{Var}(X)`$–$`E(X)`$ plane the efficient frontier computed on the column-A data is the upper branch of the mean-variance hyperbola: for a fixed level of variance, there exist portfolio combinations with lower expected return (inefficient frontier) than the optimal ones (efficient frontier).
+In the $`\mathrm{Var}(X)`$–$`E(X)`$ plane the efficient frontier computed on the column-A data is the upper half of the minimum-variance parabola (in the $`\sigma(X)`$–$`E(X)`$ plane, the upper half of the right branch of a hyperbola): for a fixed level of variance, there exist portfolio combinations with lower expected return (inefficient frontier) than the optimal ones (efficient frontier). Both portfolios above lie on the efficient frontier of their window, because $`\pi`$ exceeds the expected return of the global minimum-variance portfolio, $`8.31\times 10^{-4}`$ for column A and $`8.93\times 10^{-4}`$ for column B.
 
-Suppose now that the economic agent wants the portfolio to achieve an expected rate of return equal to $`0.00041`$ both from $`t`$ (September 20, 2006) to $`t+\Delta t`$ (September 21, 2006), and from $`t+\Delta t`$ to $`t+2\Delta t`$ (September 22, 2006). Moving from the column-A percentages to the column-B ones then requires, at $`t+\Delta t`$:
+Suppose now that the economic agent wants the portfolio to achieve an expected rate of return equal to $`0.0011`$ both from $`t`$ (September 20, 2006) to $`t+\Delta t`$ (September 21, 2006), and from $`t+\Delta t`$ to $`t+2\Delta t`$ (September 22, 2006). Moving from the column-A percentages to the column-B ones then requires, at $`t+\Delta t`$ (measuring the trades against the column-A target percentages, that is, ignoring the drift of the weights caused by the price changes between $`t`$ and $`t+\Delta t`$):
 
-- **buying** $`X_1`$ (Alleanza Assicurazioni) for a percentage of capital equal to $`0.27407 = 0.96600 - 0.69193`$;
-- **selling** $`X_2`$ (Fondiaria–Sai) for a percentage of capital equal to $`0.42529 = 0.09500 - 0.52029`$;
-- **buying** $`X_3`$ (Unicredito Italiano) for a percentage of capital equal to $`0.15123 = -0.06100 - (-0.21223)`$.
+- **selling** $`X_1`$ (Alleanza Assicurazioni) for a percentage of capital equal to $`0.01900 = 0.13875 - 0.11975`$;
+- **buying** $`X_2`$ (Fondiaria–Sai) for a percentage of capital equal to $`0.18312 = 0.07218 - (-0.11094)`$;
+- **selling** $`X_3`$ (Unicredito Italiano) for a percentage of capital equal to $`0.16412 = 0.97220 - 0.80808`$.
 
-The example concretely shows how, by changing the parameter estimation window by even a single day, the optimal portfolio changes significantly, requiring a revision of the portfolio's composition.
+The example concretely shows how, by changing the parameter estimation window by even a single day, the optimal portfolio changes significantly, which calls for a revision of the portfolio's composition. With only about twenty daily observations per window, each estimated mean is smaller than its own standard error, so much of this change reflects estimation error rather than a change in the true parameters: a further reason to check whether a revision is worthwhile before carrying it out.
 
 ## Portfolio Review and Its Desirability
 
@@ -87,7 +87,7 @@ There are three main types of costs that the economic agent may have to bear at 
 
 **2. Transaction costs.** These are the costs of trading the investment choices under consideration, that is, the costs to be paid to a professional intermediary (bank, broker, \ldots) to buy and/or (short-)sell the investment choices. This type of cost is **variable**: the economic agent must bear it only at the points in time when they revise their portfolio.
 
-**3. Capital gains tax.** This is the tax levied on capital gains, that is, the tax to be paid on any realized increase in the value of the portfolio, expressed in monetary terms. Technically, capital gains taxation is not a cost; in this context, however, it can be regarded as having the same status as a cost. This status is clarified by the formalization in the following section.
+**3. Capital gains tax.** This is the tax levied on capital gains, that is, the tax to be paid on the gain realized on the positions sold (sale proceeds minus cost basis, net of any realized losses that can be offset), expressed in monetary terms. Technically, capital gains taxation is not a cost; in this context, however, it can be regarded as having the same status as a cost. This status is clarified by the formalization in the following section.
 
 ## Condition of Desirability in the Presence of Capital Gains Tax
 
@@ -107,7 +107,7 @@ $$r_{NR,\,t+\Delta t} = z^*_{t,1}\,P_{t+\Delta t,1}\,r_{t+\Delta t,1} + z^*_{t,2
 
 **Strategy 2 — Revision.** Carry out a revision consisting of:
 
-- divesting from the first investment choice the monetary amount $`\Delta_{t+\Delta t,1}\,P_{t+\Delta t,1}`$;
+- divesting from the first investment choice the monetary amount $`\Delta_{t+\Delta t,1}\,P_{t+\Delta t,1}`$, where the $`\Delta_{t+\Delta t,1}>0`$ units sold were bought at $`t`$, so that $`P_{t,1}`$ is their cost basis;
 - paying the tax on any realized capital gain, that is, paying $`t_{cg}\max\{\Delta_{t+\Delta t,1}(P_{t+\Delta t,1} - P_{t,1}),\,0\}`$;
 - investing the remaining monetary amount, $`\Delta_{t+\Delta t,1}\,P_{t+\Delta t,1} - t_{cg}\max\{\Delta_{t+\Delta t,1}(P_{t+\Delta t,1} - P_{t,1}),\,0\}`$, in the second investment choice.
 
@@ -123,11 +123,13 @@ Subtracting the two expressions term by term, the terms in $`z^*_{t,1}\,P_{t+\De
 
 $$\Delta_{t+\Delta t,1}\,P_{t+\Delta t,1}\,(r_{t+\Delta t,2} - r_{t+\Delta t,1}) > t_{cg}\max\{\Delta_{t+\Delta t,1}(P_{t+\Delta t,1}-P_{t,1}),\,0\}\, r_{t+\Delta t,2} \;\ge\; 0,$$
 
-where the last inequality is non-negative since $`t_{cg}\ge 0`$, the $`\max\{\cdot,0\}`$ operator is non-negative, and $`r_{t+\Delta t,2}\ge 0`$. Dividing by $`\Delta_{t+\Delta t,1}\,P_{t+\Delta t,1}`$ gives the final form of the condition:
+where the right-hand side is non-negative since $`t_{cg}\ge 0`$, the $`\max\{\cdot,0\}`$ operator is non-negative, and $`r_{t+\Delta t,2}\ge 0`$ is assumed (the condition itself does not need this). Dividing by $`\Delta_{t+\Delta t,1}\,P_{t+\Delta t,1}>0`$ gives the final form of the condition:
 
-$$r_{t+\Delta t,2} > r_{t+\Delta t,1} + \frac{t_{cg}\max\{\Delta_{t+\Delta t,1}(P_{t+\Delta t,1}-P_{t,1}),\,0\}}{\Delta_{t+\Delta t,1}\,P_{t+\Delta t,1}}.$$
+$$r_{t+\Delta t,2} > r_{t+\Delta t,1} + \frac{t_{cg}\max\{\Delta_{t+\Delta t,1}(P_{t+\Delta t,1}-P_{t,1}),\,0\}}{\Delta_{t+\Delta t,1}\,P_{t+\Delta t,1}}\; r_{t+\Delta t,2}.$$
 
-Revision is therefore worthwhile only if the expected rate of return of the asset into which capital is transferred exceeds that of the liquidated asset by an amount at least equal to the incidence, per unit of divested capital, of the tax on the realized capital gain.
+Revision is therefore worthwhile only if the expected rate of return of the asset into which capital is transferred exceeds that of the liquidated asset by more than the incidence, per unit of divested capital, of the tax on the realized capital gain, multiplied by the expected rate of return of the asset bought. Equivalently, the expected return earned by the second investment choice on the after-tax reinvested amount must exceed the one forgone: $`r_{t+\Delta t,2}\,\big(1 - t_{cg}\max\{P_{t+\Delta t,1}-P_{t,1},\,0\}/P_{t+\Delta t,1}\big) > r_{t+\Delta t,1}`$.
+
+The condition rests on a one-period comparison of expected monetary returns: it ignores the change in risk that the switch from the first to the second investment choice brings, leaves transaction costs out of strategy 2, and counts the tax only through the return lost on the amount paid, which is consistent if the latent gain of the unrevised position would be taxed later at the same rate, so that revision merely brings the tax forward. Under an end-of-period wealth criterion the factor $`r_{t+\Delta t,2}`$ multiplying the tax would become $`1+r_{t+\Delta t,2}`$.
 
 Note that this type of "cost" depends on the occurrence of a realized capital gain. When this occurs, the type of "cost" under consideration is **variable**; it follows that the economic agent does not have to bear it at every instant when they revise their portfolio, but only when a capital gain is realized on the liquidated position. It is in this sense that the capital gains tax, while not technically a cost, takes on in this context the status of a variable cost.
 
@@ -145,7 +147,7 @@ The proposed revision strategy is structured as follows. At $`t`$ the economic a
 
 **Case 3.** When $`\mathbf{z}^*_t`$ is no longer either optimal or efficient, its revision can move toward one of three points on the new efficient frontier, identifiable in the $`\mathrm{Var}(X)`$–$`E(X)`$ plane starting from the point $`\mathbf{z}^*_t`$, now located below and to the right of the curve:
 
-- **Point $`A`$** — on the frontier, at the same expected-return level $`r_t`$ as $`\mathbf{z}^*_t`$. The resulting portfolio $`\mathbf{z}^*_{t+\Delta t}`$ is efficient, has the same expected return, and a lower return variance than $`\mathbf{z}^*_t`$, but is not necessarily optimal. Since transitions are evaluated in terms of expected monetary return and costs, it is difficult to measure a monetary return comparable to the mere risk reduction achieved by moving toward $`A`$ [Smith1967]; in this sub-case no revision is carried out and $`\mathbf{z}^*_{t+\Delta t} = \mathbf{z}^*_t`$.
+- **Point $`A`$** — on the frontier, at the same expected-return level $`r_t`$ as $`\mathbf{z}^*_t`$ (such a point exists provided $`r_t`$ is at least the expected return of the new global minimum-variance portfolio). The resulting portfolio $`\mathbf{z}^*_{t+\Delta t}`$ is efficient, has the same expected return, and a lower return variance than $`\mathbf{z}^*_t`$, but is not necessarily optimal. Since transitions are evaluated in terms of expected monetary return and costs, it is difficult to measure a monetary return comparable to the mere risk reduction achieved by moving toward $`A`$ [Smith1967]; in this sub-case no revision is carried out and $`\mathbf{z}^*_{t+\Delta t} = \mathbf{z}^*_t`$.
 - **Point $`B`$** — the point of tangency between the efficient frontier and the preference function. The resulting portfolio $`\mathbf{z}^*_{t+\Delta t}`$ is optimal for the economic agent. If the investor could specify their own preference function, the tangency solution at $`B`$ would be a logical objective of the transition; but since specifying such a preference function is avoided, the portfolio at $`B`$ is not considered [Smith1967]. In this sub-case too no revision is carried out and $`\mathbf{z}^*_{t+\Delta t} = \mathbf{z}^*_t`$.
 - **Point $`C`$** — on the frontier, at the same return variance as $`\mathbf{z}^*_t`$, at level $`r_{t+\Delta t}`$. The resulting portfolio $`\mathbf{z}^*_{t+\Delta t}`$ is efficient, has the same return variance and a higher expected return than $`\mathbf{z}^*_t`$, but is not necessarily optimal. In this situation the investor accepts the risk inherent in the existing portfolio (according to revised expectations) and seeks the maximum improvement in expected return; operationally this is feasible since return is measured in monetary terms, and the portfolio at $`C`$ is the target, or desired, portfolio in light of revised expectations [Smith1967]. In this sub-case the revision is actionable.
 
@@ -153,7 +155,7 @@ The proposed revision strategy is structured as follows. At $`t`$ the economic a
 
 $$\sum_{i=1}^{N} \left(z^*_{t+\Delta t,i} - z^*_{t,i}\right) P_{t+\Delta t,i}\, r_{t+\Delta t,i} > prc_{t+\Delta t},$$
 
-where $`prc_{t+\Delta t}`$ denotes the portfolio revision costs to be borne at $`t+\Delta t`$.
+where $`prc_{t+\Delta t}`$ denotes the portfolio revision costs to be borne at $`t+\Delta t`$. The condition sets the expected gain over a single revision interval against a one-off cost, so it assumes the revised portfolio is held for one interval; if the costs are paid out of the portfolio, the revised holdings must also be financed by the portfolio value net of $`prc_{t+\Delta t}`$. Unlike the capital-gains condition above, which counts the tax only through the return lost on it, this condition sets the whole cost against the gain.
 
 ## The Stone and Hill (1979) Model
 
@@ -162,7 +164,7 @@ The second approach is that of Stone and Hill [StoneHill1979], whose revision pr
 **The linear selection problem.** Introduce:
 
 - $`\mathbf{c}' = (r_1 - \beta_1\theta, \ldots, r_N - \beta_N\theta)`$: the $`N`$-vector of risk-adjusted rates of return, where $`\beta_i`$ is the systematic risk of the $`i`$-th investment choice and $`\theta`$ is a constant that appropriately weights systematic risk;
-- $`f_i \in [0,1]`$: an upper bound associated with $`x_i`$.
+- $`f_i \in [0,1]`$: an upper bound associated with $`x_i`$, with $`\sum_{i=1}^{N} f_i \ge 1`$ so that the problem below is feasible.
 
 The linear portfolio selection problem is then
 
@@ -180,11 +182,11 @@ The linear portfolio revision problem is then
 
 $$\max_{z_{b,1},\ldots,z_{b,N},\,z_{s,1},\ldots,z_{s,N}} \ \mathbf{b}'\mathbf{z_b} - \mathbf{s}'\mathbf{z_s}$$
 
-$$\text{s.t.} \quad \begin{cases} \mathbf{z_b}'[\mathbf{e} + (bc_1,\ldots,bc_N)] - \mathbf{z_s}'[\mathbf{e} - (bs_1,\ldots,bs_N)] = 0 \\ z_{b,i} \ge 0, \quad i=1,\ldots,N \\ z_{b,i} \le f_i\,\mathbf{q}'\mathbf{e} - q_i, \quad i=1,\ldots,N \\ z_{s,i} \ge 0, \quad i=1,\ldots,N \\ z_{s,i} \le q_i, \quad i=1,\ldots,N. \end{cases}$$
+$$\text{s.t.} \quad \begin{cases} \mathbf{z_b}'[\mathbf{e} + (bc_1,\ldots,bc_N)] - \mathbf{z_s}'[\mathbf{e} - (sc_1,\ldots,sc_N)] = 0 \\ z_{b,i} \ge 0, \quad i=1,\ldots,N \\ z_{b,i} \le f_i\,\mathbf{q}'\mathbf{e} - q_i, \quad i=1,\ldots,N \\ z_{s,i} \ge 0, \quad i=1,\ldots,N \\ z_{s,i} \le q_i, \quad i=1,\ldots,N. \end{cases}$$
 
-The first constraint ensures that the monetary amount to be invested (plus the associated transaction costs) equals the monetary amount to be divested (minus the associated transaction costs). The constraint $`z_{b,i} \le f_i\,\mathbf{q}'\mathbf{e} - q_i`$ ensures that the percentage of the pre-revision portfolio value, equal to $`\mathbf{q}'\mathbf{e}`$, to be invested in the $`i`$-th investment choice is less than or equal to $`f_i`$.
+The first constraint ensures that the monetary amount to be invested (plus the associated transaction costs) equals the monetary amount to be divested (minus the associated transaction costs). The constraint $`z_{b,i} \le f_i\,\mathbf{q}'\mathbf{e} - q_i`$ ensures that the percentage of the pre-revision portfolio value, equal to $`\mathbf{q}'\mathbf{e}`$, to be invested in the $`i`$-th investment choice is less than or equal to $`f_i`$; the cap is relative to the value before transaction costs, so the weight after revision can slightly exceed $`f_i`$. The bound presumes $`q_i \le f_i\,\mathbf{q}'\mathbf{e}`$: for a position already above its cap it would be negative and, together with $`z_{b,i}\ge 0`$, make the problem infeasible, so it is then replaced by $`\max\{f_i\,\mathbf{q}'\mathbf{e} - q_i,\,0\}`$.
 
-**The exchange rule.** The value of the objective function (to be maximized) increases by buying the generic $`i`$-th investment choice and selling the generic $`j`$-th investment choice such that
+**The exchange rule.** To first order, the value of the objective function (to be maximized) increases by buying the generic $`i`$-th investment choice and selling the generic $`j`$-th investment choice such that
 
 $$c_i - bc_i > c_j + sc_j, \qquad i,j \in \{1,\ldots,N\} \wedge i \ne j,$$
 
@@ -192,7 +194,9 @@ that is, this value increases if
 
 $$c_i - c_j > bc_i + sc_j, \qquad i,j \in \{1,\ldots,N\} \wedge i \ne j.$$
 
-For the entire exchange program, therefore, the objective function amounts to maximizing the increase in the risk-adjusted rate of return of purchases over sales, net of total transaction costs. This structure directly suggests a solution approach: rank the purchase candidates based on $`c_i - bc_i`$ and rank the current portfolio positions based on $`c_j + sc_j`$; buying the purchase candidate with the highest rank and selling the portfolio position with the lowest rank produces the maximum improvement of the objective function, with the size of the exchange determined so that no constraint is violated [StoneHill1979].
+Exactly, since by the budget constraint one monetary unit sold finances only $`(1-sc_j)/(1+bc_i)`$ units bought, the value increases if and only if $`(1+c_i)(1-sc_j) > (1+c_j)(1+bc_i)`$, that is, $`(c_i-bc_i)/(1+bc_i) > (c_j+sc_j)/(1-sc_j)`$; the simpler conditions above drop the second-order terms $`c_i\,sc_j + c_j\,bc_i`$.
+
+For the entire exchange program, therefore, the objective function amounts to maximizing the increase in the risk-adjusted rate of return of purchases over sales, net of total transaction costs. This structure directly suggests a solution approach: rank the purchase candidates based on $`(c_i - bc_i)/(1+bc_i)`$, approximately $`c_i - bc_i`$, and rank the current portfolio positions based on $`(c_j + sc_j)/(1-sc_j)`$, approximately $`c_j + sc_j`$; buying the purchase candidate with the highest rank and selling the portfolio position with the lowest rank produces the maximum improvement of the objective function per unit exchanged, with the size of the exchange determined so that no constraint is violated [StoneHill1979].
 
 ## Characteristics of a Good Revision Model
 
@@ -205,5 +209,6 @@ The two strategies described finally suggest what characteristics a good portfol
 ## References
 
 - **[Markowitz1952]** Markowitz, H. (1952), «Portfolio Selection», The Journal of Finance, Vol. 7, No. 1, pp. 77–91.
+- **[Merton1972]** Merton, R.C. (1972), «An Analytic Derivation of the Efficient Portfolio Frontier», Journal of Financial and Quantitative Analysis, Vol. 7, No. 4, pp. 1851–1872.
 - **[Smith1967]** Smith, K.V. (1967), «A Transition Model for Portfolio Revision», The Journal of Finance, Vol. 22, No. 3, pp. 425–439.
 - **[StoneHill1979]** Stone, B.K. and Hill, N.C. (1979), «Portfolio Management and the Shrinking Knapsack Algorithm», Journal of Financial and Quantitative Analysis, Vol. 14, No. 5, pp. 1071–1083.

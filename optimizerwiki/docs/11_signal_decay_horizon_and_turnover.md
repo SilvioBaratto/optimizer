@@ -25,17 +25,17 @@ $$IC_{t-l,t} = \mathrm{corr}\!\left(F_{t-l}, R_t\right).$$
 
 The lagged IC directly measures information decay: a factor that has a positive conventional IC at the time of its observation may retain, one or more periods later, a still-positive IC — a sign that the information persists — or see it fade rapidly toward zero.
 
-The third is the horizon IC, which pairs the factor known at time $`t`$ with the cumulative return over a forward horizon of $`h`$ periods:
+The third is the horizon IC, which pairs the factor known at time $`t`$ with the cumulative return over the periods $`t,\dots,t+h`$, that is, over a forward horizon of $`h+1`$ periods:
 
 $$IC_t^{h} = \mathrm{corr}\!\left(F_t, R_{t,t+h}\right), \qquad h = 0,1,\dots,H.$$
 
 The information horizon is thus the measure of how far into the future the signal retains predictive power: as $`h`$ grows, the information the factor still manages to capture accumulates in the cumulative return.
 
-The three coefficients are not independent. Since the cumulative return $`R_{t,t+h}`$ is the sum of the returns of the individual periods from $`t`$ to $`t+h`$, [QianHuaSorensen2006] establishes the approximate relation
+The three coefficients are not independent. Since the cumulative return $`R_{t,t+h}`$ is the sum of the returns of the individual periods from $`t`$ to $`t+h`$ (exactly for log returns, to first order for simple returns), [QianHuaSorensen2006] establishes the approximate relation, which assumes that the cross-sectional dispersion of returns is the same in every period, that returns of different periods are cross-sectionally uncorrelated (approximately true because ICs are small), and that the ICs are stationary, so that $`\mathrm{corr}(F_t, R_{t+k})`$ equals the lagged $`IC_{t-k,t}`$:
 
 $$IC_t^{h} \approx \frac{IC_{t,t} + IC_{t-1,t} + \cdots + IC_{t-h,t}}{\sqrt{h+1}} = \mathrm{avg}(IC)\,\sqrt{h+1},$$
 
-where the last equality holds when the lagged coefficients are roughly constant and equal to their average value $`\mathrm{avg}(IC)`$. The horizon IC thus grows as the square root of the number of periods covered, a form analogous to the fundamental law of active management [Grinold1989], in which the information ratio scales with the square root of breadth. The relation shows that horizon and decay are two faces of the same property: a factor whose lagged ICs remain positive for a long time possesses an extended information horizon and a horizon IC that keeps growing; a factor whose lagged ICs quickly become zero, or change sign, has a short horizon and a horizon IC that flattens out or reverses.
+where the last equality holds when the lagged coefficients are roughly constant and equal to their average value $`\mathrm{avg}(IC)`$. The horizon IC thus grows as the square root of the number of periods covered, a form analogous to the fundamental law of active management [Grinold1989], in which the information ratio scales with the square root of breadth. The relation shows that horizon and decay are two faces of the same property: a factor whose lagged ICs remain positive for a long time possesses an extended information horizon and a horizon IC that keeps growing as long as each new lagged IC exceeds about half the running average; a factor whose lagged ICs quickly become zero, or change sign, has a short horizon and a horizon IC that peaks early and then declines, as $`1/\sqrt{h+1}`$ once the lagged ICs vanish and faster if they change sign.
 
 An empirical comparison between two factors — price momentum (PM, measured by the nine-month return lagged by one) and earnings-to-price (E2P) — makes the distinction concrete. The average IC of momentum starts from a high value at lag zero and decays rapidly as the lag increases, approaching zero after just a few lags; the average IC of E2P starts lower but remains nearly stable at subsequent lags [QianHuaSorensen2006]. Correspondingly, the information ratio of the momentum factor collapses with the lag, while that of E2P is maintained. The value signal retains information over a long horizon; the momentum signal exhausts it quickly.
 
@@ -49,7 +49,7 @@ where $`w_i^{t}`$ is the weight of security $`i`$ in the portfolio at time $`t`$
 
 $$\rho_f = \mathrm{corr}\!\left(\tilde F^{\,t+1}, \tilde F^{\,t}\right).$$
 
-For an optimized portfolio, [QianHuaSorensen2006], drawing on [QianEtAl2004], reports the expression
+For an unconstrained mean-variance portfolio of active (long-short) weights, with a diagonal specific-risk model, cross-sectionally standardised forecasts that are jointly normal across consecutive periods, and a constant target tracking error, [QianHuaSorensen2006], drawing on [QianEtAl2004], reports the expression
 
 $$T = \sqrt{\frac{N}{\pi}}\;\sigma_{model}\,\sqrt{1-\rho_f}\;E\!\left(\frac{1}{\sigma}\right),$$
 
@@ -94,7 +94,7 @@ and maximizes the information ratio subject to the constraint that the autocorre
 
 $$\text{Maximize}\quad IR = \frac{v' \cdot \overline{IC}}{\sqrt{\,v' \cdot S_{IC} \cdot v\,}} \qquad \text{subject to}\quad \rho_{f_{c,ma}} = \rho_{target}.$$
 
-The solution as $`\rho_{target}`$ varies traces out the trade-off between responsiveness and stability. As the target autocorrelation increases from $`0{,}85`$ to $`0{,}97`$, the model's turnover decreases monotonically, while the information ratio first increases, reaches a maximum of $`2{,}39`$ at $`\rho_f = 0{,}89`$, and then decreases [QianHuaSorensen2006]. In terms of aggregate weights, at lower autocorrelation levels the combined forecast loads entirely on the current factors ($`w_0 = 100\%`$); only when a higher autocorrelation is required does the weight progressively shift to the lagged factors ($`w_1, w_2, w_3`$), at the expense of alpha. The point of maximum information ratio defines the level of turnover economically justified by the signal.
+The solution as $`\rho_{target}`$ varies traces out the trade-off between responsiveness and stability. As the target autocorrelation increases from $`0{,}85`$ to $`0{,}97`$, the model's turnover decreases monotonically, while the information ratio first increases, reaches a maximum of $`2{,}39`$ at $`\rho_f = 0{,}89`$, and then decreases [QianHuaSorensen2006]. In terms of aggregate weights, at lower autocorrelation levels the combined forecast loads entirely on the current factors ($`w_0 = 100\%`$); only when a higher autocorrelation is required does the weight progressively shift to the lagged factors ($`w_1, w_2, w_3`$), at the expense of alpha. Since this information ratio is gross of costs, targets below the maximum-IR autocorrelation are dominated (lower IR and higher turnover): the maximum marks the highest turnover the signal can justify, and with transaction costs the optimum lies at a higher $`\rho_{target}`$.
 
 ## The Dynamic Trading Model with Predictable Returns
 
@@ -108,19 +108,19 @@ where $`f_t`$ is a $`K\times 1`$ vector of factors that predict returns, known t
 
 $$\Delta f_{t+1} = -\Phi f_t + \varepsilon_{t+1},$$
 
-where $`\Delta f_{t+1} = f_{t+1} - f_t`$, the $`K\times K`$ matrix $`\Phi`$ collects the factors' mean-reversion coefficients, and $`\varepsilon_{t+1}`$ is the shock to the predictors, with $`\mathrm{var}_t(\varepsilon_{t+1}) = \Omega`$. The matrix $`\Phi`$ is the continuous analogue of signal decay: a factor with small $`\Phi`$ reverts slowly to the mean (slow alpha decay, persistent signal), one with large $`\Phi`$ reverts quickly (fast alpha decay, non-persistent signal). With different predictors — for example a momentum signal predicting a high return next month and a value signal predicting a good return over the year — the mean-reversion speeds differ [GarleanuPedersen2013].
+where $`\Delta f_{t+1} = f_{t+1} - f_t`$, the $`K\times K`$ matrix $`\Phi`$ collects the factors' mean-reversion coefficients (with the eigenvalues of $`I-\Phi`$ inside the unit circle, so that $`f`$ is stationary), and $`\varepsilon_{t+1}`$ is the shock to the predictors, with $`\mathrm{var}_t(\varepsilon_{t+1}) = \Omega`$. The matrix $`\Phi`$ is the model's per-period (discrete-time) measure of signal decay: a factor with small $`\Phi`$ reverts slowly to the mean (slow alpha decay, persistent signal), one with large $`\Phi`$ reverts quickly (fast alpha decay, non-persistent signal). With different predictors — for example a momentum signal predicting a high return next month and a value signal predicting a good return over the year — the mean-reversion speeds differ [GarleanuPedersen2013].
 
 Trading is costly: the transaction cost associated with trading $`\Delta x_t = x_t - x_{t-1}`$ shares is quadratic,
 
 $$TC(\Delta x_t) = \frac{1}{2}\,\Delta x_t^{\top} \Lambda \, \Delta x_t,$$
 
-with $`\Lambda`$ a symmetric positive-definite matrix measuring the level of costs; $`\Lambda`$ is a multidimensional version of Kyle's lambda, since trading $`\Delta x_t`$ moves the price by $`\tfrac{1}{2}\Lambda\Delta x_t`$. In the special case where costs are proportional to the amount of risk (Assumption A), $`\Lambda = \lambda \Sigma`$ for a scalar $`\lambda > 0`$.
+with $`\Lambda`$ a symmetric positive-definite matrix measuring the level of costs; $`\tfrac{1}{2}\Lambda`$ is a multidimensional version of Kyle's lambda, since trading $`\Delta x_t`$ moves the price by $`\tfrac{1}{2}\Lambda\Delta x_t`$. In the special case where costs are proportional to the amount of risk (Assumption 1), $`\Lambda = \lambda \Sigma`$ for a scalar $`\lambda > 0`$.
 
 The investor chooses the dynamic strategy $`(x_0, x_1, \dots)`$ to maximize the present value of all future expected excess returns, penalized for risk and trading costs:
 
 $$\max_{x_0,x_1,\dots} E_0\!\left[\sum_t (1-\rho)^{t+1}\!\left(x_t^{\top} r_{t+1} - \frac{\gamma}{2}\,x_t^{\top}\Sigma x_t\right) - \frac{(1-\rho)^{t}}{2}\,\Delta x_t^{\top}\Lambda\,\Delta x_t\right],$$
 
-where $`\rho \in (0,1)`$ is the discount factor and $`\gamma`$ the risk aversion coefficient. The problem is solved via dynamic programming by introducing the value function $`V(x_{t-1},f_t)`$, which satisfies the Bellman equation
+where $`\rho \in (0,1)`$ is the discount rate (the per-period discount factor is $`1-\rho`$) and $`\gamma`$ the risk aversion coefficient. The problem is solved via dynamic programming by introducing the value function $`V(x_{t-1},f_t)`$, which satisfies the Bellman equation
 
 $$V(x_{t-1},f_t) = \max_{x_t}\left\{ -\frac{1}{2}\Delta x_t^{\top}\Lambda\Delta x_t + (1-\rho)\!\left(x_t^{\top}E_t[r_{t+1}] - \frac{\gamma}{2}x_t^{\top}\Sigma x_t + E_t[V(x_t,f_{t+1})]\right)\right\}.$$
 
@@ -136,9 +136,9 @@ The optimal policy has a simple, intuitive form: the investor aims at a certain 
 
 $$x_t = x_{t-1} + \Lambda^{-1}A_{xx}\left(aim_t - x_{t-1}\right), \qquad aim_t = A_{xx}^{-1}A_{xf}f_t,$$
 
-that is, one trades at a rate proportional to the matrix $`\Lambda^{-1}A_{xx}`$, in the direction of the aim portfolio. Under Assumption A the trading rate is the scalar $`a/\lambda < 1`$, with
+that is, one trades at a rate proportional to the matrix $`\Lambda^{-1}A_{xx}`$, in the direction of the aim portfolio. Under Assumption 1 the trading rate is the scalar $`a/\lambda < 1`$, with
 
-$$a = \frac{-(\gamma + \lambda\rho) + \sqrt{(\gamma + \lambda\rho)^2 + 4\gamma\lambda(1-\rho)}}{2(1-\rho)\lambda}.$$
+$$a = \frac{-\big(\gamma(1-\rho) + \lambda\rho\big) + \sqrt{\big(\gamma(1-\rho) + \lambda\rho\big)^2 + 4\gamma\lambda(1-\rho)^2}}{2(1-\rho)}.$$
 
 The optimal portfolio is then a weighted average of the existing position and the aim:
 
@@ -146,15 +146,15 @@ $$x_t = \left(1 - \frac{a}{\lambda}\right)x_{t-1} + \frac{a}{\lambda}\,aim_t.$$
 
 The weight $`a/\lambda`$ on the aim — which [GarleanuPedersen2013] also calls the trading rate — measures how far the investor rebalances toward the target. Rebalancing always occurs by a fixed fraction of the distance from the aim: the trading rate is independent of the current portfolio $`x_{t-1}`$ and its past history. The rate is higher the lower the transaction costs $`\lambda`$: high costs require trading more slowly. The rate instead increases in risk aversion $`\gamma`$, since greater aversion makes deviating from the aim more costly.
 
-In this model the role of transaction costs is precisely to make repositioning gradual rather than instantaneous. In their absence ($`\Lambda = 0`$) the investor would hold at every instant the static optimal portfolio, that is, the Markowitz portfolio — the tangency position, consistent with [Markowitz1952] —
+In this model the role of transaction costs is precisely to make repositioning gradual rather than instantaneous. In their absence ($`\Lambda = 0`$) the investor would hold at every instant the static optimal portfolio, that is, the Markowitz portfolio — the mean-variance optimum in the sense of [Markowitz1952], here the tangency portfolio leveraged according to the risk aversion $`\gamma`$ —
 
 $$Markowitz_t = (\gamma\Sigma)^{-1}B f_t,$$
 
-so as to obtain the best risk-return trade-off every period. But since the factors that predict returns change over time, the Markowitz portfolio is a moving target. With transaction costs it is not optimal to chase it entirely at every step; it is optimal to slow down the trading speed and move only partially toward an aim portfolio. The trade-off is thus between adherence to the signal (which would push toward the current Markowitz portfolio) and the cost of turnover that chasing it would generate (cf. the treatment in [[07 Revisione di portafoglio]]).
+so as to obtain the best risk-return trade-off every period. But since the factors that predict returns change over time, the Markowitz portfolio is a moving target. With transaction costs it is not optimal to chase it entirely at every step; it is optimal to slow down the trading speed and move only partially toward an aim portfolio. The trade-off is thus between adherence to the signal (which would push toward the current Markowitz portfolio) and the cost of turnover that chasing it would generate (cf. the treatment in [Chapter 7: Portfolio Revision](07_portfolio_revision.md)).
 
 ## Aiming in Front of the Target: Weighting Signals by Persistence
 
-The aim portfolio does not coincide with the current Markowitz portfolio. Since transaction costs prevent changing position easily, the investor must look not only at the present opportunity but also at the one that will present itself in future periods, and adjust the target accordingly: one must aim in front of the target. Proposition 3 of [GarleanuPedersen2013] expresses the aim as a weighted average of the current Markowitz portfolio and the expected aim of the following period, setting $`z = \gamma/(\gamma + a)`$:
+The aim portfolio does not coincide with the current Markowitz portfolio. Since transaction costs prevent changing position easily, the investor must look not only at the present opportunity but also at the one that will present itself in future periods, and adjust the target accordingly: one must aim in front of the target. Under Assumption 1, Proposition 3 of [GarleanuPedersen2013] expresses the aim as a weighted average of the current Markowitz portfolio and the expected aim of the following period, setting $`z = \gamma/(\gamma + a)`$:
 
 $$aim_t = z\,Markowitz_t + (1-z)\,E_t(aim_{t+1}).$$
 
@@ -168,7 +168,7 @@ The dynamics of the factors make the weighting explicit. From the evolution law 
 
 $$aim_t = (\gamma\Sigma)^{-1}B\,z\sum_{j=0}^{\infty}\big[(1-z)(I-\Phi)\big]^{j} f_t = (\gamma\Sigma)^{-1}B\,z\big[I - (1-z)(I-\Phi)\big]^{-1} f_t.$$
 
-Using $`z = \gamma/(\gamma+a)`$ and $`1-z = a/(\gamma+a)`$ one has $`I - (1-z)(I-\Phi) = z\big[I + (a/\gamma)\Phi\big]`$, from which Proposition 4:
+Using $`z = \gamma/(\gamma+a)`$ and $`1-z = a/(\gamma+a)`$ one has $`I - (1-z)(I-\Phi) = z\big[I + (a/\gamma)\Phi\big]`$, from which Proposition 4 (also under Assumption 1):
 
 $$aim_t = (\gamma\Sigma)^{-1}B\left(I + \frac{a}{\gamma}\Phi\right)^{-1} f_t.$$
 
@@ -178,29 +178,29 @@ $$aim_t = (\gamma\Sigma)^{-1}B\left(\frac{f_t^{1}}{1 + \phi^{1} a/\gamma},\;\dot
 
 The rescaling penalizes more heavily factors with high alpha decay $`\phi^k`$. This not only reduces the size of the position, but also changes the relative importance of the signals: predictors with slower mean reversion receive more weight in the aim [GarleanuPedersen2013]. An investor facing transaction costs must trade more aggressively on persistent signals than on fast-mean-reverting ones, because the benefits of the former accumulate over longer periods and are therefore greater. This is the same principle as the combined-signal model — giving more weight to slow-decaying factors — obtained here at the level of the position rather than of factor combination.
 
-The optimal strategy, followed indefinitely, makes the position converge toward an exponentially weighted average of past aims. Proposition 5 (position homing in) establishes that, under Assumption A,
+The optimal strategy, followed indefinitely, makes the position converge toward an exponentially weighted average of past aims. Proposition 5 (position homing in) establishes that, under Assumption 1,
 
 $$x_t = \sum_{\tau = -\infty}^{t} \frac{a}{\lambda}\left(1 - \frac{a}{\lambda}\right)^{t-\tau} aim_\tau.$$
 
-A special case shows the direct link with the information horizon of the chapter. If an investor forecasts the return of a single market using past returns — the first signal $`f_t^1`$ is yesterday's return, the second $`f_t^2`$ the day before yesterday's, and so on for $`K`$ periods — then today's "yesterday" is tomorrow's "day before yesterday," so that $`f_{t+1}^{k} = f_t^{k-1}`$ for $`k>1`$. In this case the optimal strategy takes the form
+A special case shows the direct link with the information horizon of the chapter. If an investor forecasts the return of a single market using past returns — the first signal $`f_t^1`$ is yesterday's return, the second $`f_t^2`$ the day before yesterday's, and so on for $`K`$ periods — then today's "yesterday" is tomorrow's "day before yesterday," so that $`f_{t+1}^{k} = f_t^{k-1}`$ for $`k>1`$. If, in addition, every lag predicts the return equally, $`B = (\beta,\dots,\beta)`$, the market's return variance is $`\Sigma = \sigma^2`$, and the new first signal is a pure shock, $`f_{t+1}^{1} = \varepsilon_{t+1}^{1}`$, the optimal strategy takes the form
 
-$$x_t = \left(1 - \frac{a}{\lambda}\right)x_{t-1} + \frac{a}{\lambda}\,\frac{\beta}{\sigma^2(1-z)}\sum_{k=1}^{K}\left(1 - z^{K+1-k}\right) f_t^{k},$$
+$$x_t = \left(1 - \frac{a}{\lambda}\right)x_{t-1} + \frac{a}{\lambda}\,\frac{\beta}{\gamma\sigma^2}\sum_{k=1}^{K}\left(1 - \left(\frac{a}{\gamma + a}\right)^{K+1-k}\right) f_t^{k},$$
 
-with $`z = (\gamma + a)^{-1}a`$: the portfolio gives the greatest weight to the first signal (yesterday's return), the second-greatest weight to the second signal, and so on, because the first signal will keep mattering for the longest time, the second for the second-longest time [GarleanuPedersen2013]. The weight attributed to a signal is ordered by the length of its remaining horizon.
+where $`a/(\gamma + a) = 1-z`$, with $`z`$ the weight of Proposition 3: the portfolio gives the greatest weight to the first signal (yesterday's return), the second-greatest weight to the second signal, and so on, because the first signal will keep mattering for the longest time, the second for the second-longest time [GarleanuPedersen2013]. The weight attributed to a signal is ordered by the length of its remaining horizon.
 
 ## Static Versus Dynamic and Empirical Evidence
 
-Weighting by persistence distinguishes the dynamic solution from any static optimization. When the investor fully discounts the future ($`\rho = 1`$), the problem becomes static and reduces to
+Weighting by persistence distinguishes the dynamic solution from any static optimization. A myopic investor, who ignores the continuation value $`E_t[V]`$ and optimizes one period at a time, solves the static problem, up to a rescaling of the cost parameter (dropping $`E_t[V]`$ from the Bellman equation leaves $`\lambda/(1-\rho)`$ in place of $`\lambda`$)
 
-$$\max_{x_t}\; x_t^{\top}E_t(r_t) - \frac{\gamma}{2}x_t^{\top}\Sigma x_t - \frac{\lambda}{2}\Delta x_t^{\top}\Sigma\Delta x_t,$$
+$$\max_{x_t}\; x_t^{\top}E_t(r_{t+1}) - \frac{\gamma}{2}x_t^{\top}\Sigma x_t - \frac{\lambda}{2}\Delta x_t^{\top}\Sigma\Delta x_t,$$
 
 with solution
 
 $$x_t = \frac{\lambda}{\gamma + \lambda}x_{t-1} + \frac{\gamma}{\gamma + \lambda}(\gamma\Sigma)^{-1}E_t(r_{t+1}) = x_{t-1} + \frac{\gamma}{\gamma + \lambda}\left(Markowitz_t - x_{t-1}\right).$$
 
-This static portfolio differs from the dynamic one in two ways: the weight on the current position $`x_{t-1}`$ is different, and above all the aim is different, since in the static case the aim is the Markowitz portfolio. The first flaw — a suboptimal trading rate, which does not account for the future benefits of the position — can be corrected by adjusting $`\lambda`$ or $`\gamma`$. The second flaw cannot: with multiple predictors, no choice of risk aversion $`\gamma`$ and cost $`\lambda`$ recovers the dynamic solution, because static optimization treats all factors the same way, while the dynamic one gives more weight to slower-decaying factors [GarleanuPedersen2013]. Recovering the dynamic solution would require modifying not only $`\gamma`$ and $`\lambda`$, but also the expected returns $`Bf_t`$ by rescaling the signals according to Proposition 4.
+This static portfolio differs from the dynamic one in two ways: the weight on the current position $`x_{t-1}`$ is different, and above all the aim is different, since in the static case the aim is the Markowitz portfolio. The first flaw — a suboptimal trading rate, which does not account for the future benefits of the position — can be corrected by adjusting $`\lambda`$ or $`\gamma`$. The second flaw cannot: with multiple predictors that mean-revert at different speeds, no choice of risk aversion $`\gamma`$ and cost $`\lambda`$ recovers the dynamic solution, because static optimization treats all factors the same way, while the dynamic one gives more weight to slower-decaying factors [GarleanuPedersen2013]. Recovering the dynamic solution would require modifying not only $`\gamma`$ and $`\lambda`$, but also the expected returns $`Bf_t`$ by rescaling the signals according to Proposition 4.
 
-The empirical test is conducted on fifteen liquid commodity futures, over the period 01/01/1996 – 23/01/2009. Returns are forecast with a characteristics-based specification, in which each commodity uses its own past returns over three horizons — five days, one year, and five years — constructed as rolling Sharpe ratios. The estimated panel regression is
+The empirical test is conducted on fifteen liquid commodity futures, over the period 01/01/1996 – 23/01/2009. Daily price changes per contract, in US dollars, are forecast with a characteristics-based specification, in which each commodity uses its own past price changes over three horizons — five days, one year, and five years — constructed as rolling Sharpe ratios (average price changes scaled by their standard deviation), so the coefficients are in dollars per contract per unit of Sharpe ratio. The estimated panel regression is
 
 $$r_{t+1}^{s} = 0{,}001 + 10{,}32\,f_t^{5D,s} + 122{,}34\,f_t^{1Y,s} - 205{,}59\,f_t^{5Y,s} + u_{t+1}^{s},$$
 
@@ -210,7 +210,7 @@ $$\Delta f_{t+1}^{5D,s} = -0{,}2519\,f_t^{5D,s} + \varepsilon_{t+1}^{5D,s}, \qua
 
 corresponding to a half-life (the expected time for half the signal to vanish) of $`2{,}4`$ days for the five-day signal, of $`206`$ days for the one-year signal, and of $`700`$ days for the five-year signal [GarleanuPedersen2013].
 
-Three strategies are compared: the optimal dynamic strategy, the Markowitz portfolio (optimal in the absence of costs), and a class of strategies based on static single-period optimization, for ten different trading speeds. Before costs, the highest Sharpe ratio is that of the Markowitz portfolio; after costs, however, the optimal dynamic portfolio is the best, with a net Sharpe ratio about $`20\%`$ higher than that of the best static strategy, while the Markowitz portfolio incurs enormous trading costs. The engine of the outperformance is that the dynamic strategy gives less weight to the five-day signal because of its fast alpha decay: the static strategy tries only to control the overall trading speed, but this is not enough — it either incurs high costs chasing the fleeting target, or trades so slowly that it fails to capture the return — whereas the dynamic strategy trades relatively quickly but mainly follows the more persistent signals [GarleanuPedersen2013].
+Three strategies are compared: the optimal dynamic strategy, the Markowitz portfolio (optimal in the absence of costs), and a class of strategies based on static single-period optimization, for ten different trading speeds. Before costs, the highest Sharpe ratio is that of the Markowitz portfolio; after costs, however, the optimal dynamic portfolio is the best, with a net Sharpe ratio of $`0{,}58`$ against $`0{,}46`$ for the best static strategy at the base cost level (about $`26\%`$ higher) and $`0{,}53`$ against $`0{,}39`$ at the high cost level (about $`36\%`$ higher), while the Markowitz portfolio incurs enormous trading costs. The engine of the outperformance is that the dynamic strategy gives less weight to the five-day signal because of its fast alpha decay: the static strategy tries only to control the overall trading speed, but this is not enough — it either incurs high costs chasing the fleeting target, or trades so slowly that it fails to capture the return — whereas the dynamic strategy trades relatively quickly but mainly follows the more persistent signals [GarleanuPedersen2013]. The regression and the mean-reversion estimates are in-sample, the long-horizon reversal is statistically weak, and $`\lambda`$ is calibrated from published estimates of price impact, so the comparison illustrates the mechanism rather than testing it out of sample.
 
 Finally, the response to new information clarifies the mechanics. Following a shock to a predictor, the Markowitz portfolio jumps immediately and then reverts to the mean at the speed of the alpha decay; the optimal portfolio increases more slowly, so as to minimize trading costs, and — since it also exits the position just as slowly — may eventually hold a larger position than the Markowitz one. For the shock to the five-year signal the effects are slower and of opposite sign, since five-year returns predict future reversals. The optimal position thus turns out to be a smoother version of the Markowitz portfolio, which reduces its trading costs while still capturing most of its excess return [GarleanuPedersen2013].
 
@@ -220,4 +220,4 @@ Finally, the response to new information clarifies the mechanics. Following a sh
 - **[Grinold1989]** Grinold, R. C. (1989). The Fundamental Law of Active Management. The Journal of Portfolio Management, 15(3), 30–37.
 - **[Markowitz1952]** Markowitz, H. (1952). Portfolio Selection. The Journal of Finance, 7(1), 77–91.
 - **[QianEtAl2004]** Qian, E., Hua, R., & Tilney, J. (2004). Portfolio Turnover of Quantitatively Managed Portfolios. Proceedings of the 2nd IASTED International Conference on Financial Engineering and Applications, Cambridge, MA.
-- **[QianHuaSorensen2006]** Qian, E., Hua, R., & Sorensen, E. (2006). Information Horizon, Portfolio Turnover, and Optimal Alpha Model. Northfield Conference, October 2006. See also Qian, E. E., Hua, R. H., & Sorensen, E. H. (2007). Quantitative Equity Portfolio Management: Modern Techniques and Applications. Chapman and Hall/CRC.
+- **[QianHuaSorensen2006]** Qian, E., Sorensen, E. H., & Hua, R. (2007). Information Horizon, Portfolio Turnover, and Optimal Alpha Models. The Journal of Portfolio Management, 34(1), 27–40. First presented as Qian, E., Hua, R., & Sorensen, E. (2006). Information Horizon, Portfolio Turnover, and Optimal Alpha Model. Northfield Conference, October 2006. See also Qian, E. E., Hua, R. H., & Sorensen, E. H. (2007). Quantitative Equity Portfolio Management: Modern Techniques and Applications. Chapman and Hall/CRC.

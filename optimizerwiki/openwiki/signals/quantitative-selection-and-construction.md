@@ -35,35 +35,52 @@ and we may be wrong. The second is the fundamental law of active management, whe
 right much more than 50 percent of the time to add value; this law is taken as given and applied
 throughout.
 
-Corporate-finance theory sets the rules for an acceptable valuation model. Modigliani and Miller showed
+Corporate-finance theory sets the rules for an acceptable valuation model. In frictionless capital
+markets (no taxes, no transaction or bankruptcy costs, symmetric information) and for a given investment
+policy, Modigliani and Miller showed
 that dividend policy affects only the timing of cash flows received by the shareholder — a "pay me now
 or pay me later" arrangement — not the total value of payments, and that financing policy does not
 alter the total firm value. Economic value arises from operations: equity value can thus be decomposed
 into operating value and financial value, and any valuation scheme placing magic in dividends or debt
 is dangerous.
 
-The standard model is the *dividend discount model*. Under certainty, with $p(0)$ the price, $i_F$ the
-risk-free rate, and $d(t)$ the dividend paid at time $t$,
-$$p(0)=\frac{d(1)}{(1+i_F)}+\frac{d(2)}{(1+i_F)^2}+\cdots+\frac{d(t)}{(1+i_F)^t}+\cdots$$
-The constant-growth (Gordon–Shapiro) model assumes $d(t)=d(1)\cdot(1+g)^{t-1}$ and gives
-$$p(0)=\frac{d(1)}{y-g},$$
-where $y$ is the expected discount rate of dividends. Decomposing return into dividend yield and
-capital appreciation and taking expectations,
-$$i_F+f=\frac{d}{p}+g=y,$$
-with $f$ the expected excess return, and a simple growth model gives $g=(1-\kappa)\cdot\rho$, with
-$\kappa$ the payout ratio and $\rho$ the return on reinvested capital.
+The standard model is the *dividend discount model*. Under certainty, with $`p(0)`$ the price, $`i_F`$ the
+risk-free rate, and $`d(t)`$ the dividend paid at time $`t`$,
 
-For $N$ stocks the relation becomes $d_n/p_n+g_n=i_F+f_n=y_n$. Since the expected excess return
-includes consensus and alpha, $f_n=\beta_n\cdot f_B+\alpha_n$, substituting yields a model of alpha in
+$$p(0)=\frac{d(1)}{(1+i_F)}+\frac{d(2)}{(1+i_F)^2}+\cdots+\frac{d(t)}{(1+i_F)^t}+\cdots$$
+
+The constant-growth (Gordon–Shapiro) model assumes $`d(t)=d(1)\cdot(1+g)^{t-1}`$ and gives
+
+$$p(0)=\frac{d(1)}{y-g},$$
+
+where $`y`$ is the expected discount rate of dividends, valid for $`y>g`$ with a constant required return
+$`y`$ and expected dividends growing at the constant rate $`g`$ forever (under certainty $`y=i_F`$).
+Decomposing return into dividend yield and capital appreciation and taking expectations,
+
+$$i_F+f=\frac{d}{p}+g=y,$$
+
+with $`f`$ the expected excess return; in a steady state (constant payout, constant return on new
+investment, no new share issuance, hence a constant price/earnings ratio) a simple growth model shows
+that the expected rate of appreciation equals earnings-per-share growth, $`g=(1-\kappa)\cdot\rho`$, with
+$`\kappa`$ the payout ratio and $`\rho`$ the return on reinvested capital.
+
+For $`N`$ stocks the relation becomes $`d_n/p_n+g_n=i_F+f_n=y_n`$. Since the expected excess return
+includes consensus and alpha, $`f_n=\beta_n\cdot f_B+\alpha_n`$, substituting yields a model of alpha in
 terms of yield, risk (beta), and growth,
+
 $$\alpha_n=\left(\frac{d_n}{p_n}-i_F\right)+\left(g_n-\beta_n\cdot f_B\right).$$
-This is the *Golden Rule* of the dividend discount model — "$g$ in, $g$ out": each percentage point of
+
+This is the *Golden Rule* of the dividend discount model — "$`g`$ in, $`g`$ out": each percentage point of
 growth in adds one point to alpha, and alphas are worth only as much as the growth estimates that
-generate them. Setting $\alpha_n=0$ gives the *implied growth rate*, the growth that fairly prices the
+generate them. Setting $`\alpha_n=0`$ gives the *implied growth rate*, the growth that fairly prices the
 stock,
+
 $$g^*_n=(i_F+\beta_n\cdot f_B)-\frac{d_n}{p_n}.$$
+
 Combining the two expressions gives the central conversion relation,
+
 $$\alpha_n=g_n-g^*_n,$$
+
 the dividend-discount-model alpha is the difference between forecast growth and the growth implied by
 the market price.
 
@@ -77,25 +94,32 @@ stocks and bullish prospects help sell them.
 
 A first, direct approach proceeds in three steps: (1) group stocks into sectors; (2) compute the
 implied growth rate for each stock in the sector; (3) modify growth forecasts to have the same mean and
-standard deviation as the implied rates in the sector. This is a linear transformation $g'_n=a+b\cdot
-g_n$ with $a,b$ chosen so $g'$ reproduces the cross-sectional mean and standard deviation of the implied
-rates $g^*$,
+standard deviation as the implied rates in the sector. This is a linear transformation $`g'_n=a+b\cdot
+g_n`$ with $`a,b`$ chosen so $`g'`$ reproduces the cross-sectional mean and standard deviation of the implied
+rates $`g^*`$,
+
 $$g'_n=\text{Mean}\{g^*\}+\left(\frac{\text{Std}\{g^*\}}{\text{Std}\{g\}}\right)\cdot\left(g_n-\text{Mean}\{g\}\right).$$
+
 The revised estimate is the sector's average implied growth plus a term proportional to the initial
-forecast's deviation. A difficulty is that this can erase *sector-timing* information: because implied
-rates assume zero alphas, the procedure pushes sector alphas toward zero, harmless only if one has no
-sector-timing skill.
+forecast's deviation. A difficulty is that this erases *sector-timing* information: because implied
+rates assume zero alphas, the procedure sets each sector's equal-weighted average alpha to exactly zero,
+harmless only if one has no sector-timing skill.
 
 A second approach explicitly incorporates the investor's skill at forecasting growth. Starting not from
 the sector mean but from the *single stock's* implied rate, it applies the basic linear-forecasting
 result,
+
 $$g'_n=g^*_n+c\cdot(g_n-g^*_n).$$
+
 The estimate starts from the stock's implied growth and departs from it according to the comparison
-between initial forecast and implied. The constant $c$ depends on the investor's skill, measured by the
-correlation between forecast and realized growth; with no skill $c=0$ and the revised growth coincides
-with the implied. A third, more conventional approach is the three-stage dividend discount model, which
-interpolates between a short-run growth $g_{IN}$ and a long-run growth $g_{EQ}$; in spirit it too
-adjusts $g_{IN}$ toward $g_{EQ}$, and is no magic: it does not turn bad growth estimates into good
+between initial forecast and implied. The constant $`c`$ depends on the investor's skill, measured by the
+correlation between forecast and realized growth; with no skill $`c=0`$ and the revised growth coincides
+with the implied. The rule takes the forecasts to be unbiased relative to the implied rates; since
+consensus growth tends to be too high, the average gap is removed first,
+$`g'_n=g^*_n+c\cdot[(g_n-g^*_n)-\overline{(g-g^*)}]`$, otherwise $`c`$ times the average bias passes
+into every alpha. A third, more conventional approach is the three-stage dividend discount model, which
+interpolates between a short-run growth $`g_{IN}`$ and a long-run growth $`g_{EQ}`$; in spirit it too
+adjusts $`g_{IN}`$ toward $`g_{EQ}`$, and is no magic: it does not turn bad growth estimates into good
 ones, and the Golden Rule still holds.
 
 ## Converting a valuation into alpha
@@ -104,32 +128,42 @@ To use a valuation model in active management, its information must be converted
 exceptional return. Two standard modes differ in the assumption about the horizon over which the
 mispricing dissolves.
 
-In the *internal-rate-of-return* mode, the dividend stream and market price solve for the rate $y_n$
+In the *internal-rate-of-return* mode, the dividend stream and market price solve for the rate $`y_n`$
 equating dividends to price. Alphas come in two steps: first aggregating rates to estimate the
 benchmark excess return,
-$$f_B=y_B-i_F=\sum_n y_n\cdot h_{B,n}-i_F,$$
-then converting internal rates into expected residual returns,
-$$\alpha_n=y_n-(i_F+\beta_n\cdot f_B).$$
-The implicit assumption is that the mispricing *persists*: after a year the correct discount rate is
-still $y_n$, not the "fair" $i_F+\beta_n f_B$, and the benefit keeps accruing.
 
-In the *net-present-value* mode, the fair rate $y_n=i_F+\beta_n f_B$ is assumed and one solves for the
+$$f_B=y_B-i_F=\sum_n y_n\cdot h_{B,n}-i_F,$$
+
+then converting internal rates into expected residual returns,
+
+$$\alpha_n=y_n-(i_F+\beta_n\cdot f_B).$$
+
+The implicit assumption is that the mispricing *persists*: after a year the correct discount rate is
+still $`y_n`$, not the "fair" $`i_F+\beta_n f_B`$, and the benefit keeps accruing.
+
+In the *net-present-value* mode, the fair rate $`y_n=i_F+\beta_n f_B`$ is assumed and one solves for the
 fair price, then compares it to the market price to measure over- or under-valuation. After adjusting
-$f_B$ so aggregate fair value equals market value, and assuming the price error vanishes in a year, the
+$`f_B`$ so aggregate fair value equals market value, and assuming the price error vanishes in a year, the
 alpha is
+
 $$\alpha^*_n=\left[\frac{p_n(\text{model})-p_n(\text{market})}{p_n(\text{market})}\right]\cdot(1+i_F+\beta_n\cdot f_B),$$
+
 approximable by the percentage price error alone,
-$\alpha^*_n\approx[p_n(\text{model})-p_n(\text{market})]/p_n(\text{market})$.
+$`\alpha^*_n\approx[p_n(\text{model})-p_n(\text{market})]/p_n(\text{market})`$.
 
 An alternative to projecting dividends is *comparative valuation*, pricing a firm by comparison with
 similar firms via their current attributes. The accounting *clean-surplus* equation
-$b(t)=b(t-1)+e(t)-d(t)$ decomposes earnings into a required and an exceptional part that gradually dies
+$`b(t)=b(t-1)+e(t)-d(t)`$ decomposes earnings into a required and an exceptional part that gradually dies
 out, and expresses price as a linear combination of expected earnings and book value. Applied to a
 group of similar firms, one seeks common coefficients,
+
 $$p_n(0)=c_1\cdot b_n(0)+c_2\cdot e_n(1)+\epsilon_n,$$
-and the error $\epsilon_n$ identifies mispricings. In general comparative valuation estimates "market
+
+and the error $`\epsilon_n`$ identifies mispricings. In general comparative valuation estimates "market
 price = theoretical price + error," giving the exceptional-return forecast
+
 $$\alpha=-\frac{\text{error}}{\text{market price}}=\frac{\text{theoretical price}-\text{market price}}{\text{market price}},$$
+
 presuming the theoretical price is more accurate and the stock converges to it over the alpha horizon.
 The reading is one of arbitrage: firms split into over- and under-valued with identical attributes
 (same sales, debt, earnings) are two identical "meta-firms" trading at different prices, an arbitrage
@@ -138,11 +172,13 @@ missing factor rather than a true mispricing.
 
 An extension is *returns-based analysis*, modeling residual returns as a function of attributes, or
 excess returns with risk-control factors in an APT-like form,
+
 $$r_n(t)=\sum_k X_{n,k}(t)\cdot b_k(t)+u_n(t),$$
-where the exposures $X_{n,k}$ include both attributes and risk-control factors. In a GLS regression the
-factor return $b_k(t)$ is the return of a *factor portfolio* with unit exposure to factor $k$, zero to
+
+where the exposures $`X_{n,k}`$ include both attributes and risk-control factors. In a GLS regression the
+factor return $`b_k(t)`$ is the return of a *factor portfolio* with unit exposure to factor $`k`$, zero to
 others, and minimum risk. Because least-squares estimation is sensitive to outliers, a practical rule
-compresses the $X_{n,k}(t)$ outliers within $\pm 3$ standard deviations of the mean, so explanatory power
+compresses the $`X_{n,k}(t)`$ outliers within $`\pm 3`$ standard deviations of the mean, so explanatory power
 does not come from one or two suspect observations.
 
 ## The predictor as signal plus noise: the information coefficient
@@ -152,8 +188,8 @@ asks whether it helps forecast alphas. Every predictor is *signal plus noise*: t
 future returns, the noise masks it; random numbers contain no signal, only noise, and information
 analysis is the effort to measure the signal-to-noise ratio.
 
-A predictor spans multiple periods and stocks. The single-stock datum may be simple — $+1$ for buy-list
-stocks and $-1$ for sell-list — or a precise alpha such as $2.15$ percent for one stock and $-3.72$
+A predictor spans multiple periods and stocks. The single-stock datum may be simple — $`+1`$ for buy-list
+stocks and $`-1`$ for sell-list — or a precise alpha such as $`2.15`$ percent for one stock and $`-3.72`$
 percent for another; other predictors are *scores*, such as category groupings or a ranking along some
 dimension. One can start from alphas and produce a ranking, or start from a ranking and produce scores.
 Information classifies along four dimensions: primary or processed; judgmental or unbiased; ordinal or
@@ -162,11 +198,12 @@ cardinal; historical, contemporaneous, or forecast. The ordinal/cardinal distinc
 *cardinal* data each stock gets a number whose magnitude carries meaning.
 
 The *information coefficient* (IC) is the correlation between the data and realized alphas. If the datum
-is all noise and no signal, the IC is $0$; all signal and no noise, $1$; a perverse relation gives a
-negative IC; in all cases the IC lies between $+1$ and $-1$. The IC is a critical ingredient for the
+is all noise and no signal, the IC is $`0`$; all signal and no noise, $`1`$; a perverse relation gives a
+negative IC; in all cases the IC lies between $`+1`$ and $`-1`$. The IC is a critical ingredient for the
 information ratio under the fundamental law and a critical input for refining and combining signals.
-The structural result used here is $\alpha=\text{volatility}\times IC\times\text{score}$, with the
-score of zero mean and unit standard deviation.
+The structural result used here is $`\alpha=\text{volatility}\times IC\times\text{score}`$, with the
+volatility the stock's residual volatility, the score of zero mean and unit standard deviation, and a
+linear relation between score and residual return (as under joint normality).
 
 ## From information to portfolios: score-portfolios and factor portfolios
 
@@ -203,16 +240,24 @@ coefficient — all related.
 
 One starts from a regression of the portfolio's excess returns on the benchmark's, separating the
 benchmark-linked from the non-benchmark-linked component,
+
 $$r(t)=\alpha+\beta\cdot r_B(t)+\epsilon(t).$$
+
 The regression estimates the portfolio's alpha and beta and assesses, via the *t*-statistic, whether the
 alpha differs significantly from zero,
+
 $$t\text{-stat}=\frac{\alpha}{\text{SE}(\alpha)},$$
-the ratio of estimated alpha to its standard error; assuming normally distributed alphas, a
-*t*-statistic above $2$ means the probability the returns are pure luck is below 5 percent.
+
+the ratio of estimated alpha to its standard error; if the true alpha were zero and the residuals
+i.i.d. normal, a *t*-statistic above $`2`$ in absolute value would arise by chance with a probability of
+about 5 percent in large samples and more in small ones, $`2`$ being a large-sample threshold (the two-sided 5 percent critical value
+is $`2.23`$ with 10 degrees of freedom).
 
 The information ratio is the single best statistic capturing active management's value-added potential.
-The *t*-statistic and information ratio are closely related: over $T$ years,
+The *t*-statistic and information ratio are closely related: over $`T`$ years,
+
 $$IR\approx\frac{t\text{-stat}}{\sqrt{T}},$$
+
 increasingly exact with more observations. The close mathematical relation must not obscure the
 distinction: the *t*-statistic measures statistical significance, the information ratio the
 risk-return trade-off and the manager's value added.
@@ -220,9 +265,14 @@ risk-return trade-off and the manager's value added.
 The third statistic is the information coefficient, the correlation between forecast and realized
 alphas (in information analysis, the correlation between the data and realized alphas), linked to the
 information ratio by the fundamental law of active management,
+
 $$IR\approx IC\cdot\sqrt{BR},$$
-where $BR$ is the *breadth*, the number of independent bets per year the information allows. In practice
-$BR$ is harder to measure than either the IR or the IC, since not all information items are independent.
+
+where $`BR`$ is the *breadth*, the number of independent bets per year the information allows. In practice
+$`BR`$ is harder to measure than either the IR or the IC, since not all information items are independent.
+The law assumes independent bets with the same, small IC and an unconstrained implementation;
+constraints scale the IR down by a transfer coefficient $`TC\le 1`$, so that
+$`IR\approx TC\cdot IC\cdot\sqrt{BR}`$.
 
 ## Alpha Analysis: scaling, trimming, and neutralization
 
@@ -231,21 +281,24 @@ transaction costs, and an active-risk aversion; of these, the alphas are often u
 to hidden biases. Many implementation schemes — limits on active positions, turnover, sectors — are
 partly a safeguard against poor-quality research: any construction procedure, however sophisticated, can
 be replicated by first refining the alphas and then using a simple unconstrained mean-variance
-optimization. A set of constraints leading to active positions $h^{*}_{PA}$, active risk $\psi^{*}_P$,
-and information ratio $IR$ corresponds to the modified alphas
+optimization. A set of constraints leading to active positions $`h^{*}_{PA}`$, active risk $`\psi^{*}_P`$,
+and information ratio $`IR`$ corresponds to the modified alphas
+
 $$\alpha'=\left(\frac{IR}{\psi^{*}_P}\right)\cdot V\cdot h^{*}_{PA},\qquad \lambda'_A=\frac{IR}{2\cdot\psi^{*}_P}.$$
+
 The *Alpha Analysis* refines alphas to make them consistent with the manager's beliefs and goals,
 explicitly tying the refinement to the desired properties of the resulting portfolio.
 
-**Scaling.** Alphas have a natural structure, $\alpha=\text{volatility}\cdot IC\cdot\text{score}$, with
-the score of mean $0$ and standard deviation $1$, giving a natural scale
-$\text{Std}\{\alpha\}\sim\text{volatility}\cdot IC$. An IC of $0.05$ and a typical residual risk of 30
-percent give an alpha scale of $1.5$ percent; then the mean alpha is $0$, with about two-thirds of
-stocks between $-1.5$ and $+1.5$ percent and about 5 percent beyond $\pm 3$ percent. The scale depends
-on the manager's IC; alphas of the wrong scale must be rescaled. This is quantifiable: in an example the
-original alphas have standard deviation $2.00$ percent and the constraint-modified ones $0.57$ percent,
-implying the constraints effectively reduced the IC by 62 percent — a significant compression, better
-made explicit than hidden under the optimizer's constraints.
+**Scaling.** Alphas have a natural structure, $`\alpha=\text{volatility}\cdot IC\cdot\text{score}`$, with
+volatility the residual volatility and the score of mean $`0`$ and standard deviation $`1`$, giving a
+natural scale $`\text{Std}\{\alpha\}\sim\text{volatility}\cdot IC`$. An IC of $`0.05`$ and a typical
+residual risk of 30 percent give an alpha scale of $`1.5`$ percent; then the mean alpha is $`0`$ and, if
+scores are roughly normal, about two-thirds of stocks lie between $`-1.5`$ and $`+1.5`$ percent and about
+5 percent beyond $`\pm 3`$ percent. The scale depends on the manager's IC; alphas of the wrong scale
+must be rescaled. This is quantifiable: in an example the original alphas have standard deviation
+$`2.00`$ percent and the constraint-modified ones $`0.57`$ percent, implying, at unchanged residual risk,
+that the constraints effectively reduced the IC by about 72 percent ($`1-0.57/2.00=0.715`$) — a
+significant compression, better made explicit than hidden under the optimizer's constraints.
 
 **Trimming (winsorization).** The second refinement compresses extreme values. Very large alphas,
 positive or negative, can have undue influence: stocks with alpha magnitude above, say, three times the
@@ -257,13 +310,17 @@ benchmark neutrality and scale must be re-verified.
 
 **Neutralization.** Beyond scaling and trimming, one can remove unwanted biases or bets — *neutralization*,
 with implications for both alphas and portfolios. Benchmark neutrality means the benchmark has zero
-alpha; on the portfolio side, the optimum has beta $1$, with no benchmark bets. The simplest sets the
+alpha; on the portfolio side, the unconstrained mean-variance optimum (betas from the same covariance matrix)
+has beta $`1`$, with no benchmark bets; long-only, sector or turnover constraints can move it away from
+$`1`$. The simplest sets the
 benchmark alpha to zero; in the same spirit alphas can be made *cash-neutral* so they induce no active
-cash position. Benchmark neutrality is achieved by subtracting $\beta_n\cdot\alpha_B$ from each modified
-alpha. For a group of forecast stocks $N_1$, defining the value-weighted fraction
-$H\{N_1\}=\sum_{n\in N_1}h_{B,n}$ and mean alpha
-$\alpha\{N_1\}=\sum_{n\in N_1}h_{B,n}\cdot\alpha_n/H\{N_1\}$, one sets
+cash position. Benchmark neutrality is achieved by subtracting $`\beta_n\cdot\alpha_B`$ from each modified
+alpha. For a group of forecast stocks $`N_1`$, defining the value-weighted fraction
+$`H\{N_1\}=\sum_{n\in N_1}h_{B,n}`$ and mean alpha
+$`\alpha\{N_1\}=\sum_{n\in N_1}h_{B,n}\cdot\alpha_n/H\{N_1\}`$, one sets
+
 $$\alpha^*_n=\alpha_n-\alpha\{N_1\}\ \ (n\in N_1),\qquad \alpha^*_n=0\ \ (n\in N_0),$$
+
 so uncovered stocks too get a neutral zero forecast. In a multifactor framework the manager identifies
 each dimension as a source of risk or of value added: unable to forecast a factor, they should
 neutralize alphas against it, leaving only forecastable-factor and stock-specific information. To make
@@ -276,9 +333,9 @@ approach works better than trying all possibilities and choosing the best ex pos
 
 The *screen* is the most direct alternative to optimization. Construction techniques fall into four
 generic classes — screens, stratification, linear programming, and quadratic programming — sharing the
-same criterion, maximizing value added net of transaction costs, $\alpha_P-\lambda_A\cdot\psi_P^2-TC$.
+same criterion, maximizing value added net of transaction costs, $`\alpha_P-\lambda_A\cdot\psi_P^2-TC`$.
 The screen realizes this criterion with an essential recipe: (1) sort stocks by alpha; (2) pick the top
-$N$ (say the top 50); (3) equal-weight (or cap-weight) them.
+$`N`$ (say the top 50); (3) equal-weight (or cap-weight) them.
 
 The screen also serves rebalancing. With alphas over a followed universe, stocks split into three
 categories — say the top 40, the next 60, and the remaining 100 — forming a buy, hold, and sell list.
@@ -292,7 +349,7 @@ concentrating the portfolio in high-alpha stocks, seeks risk control by includin
 weighting to avoid single-name concentration, and limits transaction costs through careful list sizing.
 
 The screen also has limits. It ignores all information in the alphas beyond the ranking; it does not
-protect against alpha biases — if all "buy-and-hold" stocks fell to the bottom of the ranking, the
+protect against alpha biases — if all "widow-and-orphan" stocks fell to the bottom of the ranking, the
 portfolio would include none; and its risk control is piecemeal, to the point that screen-built
 portfolios have proved considerably riskier than their managers imagined. The systematic comparison of
 construction techniques — same input alphas, ignoring transaction costs — shows that quadratic
