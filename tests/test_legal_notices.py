@@ -3,20 +3,22 @@
 The project is source-available under PolyForm Noncommercial 1.0.0, which the Open
 Source Definition does not accept, and it is research software run by a private
 individual: the README has to say so, and it must not promise anything the code does
-not do (a broker connection, an advice service). The member ``pyproject.toml`` files
-once carried no licence at all, so a built wheel of ``portopt``, ``portopt-fund`` or
-``portopt-db`` was published without terms.
+not do (a broker connection, an advice service). A wheel built from ``portopt``,
+``portopt-fund`` or ``portopt-db`` carries no licence terms unless its own
+``pyproject.toml`` declares them.
 """
 
 from __future__ import annotations
 
 import re
+from functools import cache
 from pathlib import Path
 
+import pytest
 import tomllib
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_README = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+_README_PATH = _REPO_ROOT / "README.md"
 _PYPROJECTS = {
     "portopt-core": _REPO_ROOT / "pyproject.toml",
     "portopt": _REPO_ROOT / "ingestion" / "pyproject.toml",
@@ -26,38 +28,51 @@ _PYPROJECTS = {
 _LICENCE_CLASSIFIER = "License :: Other/Proprietary License"
 
 
+@cache
+def _readme() -> str:
+    """Return the README text; a missing file fails the calling test, not collection."""
+    assert _README_PATH.is_file(), f"{_README_PATH} does not exist"
+    return _README_PATH.read_text(encoding="utf-8")
+
+
 def _flat(text: str) -> str:
     """Collapse whitespace so a phrase wrapped over two README lines still matches."""
     return " ".join(text.split())
 
 
-def _notices_section() -> str:
-    """Return the body of the ``## Notices`` section, up to the next ``## `` heading."""
-    match = re.search(r"^## Notices\s*$(.*?)(?=^## |\Z)", _README, re.M | re.S)
-    assert match, "README.md has no '## Notices' section"
+def _section(heading: str) -> str:
+    """Return the flattened body of the ``## <heading>`` section, up to the next one."""
+    pattern = rf"^## {re.escape(heading)}\s*$(.*?)(?=^## |\Z)"
+    match = re.search(pattern, _readme(), re.M | re.S)
+    assert match, f"README.md has no '## {heading}' section"
     return _flat(match.group(1))
 
 
+@pytest.mark.criterion("REQ-OPS-003")
 def test_readme_has_notices_section_with_not_advice_statement() -> None:
-    """The notices say the output is not advice, so the reader cannot miss it."""
-    assert "not investment advice" in _notices_section().lower()
+    """Validates README.md: the notices say the output is not advice, up front."""
+    assert "not investment advice" in _section("Notices").lower()
 
 
+@pytest.mark.criterion("REQ-OPS-003")
 def test_readme_states_no_broker_execution() -> None:
-    """The ``fund`` component keeps paper orders only; the README must say so."""
-    notices = _notices_section()
+    """Validates README.md: ``fund`` keeps paper orders only and the notices say so."""
+    notices = _section("Notices")
     assert "places no orders with any broker" in notices
     assert "paper" in notices
 
 
+@pytest.mark.criterion("REQ-OPS-003")
 def test_readme_describes_licence_as_source_available_not_open_source() -> None:
-    """PolyForm Noncommercial is not an OSI licence, so 'open source' would mislead."""
-    assert "source-available" in _README.lower()
-    assert not re.search(r"open[ -]source", _README, re.I)
+    """Validates README.md: PolyForm Noncommercial is not an OSI licence."""
+    for heading in ("Notices", "License"):
+        assert "source-available" in _section(heading).lower(), heading
+    assert not re.search(r"open\s*-?\s*source", _flat(_readme()), re.I)
 
 
+@pytest.mark.criterion("REQ-OPS-004")
 def test_member_pyprojects_declare_the_same_licence_as_root() -> None:
-    """Every member wheel ships the root package's licence text and classifier."""
+    """Validates the four pyproject.toml files: one licence text and classifier each."""
     declared = {}
     for name, path in _PYPROJECTS.items():
         project = tomllib.loads(path.read_text(encoding="utf-8"))["project"]
