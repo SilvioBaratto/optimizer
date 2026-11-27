@@ -32,6 +32,8 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     Defaults model a first-run with an empty store: ``load_secrets`` raises
     NotFound (so the merge starts empty), ``load_config`` is empty, and
     ``_is_first_run`` is False so no auto-launch fires unless a test opts in.
+    Yahoo's terms count as already acknowledged, so neither entry point asks for
+    them or stages them; ``test_terms.py`` covers that gate.
     """
     calls: dict = {
         "saved_secrets": None,
@@ -74,6 +76,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     )
     monkeypatch.setattr(wizard.config_file, "load_config", lambda **kw: {})
     monkeypatch.setattr(wizard, "_is_first_run", lambda: False)
+    monkeypatch.setattr(wizard.terms, "is_acknowledged", lambda stored: True)
     monkeypatch.setattr(
         wizard.lifecycle, "run_start", lambda pw: calls.update(launched=True)
     )

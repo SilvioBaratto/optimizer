@@ -10,6 +10,10 @@ Boots the process that owns the scheduled data pipeline:
 4. Start APScheduler and block until SIGTERM / SIGINT, or until the scheduler
    thread dies (the process then exits non-zero so the container restarts).
 
+Before any of these it exits with status 2 unless Yahoo's terms are acknowledged
+(``YAHOO_TERMS_ACKNOWLEDGED``, which ``portopt setup`` records; see
+``app.setup.terms``).
+
 There is no HTTP API. Manual runs go through ``python -m app.cli``; job
 progress is readable from the ``background_jobs`` table and the logs.
 """
@@ -34,6 +38,7 @@ from prometheus_client import start_http_server
 from app.config import settings
 from app.database import close_db, database_manager, init_db
 from app.services.jobs.scheduler import SupervisedScheduler, create_scheduler
+from app.setup.terms import require_yahoo_terms
 from app.utils.log_redaction import install_secret_redaction
 
 logger = logging.getLogger(__name__)
@@ -67,6 +72,16 @@ class _JsonFormatter(logging.Formatter):
 
 
 def _configure_logging() -> None:
+    """Set up logging, refuse to run without Yahoo's terms, then configure yfinance.
+
+    The terms check sits here, the first start-up step, so its refusal reaches the
+    configured log handler and comes before anything serves metrics, opens the
+    database or calls Yahoo.
+
+    Raises:
+        SystemExit: Yahoo's terms are not acknowledged
+            (:func:`app.setup.terms.require_yahoo_terms`).
+    """
     from app.services.market_data.yfinance import configure_yfinance
 
     formatter: logging.Formatter = (
@@ -80,6 +95,7 @@ def _configure_logging() -> None:
         level=getattr(logging, settings.log_level.upper()), handlers=[handler]
     )
     install_secret_redaction()
+    require_yahoo_terms(settings)
     configure_yfinance(log_level=settings.yfinance_log_level)
 
 

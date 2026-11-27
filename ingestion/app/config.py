@@ -302,6 +302,17 @@ class Settings(BaseSettings):
         ),
     )
 
+    yahoo_terms_acknowledged: bool = Field(
+        default=False,
+        alias="YAHOO_TERMS_ACKNOWLEDGED",
+        description=(
+            "Whether the operator acknowledged Yahoo's terms. `portopt setup` asks "
+            "and `portopt start` passes the answer to the scheduler container; the "
+            "daemon refuses to start while it is false (app/setup/terms.py). Manual "
+            "one-shot CLI runs do not check it."
+        ),
+    )
+
     # Webhook URLs (Slack, Discord) carry their token in the path.
     notification_webhook_url: str | None = Field(
         default=None,

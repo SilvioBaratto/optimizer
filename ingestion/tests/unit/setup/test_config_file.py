@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from app.setup import config_file
+from app.setup.terms import ACKNOWLEDGEMENT_CONFIG_KEY
 
 
 def test_save_then_load_roundtrip(tmp_path: Path) -> None:
@@ -91,3 +92,24 @@ def test_update_config_none_value_removes_the_key(tmp_path: Path) -> None:
         "llm_provider": "ollama",
         "repo_path": "/r",
     }
+
+
+@pytest.mark.criterion("REQ-ING-026")
+def test_yahoo_terms_acknowledgement_is_kept_as_a_plain_boolean(tmp_path: Path) -> None:
+    """Validates ``app.setup.config_file.update_config`` with the terms entry.
+
+    The key passes the secret-key guard, lands as a TOML ``true`` and merges over
+    what an earlier setup stored instead of replacing it.
+    """
+    path = tmp_path / "config.toml"
+    config_file.save_config({"llm_provider": "openai"}, path=path)
+
+    config_file.update_config({ACKNOWLEDGEMENT_CONFIG_KEY: True}, path=path)
+
+    assert config_file.load_config(path=path) == {
+        "llm_provider": "openai",
+        ACKNOWLEDGEMENT_CONFIG_KEY: True,
+    }
+    assert (
+        f"{ACKNOWLEDGEMENT_CONFIG_KEY} = true" in path.read_text("utf-8").splitlines()
+    )

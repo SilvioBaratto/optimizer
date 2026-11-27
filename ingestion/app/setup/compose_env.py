@@ -8,6 +8,10 @@ region/Azure) into `./.env.fund`, under the exact env-var NAMES
 the fund service (so it overrides `.env`); `portopt stop` and a failed setup delete
 it.
 
+The scheduler's one setting from config.toml, the acknowledgement of Yahoo's terms,
+needs no file: `config_to_scheduler_env` gives it to `portopt start`, which adds it
+to the environment of `docker compose up`.
+
 Provider auth keys are NOT handled here — they flow only through file-based docker
 secrets (`compose_secrets`).
 
@@ -22,6 +26,7 @@ import contextlib
 from collections.abc import Mapping
 from pathlib import Path
 
+from app.setup import terms
 from app.setup.host_urls import to_container_url
 
 # config.toml key -> the env-var name fund.config.load_config reads for it.
@@ -45,6 +50,15 @@ _BASE_URL_ENV_BY_PROVIDER = {
     "openai": "OPENAI_BASE_URL",
     "nvidia": "NVIDIA_BASE_URL",
 }
+
+# config.toml boolean -> the env-var name the ingestion scheduler reads for it. These
+# travel in the environment of `docker compose up`, which docker-compose.yml
+# interpolates into the scheduler service, so CI and a plain `docker compose up` can
+# set them the same way.
+_SCHEDULER_ENV_BY_CONFIG_KEY = {
+    terms.ACKNOWLEDGEMENT_CONFIG_KEY: terms.ACKNOWLEDGEMENT_ENV_VAR,
+}
+_ENV_TRUE = "true"
 
 # Relative to the compose project directory (the repo root), like the secrets dir.
 DEFAULT_ENV_FUND_PATH = Path(".env.fund")
@@ -97,6 +111,20 @@ def config_to_env(config: Mapping[str, object]) -> dict[str, str]:
         if base_url_var:
             env[base_url_var] = to_container_url(str(base_url))
     return env
+
+
+def config_to_scheduler_env(config: Mapping[str, object]) -> dict[str, str]:
+    """Translate persisted config.toml booleans to the scheduler's env-var names.
+
+    Only a value stored as ``true`` is passed. A missing or false one is omitted, so
+    a value the operator exported for the compose run is not overridden and the
+    compose file's own default applies otherwise.
+    """
+    return {
+        env_var: _ENV_TRUE
+        for cfg_key, env_var in _SCHEDULER_ENV_BY_CONFIG_KEY.items()
+        if config.get(cfg_key) is True
+    }
 
 
 def render(config: Mapping[str, object], *, path: Path) -> Path:

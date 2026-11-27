@@ -23,6 +23,8 @@ from app.setup import (
     secret_store,
 )
 
+_MASTER_PHRASE_REQUIRED = "A master passphrase is required (set PORTOPT_PASSPHRASE)."
+
 FUND_SKIPPED_NOTICE = (
     "fund decision engine not started: no LLM backend is configured "
     "(the data pipeline is running). "
@@ -71,9 +73,7 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
             are rebuilt without it.
     """
     if not passphrase:
-        raise LifecycleError(
-            "A master passphrase is required (set PORTOPT_PASSPHRASE)."
-        )
+        raise LifecycleError(_MASTER_PHRASE_REQUIRED)
     docker_bootstrap.ensure_docker()
     # Resolved before anything is decrypted: compose mounts <checkout>/secrets/*, so
     # plaintext rendered into the cwd would both miss the mounts and litter a random
@@ -85,7 +85,8 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     compose_secrets.render(secrets, secrets_dir=secrets_dir)
     # Containers never read config.toml — the fund's non-secret LLM selection
     # reaches it only through the generated .env.fund env_file (the compose
-    # `environment:` block omits these vars so nothing shadows the file).
+    # `environment:` block omits these vars so nothing shadows the file), and the
+    # scheduler's terms acknowledgement through the environment of `up` below.
     config = config_file.load_config()
     compose_env.render(config, path=repo / compose_env.DEFAULT_ENV_FUND_PATH)
     _ensure_exports_dir(repo)
@@ -114,6 +115,7 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
         profiles=("fund", "ingestion") if fund_enabled else ("ingestion",),
         force_build=rebuild,
         repo=repo,
+        extra_env=compose_env.config_to_scheduler_env(config),
     )
     if not fund_enabled:
         print(FUND_SKIPPED_NOTICE)

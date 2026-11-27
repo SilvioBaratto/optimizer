@@ -614,6 +614,7 @@ def build_and_up(
     wait_timeout: int = 300,
     force_build: bool = False,
     repo: Path | None = None,
+    extra_env: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Build each profile's images when absent or stale, then bring the stack up.
 
@@ -635,6 +636,9 @@ def build_and_up(
         repo: The checkout whose compose project to build and start; located when
             omitted. ``portopt start`` pins it so compose mounts the ``./secrets`` it
             just rendered, whatever directory the operator ran from.
+        extra_env: Variables added to the environment of ``up``, for the
+            interpolation in ``docker-compose.yml``; ``portopt start`` passes the
+            scheduler's acknowledgement of Yahoo's terms this way.
 
     Returns:
         The advisory version warnings surfaced (empty when tooling is current).
@@ -684,7 +688,7 @@ def build_and_up(
         "--wait-timeout",
         str(wait_timeout),
         repo=repo,
-        extra_env=stamp_env,
+        extra_env={**(extra_env or {}), **stamp_env},
         timeout=wait_timeout + _UP_TIMEOUT,
     )
     if up.returncode != 0:

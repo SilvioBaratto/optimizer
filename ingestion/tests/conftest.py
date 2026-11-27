@@ -5,6 +5,16 @@ service, repository, and scheduler functions directly against an in-memory
 SQLite database.
 """
 
+import os
+
+# app.setup.terms imports only the standard library, so this pulls in no app.config.
+from app.setup.terms import ACKNOWLEDGEMENT_ENV_VAR
+
+# Set before anything imports app.config, whose module-level Settings() reads it: the
+# daemon refuses to start without the acknowledgement, and the suites that boot it
+# (unit, deployment) model an operator who gave it. Tests of the refusal override it.
+os.environ[ACKNOWLEDGEMENT_ENV_VAR] = "true"
+
 from collections.abc import Generator
 from unittest.mock import MagicMock
 

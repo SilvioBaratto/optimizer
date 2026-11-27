@@ -166,6 +166,28 @@ def test_ci_validates_compose_and_builds_both_images() -> None:
     assert compose("build")
 
 
+# The scheduler refuses to start without it; any value pydantic reads as true works.
+_ACKNOWLEDGEMENT_ENV_VAR = "YAHOO_TERMS_ACKNOWLEDGED"
+_TRUE_VALUES = {"1", "true"}
+
+
+@pytest.mark.criterion("REQ-ING-028")
+def test_ci_docker_job_sets_the_acknowledgement() -> None:
+    """Validates the ``docker-images`` job of ci.yml: its ``up --wait`` acknowledges.
+
+    Without ``YAHOO_TERMS_ACKNOWLEDGED`` in the step's environment the scheduler
+    exits at boot and ``up --wait`` fails the job, as ``portopt start`` would fail
+    for an operator who never acknowledged Yahoo's terms.
+    """
+    job = _jobs()["docker-images"]
+    boots = [step for step in _steps(job) if "up -d --wait" in step.get("run", "")]
+
+    assert boots, "the docker-images job no longer boots the stack"
+    for step in boots:
+        env = {**job.get("env", {}), **step.get("env", {})}
+        assert str(env.get(_ACKNOWLEDGEMENT_ENV_VAR, "")).lower() in _TRUE_VALUES
+
+
 def test_fund_pyproject_does_not_claim_a_removed_branch_coverage_gate() -> None:
     """CI gates fund on line coverage only; the config must not promise more."""
     text = (_REPO_ROOT / "fund" / "pyproject.toml").read_text(encoding="utf-8")

@@ -48,6 +48,7 @@ import typer
 
 from app.config import settings
 from app.database import init_db
+from app.setup import terms
 from app.utils.log_redaction import install_secret_redaction
 
 logger = logging.getLogger(__name__)
@@ -612,11 +613,20 @@ def setup(
         "--reconfigure",
         help="Re-prompt configured sections on a re-run (existing secrets are kept).",
     ),
+    accept_yahoo_terms: bool = typer.Option(
+        False,
+        terms.ACCEPT_FLAG,
+        envvar=terms.ACCEPT_ENV_VAR,
+        help=(
+            "Accept Yahoo's terms (shown by an interactive setup) without the prompt. "
+            "A first --non-interactive setup needs it."
+        ),
+    ),
 ) -> None:
     """Install wizard: verify Docker, validate keys live, encrypt secrets, migrate the DB."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
     install_secret_redaction()
-    from app.setup import ca_bundle, docker_bootstrap, wizard
+    from app.setup import docker_bootstrap, wizard
     from app.setup.ca_bundle import CABundleError
     from app.setup.prompts import PromptError, make_prompter
     from app.setup.validators import ValidationNetworkError
@@ -626,14 +636,7 @@ def setup(
     effective_skip_path_install = skip_path_install or non_interactive
     try:
         if corp_ca:
-            # Generate the merged bundle first and point this process's TLS stack at
-            # it, so the live key validation below trusts the corporate proxy's root.
-            bundle = ca_bundle.generate(
-                path=docker_bootstrap.compose_dir() / ca_bundle.DEFAULT_BUNDLE_PATH
-            )
-            os.environ["SSL_CERT_FILE"] = str(bundle)
-            os.environ["REQUESTS_CA_BUNDLE"] = str(bundle)
-            typer.echo(f"Corporate CA bundle written to {bundle}.")
+            _trust_corporate_ca()
         if non_interactive:
             wizard.run_setup_noninteractive(
                 passphrase=os.getenv("PORTOPT_PASSPHRASE"),
@@ -645,6 +648,7 @@ def setup(
                 skip_path_install=effective_skip_path_install,
                 skip_validation=skip_validation,
                 reconfigure=reconfigure,
+                accept_yahoo_terms=accept_yahoo_terms,
             )
         else:
             wizard.run_setup_interactive(
@@ -653,9 +657,11 @@ def setup(
                 skip_validation=skip_validation,
                 reconfigure=reconfigure,
                 no_launch=no_launch,
+                accept_yahoo_terms=accept_yahoo_terms,
             )
     except (
         wizard.SetupError,
+        terms.YahooTermsNotAcceptedError,
         docker_bootstrap.DockerError,
         ValidationNetworkError,
         PromptError,
@@ -668,6 +674,25 @@ def setup(
         typer.echo(f"Setup failed: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     _print_post_install_note()
+
+
+def _trust_corporate_ca() -> None:
+    """Write the merged CA bundle and point this process's TLS stack at it.
+
+    Runs before the wizard, so its live key validation trusts the root certificate
+    of a TLS-inspecting corporate proxy.
+
+    Raises:
+        CABundleError: The bundle could not be generated.
+    """
+    from app.setup import ca_bundle, docker_bootstrap
+
+    bundle = ca_bundle.generate(
+        path=docker_bootstrap.compose_dir() / ca_bundle.DEFAULT_BUNDLE_PATH
+    )
+    os.environ["SSL_CERT_FILE"] = str(bundle)
+    os.environ["REQUESTS_CA_BUNDLE"] = str(bundle)
+    typer.echo(f"Corporate CA bundle written to {bundle}.")
 
 
 def _print_post_install_note() -> None:

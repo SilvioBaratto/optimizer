@@ -111,10 +111,37 @@ The entries under Security affect privacy or configuration and come first.
   you give it to the LLM provider you configure, that market data comes from third parties
   under their own terms, and under which licence the code is published.
   `tests/test_legal_notices.py` guards it.
+- **ingestion**: an acknowledgement of Yahoo's terms. Market data comes through
+  yfinance, an unofficial Yahoo Finance client, and Yahoo's terms restrict automated
+  access and commercial use. `portopt setup` now shows the terms first and asks to accept them
+  (default No; declining stops setup with nothing saved), `--accept-yahoo-terms` (env
+  `PORTOPT_ACCEPT_YAHOO_TERMS`) accepts them without the prompt and is required by a
+  first `--non-interactive` setup, and the answer is kept as `yahoo_terms_acknowledged`
+  in `~/.portopt/config.toml`, so a re-run does not ask again. `portopt start` passes it
+  to the scheduler container as `YAHOO_TERMS_ACKNOWLEDGED` (the new
+  `Settings.yahoo_terms_acknowledged`, default false, documented in
+  `ingestion/.env.example`), which `docker-compose.yml` hands through from the compose
+  environment. The CI `docker-images` job sets it for its `up --wait` boot. The setup
+  wizard's LLM provider prompt now says that the portfolio data you enter (holdings,
+  constraints, questionnaire answers) is sent to the provider you choose, and
+  `fund profile --help` says the answers go to the configured LLM provider
+  (REQ-ING-026, REQ-ING-027, REQ-ING-028).
 
 ### Changed
 
 Behaviour changes to know about:
+
+- **ingestion (BREAKING)**: the ingestion daemon (`python -m app.worker`, the
+  `scheduler` container) now refuses to start until Yahoo's terms are acknowledged: it
+  logs why and exits with status 2 before it serves metrics, opens the database or
+  calls Yahoo, and the container restarts into the same refusal. **Upgrading**: an
+  existing install must re-run `portopt setup` once (it asks for the acknowledgement
+  and keeps everything else) and then `portopt start`, or set
+  `YAHOO_TERMS_ACKNOWLEDGED=1` for the daemon: in the shell or the root `.env` for a
+  plain `docker compose up`, in the shell or `ingestion/.env` for a daemon run on the
+  host. A script that runs `portopt setup --non-interactive` for a first install must
+  add `--accept-yahoo-terms`. Manual one-shot commands (`python -m app.cli daily`,
+  `docker compose exec scheduler python -m app.cli ...`) are unaffected.
 
 - **ingestion**: the universe builder left the `trading212` package it was named after when
   Trading 212 sourced the universe. `UniverseBuilder`, `UniverseBuilderConfig`,

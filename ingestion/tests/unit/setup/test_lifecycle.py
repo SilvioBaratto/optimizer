@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from app.setup import lifecycle, path_install
+from app.setup.terms import ACKNOWLEDGEMENT_CONFIG_KEY, ACKNOWLEDGEMENT_ENV_VAR
 
 # unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -64,6 +65,7 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         calls["build_profiles"] = kw.get("profiles")
         calls["force_build"] = kw.get("force_build")
         calls["build_repo"] = kw.get("repo")
+        calls["build_env"] = kw.get("extra_env")
         calls["compose"].append("up")
         return []
 
@@ -138,6 +140,32 @@ def test_run_start_renders_secrets_then_brings_up(patched: dict) -> None:
     lifecycle.run_start("pw")
     assert patched["rendered"] == {"fred_api_key": "fk"}
     assert patched["compose"] == ["up"]
+
+
+@pytest.mark.criterion("REQ-ING-028")
+@pytest.mark.parametrize(
+    ("stored", "expected_env"),
+    [
+        ({ACKNOWLEDGEMENT_CONFIG_KEY: True}, {ACKNOWLEDGEMENT_ENV_VAR: "true"}),
+        ({}, {}),
+    ],
+)
+def test_run_start_passes_the_stored_acknowledgement_to_the_scheduler(
+    patched: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    stored: dict[str, object],
+    expected_env: dict[str, str],
+) -> None:
+    """Validates ``lifecycle.run_start``: config.toml's answer reaches ``up``.
+
+    The acknowledgement travels in the compose environment the scheduler service
+    interpolates; with none stored, nothing is added and the compose default holds.
+    """
+    monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: stored)
+
+    lifecycle.run_start("pw")
+
+    assert patched["build_env"] == expected_env
 
 
 def _rotate(
