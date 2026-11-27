@@ -1,8 +1,8 @@
 """The changelog check: shipped code may not change without a CHANGELOG entry.
 
 Standard 5.1.2 makes a CHANGELOG update mandatory for every code change. The check
-runs on pull requests only and is advisory (ADR-0007): a push without a pull request
-never carries it, so it cannot be a required status.
+runs on pull requests only and is advisory: a push without a pull request never
+carries it, so it cannot be a required status.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _load() -> ModuleType:
         ["packages/portopt-db/alembic/versions/abc123_x.py"],
         ["docker-compose.yml"],
         ["install.sh"],
-        ["docs/adr/0001-x.md", "fund/src/fund/config.py"],
+        ["README.md", "fund/src/fund/config.py"],
         # Images, entrypoints and installers: what a user runs after a clone.
         ["ingestion/Dockerfile"],
         ["fund/Dockerfile"],
@@ -63,7 +63,6 @@ def test_shipped_changes_need_a_changelog_entry(changed: list[str]) -> None:
 @pytest.mark.parametrize(
     "changed",
     [
-        ["docs/nfr.md"],
         ["README.md", "CONTRIBUTING.md"],
         ["fund/tests/unit/test_risk.py"],
         ["packages/portopt-db/tests/test_x.py"],
@@ -88,7 +87,7 @@ def test_exit_code_is_failure_only_for_shipped_code_without_an_entry() -> None:
     assert check.evaluate(code, skip=False) == 1
     assert check.evaluate([*code, "CHANGELOG.md"], skip=False) == 0
     assert check.evaluate(code, skip=True) == 0
-    assert check.evaluate(["docs/nfr.md"], skip=False) == 0
+    assert check.evaluate(["README.md"], skip=False) == 0
 
 
 def test_the_skip_label_value_is_parsed() -> None:
