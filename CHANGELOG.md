@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Dependencies:** `wcmatch` 11.0.1 -> 12.0.4 (and its helper `bracex` 3.0.1 -> 3.2.4) in
+  `uv.lock`. `pip-audit --strict` reports CVE-2026-132276 for `wcmatch` 11.0.1, which the
+  `deepagents` dependency pulls in, so the `lint` job failed on every change to `main`.
+
 ### Removed
 
 - **The `docs/` folder is no longer published.** The architecture and decision records
