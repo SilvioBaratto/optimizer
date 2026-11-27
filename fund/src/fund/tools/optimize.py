@@ -408,7 +408,7 @@ def optimize_portfolio(
     portfolio = _in_sample_portfolio(returns, cleaned, config)
 
     assets = [str(col) for col in returns.columns]
-    weights = {a: float(w) for a, w in zip(assets, cleaned, strict=True)}
+    weights = dict(zip(assets, map(float, cleaned), strict=True))
     metrics = annualized_metrics(portfolio, panel.periods)
 
     return ok(

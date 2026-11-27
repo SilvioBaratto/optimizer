@@ -89,12 +89,18 @@ class Candidate(BaseModel):
         candidate_id: The method id, one of :data:`CANDIDATE_IDS`.
         label: A description built from the method's settings only.
         settings: The effective optimizer configuration, JSON-safe.
-        feasible: Whether the adviser may choose it: it solved, its check passed and
-            nothing is breached.
+        feasible: Whether its method solved, nothing is breached and
+            ``constraint_check`` passed; only as strong as that check. The pure
+            ``compute_candidates`` tool checks the shared floor, cap and budget
+            only; the bound agent tool replaces that with the risk gate's live
+            check (ESG and K&E screens, eligible universe, loss ceilings), and only
+            a set that has been through it says whether the adviser may choose a
+            candidate.
         weights: Ticker to weight; empty when the method produced no weights, kept
             when it solved but breached so the adviser can see why.
         metrics: The neutral measures, absent when there are no weights.
-        constraint_check: The verdict on ``weights``, absent when there are none.
+        constraint_check: The verdict on ``weights`` (bounds only, or the live
+            check; see ``feasible``), absent when there are none.
         breaches: Why the candidate is not feasible (a solver failure, a cardinality
             limit, the check's violations); empty for a feasible one.
     """
@@ -159,7 +165,11 @@ class CandidateSet(BaseModel):
 
     def selectable_ids(self) -> tuple[CandidateId, ...]:
         """Return the ids the adviser may choose, in :data:`CANDIDATE_IDS` order."""
-        return tuple(c.candidate_id for c in self.candidates if c.feasible)
+        return tuple(
+            candidate.candidate_id
+            for candidate in self.candidates
+            if candidate.feasible
+        )
 
     def candidate(self, candidate_id: str) -> Candidate | None:
         """Return the candidate with ``candidate_id``, or ``None`` for an unknown id."""

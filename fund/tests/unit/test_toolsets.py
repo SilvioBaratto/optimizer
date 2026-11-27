@@ -2555,7 +2555,8 @@ def test_bound_compute_candidates_attaches_the_live_constraint_check(
     for ctx, result in ((lenient, passing), (no_loss_room, failing)):
         assert result["ok"] is True
         candidate_set = CandidateSet.model_validate(result["data"])
-        assert [c.candidate_id for c in candidate_set.candidates] == list(CANDIDATE_IDS)
+        listed_ids = [candidate.candidate_id for candidate in candidate_set.candidates]
+        assert listed_ids == list(CANDIDATE_IDS)
         for candidate in candidate_set.candidates:
             verdict = toolsets_module.check_weights_against_mandate(
                 ctx, candidate.weights
@@ -2571,7 +2572,8 @@ def test_bound_compute_candidates_attaches_the_live_constraint_check(
     blocked = CandidateSet.model_validate(failing["data"])
     assert blocked.selectable_ids() == ()
     for candidate in blocked.candidates:
-        assert {b["type"] for b in candidate.breaches} == {"zero_loss_tolerance"}
+        breach_types = {breach["type"] for breach in candidate.breaches}
+        assert breach_types == {"zero_loss_tolerance"}
         assert set(candidate.weights) == set(_UNIVERSE)
 
 

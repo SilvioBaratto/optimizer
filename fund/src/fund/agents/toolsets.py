@@ -1100,8 +1100,9 @@ def _bind_compute_candidates(ctx: RunContext) -> BaseTool:
         the constraint check; one that failed or breached a constraint is listed
         with ``feasible`` false and its breaches. Fails, naming the offenders, if
         ``universe`` holds a name the client's mandate forbids or a name outside the
-        portfolio's eligible universe. Returns the ``{ok, data}`` envelope with the
-        candidate set."""
+        portfolio's eligible universe; fails too if it is too small for the position
+        cap, has no priced name, or has too little common price history. Returns the
+        ``{ok, data}`` envelope with the candidate set."""
         return _compute_candidates_impl(ctx, universe)
 
     return compute_candidates

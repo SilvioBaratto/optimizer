@@ -94,6 +94,8 @@ _NO_WEIGHTS = "the method produced no weights"
 # What HRP and risk budgeting assume when the shared config leaves a bound open.
 _NO_FLOOR = 0.0
 _NO_CAP = 1.0
+# HRP and risk budgeting always solve a fully invested book: weights summing to one.
+_UNIT_BUDGET = 1.0
 
 _HRP_LABEL = "Hierarchical risk parity (variance)"
 _MIN_RISK_LABEL = "Minimum variance"
@@ -109,12 +111,28 @@ def _cap(shared: MeanRiskConfig) -> float:
     return _NO_CAP if shared.max_weights is None else float(shared.max_weights)
 
 
+def _budget(shared: MeanRiskConfig) -> float:
+    return _UNIT_BUDGET if shared.budget is None else float(shared.budget)
+
+
+# HRP and risk budgeting solve on the shared bounds divided by the budget, and
+# ``_clean_weights`` then scales their unit-sum book to the budget, so the final
+# weights meet the same absolute floor, cap and budget as the mean-risk methods. A
+# unit-sum book cannot hold more than one in a name, so a cap above that binds nothing.
+def _unit_floor(shared: MeanRiskConfig) -> float:
+    return _floor(shared) / _budget(shared)
+
+
+def _unit_cap(shared: MeanRiskConfig) -> float:
+    return min(_cap(shared) / _budget(shared), _UNIT_BUDGET)
+
+
 def _hrp_config(_returns: pd.DataFrame, shared: MeanRiskConfig) -> HRPConfig:
     return HRPConfig(
         risk_measure=RiskMeasureType.VARIANCE,
         prior_config=shared.prior_config,
-        min_weights=_floor(shared),
-        max_weights=_cap(shared),
+        min_weights=_unit_floor(shared),
+        max_weights=_unit_cap(shared),
     )
 
 
@@ -139,8 +157,8 @@ def _risk_parity_config(
 ) -> RiskBudgetingConfig:
     return RiskBudgetingConfig(
         prior_config=shared.prior_config,
-        min_weights=_floor(shared),
-        max_weights=_cap(shared),
+        min_weights=_unit_floor(shared),
+        max_weights=_unit_cap(shared),
     )
 
 
@@ -307,9 +325,15 @@ def recheck_candidates(
 
 
 def _settings(config: Any, shared: MeanRiskConfig) -> dict[str, Any]:
-    # HRP and risk budgeting have no budget field; their weights are rescaled to the
-    # shared budget, so it is recorded with their own settings.
-    effective = {"budget": shared.budget, **dataclasses.asdict(config)}
+    # HRP and risk budgeting solve on bounds divided by the budget and have no budget
+    # field; the bounds their final weights meet are the shared absolute ones, so
+    # those are what every method records.
+    effective = {
+        **dataclasses.asdict(config),
+        "min_weights": _floor(shared),
+        "max_weights": _cap(shared),
+        "budget": shared.budget,
+    }
     return json.loads(json.dumps(effective, default=str))
 
 
@@ -362,27 +386,35 @@ def _unsolved(
     )
 
 
+def _solved_weights(fitter: _Fitter, config: Any, panel: ReturnsPanel) -> np.ndarray:
+    solved = fitter.fit(panel.returns, config)
+    if not np.all(np.isfinite(solved)):
+        raise ValueError(_NON_FINITE)
+    return _clean_weights(solved, panel.config)
+
+
+def _by_ticker(panel: ReturnsPanel, weights: np.ndarray) -> dict[str, float]:
+    assets = [str(column) for column in panel.returns.columns]
+    return {asset: float(weight) for asset, weight in zip(assets, weights, strict=True)}
+
+
 def _candidate(
     candidate_id: CandidateId, panel: ReturnsPanel, current: dict[str, float]
 ) -> Candidate:
     fitter = _FITTERS[candidate_id]
     label = fitter.label(panel.config)
     settings: dict[str, Any] = {}
+    # Everything from configuring the method to measuring its weights sits in here:
+    # one method failing must not cost the adviser the other three.
     try:
         config = fitter.configure(panel.returns, panel.config)
         settings = _settings(config, panel.config)
-        solved = fitter.fit(panel.returns, config)
-    except Exception as exc:  # one method failing must not cost the adviser the rest
+        weights = _solved_weights(fitter, config, panel)
+        by_ticker = _by_ticker(panel, weights)
+        metrics = _metrics(panel, weights, by_ticker, current)
+    except Exception as exc:
         logger.warning("candidate %s could not be fitted: %s", candidate_id, exc)
         return _unsolved(candidate_id, label, settings, f"{type(exc).__name__}: {exc}")
-    if not np.all(np.isfinite(solved)):
-        return _unsolved(candidate_id, label, settings, _NON_FINITE)
-    weights = _clean_weights(solved, panel.config)
-    assets = [str(column) for column in panel.returns.columns]
-    by_ticker = {
-        asset: float(weight) for asset, weight in zip(assets, weights, strict=True)
-    }
-    metrics = _metrics(panel, weights, by_ticker, current)
     draft = _Solved(
         candidate_id=candidate_id,
         label=label,
@@ -405,6 +437,13 @@ def compute_candidates(
     base_currency: str | None = None,
 ) -> ToolResult:
     """Compute the four candidate portfolios for ``universe`` as of ``asof``.
+
+    A candidate's ``feasible`` here is the bounds-only verdict: its method solved,
+    it holds no more names than the cardinality limit, and its weights meet the
+    shared floor, cap and budget. It knows nothing of the ESG and K&E screens, the
+    eligible universe or the loss ceilings; the bound agent tool re-judges every
+    candidate with the risk gate's live check (``recheck_candidates``) and its
+    ``feasible`` is that verdict.
 
     Args:
         session: A sync ``portopt_db`` session; the tool does not own it.

@@ -80,7 +80,8 @@ def test_candidate_set_requires_the_four_ids_in_alphabetical_order() -> None:
     assert CANDIDATE_IDS == ("hrp", "mean_risk", "min_risk", "risk_parity")
     assert list(CANDIDATE_IDS) == sorted(CANDIDATE_IDS)
     accepted = _candidate_set()
-    assert [c.candidate_id for c in accepted.candidates] == list(CANDIDATE_IDS)
+    accepted_ids = [candidate.candidate_id for candidate in accepted.candidates]
+    assert accepted_ids == list(CANDIDATE_IDS)
 
     reordered = tuple(
         _feasible(candidate_id) for candidate_id in reversed(CANDIDATE_IDS)
@@ -214,7 +215,8 @@ def test_selectable_ids_are_the_feasible_ones_in_id_order() -> None:
     )
 
     assert mixed.selectable_ids() == ("mean_risk", "min_risk")
-    assert [c.candidate_id for c in mixed.candidates] == list(CANDIDATE_IDS)
+    listed_ids = [candidate.candidate_id for candidate in mixed.candidates]
+    assert listed_ids == list(CANDIDATE_IDS)
     assert mixed.candidate("risk_parity") is mixed.candidates[3]
     assert mixed.candidate("equal_weight") is None
     assert nothing_solved.selectable_ids() == ()
