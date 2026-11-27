@@ -51,7 +51,7 @@ uv run pyright --warnings                            # as CI: a warning fails; s
 
 # Shared DB layer (package portopt-db)
 cd packages/portopt-db && uv run pytest
-cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # single migration owner (env.py reads only DATABASE_URL); head: b8d0f2a4c6e1
+cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # single migration owner (env.py reads only DATABASE_URL); head: 2266e24c509f
 
 # Ingestion daemon (package portopt)
 cd ingestion && uv run pytest tests/
@@ -123,7 +123,7 @@ Per-submodule detail (configs, presets, factories, shape contracts, exact estima
 
 Full tables and internals live in the `portopt_db` models and the ingestion service/scheduler source. Load-bearing points:
 
-- **DB layer (`portopt-db`)**: single schema + connection manager + Alembic tree (**head `b8d0f2a4c6e1`**, runs from `packages/portopt-db`). Pure structural extraction, no sklearn/optimizer import (guarded). `background_jobs` *model* lives here but `BackgroundJobRepository` *behavior* stays in `ingestion/app/repositories/jobs/`. Coverage floor ≥ 90% (blended statement+branch)
+- **DB layer (`portopt-db`)**: single schema + connection manager + Alembic tree (**head `2266e24c509f`**, runs from `packages/portopt-db`). Pure structural extraction, no sklearn/optimizer import (guarded). `background_jobs` *model* lives here but `BackgroundJobRepository` *behavior* stays in `ingestion/app/repositories/jobs/`. Coverage floor ≥ 90% (blended statement+branch)
 - **Gotcha — `YFinanceRepository` is a facade**: it subclasses seven aggregate repositories in `portopt_db/repositories/market_data/` (prices, fundamentals, analyst, ownership, news, options, staleness) and keeps its public methods and signatures, pinned by `packages/portopt-db/tests/test_yfinance_repository_facade.py`. It inherits, not delegates, so a test that replaces `_upsert` on a facade instance still reaches the moved methods. The Yahoo-symbol instrument lookups live on `UniverseRepository` and the facade forwards them. `fund` modules read prices, FX rates and instruments through the Protocols in `portopt_db/ports.py` (`PriceReader`, `FxRateReader`, `UniverseReader`), composed in `fund/readers.py`
 - **Daemon layering**: Scheduler/CLI → Services → Repositories → Models, with `_shared/` under `app/services/` and `app/schemas/`. Models + most repos live in `portopt_db`; ingestion keeps only the `jobs` repo. No HTTP API. Sync SQLAlchemy sessions — everything opens its own via `database_manager.get_session`. PostgreSQL 16 on port **54320**. **Do not reintroduce `optimizer` as an ingestion dep**
 - **Scheduler**: APScheduler in-process in `worker.py`, `SQLAlchemyJobStore`. **Seven jobs**: `daily_pipeline` (daily 07:00), `midday_news` (daily 14:00), `universe_build` (**Sat** 02:00), `weekly_refetch` (**Sat** 03:00), `weekly_market_wide` (**Sat** 04:00), `fred_monthly` (1st 08:00), `orphan_reaper` (interval). `universe_build` runs **before** `weekly_refetch` (every step iterates `instruments`, a stale universe caps yfinance). `daily_pipeline` runs `run_universe_step()` first when `instruments` has no active rows (`_universe_is_empty`, fresh install), and never fails on it. One public step function each in `scheduler.py` — **add new work as a step, not a CLI-only branch**

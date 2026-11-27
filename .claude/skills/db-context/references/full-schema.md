@@ -35,8 +35,6 @@ Alembic head: `b6c7d8e9f0a1` (62 migrations, single tree at `packages/portopt-db
 | asset_class | character varying | no |
 | fi_subclass | character varying | yes |
 | duration_bucket | character varying | yes |
-| t212_ticker | character varying | yes |
-| is_t212_tradeable | boolean | yes |
 
 ---
 
@@ -50,7 +48,6 @@ Alembic head: `b6c7d8e9f0a1` (62 migrations, single tree at `packages/portopt-db
 | Column | Type | Nullable |
 |--------|------|----------|
 | name | character varying | no |
-| t212_id | integer | yes |
 | id | uuid | no |
 | created_at | timestamp with time zone | no |
 | updated_at | timestamp with time zone | no |

@@ -75,35 +75,33 @@ class UniverseRepository(RepositoryBase):
         super().__init__(session)
 
     def save_exchange(self, exchange_data: dict[str, Any]) -> Exchange:
-        """Insert or update an exchange by name, returning the persisted row.
+        """Insert an exchange by name if it is new, returning the persisted row.
 
         Written as an idempotent ``INSERT ... ON CONFLICT DO UPDATE`` on the
         unique ``exchanges.name`` column (``index_elements=["name"]``, since the
         column carries a column-level ``unique=True`` with no named constraint)
         rather than a SELECT-then-INSERT, so an at-least-once re-run converges
-        to one row without racing the unique index. Only ``t212_id`` (and
-        ``updated_at``) are in the conflict update set, preserving the row's id.
+        to one row without racing the unique index. Only ``updated_at`` is in the
+        conflict update set, preserving the row's id.
 
         Args:
-            exchange_data: Dict with at least ``name`` and optionally ``id``
-                (the Trading 212 exchange ID stored as ``t212_id``).
+            exchange_data: Dict with at least ``name``; any other key is ignored.
 
         Returns:
             The persisted Exchange ORM row with identity-map refreshed.
         """
         name = exchange_data.get("name", "")
-        t212_id = exchange_data.get("id")
 
         self._upsert(
             Exchange,
-            [{"id": uuid_mod.uuid4(), "name": name, "t212_id": t212_id}],
+            [{"id": uuid_mod.uuid4(), "name": name}],
             index_elements=["name"],
-            update_columns=["t212_id", "updated_at"],
+            update_columns=["updated_at"],
         )
         self.session.flush()
 
         # populate_existing refreshes an already-identity-mapped row so the
-        # returned object reflects the just-upserted t212_id, not a stale value.
+        # returned object reflects the just-upserted state, not a stale copy.
         return self.session.execute(
             select(Exchange)
             .where(Exchange.name == name)
@@ -113,9 +111,8 @@ class UniverseRepository(RepositoryBase):
     def get_exchange_by_name(self, name: str) -> Exchange | None:
         """Return the exchange with this exact name, or ``None``.
 
-        A pure read. ``save_exchange`` is an upsert that writes ``t212_id = NULL``
-        over a stored value when called with only a name, so callers that merely
-        need to resolve an existing venue must not use it.
+        A pure read: unlike ``save_exchange`` it never creates a row, so callers
+        that merely need to resolve an existing venue use it instead.
         """
         return self.session.execute(
             select(Exchange).where(Exchange.name == name)
@@ -143,7 +140,7 @@ class UniverseRepository(RepositoryBase):
         NULL ``currency_code`` is still filled from the batch.
 
         Args:
-            instruments_data: Raw attribute dicts as returned by the T212 API.
+            instruments_data: Raw attribute dicts from the universe build source.
             exchange_id: UUID of the owning exchange row.
 
         Returns:
@@ -362,166 +359,6 @@ class UniverseRepository(RepositoryBase):
         ).all()
         return {(ticker, exchange) for ticker, exchange in rows}
 
-    def set_t212_ticker(
-        self, *, ticker: str, exchange_id: Any, t212_ticker: str | None
-    ) -> bool:
-        """Attach a Trading 212 ticker to a yfinance-sourced instrument.
-
-        Matched by ``(ticker, exchange_id)`` — the unique key. Passing ``None``
-        clears a cross-reference that no longer holds. Returns ``True`` if a row
-        was updated, ``False`` if none matched.
-        """
-        result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
-            update(Instrument)
-            .where(Instrument.ticker == ticker)
-            .where(Instrument.exchange_id == exchange_id)
-            .values(t212_ticker=t212_ticker)
-        )
-        self.session.flush()
-        return bool(result.rowcount)
-
-    def set_t212_tradeable(
-        self, *, ticker: str, exchange_id: Any, tradeable: bool
-    ) -> bool:
-        """Record whether the Trading 212 catalogue carries an instrument.
-
-        Matched by ``(ticker, exchange_id)`` like :meth:`set_t212_ticker`, but
-        independent of it: a name can be tradeable on the broker while the choice
-        among several broker lines stays ambiguous, so ``t212_ticker`` may remain
-        empty. Only the annotation step writes this; the universe build's upsert
-        leaves the column alone so a weekly rebuild keeps what the overlay learned.
-
-        Args:
-            ticker: Ticker of the instrument within ``exchange_id``.
-            exchange_id: UUID of the exchange the instrument belongs to.
-            tradeable: ``True`` when the catalogue carries the instrument,
-                ``False`` when it was matched against the catalogue and is absent.
-
-        Returns:
-            ``True`` if a row was updated, ``False`` if none matched.
-        """
-        result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
-            update(Instrument)
-            .where(Instrument.ticker == ticker)
-            .where(Instrument.exchange_id == exchange_id)
-            .values(is_t212_tradeable=tradeable)
-        )
-        self.session.flush()
-        return bool(result.rowcount)
-
-    def get_t212_tradeable_tickers(self) -> list[str] | None:
-        """Return the Yahoo symbols of active instruments the broker can trade.
-
-        The allowlist hook for a run that must be executable at Trading 212: a
-        caller restricts its universe to the result and otherwise keeps the full
-        multi-region one. ``None`` is not an empty allowlist. It means the overlay
-        has not evaluated a single instrument (Trading 212 unconfigured, or the
-        annotation step never ran), so there is nothing to restrict to and the
-        caller must keep the full universe. An empty list means the overlay ran
-        and matched nothing.
-
-        Returns:
-            Sorted, de-duplicated ``yfinance_ticker`` values of non-delisted rows
-            flagged tradeable; rows without a Yahoo symbol are skipped. ``None``
-            when no row has been evaluated.
-        """
-        evaluated = self.session.execute(
-            select(exists().where(Instrument.is_t212_tradeable.is_not(None)))
-        ).scalar_one()
-        if not evaluated:
-            return None
-        rows = self.session.execute(
-            select(Instrument.yfinance_ticker)
-            .where(Instrument.is_t212_tradeable.is_(True))
-            .where(Instrument.delisted_at.is_(None))
-            .where(Instrument.yfinance_ticker.is_not(None))
-            .distinct()
-            .order_by(Instrument.yfinance_ticker)
-        ).scalars()
-        # The WHERE already drops NULLs; the comprehension narrows the column type.
-        return [ticker for ticker in rows if ticker is not None]
-
-    def get_t212_untradeable_tickers(
-        self, tickers: Collection[str] | None = None
-    ) -> list[str] | None:
-        """Return the Yahoo symbols the overlay found absent from the broker.
-
-        The refusal side of the tri-state behind :meth:`get_t212_tradeable_tickers`.
-        A run scoped to the broker drops exactly these names: a row the overlay never
-        evaluated (NULL) is not refused, so a deployment without Trading 212 keeps its
-        universe, and a symbol carried by several rows is refused only when every
-        active row is flagged False. Delisted rows are left out of that judgement,
-        as in :meth:`get_t212_tradeable_tickers`: the overlay evaluates only active
-        rows, so a delisted twin of a moved symbol stays NULL for good and would
-        otherwise shield its live listing. Whether a delisted symbol is investable
-        is the caller's own point-in-time check.
-
-        Args:
-            tickers: Restrict the answer to these Yahoo symbols. ``None`` asks about
-                every instrument; an empty collection asks about none.
-
-        Returns:
-            Sorted, de-duplicated ``yfinance_ticker`` values flagged False on every
-            active row, or ``None`` when no row has been evaluated at all, meaning there is
-            nothing to refuse and the caller must keep its universe unrestricted.
-        """
-        evaluated = self.session.execute(
-            select(exists().where(Instrument.is_t212_tradeable.is_not(None)))
-        ).scalar_one()
-        if not evaluated:
-            return None
-        if tickers is not None and not tickers:
-            return []
-        stmt = (
-            select(Instrument.yfinance_ticker)
-            .where(Instrument.yfinance_ticker.is_not(None))
-            .where(Instrument.delisted_at.is_(None))
-            .group_by(Instrument.yfinance_ticker)
-            .having(
-                func.max(case((Instrument.is_t212_tradeable.is_(False), 0), else_=1))
-                == 0
-            )
-            .order_by(Instrument.yfinance_ticker)
-        )
-        if tickers is not None:
-            stmt = stmt.where(Instrument.yfinance_ticker.in_(list(tickers)))
-        # The WHERE already drops NULLs; the comprehension narrows the column type.
-        return [t for t in self.session.execute(stmt).scalars() if t is not None]
-
-    def get_t212_unevaluated_tickers(self, tickers: Collection[str]) -> list[str]:
-        """Return the given Yahoo symbols whose broker status the overlay never judged.
-
-        The overlay matches by ISIN, which exists only for suffix-less symbols or
-        when an operator supplied one, so a listing on a European venue is often left
-        NULL on every row. NULL is deliberately never refused (a deployment without
-        Trading 212 must keep its universe), which means a ``tradeable_only`` run
-        cannot tell such a name from a tradeable one; this lists them so the caller can
-        say so. Active rows only, like the tradeable and untradeable lists, and a
-        symbol with any evaluated active row (True or False) counts as judged.
-
-        Args:
-            tickers: Yahoo symbols to check; an empty collection asks about none.
-
-        Returns:
-            Sorted, de-duplicated ``yfinance_ticker`` values that have an active row
-            and no active row with a flag. A symbol with no active instrument is
-            absent: that is the caller's own eligibility check, not an overlay gap.
-        """
-        if not tickers:
-            return []
-        stmt = (
-            select(Instrument.yfinance_ticker)
-            .where(Instrument.yfinance_ticker.in_(list(tickers)))
-            .where(Instrument.delisted_at.is_(None))
-            .group_by(Instrument.yfinance_ticker)
-            .having(
-                func.max(case((Instrument.is_t212_tradeable.is_(None), 0), else_=1))
-                == 0
-            )
-            .order_by(Instrument.yfinance_ticker)
-        )
-        return [t for t in self.session.execute(stmt).scalars() if t is not None]
-
     def instrument_classes_for(self, tickers: Collection[str]) -> list[InstrumentClass]:
         """Return the classification of every row that carries one of ``tickers``.
 
@@ -632,7 +469,7 @@ class UniverseRepository(RepositoryBase):
         return result.rowcount or 0
 
     def get_active_instruments(self) -> Sequence[Instrument]:
-        """All non-delisted instruments (used by the T212 annotation step)."""
+        """All non-delisted instruments."""
         return (
             self.session.execute(
                 select(Instrument).where(Instrument.delisted_at.is_(None))

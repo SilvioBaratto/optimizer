@@ -1,9 +1,9 @@
-"""Tests for UniverseRepository T212-annotation helpers.
+"""Tests for the UniverseRepository ISIN helpers and active-row lookups.
 
-Covers ``set_t212_ticker`` (update by ticker + exchange),
-``get_active_instruments`` (non-delisted rows),
-``get_active_listings`` ((ticker, exchange name) of non-delisted rows), and
-``backfill_isin_from_profiles``.
+Covers ``get_active_instruments`` (non-delisted rows),
+``get_active_listings`` ((ticker, exchange name) of non-delisted rows),
+``backfill_isin_from_profiles``, ``set_isin_if_missing`` and
+``has_active_instruments``.
 """
 
 from __future__ import annotations
@@ -19,57 +19,6 @@ from portopt_db.repositories.universe.universe_repository import UniverseReposit
 
 def _repo(session) -> UniverseRepository:
     return UniverseRepository(session)
-
-
-def test_instrument_t212_ticker_defaults_to_none(db_session) -> None:
-    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
-    inst = add_and_flush(
-        db_session, Instrument(ticker="AAPL", short_name="Apple", exchange=ex)
-    )
-    assert inst.t212_ticker is None
-
-
-def test_set_t212_ticker_updates_matching_row(db_session) -> None:
-    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
-    inst = add_and_flush(
-        db_session, Instrument(ticker="AAPL", short_name="Apple", exchange=ex)
-    )
-    assert (
-        _repo(db_session).set_t212_ticker(
-            ticker="AAPL", exchange_id=ex.id, t212_ticker="AAPL_US_EQ"
-        )
-        is True
-    )
-    db_session.refresh(inst)
-    assert inst.t212_ticker == "AAPL_US_EQ"
-
-
-def test_set_t212_ticker_none_clears_a_stale_cross_reference(db_session) -> None:
-    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
-    inst = add_and_flush(
-        db_session,
-        Instrument(
-            ticker="AAPL", short_name="Apple", exchange=ex, t212_ticker="AAPL_US_EQ"
-        ),
-    )
-    assert (
-        _repo(db_session).set_t212_ticker(
-            ticker="AAPL", exchange_id=ex.id, t212_ticker=None
-        )
-        is True
-    )
-    db_session.refresh(inst)
-    assert inst.t212_ticker is None
-
-
-def test_set_t212_ticker_missing_row_returns_false(db_session) -> None:
-    ex = add_and_flush(db_session, Exchange(name="NASDAQ"))
-    assert (
-        _repo(db_session).set_t212_ticker(
-            ticker="NOPE", exchange_id=ex.id, t212_ticker="X"
-        )
-        is False
-    )
 
 
 def test_get_active_instruments_excludes_delisted(db_session) -> None:
