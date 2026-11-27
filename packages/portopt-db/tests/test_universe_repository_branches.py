@@ -55,43 +55,35 @@ def _repo(session) -> UniverseRepository:
 class TestSaveExchange:
     def test_when_exchange_does_not_exist_creates_new_row(self, db_session):
         repo = _repo(db_session)
-        ex = repo.save_exchange({"name": "NASDAQ", "id": 7})
+        ex = repo.save_exchange({"name": "NASDAQ"})
 
         assert ex.name == "NASDAQ"
-        assert ex.t212_id == 7
         assert ex.id is not None
-
-    def test_when_exchange_already_exists_updates_t212_id(self, db_session):
-        _make_exchange(db_session, "LSE")
-        repo = _repo(db_session)
-
-        updated = repo.save_exchange({"name": "LSE", "id": 42})
-
-        assert updated.name == "LSE"
-        assert updated.t212_id == 42
-        count = repo.get_exchange_count()
-        assert count == 1
 
     def test_when_exchange_exists_returns_same_object(self, db_session):
         ex1 = _make_exchange(db_session, "TSX")
         repo = _repo(db_session)
 
-        ex2 = repo.save_exchange({"name": "TSX", "id": 99})
+        ex2 = repo.save_exchange({"name": "TSX"})
 
         assert ex1.id == ex2.id
 
-    def test_when_called_repeatedly_then_one_row_and_latest_t212_id(self, db_session):
-        """Repeated saves converge to a single row via INSERT ... ON CONFLICT DO UPDATE
-        on exchanges.name — id stable, latest t212_id reflected, no duplicate."""
+    @pytest.mark.criterion("REQ-DB-008")
+    def test_save_exchange_called_twice_leaves_one_row_with_a_stable_id(
+        self, db_session
+    ):
+        """Validates ``UniverseRepository.save_exchange``.
+
+        Calling it twice for one name keeps a single row and returns the same id.
+        """
         repo = _repo(db_session)
-        first = repo.save_exchange({"name": "XETRA", "id": 1})
+        first = repo.save_exchange({"name": "XETRA"})
         first_id = first.id
 
-        again = repo.save_exchange({"name": "XETRA", "id": 2})
+        again = repo.save_exchange({"name": "XETRA"})
 
         assert repo.get_exchange_count() == 1
         assert again.id == first_id
-        assert again.t212_id == 2
 
 
 class TestGetExchangeByName:
@@ -112,16 +104,6 @@ class TestGetExchangeByName:
 
         assert repo.get_exchange_by_name("Nowhere") is None
         assert repo.get_exchange_count() == 0
-
-    def test_lookup_leaves_t212_id_unchanged(self, db_session):
-        """Unlike save_exchange, a lookup does not overwrite a stored t212_id."""
-        existing = add_and_flush(db_session, Exchange(name="LSE", t212_id=42))
-        repo = _repo(db_session)
-
-        repo.get_exchange_by_name("LSE")
-        db_session.refresh(existing)
-
-        assert existing.t212_id == 42
 
 
 class TestCounts:
@@ -607,7 +589,7 @@ class TestGetActiveTickersTypeScope:
         )
 
         repo = UniverseRepository(db_session)
-        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        ex = repo.save_exchange({"name": "NASDAQ"})
         db_session.add_all(
             [
                 Instrument(
@@ -692,8 +674,8 @@ class TestSaveInstrumentsBatchVenueChange:
 
     def test_when_symbol_moves_exchange_then_existing_row_is_rehomed(self, db_session):
         repo = _repo(db_session)
-        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
-        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        nasdaq = repo.save_exchange({"name": "NASDAQ"})
+        nyse = repo.save_exchange({"name": "NYSE"})
         repo.save_instruments_batch([_batch_row("XYZ")], nasdaq.id)
         original_id = _rows_for(db_session, "XYZ")[0].id
 
@@ -708,8 +690,8 @@ class TestSaveInstrumentsBatchVenueChange:
         self, db_session
     ):
         repo = _repo(db_session)
-        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
-        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        nasdaq = repo.save_exchange({"name": "NASDAQ"})
+        nyse = repo.save_exchange({"name": "NYSE"})
         repo.save_instruments_batch([_batch_row("XYZ")], nasdaq.id)
         repo.mark_delisted("XYZ", nasdaq.id, date(2024, 6, 1))
 
@@ -724,8 +706,8 @@ class TestSaveInstrumentsBatchVenueChange:
         self, db_session
     ):
         repo = _repo(db_session)
-        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
-        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        nasdaq = repo.save_exchange({"name": "NASDAQ"})
+        nyse = repo.save_exchange({"name": "NYSE"})
         # Legacy state: the symbol already has a row on both venues.
         for exchange in (nasdaq, nyse):
             add_and_flush(
@@ -742,9 +724,9 @@ class TestSaveInstrumentsBatchVenueChange:
         self, db_session
     ):
         repo = _repo(db_session)
-        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
-        amex = repo.save_exchange({"name": "AMEX", "id": 2})
-        nyse = repo.save_exchange({"name": "NYSE", "id": 3})
+        nasdaq = repo.save_exchange({"name": "NASDAQ"})
+        amex = repo.save_exchange({"name": "AMEX"})
+        nyse = repo.save_exchange({"name": "NYSE"})
         # Legacy state: two stale rows elsewhere, so neither is provably the
         # predecessor of the NYSE listing.
         stale_ids = {}
@@ -763,8 +745,8 @@ class TestSaveInstrumentsBatchVenueChange:
 
     def test_unrelated_tickers_on_other_exchanges_stay_put(self, db_session):
         repo = _repo(db_session)
-        nasdaq = repo.save_exchange({"name": "NASDAQ", "id": 1})
-        nyse = repo.save_exchange({"name": "NYSE", "id": 2})
+        nasdaq = repo.save_exchange({"name": "NASDAQ"})
+        nyse = repo.save_exchange({"name": "NYSE"})
         repo.save_instruments_batch([_batch_row("AAA")], nasdaq.id)
 
         repo.save_instruments_batch([_batch_row("BBB")], nyse.id)
@@ -869,7 +851,7 @@ class TestSaveInstrumentsBatchPinnedRows:
     def test_pinned_row_keeps_its_classification_and_listing_fields(self, db_session):
         """A Screener row for a pinned ticker changes none of the five fields."""
         repo = _repo(db_session)
-        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        lse = repo.save_exchange({"name": "London Stock Exchange"})
         _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
 
         repo.save_instruments_batch([_screener_row("EGLN")], lse.id)
@@ -884,7 +866,7 @@ class TestSaveInstrumentsBatchPinnedRows:
     def test_pinned_row_is_still_revived_and_named(self, db_session):
         """Delisting is cleared and the coalesced name/ISIN still fill in."""
         repo = _repo(db_session)
-        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        lse = repo.save_exchange({"name": "London Stock Exchange"})
         _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
         db_session.execute(
             update(Instrument)
@@ -906,7 +888,7 @@ class TestSaveInstrumentsBatchPinnedRows:
     def test_unpinned_row_is_updated_exactly_as_before(self, db_session):
         """Without a pin the Screener values win on all five fields."""
         repo = _repo(db_session)
-        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        lse = repo.save_exchange({"name": "London Stock Exchange"})
         _seed_commodity_etf(db_session, lse, pinned=False, ticker="EGLN")
 
         repo.save_instruments_batch([_screener_row("EGLN")], lse.id)
@@ -921,7 +903,7 @@ class TestSaveInstrumentsBatchPinnedRows:
     def test_pin_is_matched_per_row_not_per_batch(self, db_session):
         """One batch holding a pinned and an unpinned ticker treats each on its own."""
         repo = _repo(db_session)
-        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        lse = repo.save_exchange({"name": "London Stock Exchange"})
         _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
         _seed_commodity_etf(db_session, lse, pinned=False, ticker="IGLN")
 
@@ -935,7 +917,7 @@ class TestSaveInstrumentsBatchPinnedRows:
     def test_pinned_row_with_null_currency_takes_the_screener_value(self, db_session):
         """A stored NULL currency is filled rather than frozen at NULL."""
         repo = _repo(db_session)
-        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
+        lse = repo.save_exchange({"name": "London Stock Exchange"})
         _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
         db_session.execute(
             update(Instrument)
@@ -957,8 +939,8 @@ class TestSaveInstrumentsBatchPinnedRows:
         hand-set classification.
         """
         repo = _repo(db_session)
-        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
-        xetra = repo.save_exchange({"name": "Deutsche Börse Xetra", "id": 2})
+        lse = repo.save_exchange({"name": "London Stock Exchange"})
+        xetra = repo.save_exchange({"name": "Deutsche Börse Xetra"})
         _seed_commodity_etf(db_session, lse, pinned=True, ticker="EGLN")
         original_id = _rows_for(db_session, "EGLN")[0].id
 
@@ -972,8 +954,8 @@ class TestSaveInstrumentsBatchPinnedRows:
     def test_unpinned_row_is_still_rehomed(self, db_session):
         """The venue-change repair keeps working for rows nobody pinned."""
         repo = _repo(db_session)
-        lse = repo.save_exchange({"name": "London Stock Exchange", "id": 1})
-        xetra = repo.save_exchange({"name": "Deutsche Börse Xetra", "id": 2})
+        lse = repo.save_exchange({"name": "London Stock Exchange"})
+        xetra = repo.save_exchange({"name": "Deutsche Börse Xetra"})
         _seed_commodity_etf(db_session, lse, pinned=False, ticker="EGLN")
         original_id = _rows_for(db_session, "EGLN")[0].id
 
@@ -992,7 +974,7 @@ class TestSaveInstrumentsBatchResave:
 
     def test_when_resaved_without_isin_then_stored_isin_is_kept(self, db_session):
         repo = _repo(db_session)
-        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        ex = repo.save_exchange({"name": "NASDAQ"})
         repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
         db_session.execute(
             update(Instrument)
@@ -1006,7 +988,7 @@ class TestSaveInstrumentsBatchResave:
 
     def test_when_resaved_with_isin_then_new_isin_replaces_old(self, db_session):
         repo = _repo(db_session)
-        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        ex = repo.save_exchange({"name": "NASDAQ"})
         repo.save_instruments_batch([_batch_row("AAPL", isin="OLD000000000")], ex.id)
 
         repo.save_instruments_batch([_batch_row("AAPL", isin="US0378331005")], ex.id)
@@ -1017,7 +999,7 @@ class TestSaveInstrumentsBatchResave:
         self, db_session
     ):
         repo = _repo(db_session)
-        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        ex = repo.save_exchange({"name": "NASDAQ"})
         repo.save_instruments_batch(
             [_batch_row("AAPL", name="Apple Inc.", currencyCode="USD")], ex.id
         )
@@ -1030,7 +1012,7 @@ class TestSaveInstrumentsBatchResave:
 
     def test_when_resaved_then_updated_at_is_refreshed(self, db_session):
         repo = _repo(db_session)
-        ex = repo.save_exchange({"name": "NASDAQ", "id": 1})
+        ex = repo.save_exchange({"name": "NASDAQ"})
         repo.save_instruments_batch([_batch_row("AAPL")], ex.id)
         db_session.execute(
             update(Instrument)

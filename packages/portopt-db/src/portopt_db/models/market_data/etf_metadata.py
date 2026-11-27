@@ -1,11 +1,11 @@
 """SQLAlchemy models for ETF fund metadata (asset-class split, holdings,
 sector weights, AUM/NAV).
 
-T212 gives ETFs the same broker metadata as stocks and nothing fund-specific;
-this data comes from yfinance ``funds_data`` + ``info``. One row-per-instrument
-for the headline metadata, and point-in-time (``as_of``) rows for the
-composition tables so history is retained. Every write is an idempotent upsert
-on the natural keys declared below.
+The instrument table carries nothing fund-specific, so this data comes from
+yfinance ``funds_data`` + ``info``. One row-per-instrument for the headline
+metadata, and point-in-time (``as_of``) rows for the composition tables so
+history is retained. Every write is an idempotent upsert on the natural keys
+declared below.
 """
 
 from __future__ import annotations

@@ -82,8 +82,8 @@ class PortfolioMandate(BaseModel):
     ``eligible_tickers`` is the hard allowlist of instruments the portfolio may hold:
     normalised to upper-case, de-duplicated in order, and empty meaning unrestricted.
     ``model_copy(update=...)`` skips validators, so consumers normalise again.
-    A stored payload that still carries the removed ``tradeable_only`` key loads with
-    the key ignored, so a mandate saved before the broker scope was dropped stays
+    A stored payload that still carries the key of the removed broker scope loads
+    with that key ignored, so a mandate saved before the scope was dropped stays
     readable.
     """
 

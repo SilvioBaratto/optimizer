@@ -102,10 +102,7 @@ def test_exchanges_downgrade_is_a_noop_when_upgrade_found_the_orm_shape(
 ) -> None:
     """A chain-built exchanges table carries an unnamed unique key, not ours."""
     conn.execute(
-        text(
-            "CREATE TABLE exchanges ("
-            "id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, t212_id INTEGER)"
-        )
+        text("CREATE TABLE exchanges (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE)")
     )
 
     mock_op = _run_downgrade_with_mocked_op(_load(_EXCHANGES_MIGRATION), conn)
@@ -120,7 +117,7 @@ def test_exchanges_downgrade_still_reverses_a_legacy_conversion(
     conn.execute(
         text(
             "CREATE TABLE exchanges ("
-            "id TEXT PRIMARY KEY, name TEXT NOT NULL, t212_id INTEGER, "
+            "id TEXT PRIMARY KEY, name TEXT NOT NULL, "
             "CONSTRAINT uq_exchanges_name UNIQUE (name))"
         )
     )

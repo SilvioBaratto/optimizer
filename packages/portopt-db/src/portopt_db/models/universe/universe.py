@@ -7,12 +7,10 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    Boolean,
     Date,
     Float,
     ForeignKey,
     Index,
-    Integer,
     String,
     UniqueConstraint,
 )
@@ -47,14 +45,12 @@ class Exchange(BaseModel):
 
     Attributes:
         name: Exchange identifier (e.g. "XNAS", "XNYS"); unique across all rows.
-        t212_id: Trading 212 internal exchange ID; absent for venues not in T212.
         instruments: All instruments listed on this exchange.
     """
 
     __tablename__ = "exchanges"
 
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    t212_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     instruments: Mapped[list[Instrument]] = relationship(
         back_populates="exchange", cascade="all, delete-orphan"
@@ -80,10 +76,6 @@ class Instrument(BaseModel):
         instrument_type: Broad category as returned by the data source (e.g. "STOCK").
         currency_code: ISO 4217 trading currency.
         yfinance_ticker: Symbol as understood by yfinance; may differ from ticker after normalisation.
-        t212_ticker: Trading 212 cross-reference; populated by the T212 annotation step.
-        is_t212_tradeable: Whether the Trading 212 catalogue carries the instrument.
-            None until the annotation step evaluates the row, so a deployment without
-            Trading 212 never reads as "not tradeable".
         asset_class: Coarse asset class string ("equity", "fixed_income",
             "multi_asset" or "commodity"); always present.
         fi_subclass: Fixed-income sub-category; None for non-fixed-income instruments.
@@ -118,15 +110,8 @@ class Instrument(BaseModel):
     instrument_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     currency_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     yfinance_ticker: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # Optional Trading 212 ticker, populated by the T212 annotation step (D14).
-    # yfinance is the source of truth; this is a convenience cross-reference.
-    t212_ticker: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # Tradability overlay set by the T212 annotation step. Tri-state on purpose:
-    # NULL = not evaluated (T212 unconfigured, or no ISIN to match), True = the
-    # broker catalogue carries the instrument, False = matched and absent.
-    is_t212_tradeable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
-    # Asset-class taxonomy (see services/universe/trading212/enums.py). Stored as
+    # Asset-class taxonomy (see services/universe/builder/enums.py). Stored as
     # strings like instrument_type. asset_class is non-null (STOCK ⇒ "equity") and
     # unconstrained: equity, fixed_income, multi_asset and commodity are in use.
     # fi_subclass/duration_bucket are populated only for fixed_income.

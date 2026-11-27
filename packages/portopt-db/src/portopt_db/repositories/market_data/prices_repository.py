@@ -25,7 +25,7 @@ from portopt_db.repository import RepositoryBase
 logger = logging.getLogger(__name__)
 
 
-# Trading 212 lists sub-unit currencies as GBX/ZAC while Yahoo tags them GBp/ZAc.
+# Some feeds list sub-unit currencies as GBX/ZAC while Yahoo tags them GBp/ZAc.
 _SUB_UNIT_ALIASES = {"GBX": "GBp", "ZAC": "ZAc"}
 
 

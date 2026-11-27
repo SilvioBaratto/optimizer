@@ -314,7 +314,7 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   broker scope loses that restriction silently and may now propose names the broker does
   not carry; list the instruments you want in `--eligible` instead. **portopt-db**: the
   `UniverseReader` port no longer declares `get_t212_untradeable_tickers` and
-  `get_t212_unevaluated_tickers` (the repository methods stay for now).
+  `get_t212_unevaluated_tickers` (the repository methods go with the columns, below).
 - **ingestion**: the Trading 212 integration. The Trading 212 client with its ticker mapper
   and cache, the `t212_annotate` step that followed `universe_build` (and its job type),
   `portopt add-instrument --t212-ticker`, the Trading 212 prompts of `portopt setup` with
@@ -325,8 +325,8 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   secrets, the scheduler's `.env.scheduler` env file (it only carried `TRADING_212_MODE`)
   and `ingestion/scripts/debug_universe_scale.py`. The weekly `universe_build` job now runs
   the universe step alone. Nothing writes `instruments.t212_ticker`,
-  `instruments.is_t212_tradeable` or `exchanges.t212_id` any more; the columns stay until a
-  later migration drops them. ISINs now come only from ticker profiles
+  `instruments.is_t212_tradeable` or `exchanges.t212_id` any more; the `portopt-db` entry
+  below drops the columns. ISINs now come only from ticker profiles
   (`backfill_isin_from_profiles`): the per-ticker ISIN lookup the annotation step made is
   gone. **Upgrading**: nothing is needed for the stack to start. A secret store written by
   an older `portopt setup` may still hold the two Trading 212 keys; setup and
@@ -334,6 +334,21 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   `./secrets/trading_212_secret_key` and `./.env.scheduler` files an older `portopt start`
   rendered are no longer used, and `portopt stop --all` no longer deletes them: delete them
   at will.
+- **portopt-db**: the three Trading 212 columns `exchanges.t212_id`,
+  `instruments.t212_ticker` and `instruments.is_t212_tradeable`. The new Alembic revision
+  `2266e24c509f` (the head, after `b8d0f2a4c6e1`) drops them, and the ORM attributes and the
+  `UniverseRepository` methods `set_t212_ticker`, `set_t212_tradeable`,
+  `get_t212_tradeable_tickers`, `get_t212_untradeable_tickers` and
+  `get_t212_unevaluated_tickers` are gone with them. `save_exchange` ignores any key but
+  `name`. **Upgrading**: the migration deletes the data in the three columns, and the
+  scheduler and fund containers run `alembic upgrade head` when they start, so pulling this
+  version and restarting the stack applies it. Take the database dump **before** you pull
+  the new version and restart. `alembic downgrade -1` re-adds the columns as nullable and
+  empty; the dropped values are not restored. A repository test
+  (`tests/test_removed_integrations.py`) now fails when a tracked file names the removed
+  integration, except this changelog, the Alembic history, the tests of those migrations
+  and the three tests that assert the removal itself (the mandate, the setup wizard and
+  the universe builder import checks).
 
 ### Known / not done
 
