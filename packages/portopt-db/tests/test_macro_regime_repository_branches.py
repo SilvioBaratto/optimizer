@@ -1,6 +1,6 @@
 """Branch-coverage tests for MacroRegimeRepository.
 
-Goal: close as many of the 90 branches as possible using the real ``db_session``
+Goal: close as many of its branches as possible using the real ``db_session``
 SQLite fixture (SAVEPOINT, no second session, no live DB).
 
 IMPORTANT — Postgres-only methods

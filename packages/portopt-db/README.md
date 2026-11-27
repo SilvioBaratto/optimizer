@@ -64,7 +64,8 @@ uv run alembic downgrade -1
   `IRREVERSIBLE_REASON` that says what was destroyed and where the restore source is.
   `tests/test_irreversible_migrations_declare_reason.py` fails without the constant.
 - Take a database dump before applying a destructive revision. Restoring from it is the
-  only way back for the revisions listed in that test.
+  only way back for the revisions listed in that test. A revision that deletes data but
+  keeps a structure-only `downgrade()` is recorded under "Destructive migrations" below.
 - Two branches that each add a head are joined by a merge revision (for example
   `70393a606218`). `tests/test_alembic_single_head.py` and
   `tests/test_alembic_chain_integrity.py` keep exactly one head and an unbroken chain.
@@ -82,6 +83,36 @@ same sequence against a scratch database before you merge a revision.
 Stop the daemons first (one daemon per database), then use the downgrade command from the
 block above. A revision whose `downgrade()` raises is a one-way door: restore the dump
 instead. Rehearse a rollback on a scratch database before doing it on a live one.
+
+### Destructive migrations
+
+The preferred rule (standard 3.7) is a migration that can be reversed without losing data.
+Two revisions deliberately break it. This section records the deviation (standard 1.3):
+what each deletes, why, and the backup step.
+
+Both deletions have the same reason. The integrations whose data they remove were taken
+out of this public repository because their terms conflict with an open repository, so
+their stored data is intentionally not kept, and neither revision archives it first. Both
+run automatically: the scheduler and fund containers upgrade the database to the head
+revision when they start, so pulling a version that contains one and restarting the stack
+applies it.
+
+| Revision | What `upgrade()` deletes | What `downgrade()` restores |
+| --- | --- | --- |
+| `2266e24c509f` (`drop_trading_212_columns`) | The data in `exchanges.t212_id`, `instruments.t212_ticker` and `instruments.is_t212_tradeable`: the removed broker's exchange ids, ticker mapping and tradability flag. | The three columns, nullable and empty. |
+| `8ed6504aee6a` (`drop_macro_scraper_tables`) | The six tables `economic_indicators`, `economic_indicator_observations`, `trading_economics_indicators`, `trading_economics_observations`, `bond_yields` and `bond_yield_observations`, with all their rows: the stored macro-indicator forecasts and bond-yield history of the two removed scrapers. | The six tables, empty, with their columns, constraints and indexes. |
+
+Backup step: before you pull the version and restart the stack, take a dump of the live
+database. The containers migrate on start, so there is no later moment to do it:
+
+```bash
+pg_dump --format=custom --file=optimizer-before-migration.dump "$DATABASE_URL"
+```
+
+A downgrade restores structure only, never the deleted rows. The dump is the only way
+back to the data (`pg_restore` it into a scratch database to read it). Rehearse the
+upgrade and the downgrade on a scratch database first, as under "Validation before a
+deploy".
 
 ## Tests
 

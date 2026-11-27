@@ -2,8 +2,8 @@
 
 The revision is replayed by path against in-memory SQLite, so it runs in CI without
 PostgreSQL. The six tables have no model any more, so the schema of the previous head
-is described once in ``_TABLE_SPECS`` and used both to build the tables the upgrade
-must drop and to check the tables the downgrade must bring back.
+is described once in ``_TABLE_SPECS`` and used both to build the populated tables the
+upgrade must drop and to check the tables the downgrade must bring back.
 """
 
 from __future__ import annotations
@@ -19,8 +19,25 @@ from typing import NamedTuple
 import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import Engine, Table, create_engine, func, inspect, select, text
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    Engine,
+    Float,
+    Index,
+    MetaData,
+    String,
+    Table,
+    UniqueConstraint,
+    Uuid,
+    create_engine,
+    func,
+    inspect,
+    select,
+)
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.types import TypeEngine
 
 from portopt_db.models.macro.macro_regime import (
     FredObservation,
@@ -40,12 +57,24 @@ _FRED_DATE = datetime.date(2026, 11, 26)
 _NEWS_ID = "news-1"
 _NEWS_THEME = "inflation"
 
+_ID_COLUMN = "id"
+_SAMPLE_ROW_ID = uuid.UUID(int=1)
+_SAMPLE_DATE = datetime.date(2026, 11, 25)
+# The values that fill the NOT NULL columns of one row in each of the six tables.
+_REQUIRED_VALUES: dict[str, object] = {
+    _ID_COLUMN: _SAMPLE_ROW_ID,
+    "country": "Italy",
+    "indicator_key": "cpi",
+    "maturity": "10Y",
+    "date": _SAMPLE_DATE,
+}
+
 
 class _Column(NamedTuple):
-    """A column as SQLite reports it: its declared type text and nullability."""
+    """A column of the previous head: its type, nullability and server default."""
 
     name: str
-    sql_type: str
+    sql_type: TypeEngine
     nullable: bool
     has_server_default: bool = False
 
@@ -57,18 +86,18 @@ class _TableSpec(NamedTuple):
 
 
 def _float_columns(*names: str) -> tuple[_Column, ...]:
-    return tuple(_Column(name, "FLOAT", True) for name in names)
+    return tuple(_Column(name, Float(), True) for name in names)
 
 
-_ID = _Column("id", "CHAR(32)", False)
-_COUNTRY = _Column("country", "VARCHAR(100)", False)
-_INDICATOR_KEY = _Column("indicator_key", "VARCHAR(100)", False)
-_MATURITY = _Column("maturity", "VARCHAR(10)", False)
-_DATE = _Column("date", "DATE", False)
-_REFERENCE_DATE = _Column("reference_date", "DATE", True)
+_ID = _Column(_ID_COLUMN, Uuid(), False)
+_COUNTRY = _Column("country", String(100), False)
+_INDICATOR_KEY = _Column("indicator_key", String(100), False)
+_MATURITY = _Column("maturity", String(10), False)
+_DATE = _Column("date", Date(), False)
+_REFERENCE_DATE = _Column("reference_date", Date(), True)
 _TIMESTAMPS = (
-    _Column("created_at", "DATETIME", False, has_server_default=True),
-    _Column("updated_at", "DATETIME", False, has_server_default=True),
+    _Column("created_at", DateTime(timezone=True), False, has_server_default=True),
+    _Column("updated_at", DateTime(timezone=True), False, has_server_default=True),
 )
 _FORECAST_COLUMNS = (
     *_float_columns(
@@ -106,9 +135,9 @@ _TABLE_SPECS: dict[str, _TableSpec] = {
             _COUNTRY,
             _INDICATOR_KEY,
             *_float_columns("value", "previous"),
-            _Column("unit", "VARCHAR(50)", True),
-            _Column("reference", "VARCHAR(100)", True),
-            _Column("raw_name", "VARCHAR(200)", True),
+            _Column("unit", String(50), True),
+            _Column("reference", String(100), True),
+            _Column("raw_name", String(200), True),
             *_TIMESTAMPS,
         ),
         unique_constraints={
@@ -171,25 +200,41 @@ _NEWS_TABLE: Table = MacroNews.__table__
 _NEWS_THEME_TABLE: Table = MacroNewsTheme.__table__
 
 
-def _column_ddl(column: _Column) -> str:
-    not_null = "" if column.nullable else " NOT NULL"
-    default = " DEFAULT CURRENT_TIMESTAMP" if column.has_server_default else ""
-    return f"{column.name} {column.sql_type}{not_null}{default}"
+def _declare_previous_head(metadata: MetaData) -> dict[str, Table]:
+    """Declare the six tables of the previous head on ``metadata``."""
+    return {
+        name: Table(
+            name,
+            metadata,
+            *(
+                Column(
+                    column.name,
+                    column.sql_type,
+                    primary_key=column.name == _ID_COLUMN,
+                    nullable=column.nullable,
+                    server_default=func.now() if column.has_server_default else None,
+                )
+                for column in spec.columns
+            ),
+            *(
+                UniqueConstraint(*columns, name=constraint_name)
+                for constraint_name, columns in spec.unique_constraints.items()
+            ),
+            *(
+                Index(index_name, *columns)
+                for index_name, columns in spec.indexes.items()
+            ),
+        )
+        for name, spec in _TABLE_SPECS.items()
+    }
 
 
-def _create_previous_head_table(engine: Engine, table: str, spec: _TableSpec) -> None:
-    definitions = [_column_ddl(column) for column in spec.columns]
-    definitions.append("PRIMARY KEY (id)")
-    definitions.extend(
-        f"CONSTRAINT {name} UNIQUE ({', '.join(columns)})"
-        for name, columns in spec.unique_constraints.items()
-    )
-    with engine.begin() as conn:
-        conn.execute(text(f"CREATE TABLE {table} ({', '.join(definitions)})"))
-        for index_name, columns in spec.indexes.items():
-            conn.execute(
-                text(f"CREATE INDEX {index_name} ON {table} ({', '.join(columns)})")
-            )
+_PREVIOUS_HEAD_METADATA = MetaData()
+_PREVIOUS_HEAD_TABLES = _declare_previous_head(_PREVIOUS_HEAD_METADATA)
+
+
+def _sample_row(table: Table) -> dict[str, object]:
+    return {name: value for name, value in _REQUIRED_VALUES.items() if name in table.c}
 
 
 def _load() -> ModuleType:
@@ -219,18 +264,20 @@ def _row_count(engine: Engine, table: Table) -> int:
 
 @pytest.fixture
 def engine() -> Engine:
-    """SQLite shaped like the previous head, with one row in each kept macro table."""
+    """SQLite shaped like the previous head: each of the six tables holds one row,
+    and the FRED, news and theme tables hold one row each."""
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    for table, spec in _TABLE_SPECS.items():
-        _create_previous_head_table(engine, table, spec)
+    _PREVIOUS_HEAD_METADATA.create_all(engine)
     for kept_table in (_FRED_TABLE, _NEWS_TABLE, _NEWS_THEME_TABLE):
         kept_table.create(engine)
     news_row_id = uuid.uuid4()
     with engine.begin() as conn:
+        for table in _PREVIOUS_HEAD_TABLES.values():
+            conn.execute(table.insert().values(_sample_row(table)))
         conn.execute(
             _FRED_TABLE.insert().values(
                 id=uuid.uuid4(),
@@ -262,9 +309,12 @@ def test_revision_follows_the_trading_212_drop() -> None:
 def test_upgrade_drops_the_six_tables_and_keeps_the_fred_and_news_tables(
     engine: Engine,
 ) -> None:
-    """Validates the upgrade() of revision 8ed6504aee6a: only the six tables go."""
+    """Validates the upgrade() of revision 8ed6504aee6a: the six populated tables go
+    and no other table or row does."""
     tables_before = _table_names(engine)
     assert set(_DROPPED_TABLES) <= tables_before
+    for table in _PREVIOUS_HEAD_TABLES.values():
+        assert _row_count(engine, table) == 1, table.name
 
     _run(engine, _load().upgrade)
 
@@ -290,15 +340,20 @@ def test_downgrade_recreates_the_six_tables_empty_with_their_indexes(
     _run(engine, revision_module.downgrade)
 
     inspector = inspect(engine)
+    dialect = inspector.dialect
     for table, spec in _TABLE_SPECS.items():
         columns = inspector.get_columns(table)
         assert [
-            (info["name"], str(info["type"]), info["nullable"]) for info in columns
-        ] == [(c.name, c.sql_type, c.nullable) for c in spec.columns], table
+            (info["name"], info["type"].compile(dialect=dialect), info["nullable"])
+            for info in columns
+        ] == [
+            (c.name, c.sql_type.compile(dialect=dialect), c.nullable)
+            for c in spec.columns
+        ], table
         assert {info["name"] for info in columns if info["default"] is not None} == {
             c.name for c in spec.columns if c.has_server_default
         }, table
-        assert inspector.get_pk_constraint(table)["constrained_columns"] == ["id"]
+        assert inspector.get_pk_constraint(table)["constrained_columns"] == [_ID_COLUMN]
         assert {
             info["name"]: tuple(info["column_names"])
             for info in inspector.get_unique_constraints(table)
@@ -307,6 +362,4 @@ def test_downgrade_recreates_the_six_tables_empty_with_their_indexes(
             info["name"]: tuple(info["column_names"])
             for info in inspector.get_indexes(table)
         } == spec.indexes, table
-        with engine.connect() as conn:
-            row_count = conn.execute(text(f"SELECT count(*) FROM {table}"))
-            assert row_count.scalar_one() == 0, table
+        assert _row_count(engine, _PREVIOUS_HEAD_TABLES[table]) == 0, table

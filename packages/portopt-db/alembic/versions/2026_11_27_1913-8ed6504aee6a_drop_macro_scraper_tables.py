@@ -7,7 +7,12 @@ indicators and government bond yields) are gone, so nothing reads or writes
 or ``bond_yield_observations``. The upgrade deletes the stored macro and bond-yield
 history in them. The downgrade recreates the six tables empty, with the columns,
 constraints and indexes they had at the previous head: the rows came from the scrapers
-and are not restored. Take a database dump before upgrading if the history matters.
+and are not restored.
+
+The deletion is deliberate and is a recorded deviation from the preferred migration that
+loses no data: see "Destructive migrations" in ``packages/portopt-db/README.md`` for the
+reason and the backup step. In short, take a ``pg_dump`` before pulling and restarting,
+because the scheduler and fund containers run ``alembic upgrade head`` when they start.
 
 The FRED observations and the macro news tables are not touched.
 

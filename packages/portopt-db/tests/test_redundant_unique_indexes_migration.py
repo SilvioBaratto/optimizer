@@ -105,7 +105,7 @@ REDUNDANT = [
 ]
 _IDS = [row[0] for row in REDUNDANT]
 
-# The first three tables lost their models when a later revision dropped them, so
+# Three of the tables lost their models when a later revision dropped them, so
 # the shape the older chain gave them (just the columns the unique keys cover) is
 # declared here and stands in for ``Base.metadata`` when the tests build them.
 _DROPPED_MODEL_TABLES = MetaData()

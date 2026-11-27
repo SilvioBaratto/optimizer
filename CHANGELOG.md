@@ -376,7 +376,9 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   when they start, so pulling this version and restarting the stack applies it. Take the
   database dump **before** you pull the new version and restart. `alembic downgrade -1`
   recreates the six tables empty, with their columns, constraints and indexes; the deleted
-  rows are not restored.
+  rows are not restored. The deliberate data loss is a recorded deviation from the
+  reversible-migration rule, with the reason and the backup step, under "Destructive
+  migrations" in `packages/portopt-db/README.md`.
 
 ### Removed (BREAKING — ingestion CLI, scheduler and settings)
 

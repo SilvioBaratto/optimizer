@@ -4,12 +4,11 @@ The Trading 212 broker integration was taken out of the code, the configuration 
 the database, the ISIN lookup that scraped a third-party news site through yfinance
 was taken out of the ingestion, and so were the two macro web scrapers (a financial
 newspaper's forecast page and an economics data site) together with the six tables
-they filled. A name that survives in a
-comment, a doc or a column definition says the integration still exists, and the
-first new reference to it is the start of growing it back. The scan covers every
-tracked file, its path and its content, so an untracked ``.venv``, ``design/`` or
-``__pycache__`` never takes part and the result does not depend on the working
-directory.
+they filled. A name that survives in a comment, a doc or a column definition says the
+integration still exists, and the first new reference to it is the start of growing
+it back. The scan covers every tracked file, its path and its content, so an
+untracked ``.venv``, ``design/`` or ``__pycache__`` never takes part and the result
+does not depend on the working directory.
 
 A later removal appends its names to ``_REMOVED_INTEGRATION_TOKENS``.
 """
@@ -56,6 +55,10 @@ _DB_TESTS = "packages/portopt-db/tests/"
 _ALLOWED_FILES = {
     "CHANGELOG.md": "records the removal of the integration, release by release",
     "tests/test_removed_integrations.py": "names the tokens it forbids",
+    "packages/portopt-db/README.md": (
+        "records the two destructive revisions that deleted the removed "
+        "integrations' data, with the reason and the backup step"
+    ),
     "packages/portopt-db/tests/test_is_t212_tradeable_migration.py": (
         "tests the historical revision that added the instruments flag column"
     ),
