@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
 from portopt_db.base import Base
-from portopt_db.config import DbConfig
+from portopt_db.config import DbConfig, pin_postgres_driver
 from portopt_db.resilience import (
     BreakerConfig,
     CircuitBreaker,
@@ -136,7 +136,7 @@ class DatabaseManager:
     def _create_engine(self) -> None:
         cfg = self.config
         self._engine = create_engine(
-            cfg.url,
+            pin_postgres_driver(cfg.url),
             poolclass=QueuePool,
             echo=cfg.echo,
             connect_args=cfg.connect_args(),

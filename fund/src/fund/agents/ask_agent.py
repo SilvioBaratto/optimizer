@@ -49,6 +49,7 @@ from fund.agents.backend import (
     _FUND_DIR,
     _REPO_ROOT,
     _staging_lock,
+    guarded_filesystem_backend,
     read_only_permissions,
 )
 from fund.agents.summarization import summarization_override
@@ -335,16 +336,17 @@ def scope_scratch_dir(root: Path, scope: str) -> Path:
 
 @functools.cache
 def _filesystem_backend_class() -> type:
-    """``FilesystemBackend`` that answers a path it rejects with an error, not a crash.
+    """The guarded backend, answering a path it rejects with an error, not a crash.
 
     The stock backend raises ``ValueError`` for a path containing ``..`` inside a name,
     a NUL byte or a link that leaves the root, and its tools only expect ``OSError``,
     so a path the model invented would end the whole turn (and the message can name a
-    host path). Imported lazily so this module needs no agent stack.
+    host path). The base class also refuses to change a dot-prefixed path, which the
+    ``/**`` permission rule cannot match. Imported lazily so this module needs no
+    agent stack.
     """
-    from deepagents.backends import FilesystemBackend
 
-    class _ReadOnlyFilesystemBackend(FilesystemBackend):
+    class _ReadOnlyFilesystemBackend(guarded_filesystem_backend()):
         """A virtual-mode filesystem whose rejected paths are plain errors."""
 
         def _resolve_path(self, key: str) -> Path:

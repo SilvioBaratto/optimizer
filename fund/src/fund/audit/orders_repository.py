@@ -89,7 +89,7 @@ def _ticket_rank() -> tuple[Any, ...]:
 
 def _filled_through(
     portfolio_id: uuid.UUID, through: date | None
-) -> Select[tuple[PaperOrder]]:
+) -> Select[PaperOrder]:
     stmt = select(PaperOrder).where(PaperOrder.portfolio_id == portfolio_id)
     if through is not None:
         stmt = stmt.where(PaperOrder.fill_date <= through)

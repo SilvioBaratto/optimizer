@@ -350,7 +350,7 @@ class BackgroundJobRepository(RepositoryBase):
             BackgroundJob.finished_at < cutoff,
         )
         try:
-            result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]  # type: ignore[assignment]
+            result: CursorResult[Any] = self.session.execute(stmt)  # type: ignore[assignment]
             self.session.flush()
             return result.rowcount or 0
         except Exception as e:

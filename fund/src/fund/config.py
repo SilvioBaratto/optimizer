@@ -331,14 +331,21 @@ def load_project_env() -> None:
 _PROVIDER_STRUCTURED_OUTPUT_METHOD: Mapping[str, str] = {"huggingface": "json_schema"}
 
 
-def silence_http_request_logs() -> None:
-    """Keep ``httpx`` / ``httpcore`` at WARNING under a root logger set to INFO.
+_HTTP_CLIENT_LOGGERS = ("httpx", "httpx2", "httpcore", "httpcore2")
 
-    httpx logs every request as ``HTTP Request: POST <full url>`` at INFO, so a
-    provider URL that carries credentials, or any query token, would be written to
-    the daemon log on every model call.
+
+def silence_http_request_logs() -> None:
+    """Keep the HTTP client libraries at WARNING under a root logger set to INFO.
+
+    ``httpx`` and ``httpx2`` both log every request as ``HTTP Request: POST <full
+    url>`` at INFO, so a provider URL that carries credentials, or any query token,
+    would be written to the daemon log on every model call. The provider SDKs are
+    split across the two stacks (``openai``, ``anthropic`` and ``langsmith`` use
+    ``httpx2``; ``groq``, ``ollama`` and ``google-genai`` use ``httpx``), and each
+    stack logs under its own name, so silencing one leaves the other open. The
+    ``httpcore`` pair log each connection step at DEBUG and are covered the same way.
     """
-    for name in ("httpx", "httpcore"):
+    for name in _HTTP_CLIENT_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 

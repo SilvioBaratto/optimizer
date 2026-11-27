@@ -1,31 +1,46 @@
 """``fund.agents.model`` — the provider-registry chat-model factory (unit slice).
 
-Construction only: the SDK class is built but never invoked, so no network is
-touched. The tests assert the frozen ``FundConfig`` is threaded onto the
-model — base URL, model id, ``temperature``, non-thinking ``reasoning`` route, and
-the ``OLLAMA_API_KEY`` bearer header — that ``build_chat_model`` dispatches on
-``config.llm_provider`` (unknown provider / uninstalled extra raise clear
-``RuntimeError``\\s), that the Ollama cloud-vs-local key rule holds, and that a
-missing key raises at *build* time (never at import, so a bare
-``import fund.agents.model`` stays green in CI).
+No test reaches a real provider. Most build the chat class and read what the builder
+passed it, through a recording fake of the provider module or through the real SDK
+class, which is built but not called. The tests that do call a model send the request
+to a stub on the loopback interface (Ollama, NVIDIA, Gemini), to an in-memory Converse
+client (AWS) or to an in-memory transport (Hugging Face). Where an SDK could otherwise
+call out, a guard fails the test on any connection beyond loopback.
+
+They assert that the frozen ``FundConfig`` is threaded onto each provider's model
+(model id, ``temperature``, completion budget, base URL, key or token), that
+``build_chat_model`` dispatches on ``config.llm_provider`` (an unknown provider or an
+uninstalled extra raises a clear ``RuntimeError``), that a missing key raises at
+*build* time and never at import, so a bare ``import fund.agents.model`` stays green in
+CI, that a credential reaches only the host it was meant for and stays out of
+``repr``, ``str`` and the serialized form, and that the telemetry and request-log
+switches the repo relies on stay off. What each real SDK puts on the wire is pinned in
+``test_model_openai_family``, ``test_model_anthropic_wire`` and
+``test_model_groq_sdk_wire``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
+import logging
 import os
 import re
 import sys
-import threading
 import types
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import Generator
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+from typing import Any
 
 import pytest
 import tomllib
+from _provider_stubs import loopback_only, loopback_url, serve_on_loopback
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.load import dumpd
+from langchain_core.language_models import BaseChatModel
+from langchain_core.load import dumpd, dumps
 
 from fund.agents import model
 from fund.config import FundConfig, load_config
@@ -54,7 +69,6 @@ def fake_ollama(monkeypatch):
     ``auth_headers`` collects the ``Authorization`` header of every request (``None``
     when absent), so a test can assert what actually crossed the wire.
     """
-    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
     # The ollama SDK itself turns an ambient OLLAMA_API_KEY into a bearer header.
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
     auth_headers: list[str | None] = []
@@ -75,7 +89,7 @@ def fake_ollama(monkeypatch):
                 ).encode()
                 + b"\n"
             )
-            self.send_response(200)
+            self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/x-ndjson")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -84,15 +98,8 @@ def fake_ollama(monkeypatch):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_port}", auth_headers
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+    with serve_on_loopback(monkeypatch, _Handler) as port:
+        yield loopback_url(port), auth_headers
 
 
 @pytest.fixture
@@ -104,7 +111,6 @@ def fake_nvidia(monkeypatch):
     credential actually crossed the wire. The ambient ``NVIDIA_API_KEY`` is cleared
     first; a test that wants one sets it afterwards.
     """
-    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     auth_headers: list[str | None] = []
 
@@ -132,7 +138,7 @@ def fake_nvidia(monkeypatch):
                     },
                 }
             ).encode()
-            self.send_response(200)
+            self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -141,15 +147,66 @@ def fake_nvidia(monkeypatch):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_port}/v1", auth_headers
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+    with serve_on_loopback(monkeypatch, _Handler) as port:
+        yield f"{loopback_url(port)}/v1", auth_headers
+
+
+@pytest.fixture
+def fake_gemini(monkeypatch):
+    """A localhost Gemini ``generateContent`` stub for ``ChatGoogleGenerativeAI``.
+
+    Yields ``requests``, one ``{"path", "api_key"}`` record per call, so a test can
+    assert which API version and credential actually crossed the wire. The
+    google-genai SDK reads ``GOOGLE_GEMINI_BASE_URL`` when no base URL is passed,
+    which aims a model built by the repo's own builder at the stub. The ambient API
+    keys and every variable that moves the SDK to another backend, version or gateway
+    are cleared.
+    """
+    for name in (
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_GENAI_API_VERSION",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_GENAI_USE_ENTERPRISE",
+        "LANGSMITH_GATEWAY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    requests: list[dict[str, str | None]] = []
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            requests.append(
+                {"path": self.path, "api_key": self.headers.get("x-goog-api-key")}
+            )
+            body = json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "content": {"role": "model", "parts": [{"text": "ok"}]},
+                            "finishReason": "STOP",
+                            "index": 0,
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 1,
+                        "candidatesTokenCount": 1,
+                        "totalTokenCount": 2,
+                    },
+                }
+            ).encode()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    with serve_on_loopback(monkeypatch, _Handler) as port:
+        monkeypatch.setenv("GOOGLE_GEMINI_BASE_URL", loopback_url(port))
+        yield requests
 
 
 def test_build_chat_model_threads_config_onto_chatollama():
@@ -764,6 +821,43 @@ def test_groq_without_key_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="llama-3.3-70b-versatile")
 
 
+@pytest.mark.criterion("REQ-FUND-018")
+def test_groq_real_client_takes_the_builder_kwargs_and_hides_the_key(monkeypatch):
+    """Validates ``fund.agents.model._build_groq`` against the real ``ChatGroq``.
+
+    Construction only. The fakes above cannot notice ChatGroq renaming a keyword
+    the builder passes: it moves an unknown keyword into ``model_kwargs`` without
+    raising and falls back to its own temperature of 0.7, so each keyword is read
+    back as the effective attribute. langchain-groq 1.2 also added a LangSmith
+    gateway that swaps the base URL when ``LANGSMITH_GATEWAY`` is set, so this pins
+    the unset case: the key goes to the Groq host and into no serialized form.
+    """
+    pytest.importorskip("langchain_groq")
+    monkeypatch.delenv("LANGSMITH_GATEWAY", raising=False)
+    monkeypatch.delenv("GROQ_API_BASE", raising=False)
+    key = "gsk-groq-test"
+    cfg = FundConfig(llm_provider="groq", groq_api_key=key, model_temperature=0.25)
+
+    llm = model.build_chat_model(cfg, model_name="openai/gpt-oss-20b")
+
+    assert llm.model_name == "openai/gpt-oss-20b"
+    assert llm.temperature == cfg.model_temperature
+    assert llm.model_kwargs == {}
+    assert llm.groq_api_base is None
+    assert llm.groq_api_key.get_secret_value() == key
+    assert key not in repr(llm)
+    assert key not in str(llm)
+    assert key not in json.dumps(dumpd(llm), default=str)
+
+    # ChatGroq rewrites a temperature of exactly 0 to 1e-8, so the repo's
+    # temperature-0 contract is met by a value that is zero to within that margin.
+    deterministic = model.build_chat_model(
+        FundConfig(llm_provider="groq", groq_api_key=key),
+        model_name="openai/gpt-oss-20b",
+    )
+    assert deterministic.temperature == pytest.approx(0.0, abs=1e-6)
+
+
 # --- google / Gemini (langchain-google-genai / ChatGoogleGenerativeAI) -------
 
 
@@ -808,9 +902,112 @@ def test_google_without_key_raises_runtimeerror(monkeypatch):
         model.build_chat_model(cfg, model_name="gemini-2.5-flash")
 
 
+@pytest.mark.criterion("REQ-FUND-018")
+def test_google_api_key_is_absent_from_repr_str_and_serialized_form():
+    """Validates ``fund.agents.model._build_google``.
+
+    LangChain hands ``repr`` and ``dumpd`` of the model to every tracer and debug
+    log, and the google-genai client the model builds holds the key too.
+    """
+    key = "gk-google-secret-value"
+    cfg = FundConfig(llm_provider="google", google_api_key=key)
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+    assert key not in repr(llm)
+    assert key not in str(llm)
+    assert key not in json.dumps(dumpd(llm), default=str)
+
+
+@pytest.mark.criterion("REQ-FUND-018")
+def test_google_api_key_is_sent_as_a_header_but_not_handed_to_callbacks(fake_gemini):
+    """Validates ``fund.agents.model._build_google``."""
+    key = "gk-google-secret-value"
+    cfg = FundConfig(llm_provider="google", google_api_key=key)
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+    spy = _SerializedSpy()
+
+    llm.invoke("hi", config={"callbacks": [spy]})
+
+    assert [request["api_key"] for request in fake_gemini] == [key]
+    assert spy.serialized
+    assert all(key not in payload for payload in spy.serialized)
+
+
+def test_google_requests_use_the_v1beta_api_version(fake_gemini):
+    """Validates ``fund.agents.model._build_google``.
+
+    google-genai 3.0 moved the Gemini Developer API default to ``v1``, which does
+    not serve preview models, the ``-latest`` aliases or context caching;
+    langchain-google-genai pins ``v1beta`` back for that backend.
+    """
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+    llm.invoke("hi")
+
+    assert [request["path"] for request in fake_gemini] == [
+        "/v1beta/models/gemini-2.5-flash:generateContent"
+    ]
+
+
+@pytest.mark.criterion("REQ-FUND-032")
+def test_google_provider_never_asks_google_auth_for_credentials(
+    fake_gemini, monkeypatch
+):
+    """Validates ``fund.agents.model._build_google``: the API key is all it needs.
+
+    google-auth holds the Application Default Credentials lookup, the Compute Engine
+    metadata server and the environment switches that steer them (bound tokens,
+    regional access boundary lookups). A model built from ``GOOGLE_API_KEY`` must
+    reach none of it, or a google-auth release could pick the identity and the host
+    of a request that the operator keyed for the Gemini Developer API.
+    """
+    import google.auth
+
+    def _no_application_default_credentials(*_args, **_kwargs):
+        pytest.fail("google.auth.default() ran for a model built from an API key")
+
+    monkeypatch.setattr(google.auth, "default", _no_application_default_credentials)
+    loopback_only(monkeypatch)
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+    llm.invoke("hi")
+
+    assert len(fake_gemini) == 1
+
+
+@pytest.mark.criterion("REQ-FUND-041")
+@pytest.mark.parametrize(
+    "variable", ["GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE"]
+)
+def test_google_provider_stays_on_the_gemini_api_whatever_the_environment_says(
+    fake_gemini, monkeypatch, variable
+):
+    """Validates ``fund.agents.model._build_google``: ``google`` is not ``vertex``.
+
+    The google-genai client reads both switches itself when the caller does not pass
+    ``vertexai``, and langchain-google-genai passes none for a model it decided is
+    not Vertex, so an ambient ``true`` would turn a key meant for the Gemini Developer
+    API into a Vertex AI client. The check is on the built client, before any call:
+    in Vertex mode the first request would leave for Google Cloud.
+    """
+    monkeypatch.setenv(variable, "true")
+    cfg = FundConfig(llm_provider="google", google_api_key="gk-google-test")
+
+    llm = model.build_chat_model(cfg, model_name="gemini-2.5-flash")
+
+    assert not llm.client._api_client.vertexai
+    assert os.environ[variable] == "true", "the process environment is given back"
+    llm.invoke("hi")
+    assert len(fake_gemini) == 1
+    assert fake_gemini[0]["api_key"] == "gk-google-test"
+
+
 # --- aws / Bedrock Converse (langchain-aws / ChatBedrockConverse) ------------
 #
-# AWS is the first non-key provider: creds arrive via boto3 (AWS_ACCESS_KEY_ID /
+# AWS has no API key of its own: creds arrive via boto3 (AWS_ACCESS_KEY_ID /
 # AWS_SECRET_ACCESS_KEY / IAM role), so the builder requires only `region_name`.
 
 
@@ -859,6 +1056,99 @@ def test_aws_without_region_raises_runtimeerror(monkeypatch):
 
     with pytest.raises(RuntimeError, match="AWS_REGION"):
         model.build_chat_model(cfg, model_name="anthropic.claude-3")
+
+
+_AWS_SENTINELS = {
+    "AWS_ACCESS_KEY_ID": "s3ntinel-aws-access-key-id-value",
+    "AWS_SECRET_ACCESS_KEY": "s3ntinel-aws-secret-access-key-value",
+    "AWS_SESSION_TOKEN": "s3ntinel-aws-session-token-value",
+}
+
+
+class _ConverseStub:
+    """A Converse client that replays one canned response and never opens a socket."""
+
+    def __init__(self, stop_reason: str) -> None:
+        self._response = {
+            "output": {"message": {"role": "assistant", "content": [{"text": "ok"}]}},
+            "stopReason": stop_reason,
+            "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2},
+            "metrics": {"latencyMs": 1},
+        }
+
+    def converse(self, **_request):
+        return self._response
+
+
+@pytest.fixture
+def aws_env(monkeypatch, tmp_path):
+    """Sentinel boto3 credentials in the environment and no ambient AWS config.
+
+    The real ``ChatBedrockConverse`` reads these at build time, so the fixture also
+    keeps boto3 from reading the developer's ``~/.aws`` files or probing the
+    instance-metadata endpoint.
+    """
+    pytest.importorskip("langchain_aws")
+    for name, value in _AWS_SENTINELS.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "aws-config"))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "aws-credentials"))
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    return dict(_AWS_SENTINELS)
+
+
+@pytest.mark.criterion("REQ-FUND-018")
+def test_aws_credentials_are_absent_from_repr_and_serialized_form(aws_env):
+    # The class copies the boto3 credentials from the environment into its own
+    # fields, and LangChain falls back to repr() as the serialized form it hands
+    # every tracer and log, so a field that stopped being a SecretStr would leak.
+    cfg = FundConfig(llm_provider="aws", aws_region="us-east-1")
+
+    llm = model.build_chat_model(
+        cfg, model_name="anthropic.claude-3-5-sonnet-20240620-v1:0"
+    )
+
+    # Without this the test would pass vacuously if the class stopped reading them.
+    assert llm.aws_access_key_id.get_secret_value() == aws_env["AWS_ACCESS_KEY_ID"]
+    rendered = {
+        "repr": repr(llm),
+        "str": str(llm),
+        "dumps": dumps(llm),
+        "dumpd": json.dumps(dumpd(llm), default=str),
+        "model_dump_json": llm.model_dump_json(),
+    }
+    leaks = [
+        (form, name)
+        for form, text in rendered.items()
+        for name, secret in aws_env.items()
+        if secret in text
+    ]
+    assert leaks == []
+
+
+@pytest.mark.parametrize(
+    ("stop_reason", "expected"),
+    [
+        pytest.param("max_tokens", "output_truncated", id="output-cap"),
+        pytest.param("end_turn", "no_order", id="normal-stop"),
+    ],
+)
+def test_aws_converse_stop_reason_is_read_by_the_pm_end_reason(
+    aws_env, stop_reason, expected
+):
+    # langchain-aws 1.10 adds finish_reason and normalized_finish_reason next to
+    # the raw stopReason; the PM end-reason reader must keep telling a provider
+    # output cap from a model that simply stopped.
+    from fund.agents.graph_hitl import _ungated_end_reason
+
+    cfg = FundConfig(llm_provider="aws", aws_region="us-east-1")
+    llm = model.build_chat_model(cfg, model_name="anthropic.claude-3")
+    llm.client = _ConverseStub(stop_reason)
+
+    reply = llm.invoke("hi")
+
+    assert _ungated_end_reason(reply, pm_round_cap_reached=False) == expected
 
 
 # --- microsoft / Azure OpenAI (langchain-openai / AzureChatOpenAI) -----------
@@ -1008,9 +1298,9 @@ def test_microsoft_missing_any_azure_var_raises_naming_it(
 
 # --- nvidia (langchain-nvidia-ai-endpoints / ChatNVIDIA) ---------------------
 #
-# NVIDIA has two paths, branched on `nvidia_base_url`: hosted (build.nvidia.com)
-# *requires* `NVIDIA_API_KEY`; a self-hosted NIM sets `NVIDIA_BASE_URL` and needs
-# no key.
+# NVIDIA has two paths, branched on `nvidia_base_url`: no URL, or an https URL on one
+# of NVIDIA's own hosts, is the hosted API (build.nvidia.com) and *requires*
+# `NVIDIA_API_KEY`; any other `NVIDIA_BASE_URL` is a self-hosted NIM and needs no key.
 
 
 def _nvidia_module_name() -> str:
@@ -1241,6 +1531,93 @@ def test_nvidia_building_a_keyless_nim_does_not_edit_the_process_env(monkeypatch
     assert os.environ["NVIDIA_API_KEY"] == "nvapi-HOSTED-SECRET"
 
 
+@pytest.mark.criterion("REQ-FUND-026")
+@pytest.mark.parametrize(
+    "base_url",
+    [None, "https://integrate.api.nvidia.com/v1", "http://localhost:8000/v1"],
+    ids=["default-hosted", "explicit-hosted", "self-hosted"],
+)
+def test_nvidia_switches_the_sdk_usage_telemetry_off(monkeypatch, base_url):
+    """Validates ``fund.agents.model._build_nvidia``: it passes the telemetry opt-out.
+
+    langchain-nvidia-ai-endpoints >= 1.5 posts hourly usage aggregates to an NVIDIA
+    telemetry host unless told otherwise. The fund never opted in to that egress.
+    """
+    _install_fake_chat_class(
+        monkeypatch, _nvidia_module_name(), class_name="ChatNVIDIA"
+    )
+    cfg = FundConfig(
+        llm_provider="nvidia", nvidia_api_key="nvapi-test", nvidia_base_url=base_url
+    )
+
+    llm = model.build_chat_model(cfg, model_name="meta/llama-3.1-70b-instruct")
+
+    assert llm.kwargs["usage_telemetry_enabled"] is False
+
+
+# The two tests below build the real ChatNVIDIA, which stays offline only while the
+# model id is in the SDK's static model table: any other hosted model makes it fetch
+# `available_models` over the network at construction. Keep a table model here.
+_NVIDIA_STATIC_TABLE_MODEL = "meta/llama-3.1-70b-instruct"
+
+
+@pytest.fixture
+def nvidia_construction_stays_offline(monkeypatch):
+    """Fail on a non-loopback connection that ``except Exception`` cannot swallow."""
+    loopback_only(monkeypatch)
+
+
+@pytest.mark.criterion("REQ-FUND-026")
+@pytest.mark.usefixtures("nvidia_construction_stays_offline")
+@pytest.mark.parametrize(
+    ("base_url", "is_hosted"),
+    [(None, True), ("http://localhost:8000/v1", False)],
+    ids=["hosted", "self-hosted"],
+)
+def test_nvidia_usage_telemetry_stays_off_on_both_real_clients_despite_the_env(
+    monkeypatch, base_url, is_hosted
+):
+    """Validates ``fund.agents.model._build_nvidia`` against the real ``ChatNVIDIA``.
+
+    The env var is the SDK's own switch; the explicit constructor argument must
+    win over an ambient "true" so no process setting can turn the egress back on.
+    The offline fixture fails the test if an SDK table change makes it call out.
+    """
+    monkeypatch.setenv("NVIDIA_USAGE_TELEMETRY_ENABLED", "true")
+    # The SDK falls back to this variable when no base_url is passed.
+    monkeypatch.delenv("NVIDIA_BASE_URL", raising=False)
+    cfg = FundConfig(
+        llm_provider="nvidia", nvidia_api_key="nvapi-test", nvidia_base_url=base_url
+    )
+
+    llm = model.build_chat_model(cfg, model_name=_NVIDIA_STATIC_TABLE_MODEL)
+
+    assert llm._client.is_hosted is is_hosted
+    assert llm.usage_telemetry_enabled is False
+    assert llm._client.usage_telemetry_enabled is False
+    assert llm._async_client.usage_telemetry_enabled is False
+
+
+@pytest.mark.criterion("REQ-FUND-018")
+@pytest.mark.usefixtures("nvidia_construction_stays_offline")
+def test_nvidia_api_key_is_absent_from_repr_and_serialized_form(monkeypatch):
+    """Validates ``fund.agents.model._build_nvidia``: the key stays out of every dump.
+
+    ChatNVIDIA holds the key as a SecretStr; LangChain hands repr() and the
+    serialized form to every tracer and debug log. The offline fixture fails the
+    test if an SDK table change makes it call out.
+    """
+    monkeypatch.delenv("NVIDIA_BASE_URL", raising=False)
+    key = "nvapi-secret-key-value"
+    cfg = FundConfig(llm_provider="nvidia", nvidia_api_key=key)
+
+    llm = model.build_chat_model(cfg, model_name=_NVIDIA_STATIC_TABLE_MODEL)
+
+    assert key not in repr(llm)
+    assert key not in str(llm)
+    assert key not in json.dumps(dumpd(llm), default=str)
+
+
 def test_nvidia_never_passes_the_ollama_only_reasoning_kwarg(monkeypatch):
     # `reasoning=` is Ollama-only; ChatNVIDIA would reject it.
     _install_fake_chat_class(
@@ -1360,11 +1737,249 @@ def test_huggingface_clients_stay_authenticated_after_the_token_is_hidden():
     assert llm.llm.async_client.token == token
 
 
+# The hub keeps its auto-router only for a key that looks like a Hugging Face one, so
+# the fake must start with ``hf_``. Not named after a token to stay clear of S105.
+_FAKE_HF_ROUTED = "hf_fake-routed-value"
+_HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
+
+
+@dataclasses.dataclass
+class _HubTransport:
+    """What the in-memory Hugging Face router saw, and how it answers next."""
+
+    status_code: int = 200
+    requests: list[Any] = dataclasses.field(default_factory=list)
+
+
+@pytest.fixture
+def hub_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[_HubTransport, None, None]:
+    """Serve every ``huggingface_hub`` request from memory, sync and async.
+
+    The hub builds one shared client from a module-level factory, so the factory is
+    swapped for one that keeps the hub's own request hook but replaces the network
+    with a mock transport. Telemetry is switched off because the user-agent builder
+    would otherwise fetch an agent-harness registry from huggingface.co and cache it
+    under ``HF_HOME``.
+    """
+    import httpx2
+    from huggingface_hub import constants as hub_constants
+    from huggingface_hub.utils import _http as hub_http
+
+    transport = _HubTransport()
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        transport.requests.append(request)
+        if transport.status_code != 200:
+            return httpx2.Response(transport.status_code, json={"error": "upstream"})
+        completion = {
+            "id": "cmpl-1",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "m",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "hello"},
+                }
+            ],
+        }
+        return httpx2.Response(200, json=completion)
+
+    sync_hooks = {"request": [hub_http.hf_request_event_hook]}
+    async_hooks = {
+        "request": [hub_http.async_hf_request_event_hook],
+        "response": [hub_http.async_hf_response_event_hook],
+    }
+    monkeypatch.setattr(hub_constants, "HF_HUB_DISABLE_TELEMETRY", True)
+    monkeypatch.setattr(hub_http, "_GLOBAL_CLIENT", None)
+    monkeypatch.setattr(
+        hub_http,
+        "_GLOBAL_CLIENT_FACTORY",
+        lambda: httpx2.Client(
+            transport=httpx2.MockTransport(answer), event_hooks=sync_hooks, timeout=None
+        ),
+    )
+    monkeypatch.setattr(
+        hub_http,
+        "_GLOBAL_ASYNC_CLIENT_FACTORY",
+        lambda: httpx2.AsyncClient(
+            transport=httpx2.MockTransport(answer),
+            event_hooks=async_hooks,
+            timeout=None,
+        ),
+    )
+    yield transport
+    hub_http.close_session()
+
+
+def _hf_chat_model() -> BaseChatModel:
+    cfg = FundConfig(llm_provider="huggingface", hf_api_token=_FAKE_HF_ROUTED)
+    return model.build_chat_model(cfg, model_name="meta-llama/Meta-Llama-3-8B-Instruct")
+
+
+_HTTP_LOGGER_NAMES = ("httpx", "httpx2", "httpcore", "httpcore2")
+
+
+@pytest.mark.criterion("REQ-FUND-028")
+@pytest.mark.parametrize("call", ["invoke", "ainvoke"])
+def test_a_huggingface_call_writes_no_request_line_to_the_daemon_log(
+    call, hub_transport, caplog
+):
+    """``huggingface-hub`` 2.x logs through ``httpx2``, not ``httpx``.
+
+    Validates ``fund.config.silence_http_request_logs`` against the 2.x hub client.
+    ``caplog.set_level`` restores each logger it touched, so the levels the silencing
+    sets do not leak into later tests.
+    """
+    from fund.config import silence_http_request_logs
+
+    llm = _hf_chat_model()
+    caplog.set_level(logging.INFO)
+    for name in _HTTP_LOGGER_NAMES:
+        caplog.set_level(logging.NOTSET, logger=name)
+
+    def run() -> None:
+        if call == "invoke":
+            llm.invoke("hi")
+        else:
+            asyncio.run(llm.ainvoke("hi"))
+
+    run()
+    assert any(
+        "HTTP Request" in r.getMessage() and _HF_ROUTER_URL in r.getMessage()
+        for r in caplog.records
+    ), "the control call must log before silencing, or this test proves nothing"
+    caplog.clear()
+
+    silence_http_request_logs()
+    run()
+
+    assert [str(r.url) for r in hub_transport.requests][-1] == _HF_ROUTER_URL
+    assert "HTTP Request" not in caplog.text
+    assert "router.huggingface.co" not in caplog.text
+
+
+@pytest.mark.criterion("REQ-FUND-037")
+@pytest.mark.parametrize("call", ["invoke", "ainvoke"])
+def test_a_huggingface_call_never_imports_the_xet_transfer_client(
+    call, hub_transport, monkeypatch
+):
+    """``hf_xet`` 1.7 and later send a report to the Hub after every transfer.
+
+    Validates ``fund.agents.model._build_huggingface``: the chat path only talks to
+    the Inference API, so the transfer client must not even be imported. A model
+    download added later fails here instead of starting those reports.
+    """
+    import importlib
+    import importlib.abc
+
+    requested: list[str] = []
+
+    # Refusing the import, rather than only noting it, keeps the Rust extension from
+    # being loaded a second time in a process that may already hold it.
+    class _XetImportBlocker(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname.split(".")[0] == "hf_xet":
+                requested.append(fullname)
+                raise ModuleNotFoundError(fullname)
+            return None
+
+    monkeypatch.delitem(sys.modules, "hf_xet", raising=False)
+    monkeypatch.setattr(sys, "meta_path", [_XetImportBlocker(), *sys.meta_path])
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("hf_xet")
+    assert requested == ["hf_xet"], "the blocker must see an import of hf_xet"
+    requested.clear()
+    llm = _hf_chat_model()
+
+    if call == "invoke":
+        llm.invoke("hi")
+    else:
+        asyncio.run(llm.ainvoke("hi"))
+
+    assert hub_transport.requests, "the call must have reached the hub transport"
+    assert requested == []
+
+
+@pytest.mark.criterion("REQ-FUND-039")
+def test_the_huggingface_builder_switches_the_hub_telemetry_off(monkeypatch):
+    """Validates ``fund.agents.model._build_huggingface`` against the 2.x hub client.
+
+    With telemetry on, the user agent of every hub request names the AI agent harness
+    the process runs under (found by fetching a registry from huggingface.co) and the
+    installed torch. The hub reads its switch once, at import, so a builder that only
+    set the environment would lose to an earlier import.
+    """
+    from huggingface_hub import constants as hub_constants
+    from huggingface_hub.utils import _headers as hub_headers
+
+    detections: list[str] = []
+
+    def _detect_agent() -> str:
+        detections.append("asked")
+        return "a-harness"
+
+    monkeypatch.setattr(hub_constants, "HF_HUB_DISABLE_TELEMETRY", False)
+    monkeypatch.setattr(hub_headers, "detect_agent", _detect_agent)
+
+    _hf_chat_model()
+
+    assert hub_constants.HF_HUB_DISABLE_TELEMETRY is True
+    user_agent = hub_headers.build_hf_headers()["user-agent"]
+    assert detections == []
+    assert "agent/" not in user_agent
+    assert "torch/" not in user_agent
+
+
+@pytest.mark.criterion("REQ-FUND-018")
+def test_huggingface_token_stays_out_of_str_logs_and_error_text(
+    hub_transport, caplog, monkeypatch
+):
+    """Validates ``fund.agents.model._build_huggingface`` against the 2.x hub client.
+
+    The hub's own debug logging prints a curl command for every request, so it is
+    switched on here with every logger at DEBUG: the token must still never appear.
+    """
+    from huggingface_hub import constants as hub_constants
+    from huggingface_hub.errors import HfHubHTTPError
+
+    monkeypatch.setattr(hub_constants, "HF_DEBUG", True)
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="huggingface_hub")
+    for name in _HTTP_LOGGER_NAMES:
+        caplog.set_level(logging.NOTSET, logger=name)
+    llm = _hf_chat_model()
+
+    llm.invoke("hi")
+    asyncio.run(llm.ainvoke("hi"))
+    hub_transport.status_code = 500
+    with pytest.raises(HfHubHTTPError) as failure:
+        llm.invoke("hi")
+
+    assert hub_transport.requests[0].headers["authorization"] == (
+        f"Bearer {_FAKE_HF_ROUTED}"
+    ), "the clients must still authenticate once the token is hidden"
+    visible = [
+        repr(llm),
+        str(llm),
+        json.dumps(dumpd(llm), default=str),
+        caplog.text,
+        str(failure.value),
+        repr(failure.value),
+    ]
+    assert not [text for text in visible if _FAKE_HF_ROUTED in text]
+    assert "<TOKEN>" in caplog.text, "the debug curl line must have been logged"
+
+
 # --- temperature is sent only to models that accept it -----------------------
 #
-# Anthropic's Fable family and OpenAI's o-series reject a non-default sampling
-# temperature. These tests use the real SDK classes and inspect the request body
-# the SDK would send, because construction alone succeeds for every model id.
+# Anthropic's Fable family, Mythos 5.2 and Sonnet 5.5, and OpenAI's o-series, reject a
+# non-default sampling temperature. These tests use the real SDK classes and inspect
+# the request body the SDK would send, because construction alone succeeds for every
+# model id.
 
 
 def _sent_temperature(llm: object) -> object:
@@ -1380,10 +1995,15 @@ def _sent_temperature(llm: object) -> object:
     return payload.get("temperature", extra_body.get("temperature"))
 
 
-def test_anthropic_fable_request_payload_builds_without_a_temperature():
+@pytest.mark.parametrize(
+    "model_name", ["claude-fable-5", "claude-mythos-5-2", "claude-sonnet-5-5"]
+)
+def test_anthropic_fixed_sampling_request_payload_builds_without_a_temperature(
+    model_name,
+):
     cfg = FundConfig(llm_provider="anthropic", anthropic_api_key="sk-ant-test")
 
-    llm = model.build_chat_model(cfg, model_name="claude-fable-5")
+    llm = model.build_chat_model(cfg, model_name=model_name)
 
     assert _sent_temperature(llm) is None
 
@@ -1410,6 +2030,8 @@ def test_openai_reasoning_models_are_built_without_a_temperature(model_name):
     ("provider", "model_name", "expected"),
     [
         ("anthropic", "claude-fable-5", None),
+        ("anthropic", "claude-mythos-5-2", None),
+        ("anthropic", "claude-sonnet-5-5", None),
         ("anthropic", "claude-sonnet-4-5", 0.0),
         ("openai", "o3-mini", None),
         ("openai", "gpt-4o", 0.0),

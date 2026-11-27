@@ -109,7 +109,7 @@ submodule's source and docstrings under `packages/portopt-core/optimizer/`.
 
 ## Requirements
 
-- **Python ≥ 3.12** (all four packages; the numpy 2.5 / pandas 3.1 pins make
+- **Python ≥ 3.12** (all four packages; the numpy 2.5 / pandas 3.0 pins make
   3.12 a hard floor). CI runs 3.12 and 3.13.
 - **[uv](https://docs.astral.sh/uv/)** — the workspace resolver / runner.
 - **Docker + the `docker compose` v2 plugin** — only for the ingestion daemon
@@ -395,24 +395,24 @@ Each member declares its own; the single shared venv installs one version of
 each shared pin. Exact runtime pins:
 
 **`portopt-core`** (library): `numpy==2.5.5`, `pandas==3.1.1`, `scipy==1.18.1`,
-`scikit-learn==1.9.1`, `skfolio==1.12.5`, `jinja2==3.1.6`, `plotly==7.0.0`.
+`scikit-learn==1.9.1`, `skfolio==1.14.6`, `jinja2==3.1.6`, `plotly==7.2.0`.
 *(`arch` is **not** declared — it reaches bootstrap uncertainty-set classes
 transitively via skfolio. Code importing it directly must guard with
 `try/except ImportError` or declare it.)*
 
-**`portopt-db`** (DB layer): `SQLAlchemy==2.0.52`, `psycopg2-binary==2.9.12`,
-`alembic==1.19.1`, `pandas==3.1.1`, `pydantic==2.14.4`. Owns the SQLAlchemy pin
+**`portopt-db`** (DB layer): `SQLAlchemy==2.1.9`, `psycopg2-binary==2.9.13`,
+`alembic==1.20.1`, `pandas==3.1.1`, `pydantic==2.14.4`. Owns the SQLAlchemy pin
 the whole workspace inherits.
 
-**`portopt`** (ingestion): `yfinance==1.7.0`, `scikit-learn==1.9.1` (declared,
+**`portopt`** (ingestion): `yfinance==1.8.0`, `scikit-learn==1.9.1` (declared,
 for DBSCAN price-repair), `numpy==2.5.5`, `pandas==3.1.1`, `APScheduler==3.11.3`,
-`SQLAlchemy==2.0.52`, `exchange_calendars==4.13.2`, `httpx==0.28.1`,
+`SQLAlchemy==2.1.9`, `exchange_calendars==4.13.3`, `httpx==0.28.1`,
 `beautifulsoup4==4.15.0`, `requests==2.34.2`, `prometheus-client==0.26.0`,
-`typer==0.27.1`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==50.0.2`,
-`pydantic==2.14.4`, `pydantic-settings==2.15.0`, `python-dotenv==1.2.4`, plus
+`typer==0.29.3`, `questionary==2.1.1`, `rich==15.0.0`, `cryptography==50.0.2`,
+`pydantic==2.14.4`, `pydantic-settings==2.16.3`, `python-dotenv==1.2.4`, plus
 `portopt-db` (workspace; psycopg2-binary/alembic arrive transitively).
 
-**`portopt-fund`** (bridge): `deepagents==0.7.35` (the only exact pin),
+**`portopt-fund`** (bridge): `deepagents==0.7.42` (the only exact pin),
 `langgraph`, `langgraph-checkpoint-postgres`, `psycopg[binary]`, `psycopg-pool`,
 `langchain-ollama`, `APScheduler`, `typer`, `textual`, `pydantic`,
 `python-dotenv`, plus `portopt-core` + `portopt-db` (workspace).

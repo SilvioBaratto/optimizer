@@ -279,13 +279,47 @@ Metrics, served by the worker when metrics are enabled:
   Keys are validated when a model is built, never at import, and are kept out of `repr`.
 - **Impact if down**: no new fund rounds and no Ask answers. Stored portfolios, prices and
   the audit trail are unaffected.
+- **LangSmith gateway**: `langchain-core` reads `LANGSMITH_GATEWAY` (`true`, or a gateway
+  URL) from the process environment, and a provider class that applies it sends a model
+  whose endpoint the builder did not pass to the gateway host instead of the provider's
+  own, with its prompts and the provider key. Checked on 2026-11-26 at the locked
+  versions: `openai` without `OPENAI_BASE_URL`, `anthropic`, `google`, `groq` (its base
+  URL becomes the gateway's `/groq` route) and `aws` (the Bedrock endpoint) are
+  redirected; `openrouter`, `microsoft`, `openai` with a base URL, `ollama`, `nvidia`
+  and `huggingface` are not, though a later release of a provider package can change
+  that. No gateway key is needed for the redirect.
+  `build_chat_model` therefore refuses to build any provider's model while the variable
+  is set to anything but `false`, `0`, `no` or empty (`RuntimeError`, before the
+  provider builder runs; the value is not echoed). Unset it for the process that runs
+  `fund`; a line in the root `.env` that the compose `fund` service reads has the same
+  effect. The `langsmith_gateway()` context manager is code, not environment, and
+  `fund` does not use it.
 - **Risk and mitigation**: every tool result an agent reads is sent to the chosen provider.
   The model never supplies weights: `place_orders` accepts only audited optimizer output
   after a passing risk verdict and a human approval. Deadlines are set per provider
   builder (`model.py` explains why a missing one can block the daemon), the primary model
   has one fallback, and structured output is validated with pydantic and retried.
   Providers hang intermittently (one Ollama Cloud call blocked for 180 s), so a round can
-  stall until its deadline.
+  stall until its deadline. From 1.5 the NVIDIA SDK also posts hourly usage aggregates to
+  an NVIDIA host unless told not to; the `nvidia` builder switches that off. The
+  `huggingface` builder switches the hub's telemetry off, so its user agent names no AI
+  agent harness or torch version. The `google` builder always builds a Gemini Developer API
+  client: `GOOGLE_GENAI_USE_VERTEXAI` and `GOOGLE_GENAI_USE_ENTERPRISE` do not turn it into a
+  Vertex AI one; Vertex AI is not a supported provider. `GROQ_LOG`, `OPENAI_LOG` and
+  `ANTHROPIC_LOG` cannot bring the `httpx` request line, or the SDK's own DEBUG lines (URL,
+  response headers, the prompt), into the daemon log.
+- **Anthropic SDK 2.x**: the `anthropic` package sends the key as
+  `Authorization: Bearer`, where 1.x used `X-Api-Key`; a proxy or log filter that reads
+  `X-Api-Key` must read `Authorization`. Since 1.14 it also opens an OpenTelemetry span per
+  call (metadata only by default) and adds trace-context headers, but only through a tracer
+  provider the process registers. `fund` registers none and the lock holds the OpenTelemetry
+  API without an SDK or exporter, so nothing is recorded or sent. If an operator installs
+  one, `ANTHROPIC_OPEN_TELEMETRY=false` switches the spans and headers off, and
+  `ANTHROPIC_OPEN_TELEMETRY_TRACES_CONTENT_MODE=content` would add prompts to the spans:
+  never set it. `langchain-anthropic` keeps `anthropic-version` at `2023-06-01`, the version
+  that still accepts the `temperature` contract; `test_model_anthropic_wire.py` fails if
+  that stops being true. The SDK warns when a request names a model it lists as deprecated
+  (`claude-sonnet-4-5` ends on 2026-11-30, `claude-opus-4-5` on 2027-01-22).
 - **Code**: `fund/src/fund/agents/model.py`, `fund/src/fund/config.py`,
   `fund/src/fund/agents/graph.py`, `fund/src/fund/tools/orders.py`,
   `fund/src/fund/actions.py`.

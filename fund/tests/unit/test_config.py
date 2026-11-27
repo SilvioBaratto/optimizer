@@ -640,33 +640,136 @@ def test_blank_structured_output_method_falls_back_to_the_provider_default():
     assert cfg.structured_output_method == "json_schema"
 
 
-@pytest.fixture
-def restore_http_logger_levels():
-    names = ("httpx", "httpcore")
-    saved = {name: logging.getLogger(name).level for name in names}
-    root_level = logging.getLogger().level
-    yield
-    for name, level in saved.items():
-        logging.getLogger(name).setLevel(level)
-    logging.getLogger().setLevel(root_level)
+@pytest.mark.criterion("REQ-FUND-028")
+def test_silencing_http_logs_keeps_request_lines_out_of_info(http_loggers):
+    """Both HTTP stacks log ``HTTP Request: POST <full url>`` at INFO.
 
-
-def test_silencing_http_logs_keeps_httpx_request_lines_out_of_info(
-    restore_http_logger_levels,
-):
-    """httpx logs ``HTTP Request: POST <full url>`` at INFO, userinfo included."""
+    ``httpx2`` is what ``openai``, ``anthropic`` and ``langsmith`` use, ``httpx`` is
+    what ``groq``, ``ollama`` and ``google-genai`` still use, and each logs under its
+    own name. Validates ``fund.config.silence_http_request_logs``.
+    """
     from fund.config import silence_http_request_logs
 
     logging.getLogger().setLevel(logging.INFO)
-    logging.getLogger("httpx").setLevel(logging.NOTSET)
+    for name in http_loggers:
+        logging.getLogger(name).setLevel(logging.NOTSET)
 
     silence_http_request_logs()
 
-    for name in ("httpx", "httpcore"):
+    for name in http_loggers:
         assert not logging.getLogger(name).isEnabledFor(logging.INFO)
         assert logging.getLogger(name).isEnabledFor(logging.WARNING)
 
 
+@pytest.mark.criterion("REQ-FUND-028")
+def test_silencing_http_logs_covers_the_transport_loggers_of_both_stacks(
+    http_loggers,
+):
+    """``httpcore2`` logs per connection step (``httpcore2.http11`` ...) at DEBUG.
+
+    Validates ``fund.config.silence_http_request_logs``.
+    """
+    from fund.config import silence_http_request_logs
+
+    logging.getLogger().setLevel(logging.DEBUG)
+    for name in http_loggers:
+        logging.getLogger(name).setLevel(logging.NOTSET)
+
+    silence_http_request_logs()
+
+    for name in ("httpcore.http11", "httpcore.connection", "httpcore2.http11"):
+        assert not logging.getLogger(name).isEnabledFor(logging.DEBUG)
+
+
+_QUERY_VALUE = "query-secret"
+_SDK_BASE_URL = "https://api.example.test"
+
+
+def _call_sdk_once(sdk: str) -> str:
+    """Send one request through ``sdk``'s real client over an in-memory transport.
+
+    Returns the name of the HTTP stack the client runs on (``httpx`` or ``httpx2``).
+    The URL carries a query value the way Azure's ``api-version`` or a Gemini-style
+    ``?key=`` would, so a leaked request line shows it.
+    """
+    import importlib
+
+    stack = {"openai": "httpx2", "anthropic": "httpx2", "groq": "httpx"}.get(
+        sdk, "httpx"
+    )
+    http = importlib.import_module(stack)
+    payloads = {
+        "openai": {"object": "list", "data": []},
+        "anthropic": {"data": [], "has_more": False, "first_id": None, "last_id": None},
+        "groq": {"object": "list", "data": []},
+        "ollama": {"models": []},
+    }
+    transport = http.MockTransport(lambda _: http.Response(200, json=payloads[sdk]))
+    if sdk == "openai":
+        import openai
+
+        openai.OpenAI(
+            api_key="sk-test",
+            base_url=f"{_SDK_BASE_URL}/v1",
+            default_query={"key": _QUERY_VALUE},
+            http_client=http.Client(transport=transport),
+        ).models.list()
+    elif sdk == "anthropic":
+        import anthropic
+
+        anthropic.Anthropic(
+            api_key="sk-test",
+            base_url=_SDK_BASE_URL,
+            default_query={"key": _QUERY_VALUE},
+            http_client=http.Client(transport=transport),
+        ).models.list()
+    elif sdk == "groq":
+        import groq
+
+        groq.Groq(
+            api_key="sk-test",
+            base_url=_SDK_BASE_URL,
+            default_query={"key": _QUERY_VALUE},
+            http_client=http.Client(transport=transport),
+        ).models.list()
+    else:
+        import ollama
+
+        ollama.Client(host=_SDK_BASE_URL, transport=transport).list()
+    return stack
+
+
+@pytest.mark.criterion("REQ-FUND-028")
+@pytest.mark.parametrize("sdk", ["openai", "anthropic", "groq", "ollama"])
+def test_a_provider_sdk_request_writes_no_request_line_once_silenced(
+    sdk, caplog, http_loggers
+):
+    """The request line, query string included, must not reach the daemon log.
+
+    Validates ``fund.config.silence_http_request_logs`` against the real clients of
+    the provider SDKs, which are split across the ``httpx`` and ``httpx2`` stacks.
+    """
+    from fund.config import silence_http_request_logs
+
+    caplog.set_level(logging.INFO)
+    for name in http_loggers:
+        logging.getLogger(name).setLevel(logging.NOTSET)
+    stack = _call_sdk_once(sdk)
+    assert any(
+        record.name == stack and "HTTP Request" in record.getMessage()
+        for record in caplog.records
+    ), "the control request must log before silencing, or this test proves nothing"
+    caplog.clear()
+
+    silence_http_request_logs()
+    _call_sdk_once(sdk)
+
+    assert "HTTP Request" not in caplog.text
+    assert _QUERY_VALUE not in caplog.text
+    assert "api.example.test" not in caplog.text
+
+
+@pytest.mark.criterion("REQ-FUND-028")
 def test_every_logging_setup_in_the_package_silences_http_request_logs():
     src = Path(__file__).resolve().parents[2] / "src" / "fund"
     configuring = [
