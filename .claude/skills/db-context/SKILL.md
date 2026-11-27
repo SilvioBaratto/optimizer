@@ -1,7 +1,7 @@
 ---
 name: db-context
 description: >
-  Complete knowledge of the optimizer PostgreSQL database: 57 ingestion tables, schema,
+  Complete knowledge of the optimizer PostgreSQL database: 51 ingestion tables, schema,
   relationships, live row counts, query patterns, and conventions. Load this skill proactively
   whenever working with database models (packages/portopt-db/src/portopt_db/models/), repositories
   (packages/portopt-db/src/portopt_db/repositories/ + ingestion/app/repositories/jobs/), Alembic
@@ -28,7 +28,7 @@ rather than reviving the table.
 and repositories from `portopt_db.repositories`; only the `jobs` repository *behavior* still lives
 in `ingestion/app/repositories/jobs/`.
 
-Live totals: **57 base tables** (55 documented below + `alembic_version` + `apscheduler_jobs`).
+Live totals: **51 base tables** (49 documented below + `alembic_version` + `apscheduler_jobs`).
 Alembic head `c4d5e6f7a8b9`, 68 migrations. Row counts below are the last verified live snapshot.
 
 - Column-by-column schema → `references/full-schema.md`
@@ -141,22 +141,14 @@ back as `Decimal`.
 
 Filled by the weekly market-wide sweep; empty until it first runs.
 
-### Macro (9)
+### Macro (3)
 | Table | Model | Rows | Unique On | FK | Purpose |
 |-------|-------|-----:|-----------|----|---------|
-| `economic_indicators` | EconomicIndicator | 4 | country | — | Il Sole 24 Ore consensus FORECAST snapshot (latest per country) |
-| `economic_indicator_observations` | EconomicIndicatorObservation | 4 | (country, date) | — | Il Sole forecast time-series |
-| `trading_economics_indicators` | TradingEconomicsIndicator | 138 | (country, indicator_key) | — | Latest scraped TE indicator (real actuals) |
-| `trading_economics_observations` | TradingEconomicsObservation | 138 | (country, indicator_key, date) | — | TE indicator time-series |
-| `bond_yields` | BondYield | 16 | (country, maturity) | — | Latest yield + day/month/year changes |
-| `bond_yield_observations` | BondYieldObservation | 16 | (country, maturity, date) | — | Yield-curve history |
 | `fred_observations` | FredObservation | 0 | (series_id, date) | — | FRED series (needs `FRED_API_KEY`; empty until fred step runs) |
 | `macro_news` | MacroNews | 36 | news_id | — | Macro articles, optional `full_content` |
 | `macro_news_themes` | MacroNewsTheme | 66 | (news_id, theme) | → macro_news.id | Theme tags (junction, clear-then-re-add) |
 
-Il Sole 24 Ore and Trading Economics are **scraped from HTML and take no API key**. FRED needs
-`FRED_API_KEY`. `economic_indicators` are FORECASTS, `trading_economics_indicators` are realized
-actuals — do not conflate.
+FRED needs `FRED_API_KEY`; macro news comes from yfinance and needs no key.
 
 ### Operations (2)
 | Table | Model | Rows | Unique On | FK | Purpose |
@@ -208,9 +200,7 @@ macro_news      1--* macro_news_themes     (CASCADE, delete-orphan)
 **No FK at all** (standalone, keyed by natural business columns):
 - Calendars: `earnings_calendar`, `economic_event_calendar`, `split_calendar`, `ipo_calendar`
 - Sector & Market: `sector_snapshots`, `sector_industries`, `sector_top_companies`, `market_summaries`
-- Macro: `economic_indicators`, `economic_indicator_observations`, `trading_economics_indicators`,
-  `trading_economics_observations`, `bond_yields`, `bond_yield_observations`, `fred_observations`,
-  `macro_news`
+- Macro: `fred_observations`, `macro_news`
 
 Note: `macro_news_themes.news_id` is the UUID FK to `macro_news.id`, distinct from
 `macro_news.news_id` (the external String article id used for parent dedup).

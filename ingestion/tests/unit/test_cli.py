@@ -471,7 +471,6 @@ class TestSingleStepCommands:
     @pytest.mark.parametrize(
         ("command", "step"),
         [
-            ("macro", "run_macro_step"),
             ("news", "run_news_step"),
             ("universe", "run_universe_step"),
             ("market-structure", "run_market_structure_step"),
@@ -493,7 +492,6 @@ class TestSingleStepCommands:
     @pytest.mark.parametrize(
         ("command", "step"),
         [
-            ("macro", "run_macro_step"),
             ("news", "run_news_step"),
             ("universe", "run_universe_step"),
             ("yfinance", "run_yfinance_step"),
@@ -630,7 +628,6 @@ class TestCompositeCommands:
         with (
             patch(f"{SCHED}.run_yfinance_step", return_value=False),
             patch(f"{SCHED}.run_fx_step", return_value=False),
-            patch(f"{SCHED}.run_macro_step", return_value=False),
             patch(f"{SCHED}.run_news_step", return_value=False) as news,
             patch(f"{SCHED}.run_daily_events_step", return_value=False),
         ):
@@ -643,7 +640,6 @@ class TestCompositeCommands:
         with (
             patch(f"{SCHED}.run_universe_step", return_value=False),
             patch(f"{SCHED}.run_yfinance_step", return_value=False),
-            patch(f"{SCHED}.run_macro_step", return_value=False),
             patch(f"{SCHED}.run_fred_step", return_value=False),
         ):
             result = runner.invoke(app, ["refetch-all"])

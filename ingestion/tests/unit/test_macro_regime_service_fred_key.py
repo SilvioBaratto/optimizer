@@ -14,8 +14,6 @@ from app.services.macro.macro_regime_service import MacroRegimeService
 def _build_service() -> MacroRegimeService:
     return MacroRegimeService(
         repo=MagicMock(),
-        ilsole_scraper=MagicMock(),
-        te_scraper=MagicMock(),
         fred_scraper=None,
     )
 

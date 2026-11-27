@@ -1,12 +1,14 @@
 """Guard: no tracked file names an integration the project removed.
 
 The Trading 212 broker integration was taken out of the code, the configuration and
-the database, and the ISIN lookup that scraped a third-party news site through
-yfinance was taken out of the ingestion. A name that survives in a comment, a doc or
-a column definition says the integration still exists, and the first new reference
-to it is the start of growing it back. The scan covers every tracked file, its path
-and its content, so an untracked ``.venv``, ``design/`` or ``__pycache__`` never
-takes part and the result does not depend on the working directory.
+the database, the ISIN lookup that scraped a third-party news site through yfinance
+was taken out of the ingestion, and so were the two macro web scrapers (a financial
+newspaper's forecast page and an economics data site). A name that survives in a
+comment, a doc or a column definition says the integration still exists, and the
+first new reference to it is the start of growing it back. The scan covers every
+tracked file, its path and its content, so an untracked ``.venv``, ``design/`` or
+``__pycache__`` never takes part and the result does not depend on the working
+directory.
 
 A later removal appends its names to ``_REMOVED_INTEGRATION_TOKENS``.
 """
@@ -25,12 +27,19 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 # Regular-expression fragments, matched case-insensitively and joined with "|".
 # "trading[ _-]?212" covers the prose name, the TRADING_212_* settings and the
 # trading212 package name; "business[ _-]?insider" covers the prose name of the site
-# the ISIN lookup scraped and its domain-style spelling.
+# the ISIN lookup scraped and its domain-style spelling; "il[ _-]?sole" covers the
+# newspaper's prose name and the IlSole24Ore, ilsole_* and ILSOLE_* spellings, and
+# "trading[ _-]?economics" the economics data site's prose name and its
+# TRADINGECONOMICS_* and trading_economics_* spellings. The lookbehind keeps
+# "il sole" from matching inside a longer word ("until solely"); a name preceded by
+# "_" or a digit, as in "breaker_ilsole_*", still matches.
 _REMOVED_INTEGRATION_TOKENS = (
     r"trading[ _-]?212",
     r"t212",
     r"tradeable_only",
     r"business[ _-]?insider",
+    r"(?<![a-z])il[ _-]?sole",
+    r"trading[ _-]?economics",
 )
 
 _REMOVED_INTEGRATION_PATTERN = re.compile(
@@ -39,6 +48,15 @@ _REMOVED_INTEGRATION_PATTERN = re.compile(
 
 # Longest stretch of an offending line shown in a failure message.
 _EXCERPT_CHARS = 100
+
+# The six macro tables the two scrapers filled stay in the schema until a later
+# change drops them. Until then the models, the repository and the tests built on
+# them still carry the scrapers' names. Entries with this reason go when that change
+# deletes their files; the entries for the tests of historical revisions stay, because
+# those revisions are never edited.
+_MACRO_TABLES_DROPPED_LATER = "belongs to the macro tables a later change drops"
+_DB_SRC = "packages/portopt-db/src/portopt_db/"
+_DB_TESTS = "packages/portopt-db/tests/"
 
 # Tracked files that may name a removed integration, each with the reason.
 _ALLOWED_FILES = {
@@ -62,6 +80,47 @@ _ALLOWED_FILES = {
     ),
     "ingestion/tests/unit/test_universe_builder_imports.py": (
         "regression test that the removed broker package does not come back"
+    ),
+    "ingestion/tests/unit/test_external_calls.py": (
+        "regression test that the removed scrapers' breakers and settings do not "
+        "come back"
+    ),
+    f"{_DB_SRC}models/__init__.py": (
+        f"re-exports a macro model: {_MACRO_TABLES_DROPPED_LATER}"
+    ),
+    f"{_DB_SRC}models/macro/__init__.py": (
+        f"re-exports the macro models: {_MACRO_TABLES_DROPPED_LATER}"
+    ),
+    f"{_DB_SRC}models/macro/macro_regime.py": (
+        f"defines the macro models: {_MACRO_TABLES_DROPPED_LATER}"
+    ),
+    f"{_DB_SRC}repositories/macro/macro_regime_repository.py": (
+        f"reads and writes the macro tables: {_MACRO_TABLES_DROPPED_LATER}"
+    ),
+    f"{_DB_SRC}repositories/database_admin.py": (
+        f"lists the macro tables it truncates: {_MACRO_TABLES_DROPPED_LATER}"
+    ),
+    f"{_DB_TESTS}test_macro_regime_repository_branches.py": (
+        f"tests the macro repository: {_MACRO_TABLES_DROPPED_LATER}"
+    ),
+    f"{_DB_TESTS}test_upsert_updated_at.py": (
+        f"tests the macro observation upsert: {_MACRO_TABLES_DROPPED_LATER}"
+    ),
+    f"{_DB_TESTS}test_purge_non_comparable_te_rows_migration.py": (
+        "tests the historical revision that purged non-comparable rows from the "
+        "snapshot and observation tables"
+    ),
+    f"{_DB_TESTS}test_migrations_offline_sql.py": (
+        "tests the offline SQL of the historical revision that seeds the "
+        "observation table from the snapshot table"
+    ),
+    f"{_DB_TESTS}test_redundant_unique_indexes_migration.py": (
+        "tests the historical revision that dropped the indexes duplicating the "
+        "unique keys of the observation tables"
+    ),
+    f"{_DB_TESTS}test_downgrades_on_chain_built_database.py": (
+        "tests the downgrades of historical revisions, one of which dropped the "
+        "removed scraper's columns"
     ),
 }
 
@@ -148,6 +207,42 @@ def test_pattern_flags_each_spelling_of_the_scraped_news_site(spelling: str) -> 
 
 
 @pytest.mark.criterion("REQ-OPS-005")
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "Il Sole 24 Ore",
+        "IlSole24Ore",
+        "ILSOLE_REQUEST_ATTEMPTS",
+        "ilsole_forecast",
+        "il-sole",
+        "Trading Economics",
+        "TradingEconomics",
+        "tradingeconomics.com",
+        "TRADINGECONOMICS_REQUEST_ATTEMPTS",
+        "trading_economics_indicators",
+        "trading-economics",
+    ],
+)
+def test_pattern_flags_each_spelling_of_the_removed_macro_scrapers(
+    spelling: str,
+) -> None:
+    """Validates ``_REMOVED_INTEGRATION_PATTERN``: it matches every spelling of the
+    two removed macro scrapers."""
+    assert _REMOVED_INTEGRATION_PATTERN.search(f"macro data comes from {spelling}")
+
+
+@pytest.mark.criterion("REQ-OPS-005")
+@pytest.mark.parametrize(
+    "prose",
+    ["Wait until solely the header row is left", "the evil soles", "a fossil sole"],
+)
+def test_pattern_ignores_prose_that_merely_contains_il_sole(prose: str) -> None:
+    """Validates ``_REMOVED_INTEGRATION_PATTERN``: "il" and "sole" inside ordinary
+    words are not the newspaper's name."""
+    assert _REMOVED_INTEGRATION_PATTERN.search(prose) is None
+
+
+@pytest.mark.criterion("REQ-OPS-005")
 def test_no_allowlist_entry_is_stale() -> None:
     """Validates ``_ALLOWED_FILES`` and ``_ALLOWED_PREFIXES``: no entry is stale.
 
@@ -165,7 +260,9 @@ def test_no_allowlist_entry_is_stale() -> None:
 
 @pytest.mark.criterion("REQ-OPS-005")
 def test_guard_does_not_allow_production_paths() -> None:
-    """Validates ``_is_allowed``: production code is never exempt from the scan."""
+    """Validates ``_is_allowed``: ingestion and fund code is never exempt from the
+    scan; the macro database layer is exempt only until the change that drops its
+    tables."""
     production_paths = (
         "packages/portopt-db/src/portopt_db/ports.py",
         "packages/portopt-db/alembic/env.py",

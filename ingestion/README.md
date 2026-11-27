@@ -32,10 +32,10 @@ uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 
 | Job | Default | What it does |
 |-----|---------|--------------|
-| `daily_pipeline` | `0 7 * * *` | fx → yfinance → macro → daily FRED series → news → digest |
+| `daily_pipeline` | `0 7 * * *` | fx → yfinance → daily FRED series → news → digest |
 | `midday_news` | `0 14 * * *` | news (afternoon refresh) |
 | `universe_build` | `0 2 * * sat` | instrument universe from the yfinance Screener (Saturday) |
-| `weekly_refetch` | `0 3 * * sat` | full yfinance + macro rebuild (5y), Saturday after Friday close |
+| `weekly_refetch` | `0 3 * * sat` | full yfinance rebuild (5y), Saturday after Friday close |
 | `weekly_market_wide` | `0 4 * * sat` | sector/industry structure, calendars, market summaries, full option chains |
 | `fred_monthly` | `0 8 1 * *` | every FRED series (daily-frequency ones also run in `daily_pipeline`) |
 | `orphan_reaper` | every 300s | fails (or reclaims) jobs whose heartbeat lease expired |
@@ -57,7 +57,6 @@ docker compose exec scheduler python -m app.cli daily
 docker compose exec scheduler python -m app.cli refetch-all
 docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
 docker compose exec scheduler python -m app.cli universe
-docker compose exec scheduler python -m app.cli macro
 docker compose exec scheduler python -m app.cli fx
 docker compose exec scheduler python -m app.cli fred
 docker compose exec scheduler python -m app.cli news
@@ -155,7 +154,7 @@ app/
   services/
     jobs/          APScheduler wiring + BackgroundJobService
     market_data/   yfinance client + bulk fetch, FX, calendars, market structure/summary, options
-    macro/         FRED / Il Sole / Trading Economics scrapers, macro news scraping
+    macro/         FRED series fetch, macro news scraping
     universe/      yfinance-Screener universe build
     infrastructure/ circuit breaker, rate limiter, retry, TTL cache
   repositories/

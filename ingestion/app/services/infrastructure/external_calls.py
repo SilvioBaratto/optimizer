@@ -29,8 +29,6 @@ class ExternalService(str, Enum):
     """
 
     FRED = "FRED API"
-    TRADING_ECONOMICS = "Trading Economics"
-    IL_SOLE = "IlSole24Ore"
 
 
 def build_breaker(
@@ -50,8 +48,6 @@ def build_breaker(
     config = config or settings
     max_attempts = {
         ExternalService.FRED: config.breaker_fred_max_attempts,
-        ExternalService.TRADING_ECONOMICS: config.breaker_tradingeconomics_max_attempts,
-        ExternalService.IL_SOLE: config.breaker_ilsole_max_attempts,
     }[service]
     return CircuitBreaker(service_name=service.value, max_attempts=max_attempts)
 

@@ -104,7 +104,7 @@ class TestRunStep:
     def test_when_fn_reports_failed_status_then_returns_false_and_row_stays_failed(
         self,
     ):
-        # run_bulk_macro_fetch reports a partial failure via
+        # run_bulk_fred_fetch reports a partial failure via
         # on_progress(status="failed") and then returns normally; the step
         # runner must treat that as final instead of defensively completing it.
         job_svc = _make_job_svc(get_job_return={"status": "failed"})
@@ -290,9 +290,13 @@ class TestRunStep:
 
 
 class TestStepFailureIsolation:
+    @pytest.mark.criterion("REQ-ING-023")
     def test_when_yfinance_claim_errors_then_daily_pipeline_runs_independent_steps(
         self,
     ):
+        """Validates ``run_daily_pipeline``: a yfinance step that cannot claim its
+        slot skips only news; the fx, FRED and digest steps still run, and no
+        macro-scraper step exists to run."""
         from app.services.jobs import scheduler
 
         broken = _make_job_svc()
@@ -305,7 +309,6 @@ class TestStepFailureIsolation:
                 return_value=MagicMock(),
             ),
             patch.object(scheduler, "run_fx_step") as fx,
-            patch.object(scheduler, "run_macro_step") as macro,
             patch.object(scheduler, "run_news_step") as news,
             patch.object(scheduler, "run_daily_events_step") as events,
             patch.object(scheduler, "run_fred_step") as fred,
@@ -313,7 +316,6 @@ class TestStepFailureIsolation:
             scheduler.run_daily_pipeline()
 
         fx.assert_called_once()
-        macro.assert_called_once()
         events.assert_called_once()
         fred.assert_called_once()
         news.assert_not_called()
@@ -527,21 +529,24 @@ def _make_step_side_effect(returns: dict[str, bool]):
     [
         (
             True,
-            {"yfinance", "macro", "news", "daily_events"},
+            {"yfinance", "news", "daily_events"},
             set(),
         ),
         (
             False,
-            {"yfinance", "macro", "daily_events"},
+            {"yfinance", "daily_events"},
             {"news"},
         ),
     ],
 )
 class TestRunDailyPipeline:
+    @pytest.mark.criterion("REQ-ING-023")
     def test_step_gating(self, yf_ok, expected, absent):
+        """Validates ``run_daily_pipeline``: news runs only after a successful
+        yfinance step, the digest always runs, and no macro-scraper step is part
+        of the pipeline."""
         returns = {
             "yfinance": yf_ok,
-            "macro": True,
             "news": True,
             "daily_events": True,
         }
@@ -555,12 +560,6 @@ class TestRunDailyPipeline:
                 )
             )
             # Patch schema imports so they don't fail
-            stack.enter_context(
-                patch(
-                    "app.schemas.macro.macro_regime.MacroFetchRequest",
-                    return_value=MagicMock(),
-                )
-            )
             stack.enter_context(
                 patch(
                     "app.schemas.macro.macro_regime.MacroNewsFetchRequest",
@@ -734,17 +733,24 @@ class TestDailyPipelineRefreshesFred:
 
         assert labels.index("fred") < labels.index("daily_events")
 
-    def test_macro_fetch_request_declares_no_unused_fred_flag(self):
-        from app.schemas.macro.macro_regime import MacroFetchRequest
+    @pytest.mark.criterion("REQ-ING-023")
+    def test_daily_pipeline_has_no_macro_step_and_still_runs_fred(self):
+        """Validates ``run_daily_pipeline``: it runs no macro-scraper step and
+        still runs the FRED step."""
+        labels = [label for label, _ in self._run_pipeline(yf_ok=True)]
 
-        assert "include_fred" not in MacroFetchRequest.model_fields
+        assert "fred" in labels
+        assert "macro" not in labels
 
+    @pytest.mark.criterion("REQ-ING-023")
     def test_when_no_fred_key_then_pipeline_skips_fred_and_runs_the_rest(self):
+        """Validates ``run_daily_pipeline``: without a FRED key the FRED step is
+        skipped and the yfinance, news and digest steps still run."""
         calls = self._run_pipeline(yf_ok=True, fred_key="")
 
         labels = [label for label, _ in calls]
         assert "fred" not in labels
-        assert {"yfinance", "macro", "news", "daily_events"} <= set(labels)
+        assert {"yfinance", "news", "daily_events"} <= set(labels)
 
 
 class TestRunFredStep:
@@ -814,18 +820,15 @@ class TestRunMiddayNewsRefresh:
 
 
 class TestRunWeeklyRefetch:
-    def test_when_called_then_yfinance_and_macro_run(self):
+    @pytest.mark.criterion("REQ-ING-023")
+    def test_when_called_then_yfinance_runs_and_no_macro_step_does(self):
+        """Validates ``run_weekly_refetch``: it runs the yfinance rebuild and no
+        macro-scraper step."""
         with ExitStack() as stack:
             mock_step = stack.enter_context(patch(f"{M}._run_step"))
             stack.enter_context(
                 patch(
                     "app.services.market_data.yfinance.get_yfinance_client",
-                    return_value=MagicMock(),
-                )
-            )
-            stack.enter_context(
-                patch(
-                    "app.schemas.macro.macro_regime.MacroFetchRequest",
                     return_value=MagicMock(),
                 )
             )
@@ -843,7 +846,7 @@ class TestRunWeeklyRefetch:
 
         labels = {c.args[0] for c in mock_step.call_args_list}
         assert "yfinance" in labels
-        assert "macro" in labels
+        assert "macro" not in labels
 
 
 class TestRunWeeklyMarketWide:

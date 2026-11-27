@@ -9,10 +9,8 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from unittest.mock import MagicMock, patch
 
 from app.services.macro.scrapers.fred_scraper import FredScraper
-from app.services.macro.scrapers.ilsole_scraper import IlSoleScraper
 from app.services.market_data.yfinance.news.aggregator import _parse_article_date
 
 
@@ -39,29 +37,3 @@ def test_when_fred_observation_date_is_malformed_then_row_is_skipped_and_logged(
     assert len(parsed) == 1
     assert parsed[0]["date"] == date(2026, 1, 1)
     assert any("bad date" in r.getMessage() for r in caplog.records)
-
-
-def test_when_ilsole_real_indicators_parse_raises_then_none_and_logged(
-    caplog,
-) -> None:
-    """when the IlSole indicators page parse raises, None is returned and logged."""
-    scraper = IlSoleScraper()
-    bad_soup = MagicMock()
-    bad_soup.find.side_effect = RuntimeError("site structure changed")
-    with patch.object(scraper, "_fetch_page", return_value=bad_soup):
-        with caplog.at_level(logging.WARNING):
-            result = scraper.get_real_indicators("USA")
-    assert result is None
-    assert any("real-indicators parse failed" in r.getMessage() for r in caplog.records)
-
-
-def test_when_ilsole_forecasts_parse_raises_then_none_and_logged(caplog) -> None:
-    """when the IlSole forecasts page parse raises, None is returned and logged."""
-    scraper = IlSoleScraper()
-    bad_soup = MagicMock()
-    bad_soup.find.side_effect = RuntimeError("site structure changed")
-    with patch.object(scraper, "_fetch_page", return_value=bad_soup):
-        with caplog.at_level(logging.WARNING):
-            result = scraper.get_forecasts("USA")
-    assert result is None
-    assert any("forecasts parse failed" in r.getMessage() for r in caplog.records)

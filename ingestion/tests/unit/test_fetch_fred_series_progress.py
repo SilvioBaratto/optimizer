@@ -25,8 +25,6 @@ def _build_service_with_fake_scraper() -> MacroRegimeService:
 
     svc = MacroRegimeService(
         repo=repo,
-        ilsole_scraper=MagicMock(),
-        te_scraper=MagicMock(),
         fred_scraper=scraper,
     )
     return svc

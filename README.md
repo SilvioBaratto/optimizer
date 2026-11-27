@@ -327,7 +327,7 @@ docker compose exec scheduler python -m app.cli yfinance --mode full --period 5y
 ```
 
 Full CLI surface (`portopt <command>` or `python -m app.cli <command>`):
-`daily`, `refetch-all`, `universe`, `yfinance`, `macro`, `fx`, `fred`, `news`,
+`daily`, `refetch-all`, `universe`, `yfinance`, `fx`, `fred`, `news`,
 `market-structure`, `calendars`, `market-summary`, `options`, `add-instrument`
 (validates one Yahoo ticker, stores 5y of prices; `--pin` keeps it through the
 weekly universe build), `daily-events` (`--backfill START:END` rebuilds a date

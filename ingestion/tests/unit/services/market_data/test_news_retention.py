@@ -383,11 +383,9 @@ class TestWeeklyRefetchPrunesNews:
 
         steps = MagicMock()
         steps.run_yfinance_step.return_value = yfinance_ok
-        steps.run_macro_step.return_value = True
         steps.run_news_retention_step.return_value = True
         with (
             patch.object(sched, "run_yfinance_step", steps.run_yfinance_step),
-            patch.object(sched, "run_macro_step", steps.run_macro_step),
             patch.object(
                 sched, "run_news_retention_step", steps.run_news_retention_step
             ),
@@ -395,13 +393,15 @@ class TestWeeklyRefetchPrunesNews:
             sched.run_weekly_refetch()
         return steps
 
-    def test_the_prune_runs_after_the_sweep_and_macro(self) -> None:
-        """Retention comes last so it never competes with the sweep it follows."""
+    @pytest.mark.criterion("REQ-ING-023")
+    def test_the_prune_runs_after_the_sweep_with_no_macro_step_between(self) -> None:
+        """Validates ``run_weekly_refetch``: retention is its last step, right after
+        the yfinance sweep, so it never competes with the sweep it follows and no
+        macro step runs."""
         steps = self._run()
 
         assert [c[0] for c in steps.mock_calls] == [
             "run_yfinance_step",
-            "run_macro_step",
             "run_news_retention_step",
         ]
 
@@ -417,7 +417,6 @@ class TestWeeklyRefetchPrunesNews:
 
         with (
             patch.object(sched, "run_yfinance_step", return_value=True),
-            patch.object(sched, "run_macro_step", return_value=True),
             patch.object(
                 sched, "run_news_retention_step", side_effect=RuntimeError("boom")
             ),

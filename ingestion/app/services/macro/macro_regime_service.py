@@ -1,18 +1,15 @@
 """Service layer orchestrating macro regime data fetching and storage.
 
-Bulk-ingestion error policy: macro data is aggregated per country
-across multiple scrapers (IlSole, Trading Economics, FRED). Each per-country /
-per-source ``except`` logs and accumulates the failure into an ``errors`` /
-``all_errors`` list, then continues — one failing source or country must not
-abort the whole macro refresh. Those lists are returned to the caller, so every
-drop is surfaced, not silent.
+Bulk-ingestion error policy: the FRED refresh walks its series one by one. Each
+per-series ``except`` logs and accumulates the failure into an ``errors`` list,
+then continues — one failing series must not abort the whole refresh. That list
+is returned to the caller, so every drop is surfaced, not silent.
 
-Every independent write group (one source, one FRED series) runs in its own
-SAVEPOINT. Postgres aborts the whole transaction on a failed statement, so
-without that scope one bad write would make the later writes fail and the
-caller's commit would silently discard the groups that had already succeeded.
-Counts are recorded only after their group's savepoint is released, so they
-never claim rows that were rolled back.
+Every FRED series write runs in its own SAVEPOINT. Postgres aborts the whole
+transaction on a failed statement, so without that scope one bad write would make
+the later writes fail and the caller's commit would silently discard the series
+that had already succeeded. Counts are recorded only after the series' savepoint
+is released, so they never claim rows that were rolled back.
 """
 
 import datetime
@@ -23,13 +20,6 @@ from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRep
 
 from app.services._shared import ProgressCallback, _noop
 from app.services.macro.scrapers.fred_scraper import FRED_SERIES, FredScraper
-from app.services.macro.scrapers.ilsole_scraper import (
-    PORTFOLIO_COUNTRIES,
-    IlSoleScraper,
-)
-from app.services.macro.scrapers.tradingeconomics_scraper import (
-    TradingEconomicsIndicatorsScraper,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -45,86 +35,12 @@ _FRED_REVISION_LOOKBACK = datetime.timedelta(days=FRED_REVISION_LOOKBACK_DAYS)
 # persisted separately.
 _ERROR_SUMMARY_LIMIT = 3
 
-# Countries IlSole publishes a forecast row for. For these a ``None`` from the
-# scraper means the page was unreachable or its structure drifted; for any other
-# country it just means there is nothing to fetch.
-_ILSOLE_FORECAST_COUNTRIES = frozenset(IlSoleScraper.COUNTRY_MAP_FORECAST.values())
-
-# Numeric columns of an IlSole forecast row. ``reference_date`` and ``timestamp``
-# are metadata and must not count as usable data.
-_ILSOLE_VALUE_FIELDS = (
-    "last_inflation",
-    "inflation_6m",
-    "inflation_10y_avg",
-    "gdp_growth_6m",
-    "earnings_12m",
-    "eps_expected_12m",
-    "peg_ratio",
-    "lt_rate_forecast",
-)
-
-_ILSOLE_COUNT_KEYS = ("ilsole_forecast", "ilsole_observations")
-_TE_INDICATOR_COUNT_KEYS = ("te_indicators", "te_observations")
-_BOND_COUNT_KEYS = ("bond_yields", "bond_yield_observations")
-_TE_COUNT_KEYS = _TE_INDICATOR_COUNT_KEYS + _BOND_COUNT_KEYS
-
-
-def _zero(counts: dict[str, int], keys: tuple[str, ...]) -> None:
-    """Record that nothing was stored under each of ``keys``."""
-    for key in keys:
-        counts[key] = 0
-
-
-def _note_missing_forecast(
-    country: str, counts: dict[str, int], errors: list[str]
-) -> None:
-    """Report an IlSole forecast that did not come back at all."""
-    _zero(counts, _ILSOLE_COUNT_KEYS)
-    if country in _ILSOLE_FORECAST_COUNTRIES:
-        errors.append(
-            "ilsole_forecast: no data returned (page unreachable "
-            "or table structure changed)"
-        )
-        logger.warning("IlSole returned no forecasts for %s", country)
-    else:
-        logger.info("No IlSole forecasts for %s", country)
-
-
-def _note_unparsed_forecast(
-    country: str, counts: dict[str, int], errors: list[str]
-) -> None:
-    """Report an IlSole forecast row in which no value parsed."""
-    # The country row was found but no cell parsed (renamed cell ids, masked
-    # paywall overlay). Upserting it would replace the last good snapshot with
-    # NULLs, so the write is skipped and reported.
-    _zero(counts, _ILSOLE_COUNT_KEYS)
-    errors.append(
-        "ilsole_forecast: row found but no forecast value parsed "
-        "(page structure may have drifted)"
-    )
-    logger.warning("IlSole forecasts for %s parsed to all-None", country)
-
-
-def _note_te_failure(
-    country: str, te_data: dict[str, Any], counts: dict[str, int], errors: list[str]
-) -> None:
-    """Report a Trading Economics answer whose status is not ``success``."""
-    _zero(counts, _TE_COUNT_KEYS)
-    te_error = te_data.get("error", "Unknown error")
-    errors.append(f"trading_economics: {te_error}")
-    logger.warning("Trading Economics failed for %s: %s", country, te_error)
-
 
 class MacroRegimeService:
-    """Fetches macroeconomic data from scrapers and stores via repository.
+    """Fetches FRED series and macro news and stores them via the repository.
 
     Args:
-        repo: Repository for persisting macro indicators, observations, and
-            FRED series.
-        ilsole_scraper: Override for the IlSole24Ore scraper; defaults to a
-            fresh ``IlSoleScraper()`` if omitted.
-        te_scraper: Override for the Trading Economics scraper; defaults to a
-            fresh ``TradingEconomicsIndicatorsScraper()``.
+        repo: Repository for persisting FRED observations and macro news.
         fred_scraper: Override for the FRED scraper; constructed lazily from
             ``settings.fred_api_key`` when ``None``.
     """
@@ -132,13 +48,9 @@ class MacroRegimeService:
     def __init__(
         self,
         repo: MacroRegimeRepository,
-        ilsole_scraper: IlSoleScraper | None = None,
-        te_scraper: TradingEconomicsIndicatorsScraper | None = None,
         fred_scraper: FredScraper | None = None,
     ):
         self.repo = repo
-        self.ilsole_scraper = ilsole_scraper or IlSoleScraper()
-        self.te_scraper = te_scraper or TradingEconomicsIndicatorsScraper()
         self._fred_scraper = fred_scraper
 
     @property
@@ -158,199 +70,6 @@ class MacroRegimeService:
                 return None
             self._fred_scraper = FredScraper(api_key=key)
         return self._fred_scraper
-
-    def fetch_and_store(
-        self,
-        countries: list[str] | None = None,
-        include_bonds: bool = True,
-    ) -> dict[str, Any]:
-        """Fetch macro data for all specified countries and store in database.
-
-        Args:
-            countries: Countries to fetch. ``None`` means ``PORTFOLIO_COUNTRIES``.
-            include_bonds: Whether to include bond yield data.
-
-        Returns:
-            Dict with ``"counts"`` (per-category totals) and ``"errors"``
-            (list of error strings).
-        """
-        if countries is None:
-            countries = list(PORTFOLIO_COUNTRIES)
-
-        total_counts: dict[str, int] = {
-            "ilsole_forecast": 0,
-            "ilsole_observations": 0,
-            "te_indicators": 0,
-            "te_observations": 0,
-            "bond_yields": 0,
-            "bond_yield_observations": 0,
-        }
-        all_errors: list[str] = []
-
-        for country in countries:
-            try:
-                result = self.fetch_country(country, include_bonds=include_bonds)
-
-                for key, count in result["counts"].items():
-                    total_counts[key] = total_counts.get(key, 0) + count
-
-                for err in result["errors"]:
-                    all_errors.append(f"{country}: {err}")
-
-            except Exception as e:
-                logger.error("Failed to process country %s: %s", country, e)
-                all_errors.append(f"{country}: {e}")
-
-        return {"counts": total_counts, "errors": all_errors}
-
-    def fetch_country(
-        self,
-        country: str,
-        include_bonds: bool = True,
-    ) -> dict[str, Any]:
-        """Fetch and store macro data for a single country.
-
-        Args:
-            country: English country name (must be in ``PORTFOLIO_COUNTRIES``).
-            include_bonds: Whether to include bond yield data.
-
-        Returns:
-            Dict with ``"counts"`` and ``"errors"`` for this country.
-        """
-        counts: dict[str, int] = {}
-        errors: list[str] = []
-        today = datetime.date.today()
-        self._fetch_ilsole_forecast(country, today, counts, errors)
-        self._fetch_trading_economics(country, include_bonds, today, counts, errors)
-        return {"counts": counts, "errors": errors}
-
-    def _fetch_ilsole_forecast(
-        self,
-        country: str,
-        today: datetime.date,
-        counts: dict[str, int],
-        errors: list[str],
-    ) -> None:
-        """Store IlSole's consensus forecast for ``country``.
-
-        Sets both ``ilsole_*`` counts in ``counts`` and appends any failure to
-        ``errors`` as ``"ilsole_forecast: ..."``; nothing raises.
-        """
-        try:
-            forecast = self.ilsole_scraper.get_forecasts(country)
-            if not forecast:
-                _note_missing_forecast(country, counts, errors)
-            elif all(forecast.get(field) is None for field in _ILSOLE_VALUE_FIELDS):
-                _note_unparsed_forecast(country, counts, errors)
-            else:
-                with self.repo.session.begin_nested():
-                    n_forecast = self.repo.upsert_economic_indicator(
-                        country=country, data=forecast
-                    )
-                    n_forecast_obs = self.repo.upsert_economic_indicator_observation(
-                        country=country, snapshot_date=today, data=forecast
-                    )
-                counts["ilsole_forecast"] = n_forecast
-                counts["ilsole_observations"] = n_forecast_obs
-        except Exception as e:
-            errors.append(f"ilsole_forecast: {e}")
-            for key in _ILSOLE_COUNT_KEYS:
-                counts.setdefault(key, 0)
-            logger.warning("Failed IlSole forecasts for %s: %s", country, e)
-
-    def _fetch_trading_economics(
-        self,
-        country: str,
-        include_bonds: bool,
-        today: datetime.date,
-        counts: dict[str, int],
-        errors: list[str],
-    ) -> None:
-        """Store Trading Economics' indicators and, if asked, bond yields.
-
-        Sets the four ``te_*`` and ``bond_*`` counts in ``counts`` and appends
-        any failure to ``errors``; nothing raises. A failed write zeroes only
-        the counts of the savepoint it rolled back.
-        """
-        try:
-            te_data = self.te_scraper.get_country_indicators(
-                country, include_bonds=include_bonds
-            )
-            if te_data.get("status") != "success":
-                _note_te_failure(country, te_data, counts, errors)
-                return
-            self._store_te_indicators(
-                country, today, te_data.get("indicators", {}), counts
-            )
-            if include_bonds:
-                self._store_bond_yields(country, today, te_data, counts, errors)
-            else:
-                _zero(counts, _BOND_COUNT_KEYS)
-        except Exception as e:
-            errors.append(f"trading_economics: {e}")
-            for key in _TE_COUNT_KEYS:
-                counts.setdefault(key, 0)
-            logger.warning("Failed Trading Economics for %s: %s", country, e)
-
-    def _store_te_indicators(
-        self,
-        country: str,
-        today: datetime.date,
-        indicators: dict[str, Any],
-        counts: dict[str, int],
-    ) -> None:
-        """Write the indicators and their observations in one savepoint."""
-        if not indicators:
-            _zero(counts, _TE_INDICATOR_COUNT_KEYS)
-            logger.warning(
-                "Trading Economics returned 0 matched indicators for %s "
-                "(HTML structure may have drifted — no names matched "
-                "INDICATOR_PATTERNS)",
-                country,
-            )
-            return
-        with self.repo.session.begin_nested():
-            n_indicators = self.repo.upsert_te_indicators(
-                country=country, indicators_dict=indicators
-            )
-            n_obs = self.repo.upsert_te_observations(
-                country=country, snapshot_date=today, indicators_dict=indicators
-            )
-        counts["te_indicators"] = n_indicators
-        counts["te_observations"] = n_obs
-
-    def _store_bond_yields(
-        self,
-        country: str,
-        today: datetime.date,
-        te_data: dict[str, Any],
-        counts: dict[str, int],
-        errors: list[str],
-    ) -> None:
-        """Report a failed bond page, then write the yields in one savepoint."""
-        # The indicators fetch can succeed while the separate bond page fails
-        # (the scraper reports it as an otherwise successful result carrying
-        # only ``bond_yields_error``); without surfacing it the job would finish
-        # "completed" with the yield tables silently stale.
-        if "bond_yields_error" in te_data:
-            bond_error = te_data["bond_yields_error"] or "Unknown error"
-            errors.append(f"trading_economics_bonds: {bond_error}")
-            logger.warning(
-                "Trading Economics bond yields failed for %s: %s", country, bond_error
-            )
-        bond_yields = te_data.get("bond_yields", {})
-        if not bond_yields:
-            _zero(counts, _BOND_COUNT_KEYS)
-            return
-        with self.repo.session.begin_nested():
-            n_bonds = self.repo.upsert_bond_yields(
-                country=country, yields_dict=bond_yields
-            )
-            n_bond_obs = self.repo.upsert_bond_yield_observations(
-                country=country, snapshot_date=today, yields_dict=bond_yields
-            )
-        counts["bond_yields"] = n_bonds
-        counts["bond_yield_observations"] = n_bond_obs
 
     def fetch_fred_series(
         self,
@@ -530,11 +249,6 @@ class MacroRegimeService:
 
         return {"count": count, "errors": errors}
 
-    @staticmethod
-    def get_portfolio_countries() -> list[str]:
-        """Return the default list of portfolio countries."""
-        return list(PORTFOLIO_COUNTRIES)
-
 
 # ---------------------------------------------------------------------------
 # Standalone bulk functions (called from the scheduler and CLI)
@@ -544,11 +258,10 @@ class MacroRegimeService:
 def _final_progress(errors: list[str], result: dict[str, Any]) -> dict[str, Any]:
     """Build the terminal ``on_progress`` kwargs for a bulk fetch.
 
-    A partial failure (e.g. one country's Trading Economics circuit breaker
-    tripping) must not produce a ``completed`` status, because callers rely on
-    the status to detect gaps in the dataset. ``error`` carries a one-line
-    summary since the failure webhook reads it and would otherwise post a blank
-    alert.
+    A partial failure (e.g. one FRED series failing) must not produce a
+    ``completed`` status, because callers rely on the status to detect gaps in
+    the dataset. ``error`` carries a one-line summary since the failure webhook
+    reads it and would otherwise post a blank alert.
     """
     progress: dict[str, Any] = {
         "status": "failed" if errors else "completed",
@@ -561,72 +274,6 @@ def _final_progress(errors: list[str], result: dict[str, Any]) -> dict[str, Any]
         hidden = len(errors) - _ERROR_SUMMARY_LIMIT
         progress["error"] = f"{shown} (+{hidden} more)" if hidden > 0 else shown
     return progress
-
-
-def run_bulk_macro_fetch(
-    request: Any,
-    *,
-    on_progress: ProgressCallback = _noop,
-) -> dict[str, Any]:
-    """Execute bulk macro data fetch for all portfolio countries.
-
-    Args:
-        request: ``MacroFetchRequest`` with ``countries`` and ``include_bonds``.
-        on_progress: Optional callback for progress updates.
-
-    Returns:
-        Result dict with ``countries_processed``, ``counts``, ``error_count``.
-    """
-    from app.database import database_manager
-
-    with database_manager.get_session() as session:
-        repo = MacroRegimeRepository(session)
-        service = MacroRegimeService(repo)
-
-        countries = (
-            request.countries
-            if request.countries
-            else MacroRegimeService.get_portfolio_countries()
-        )
-        total = len(countries)
-        on_progress(total=total)
-
-        all_errors: list[str] = []
-        total_counts: dict[str, int] = {}
-
-        for idx, country in enumerate(countries, 1):
-            on_progress(current=idx, current_country=country)
-
-            try:
-                result = service.fetch_country(
-                    country, include_bonds=request.include_bonds
-                )
-
-                for k, v in result["counts"].items():
-                    total_counts[k] = total_counts.get(k, 0) + v
-                for err in result["errors"]:
-                    all_errors.append(f"{country}: {err}")
-
-                session.commit()
-
-            except Exception as e:
-                logger.error("Failed to process %s: %s", country, e)
-                all_errors.append(f"{country}: {e}")
-                session.rollback()
-
-        result_dict = {
-            "countries_processed": total,
-            "counts": total_counts,
-            "error_count": len(all_errors),
-        }
-        on_progress(**_final_progress(all_errors, result_dict))
-        logger.info(
-            "Bulk macro fetch finished: %d countries, %d error(s)",
-            total,
-            len(all_errors),
-        )
-
-    return result_dict
 
 
 def run_bulk_fred_fetch(

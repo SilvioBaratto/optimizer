@@ -1,7 +1,7 @@
 # Data Inventory — Live Volumes
 
 Snapshot of the optimizer PostgreSQL database (`postgresql://postgres:postgres@localhost:54320/optimizer_db`).
-55 base tables (53 documented below + `alembic_version`, `apscheduler_jobs` infra). Row counts
+49 base tables (47 documented below + `alembic_version`, `apscheduler_jobs` infra). Row counts
 are live-at-snapshot; treat as orders of magnitude, not exact current values.
 
 ## 1. Table Volumes (rows, descending)
@@ -43,18 +43,12 @@ are live-at-snapshot; treat as orders of magnitude, not exact current values.
 | etf_bond_holdings | 774 |
 | etf_holdings | 770 |
 | split_calendar | 477 |
-| trading_economics_indicators | 138 |
-| trading_economics_observations | 138 |
 | macro_news_themes | 66 |
 | macro_news | 36 |
-| bond_yields | 16 |
-| bond_yield_observations | 16 |
 | exchanges | 14 |
 | background_job_errors | 12 |
 | ipo_calendar | 11 |
 | background_jobs | 6 |
-| economic_indicator_observations | 4 |
-| economic_indicators | 4 |
 | fred_observations | 0 |
 | market_summaries | 0 |
 | options_chain | 0 |
@@ -71,7 +65,7 @@ is `fred_observations`: `daily_pipeline` fetches it every day, so it stays empty
 
 | Table | Populating step | Job / trigger |
 |-------|-----------------|---------------|
-| fred_observations | `run_fred_step` (CLI `fred`) | `daily_pipeline` (daily 07:00, incremental, daily-frequency series only, after macro); `fred_monthly` (0 8 1 * *) fetches every series; **also requires `FRED_API_KEY`** — absent key = no-op |
+| fred_observations | `run_fred_step` (CLI `fred`) | `daily_pipeline` (daily 07:00, incremental, daily-frequency series only); `fred_monthly` (0 8 1 * *) fetches every series; **also requires `FRED_API_KEY`** — absent key = no-op |
 | market_summaries | `run_market_summary_step` | `weekly_market_wide` (Sat); iterates the 8 `MARKET_IDENTIFIERS` |
 | options_chain | `run_options_step` | `weekly_market_wide` (Sat, after weekly refetch); own ~weekly staleness gate |
 | sector_industries | `run_market_structure_step` | `weekly_market_wide` (Sat 04:00, `market_structure_fetch`) |
@@ -111,8 +105,6 @@ is `fred_observations`: `daily_pipeline` fetches it every day, so it stays empty
   `split_calendar` (477), `ipo_calendar` (11). Distinct from the per-instrument
   `earnings_dates` / `stock_splits` tables.
 
-- **Macro tables pending the fred / macro steps.** `fred_observations` is empty (see §2).
-  The scraped macro set is thinly populated: `trading_economics_indicators`/`_observations`
-  (138 each), `bond_yields`/`_observations` (16 each), `economic_indicators`/`_observations`
-  (4 each), `macro_news` (36), `macro_news_themes` (66). These fill via `run_macro_step`
-  (daily_pipeline / weekly_refetch) and `run_news_step`.
+- **Macro tables pending the fred step.** `fred_observations` is empty (see §2).
+  The news set is thinly populated: `macro_news` (36), `macro_news_themes` (66). It fills via
+  `run_news_step` (daily_pipeline / midday_news).

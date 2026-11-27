@@ -1,7 +1,7 @@
 """Reusable mock for module-level ``BackgroundJobService`` instances.
 
 ``BackgroundJobService`` is instantiated at module level in
-``app.services.jobs.scheduler`` (``_yfinance_jobs``, ``_macro_jobs``, …) and opens
+``app.services.jobs.scheduler`` (``_yfinance_jobs``, ``_fred_jobs``, …) and opens
 its own sessions via ``database_manager.get_session`` — so it bypasses the SQLite
 test session entirely. Tests must patch the **live instance's methods**, not the
 class. This helper patches ``create_job`` / ``get_job`` / ``start_background`` on a

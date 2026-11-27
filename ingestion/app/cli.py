@@ -8,10 +8,9 @@ bounded input in seconds: ``add-instrument`` (one ticker) and
 ``daily-events --backfill``.
 
     python -m app.cli daily                       # full daily pipeline
-    python -m app.cli refetch-all                 # universe + yfinance + macro + fred
+    python -m app.cli refetch-all                 # universe + yfinance + fred
     python -m app.cli universe                    # instrument universe rebuild (yfinance)
     python -m app.cli yfinance --mode full --period 5y
-    python -m app.cli macro
     python -m app.cli fx                           # daily FX rates into fx_rates
     python -m app.cli fred
     python -m app.cli news
@@ -100,7 +99,7 @@ def _exit(ok: bool) -> NoReturn:
 
 @app.command()
 def daily() -> None:
-    """Run the full daily pipeline: fx, yfinance, macro, fred, news, digest."""
+    """Run the full daily pipeline: fx, yfinance, fred, news, digest."""
     _boot()
     from app.services.jobs.scheduler import run_daily_pipeline
 
@@ -109,7 +108,7 @@ def daily() -> None:
 
 @app.command(name="refetch-all")
 def refetch_all() -> None:
-    """Full rebuild: universe, then yfinance + macro (5y), then FRED."""
+    """Full rebuild: universe, then yfinance (5y), then FRED."""
     _boot()
     from app.services.jobs.scheduler import (
         run_fred_step,
@@ -160,15 +159,6 @@ def yfinance(
 
 
 @app.command()
-def macro() -> None:
-    """Scrape Il Sole 24 Ore + Trading Economics into bond_yields / indicators."""
-    _boot()
-    from app.services.jobs.scheduler import run_macro_step
-
-    _exit(run_macro_step())
-
-
-@app.command()
 def fx() -> None:
     """Fetch daily FX rates for the universe's currencies into fx_rates."""
     _boot()
@@ -187,7 +177,7 @@ def fred(
         ),
     ),
 ) -> None:
-    """Fetch FRED economic series into economic_indicators / fred_observations."""
+    """Fetch FRED economic series into fred_observations."""
     _boot()
     from app.services.jobs.scheduler import run_fred_step
 

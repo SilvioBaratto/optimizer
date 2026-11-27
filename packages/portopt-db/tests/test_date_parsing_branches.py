@@ -113,7 +113,7 @@ class TestMonYearFormat:
 
 
 class TestMmYyFormat:
-    """IlSole24Ore-style two-digit-year format; internal spaces are normalised before parsing."""
+    """Compact MM/YY format; internal spaces are normalised before parsing."""
 
     def test_when_mm_slash_yy_then_returns_first_of_month(self) -> None:
         result = parse_reference_date("12/25")

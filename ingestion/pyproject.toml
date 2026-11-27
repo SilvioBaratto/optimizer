@@ -127,8 +127,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
     "app.services.scrapers.fred_scraper",
-    "app.services.scrapers.ilsole_scraper",
-    "app.services.scrapers.tradingeconomics_scraper",
     "app.services.yfinance.news.aggregator",
     "app.services.yfinance.news.scraper",
 ]
