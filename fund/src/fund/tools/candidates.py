@@ -88,6 +88,9 @@ _METHOD_BREACHES = frozenset({SOLVER_FAILED, CARDINALITY_BREACH})
 CHECK_FAILED = "constraint_check_failed"
 
 _ACTION = "compute candidates"
+# A breach reason is the exception type and the first line of its message, cut to
+# this length: solver messages run to many lines, and the traceback is in the log.
+_MAX_REASON_CHARS = 200
 _NON_FINITE = "the method returned non-finite weights"
 _NO_WEIGHTS = "the method produced no weights"
 
@@ -374,6 +377,12 @@ def _bounds_check(weights: dict[str, float], shared: MeanRiskConfig) -> Constrai
     return constraint_check_from(risk_check(weights, constraints=present))
 
 
+def _short_reason(exc: Exception) -> str:
+    lines = str(exc).strip().splitlines()
+    reason = f"{type(exc).__name__}: {lines[0]}" if lines else type(exc).__name__
+    return reason[:_MAX_REASON_CHARS]
+
+
 def _unsolved(
     candidate_id: CandidateId, label: str, settings: dict[str, Any], reason: str
 ) -> Candidate:
@@ -413,8 +422,8 @@ def _candidate(
         by_ticker = _by_ticker(panel, weights)
         metrics = _metrics(panel, weights, by_ticker, current)
     except Exception as exc:
-        logger.warning("candidate %s could not be fitted: %s", candidate_id, exc)
-        return _unsolved(candidate_id, label, settings, f"{type(exc).__name__}: {exc}")
+        logger.warning("candidate %s could not be fitted", candidate_id, exc_info=True)
+        return _unsolved(candidate_id, label, settings, _short_reason(exc))
     draft = _Solved(
         candidate_id=candidate_id,
         label=label,

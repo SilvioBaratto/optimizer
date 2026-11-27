@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -24,6 +25,8 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from fund.audit.orders_repository import weights_hash
+
+logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
@@ -42,17 +45,41 @@ _OPEN_RUN_STATUSES: tuple[str, ...] = ("pending", *RESUMABLE_RUN_STATUSES)
 _ALLOCATOR = "allocator"
 _COMPUTE_CANDIDATES_STEP = "compute_candidates"
 _OPTIMIZE_STEP = "optimize_portfolio"
-_SELECT_CANDIDATE = "select_candidate"
-# The ``hitl_decision`` kinds of an ``optimize_portfolio`` row a human made: a
-# candidate chosen from the set, or weights the adviser typed. The bound optimizer's
-# own rows carry no ``hitl_decision``.
-_ADVISER_CHOICES = frozenset({_SELECT_CANDIDATE, "edit"})
+# The ``hitl_decision`` kinds a human writes on an allocator ``optimize_portfolio``
+# row: a candidate chosen from the set, or weights the adviser typed. The bound
+# optimizer's own rows carry no ``hitl_decision``.
+SELECT_CANDIDATE_DECISION = "select_candidate"
+EDIT_DECISION = "edit"
+_ADVISER_CHOICES = frozenset({SELECT_CANDIDATE_DECISION, EDIT_DECISION})
 
 
 def _canonical_payload(payload: Mapping[str, Any]) -> tuple[str, str]:
     """``(json, sha256)`` of ``payload`` with sorted keys, the audited text form."""
     text = json.dumps(payload, sort_keys=True, default=str)
     return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _stored_candidate_set(row: AgentDecision) -> dict[str, Any] | None:
+    """``row``'s stored candidate set as a JSON object, or ``None`` with a warning.
+
+    A corrupt audit row must not read silently as a run that never computed a set,
+    so what was wrong with it is logged before the reader treats it as missing.
+    """
+    try:
+        payload = json.loads(row.llm_response or "")
+    except (ValueError, TypeError) as exc:
+        problem = type(exc).__name__
+    else:
+        if isinstance(payload, dict):
+            return payload
+        problem = f"not a JSON object but a {type(payload).__name__}"
+    logger.warning(
+        "run %s: candidate set at decision %d is unreadable (%s)",
+        row.run_id,
+        row.decision_index,
+        problem,
+    )
+    return None
 
 
 def _newest(decisions: Sequence[AgentDecision], step: str) -> AgentDecision | None:
@@ -375,7 +402,8 @@ class AgentRunRepository(RepositoryBase):
 
         Returns:
             ``(decision_index, payload)`` of the newest ``compute_candidates`` row, or
-            ``None`` when the run has none or its payload is not a JSON object.
+            ``None`` when the run has none or its payload is not a JSON object (that
+            case is logged as a warning naming the run and the decision index).
         """
         stmt = (
             select(AgentDecision)
@@ -389,13 +417,8 @@ class AgentRunRepository(RepositoryBase):
         row = self.session.execute(stmt).scalars().first()
         if row is None or not row.llm_response:
             return None
-        try:
-            payload = json.loads(row.llm_response)
-        except (ValueError, TypeError):
-            return None
-        if not isinstance(payload, dict):
-            return None
-        return row.decision_index, payload
+        payload = _stored_candidate_set(row)
+        return None if payload is None else (row.decision_index, payload)
 
     def append_candidate_selection(
         self,
@@ -440,7 +463,7 @@ class AgentRunRepository(RepositoryBase):
             llm_response=text,
             llm_response_hash=digest,
             hitl_decision={
-                "decision": _SELECT_CANDIDATE,
+                "decision": SELECT_CANDIDATE_DECISION,
                 "candidate_id": candidate_id,
                 "candidate_set_hash": candidate_set_hash,
             },
@@ -893,7 +916,9 @@ class AgentRunRepository(RepositoryBase):
 
 
 __all__ = [
+    "EDIT_DECISION",
     "RESUMABLE_RUN_STATUSES",
+    "SELECT_CANDIDATE_DECISION",
     "AgentRunRepository",
     "RunNotOpenError",
     "current_adviser_choice",

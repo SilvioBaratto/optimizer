@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import importlib
 
+import pytest
+
 import fund.schemas as schemas
 
 # Sub-modules whose public names roll up into the package surface.
@@ -28,7 +30,10 @@ _SUBMODULES = (
 )
 
 
+@pytest.mark.criterion("REQ-FUND-043")
 def test_documented_surface_resolves():
+    """Validates fund.schemas.__all__: every documented name, the candidate-set
+    models and ``CANDIDATE_IDS`` included, imports from the package itself."""
     from fund.schemas import (
         CANDIDATE_IDS,
         AllocDecision,
@@ -74,7 +79,10 @@ def test_all_has_no_dangling_names():
         assert hasattr(schemas, name), f"__all__ lists {name!r} but it is not exported"
 
 
+@pytest.mark.criterion("REQ-FUND-043")
 def test_all_covers_every_submodule_surface():
+    """Validates fund.schemas.__all__: it lists every name each submodule exports,
+    ``fund.schemas.candidates`` included, so no schema is reachable only by path."""
     for modname in _SUBMODULES:
         mod = importlib.import_module(f"fund.schemas.{modname}")
         for name in mod.__all__:

@@ -751,7 +751,7 @@ def _apply_edit(
         check_weights_against_mandate,
         mandate_bounds,
     )
-    from fund.audit.repository import AgentRunRepository
+    from fund.audit.repository import EDIT_DECISION, AgentRunRepository
     from fund.tools.eligibility import resolve_mandate_eligibility
     from fund.tools.orders import fill_shortfalls
 
@@ -829,7 +829,7 @@ def _apply_edit(
         agent="allocator",
         step="optimize_portfolio",
         llm_response=json.dumps({"weights": edited}),
-        hitl_decision={"decision": "edit", "human_override": True},
+        hitl_decision={"decision": EDIT_DECISION, "human_override": True},
     )
     # The bound ``place_orders`` refuses weights the risk gate has not passed. The
     # edit just cleared the same mandate check ``risk_check`` applies, so record that

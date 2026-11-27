@@ -844,13 +844,29 @@ def test_latest_selected_weights_ignores_allocator_rows_and_superseded_choices(
 
 
 @pytest.mark.criterion("REQ-FUND-046")
-def test_latest_candidate_set_is_none_for_an_unreadable_payload(db_session):
+@pytest.mark.parametrize(
+    ("stored", "error_type"),
+    [("[1, 2]", "list"), ('{"asof": "2026-01-02",', "JSONDecodeError")],
+    ids=["not-an-object", "not-json"],
+)
+def test_latest_candidate_set_is_none_for_an_unreadable_payload(
+    db_session, caplog, stored: str, error_type: str
+):
     """Validates fund.audit.repository.AgentRunRepository.latest_candidate_set: a row
-    whose payload is not a JSON object reads as no set."""
+    whose payload is corrupt or not a JSON object reads as no set, and the read logs a
+    warning naming the run, the decision index and what was wrong."""
     repo = AgentRunRepository(db_session)
     run = _new_run(repo)
-    repo.append_decision(
-        run.id, agent="allocator", step="compute_candidates", llm_response="[1, 2]"
+    row = repo.append_decision(
+        run.id, agent="allocator", step="compute_candidates", llm_response=stored
     )
 
-    assert repo.latest_candidate_set(run.id) is None
+    with caplog.at_level("WARNING", logger="fund.audit.repository"):
+        assert repo.latest_candidate_set(run.id) is None
+
+    (record,) = caplog.records
+    assert record.levelname == "WARNING"
+    message = record.getMessage()
+    assert str(run.id) in message
+    assert f"decision {row.decision_index}" in message
+    assert error_type in message
