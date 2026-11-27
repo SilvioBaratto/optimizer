@@ -32,7 +32,7 @@ def test_load_missing_returns_empty(tmp_path: Path) -> None:
     "bad_key",
     [
         "fred_api_key",
-        "TRADING_212_SECRET_KEY",
+        "AZURE_CLIENT_SECRET",
         "passphrase",
         "auth_token",
         "db_password",

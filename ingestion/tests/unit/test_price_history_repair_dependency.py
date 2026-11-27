@@ -7,9 +7,6 @@ raises ``ModuleNotFoundError`` *at fetch time* — not at startup — and every 
 yfinance tries to reconstruct comes back empty, so the universe build silently
 drops ~22% of live stocks (disproportionately non-US). This test fails loudly the
 moment that dependency goes missing, long before it reaches a scheduled run.
-
-See scripts/debug_universe_scale.py for the investigation that traced the collapse
-to this import.
 """
 
 from __future__ import annotations

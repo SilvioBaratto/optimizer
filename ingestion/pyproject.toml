@@ -111,12 +111,11 @@ module = ["app.repositories.jobs.*"]
 disallow_subclassing_any = false
 warn_return_any = false
 
-# Scrapers, trading212 client, and yfinance sub-clients use heavy third-party
-# libs (requests, bs4, selenium) that have no stubs; widen the checker there.
+# Scrapers and yfinance sub-clients use heavy third-party libs (requests, bs4,
+# selenium) that have no stubs; widen the checker there.
 [[tool.mypy.overrides]]
 module = [
     "app.services.scrapers.*",
-    "app.services.trading212.*",
     "app.services.yfinance.*",
 ]
 disallow_subclassing_any = false
@@ -130,7 +129,6 @@ module = [
     "app.services.scrapers.fred_scraper",
     "app.services.scrapers.ilsole_scraper",
     "app.services.scrapers.tradingeconomics_scraper",
-    "app.services.trading212.client",
     "app.services.yfinance.news.aggregator",
     "app.services.yfinance.news.scraper",
 ]

@@ -34,7 +34,7 @@ uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
 |-----|---------|--------------|
 | `daily_pipeline` | `0 7 * * *` | fx → yfinance → macro → daily FRED series → news → digest |
 | `midday_news` | `0 14 * * *` | news (afternoon refresh) |
-| `universe_build` | `0 2 * * sat` | instrument universe from the yfinance Screener, then Trading 212 tickers and the `is_t212_tradeable` flag via `t212_annotate` when keyed (Saturday) |
+| `universe_build` | `0 2 * * sat` | instrument universe from the yfinance Screener (Saturday) |
 | `weekly_refetch` | `0 3 * * sat` | full yfinance + macro rebuild (5y), Saturday after Friday close |
 | `weekly_market_wide` | `0 4 * * sat` | sector/industry structure, calendars, market summaries, full option chains |
 | `fred_monthly` | `0 8 1 * *` | every FRED series (daily-frequency ones also run in `daily_pipeline`) |
@@ -74,8 +74,8 @@ docker compose exec scheduler python -m app.cli daily-events --backfill 2026-01-
 (the build labels ETFs from their names), into the universe. It
 checks the ticker on Yahoo (type, venue, price history), stores the instrument row, fetches 5y
 of prices and the ETF fund data, and with `--pin` records the ticker in `pinned_instruments`
-under source `manual` so the weekly universe build keeps it, leaves its classification and
-`t212_ticker` alone, and never marks it delisted. An ETF needs an explicit `--asset-class`.
+under source `manual` so the weekly universe build keeps it, leaves its classification alone,
+and never marks it delisted. An ETF needs an explicit `--asset-class`.
 Unlike the step commands it claims no job slot, like `daily-events --backfill`. The host
 `portopt` shim runs a non-editable snapshot of `app/`, so the command appears there only after
 `uv tool install --reinstall --from ./ingestion portopt`; in the container it needs an image
@@ -123,14 +123,6 @@ Set `NOTIFICATION_WEBHOOK_URL` for a Discord/Slack POST on job failure.
   container `stop_grace_period` / `terminationGracePeriodSeconds` above that (compose ships
   `60s`; the compose default is only 10s) so the drain is not SIGKILLed mid-write. Raise both
   together to drain long fetches cleanly.
-- **`TRADING_212_API_KEY` or `TRADING_212_SECRET_KEY` absent** ⇒ the `t212_annotate` step
-  (the follow-on to `universe_build`) skips without claiming a job slot; Basic auth needs
-  both. That is a configuration state, not a failure: `universe_build` itself needs neither
-  and keeps refreshing `instruments` from the yfinance Screener, only the T212 ticker
-  mapping goes stale. Trading 212 narrows nothing: `t212_annotate` only records in
-  `instruments.is_t212_tradeable` whether the broker carries each instrument (NULL until
-  evaluated), and `UniverseRepository.get_t212_tradeable_tickers()` hands that allowlist to a
-  run that must be executable at the broker, or `None` when the overlay never ran.
 - **Migration `d1e2f3a4b5c6` is one-way.** It drops the 17 non-ingestion tables and its
   `downgrade()` raises. Restore from a dump taken before the upgrade.
 
@@ -164,7 +156,7 @@ app/
     jobs/          APScheduler wiring + BackgroundJobService
     market_data/   yfinance client + bulk fetch, FX, calendars, market structure/summary, options
     macro/         FRED / Il Sole / Trading Economics scrapers, macro news scraping
-    universe/      yfinance-Screener universe build + Trading 212 ticker annotation
+    universe/      yfinance-Screener universe build
     infrastructure/ circuit breaker, rate limiter, retry, TTL cache
   repositories/
     jobs/          BackgroundJobRepository (behavior stays here); domain repos re-exported

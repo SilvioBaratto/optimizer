@@ -28,7 +28,7 @@ def test_render_writes_all_declared_secret_files(tmp_path: Path) -> None:
     written = cs.render({"fred_api_key": "f"}, secrets_dir=tmp_path)
     assert {p.name for p in written} == set(cs.SECRET_NAMES)
     assert (tmp_path / "fred_api_key").read_text(encoding="utf-8") == "f"
-    # Every other declared secret (trading212 + the new provider keys) is still
+    # Every other declared secret (the provider keys) is still
     # rendered, but empty when unconfigured — so `docker compose up` never fails
     # on a missing `file:`.
     for name in cs.SECRET_NAMES:
@@ -40,10 +40,10 @@ def test_render_overwrites_a_docker_planted_directory(tmp_path: Path) -> None:
     # Docker creates a missing secret mount source as a directory when the stack comes
     # up before render, so render must replace that placeholder with the value file
     # instead of failing with a directory write error.
-    (tmp_path / "trading_212_api_key").mkdir(parents=True)
-    written = cs.render({"trading_212_api_key": "k"}, secrets_dir=tmp_path)
-    assert (tmp_path / "trading_212_api_key").is_file()
-    assert (tmp_path / "trading_212_api_key").read_text(encoding="utf-8") == "k"
+    (tmp_path / "fred_api_key").mkdir(parents=True)
+    written = cs.render({"fred_api_key": "k"}, secrets_dir=tmp_path)
+    assert (tmp_path / "fred_api_key").is_file()
+    assert (tmp_path / "fred_api_key").read_text(encoding="utf-8") == "k"
     assert {p.name for p in written} == set(cs.SECRET_NAMES)
 
 
@@ -56,10 +56,10 @@ def test_compose_declares_a_file_for_every_secret_name() -> None:
         assert f"file: ./secrets/{name}" in compose
 
 
-def test_secret_names_grew_beyond_the_original_three() -> None:
-    # The fund's per-provider auth secret keys must be present alongside
-    # the original trading212 + fred trio.
-    assert len(cs.SECRET_NAMES) >= 12
+def test_secret_names_cover_the_fred_key_and_every_provider_key() -> None:
+    # The fund's per-provider auth secret keys must be present alongside FRED's.
+    assert "fred_api_key" in cs.SECRET_NAMES
+    assert len(cs.SECRET_NAMES) >= 10
     assert len(set(cs.SECRET_NAMES)) == len(cs.SECRET_NAMES)
 
 
@@ -182,7 +182,6 @@ def test_changed_names_ignores_files_that_were_never_rendered(tmp_path: Path) ->
     ("names", "services"),
     [
         (["ollama_api_key"], {"fund"}),
-        (["trading_212_api_key"], {"scheduler"}),
         (["fred_api_key"], {"fund", "scheduler"}),
         ([], set()),
     ],

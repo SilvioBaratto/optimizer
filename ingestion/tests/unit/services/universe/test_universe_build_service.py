@@ -1,10 +1,9 @@
 """Unit tests for ``services/universe/universe_build_service``.
 
-The Trading 212 client, the ticker mapper, and the builder are all patched at
-the import site — no network, no DB. What is asserted is the wiring the
-scheduler depends on: filters applied unless skipped, progress forwarded as
-kwargs, the session committed, and a missing API key raising rather than
-building an unauthenticated client.
+The universe source, the ticker mapper, and the builder are all patched at the
+import site — no network, no DB. What is asserted is the wiring the scheduler
+depends on: filters applied unless skipped, progress forwarded as kwargs, and
+the session committed.
 """
 
 from __future__ import annotations
@@ -16,11 +15,7 @@ import pytest
 
 from app.schemas.universe.build_request import UniverseBuildRequest
 from app.services.universe.builder.config import UniverseBuilderConfig
-from app.services.universe.universe_build_service import (
-    Trading212NotConfiguredError,
-    build_trading212_client,
-    run_universe_build,
-)
+from app.services.universe.universe_build_service import run_universe_build
 
 M = "app.services.universe.universe_build_service"
 
@@ -52,65 +47,6 @@ def _patched(builder_cls: MagicMock, session: MagicMock):
         patch(f"{M}.get_yfinance_client"),
     ):
         yield
-
-
-class TestBuildTrading212Client:
-    def test_when_api_key_missing_then_raises(self) -> None:
-        with patch("app.config.settings.trading_212_api_key", ""):
-            with pytest.raises(
-                Trading212NotConfiguredError, match="TRADING_212_API_KEY"
-            ):
-                build_trading212_client()
-
-    def test_when_secret_missing_then_raises_and_names_only_the_secret(self) -> None:
-        with (
-            patch("app.config.settings.trading_212_api_key", "key-1"),
-            patch("app.config.settings.trading_212_secret_key", ""),
-        ):
-            with pytest.raises(Trading212NotConfiguredError) as excinfo:
-                build_trading212_client()
-
-        assert "TRADING_212_SECRET_KEY" in str(excinfo.value)
-        assert "TRADING_212_API_KEY" not in str(excinfo.value)
-
-    def test_when_both_credentials_missing_then_message_names_both(self) -> None:
-        with (
-            patch("app.config.settings.trading_212_api_key", ""),
-            patch("app.config.settings.trading_212_secret_key", ""),
-        ):
-            with pytest.raises(Trading212NotConfiguredError) as excinfo:
-                build_trading212_client()
-
-        assert "TRADING_212_API_KEY" in str(excinfo.value)
-        assert "TRADING_212_SECRET_KEY" in str(excinfo.value)
-
-    def test_when_not_configured_then_message_does_not_claim_a_universe_build(
-        self,
-    ) -> None:
-        # The universe is sourced from yfinance; only the T212 ticker mapping
-        # needs these credentials, so the skip log must not say otherwise.
-        with (
-            patch("app.config.settings.trading_212_api_key", ""),
-            patch("app.config.settings.trading_212_secret_key", ""),
-        ):
-            with pytest.raises(Trading212NotConfiguredError) as excinfo:
-                build_trading212_client()
-
-        assert "universe" not in str(excinfo.value).lower()
-
-    def test_when_both_credentials_present_then_client_built_from_settings(
-        self,
-    ) -> None:
-        with (
-            patch("app.config.settings.trading_212_api_key", "key-1"),
-            patch("app.config.settings.trading_212_secret_key", "secret-1"),
-            patch("app.config.settings.trading_212_mode", "demo"),
-        ):
-            client = build_trading212_client()
-
-        assert client.api_key == "key-1"
-        assert client.api_secret == "secret-1"  # noqa: S105 - test value, not a secret
-        assert client.base_url == "https://demo.trading212.com"
 
 
 class TestRunUniverseBuild:

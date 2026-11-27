@@ -23,8 +23,8 @@ _LAUNCH_JSON = _REPO_ROOT / ".vscode" / "launch.json"
 # not what a refactor of this repository breaks.
 _FIRST_PARTY_ROOTS = {"app", "portopt_db", "optimizer"}
 
-# Dropped together with its tables in the ingestion strip, and the Trading 212
-# client no longer exposes positions, so a script cannot work around its absence.
+# Dropped together with its tables in the ingestion strip, and no other module
+# exposes positions, so a script cannot work around its absence.
 _REMOVED_PORTFOLIO_LAYER = (
     "app.repositories.portfolio",
     "app.services.portfolio",

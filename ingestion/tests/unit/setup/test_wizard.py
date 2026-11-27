@@ -9,7 +9,7 @@ credentials are auto-detected before prompting.
 
 import pytest
 
-from app.setup import compose_env, config_file, secret_store, wizard
+from app.setup import compose_env, compose_secrets, config_file, secret_store, wizard
 from app.setup.prompts import NonInteractivePrompter
 
 # Long enough for the new-store passphrase policy.
@@ -77,16 +77,12 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         wizard.lifecycle, "run_start", lambda pw: calls.update(launched=True)
     )
-    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: True)
     monkeypatch.setattr(wizard.validators, "validate_fred", lambda k: True)
     monkeypatch.setattr(wizard.validators, "validate_llm", lambda *a, **k: True)
     # Clear every credential env var so interactive tests are deterministic:
     # env-autodetection (Rule 2) must not pick up the developer's real shell env.
     for _var in (
         "PORTOPT_PASSPHRASE",
-        "TRADING_212_API_KEY",
-        "TRADING_212_SECRET_KEY",
-        "TRADING_212_MODE",
         "FRED_API_KEY",
         "OLLAMA_API_KEY",
         "OPENAI_API_KEY",
@@ -147,7 +143,6 @@ def test_interactive_installs_launcher_by_default(patched: dict) -> None:
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -162,7 +157,6 @@ def test_interactive_skip_path_install(patched: dict) -> None:
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -174,39 +168,20 @@ def test_interactive_skip_path_install(patched: dict) -> None:
 def test_noninteractive_full_persists_all(patched: dict) -> None:
     wizard.run_setup_noninteractive(
         passphrase=_PW,
-        t212_key="tk",
-        t212_secret="ts",
         fred_key="fk",
+        llm_provider="openai",
+        llm_model="gpt-4o",
+        llm_key="sk-openai",
     )
     assert patched["saved_secrets"] == {
-        "trading_212_api_key": "tk",
-        "trading_212_secret_key": "ts",
         "fred_api_key": "fk",
+        "openai_api_key": "sk-openai",
     }
-
-
-def test_noninteractive_t212_partial_fails(patched: dict) -> None:
-    with pytest.raises(wizard.SetupError):
-        wizard.run_setup_noninteractive(passphrase=_PW, t212_key="only-key")
-    assert patched["saved_secrets"] is None
 
 
 def test_noninteractive_requires_passphrase(patched: dict) -> None:
     with pytest.raises(wizard.SetupError):
         wizard.run_setup_noninteractive(passphrase=None)
-
-
-def test_noninteractive_t212_invalid_fails(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: False)
-    with pytest.raises(wizard.SetupError):
-        wizard.run_setup_noninteractive(
-            passphrase=_PW,
-            t212_key="tk",
-            t212_secret="ts",
-        )
-    assert patched["saved_secrets"] is None
 
 
 def test_noninteractive_fred_invalid_fails(
@@ -218,12 +193,11 @@ def test_noninteractive_fred_invalid_fails(
     assert patched["saved_secrets"] is None
 
 
-def test_interactive_t212_no_completes(patched: dict) -> None:
+def test_interactive_skipping_every_key_completes(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -234,40 +208,17 @@ def test_interactive_t212_no_completes(patched: dict) -> None:
     assert patched["bootstrapped"] == ["db", "migrate"]
 
 
-def test_interactive_t212_and_fred_yes_persists_all(patched: dict) -> None:
+def test_interactive_fred_yes_persists_it(patched: dict) -> None:
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "tk",
-            wizard._MSG_T212_SECRET: "ts",
             wizard._MSG_FRED_KEY: "fk",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
     wizard.run_setup_interactive(prompter)
-    assert patched["saved_secrets"] == {
-        "trading_212_api_key": "tk",
-        "trading_212_secret_key": "ts",
-        "fred_api_key": "fk",
-    }
-
-
-def test_interactive_t212_invalid_fails_loud(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: False)
-    prompter = NonInteractivePrompter(
-        {
-            wizard._MSG_PASSPHRASE: _PW,
-            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "tk",
-            wizard._MSG_T212_SECRET: "ts",
-        }
-    )
-    with pytest.raises(wizard.SetupError):
-        wizard.run_setup_interactive(prompter)
-    assert patched["saved_secrets"] is None
+    assert patched["saved_secrets"] == {"fred_api_key": "fk"}
 
 
 def test_interactive_fred_invalid_fails_loud(
@@ -278,7 +229,6 @@ def test_interactive_fred_invalid_fails_loud(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "bad",
         }
     )
@@ -294,146 +244,6 @@ def test_interactive_empty_passphrase_fails(patched: dict) -> None:
     assert patched["saved_secrets"] is None
 
 
-def test_interactive_t212_keys_autodetected_from_env(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Rule 2: exported T212 env vars are used without prompting. The prompt map
-    # omits _MSG_T212_KEY/_SECRET; NonInteractivePrompter.password would raise if
-    # the wizard prompted, so completing proves env was read first.
-    monkeypatch.setenv("TRADING_212_API_KEY", "env-tk")
-    monkeypatch.setenv("TRADING_212_SECRET_KEY", "env-ts")
-    prompter = NonInteractivePrompter(
-        {
-            wizard._MSG_PASSPHRASE: _PW,
-            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_FRED_KEY: "",
-            wizard._MSG_CONFIGURE_LLM: False,
-        }
-    )
-    wizard.run_setup_interactive(prompter)
-    assert patched["saved_secrets"]["trading_212_api_key"] == "env-tk"
-    assert patched["saved_secrets"]["trading_212_secret_key"] == "env-ts"  # noqa: S105 - test fixture value, not a secret
-
-
-def _record_t212_mode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> list[str]:
-    seen: list[str] = []
-
-    def _fake(key: str, secret: str, *, mode: str = "live") -> bool:
-        seen.append(mode)
-        return True
-
-    monkeypatch.setattr(wizard.validators, "validate_t212", _fake)
-    return seen
-
-
-def test_noninteractive_t212_validated_against_env_mode(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Demo keys 401 on the live host; the wizard must honour the same
-    # TRADING_212_MODE the daemon reads instead of always probing live.
-    seen = _record_t212_mode(monkeypatch)
-    monkeypatch.setenv("TRADING_212_MODE", "demo")
-    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
-    assert seen == ["demo"]
-
-
-def test_noninteractive_t212_mode_defaults_to_live(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seen = _record_t212_mode(monkeypatch)
-    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
-    assert seen == ["live"]
-
-
-def test_interactive_t212_validated_against_env_mode(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seen = _record_t212_mode(monkeypatch)
-    monkeypatch.setenv("TRADING_212_MODE", " demo ")
-    prompter = NonInteractivePrompter(
-        {
-            wizard._MSG_PASSPHRASE: _PW,
-            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "tk",
-            wizard._MSG_T212_SECRET: "ts",
-            wizard._MSG_FRED_KEY: "",
-            wizard._MSG_CONFIGURE_LLM: False,
-        }
-    )
-    wizard.run_setup_interactive(prompter)
-    assert seen == ["demo"]
-
-
-def test_noninteractive_persists_the_t212_mode_it_validated(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # The scheduler container never sees the wizard's shell env, so the mode the
-    # keys were validated against must travel with them through config.toml.
-    _record_t212_mode(monkeypatch)
-    monkeypatch.setenv("TRADING_212_MODE", "demo")
-    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
-    assert patched["saved_config"]["trading_212_mode"] == "demo"
-
-
-def test_noninteractive_persists_live_when_mode_unset(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Re-running with live keys after a demo setup must flip the stored mode back.
-    _record_t212_mode(monkeypatch)
-    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
-    assert patched["saved_config"]["trading_212_mode"] == "live"
-
-
-def test_noninteractive_without_t212_keys_leaves_stored_mode_alone(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("TRADING_212_MODE", "demo")
-    wizard.run_setup_noninteractive(passphrase=_PW, fred_key="fk")
-    assert "trading_212_mode" not in patched["saved_config"]
-
-
-def test_interactive_persists_the_t212_mode_it_validated(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _record_t212_mode(monkeypatch)
-    monkeypatch.setenv("TRADING_212_MODE", "demo")
-    prompter = NonInteractivePrompter(
-        {
-            wizard._MSG_PASSPHRASE: _PW,
-            wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "tk",
-            wizard._MSG_T212_SECRET: "ts",
-            wizard._MSG_FRED_KEY: "",
-            wizard._MSG_CONFIGURE_LLM: False,
-        }
-    )
-    wizard.run_setup_interactive(prompter)
-    assert patched["saved_config"]["trading_212_mode"] == "demo"
-
-
-def test_unknown_t212_mode_fails_loud_instead_of_probing_live(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # validate_t212 silently maps an unknown mode to live; a typo such as
-    # "paper" would validate (or fail) against the wrong host and be persisted.
-    monkeypatch.setenv("TRADING_212_MODE", "paper")
-    with pytest.raises(wizard.SetupError, match="TRADING_212_MODE"):
-        wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
-    assert patched["saved_config"] is None
-
-
-def test_t212_mode_is_case_insensitive(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seen = _record_t212_mode(monkeypatch)
-    monkeypatch.setenv("TRADING_212_MODE", "Demo")
-    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
-    assert seen == ["demo"]
-    assert patched["saved_config"]["trading_212_mode"] == "demo"
-
-
 def test_interactive_fred_key_autodetected_from_env(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -442,7 +252,6 @@ def test_interactive_fred_key_autodetected_from_env(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
     )
@@ -492,7 +301,6 @@ def _llm_prompter(answers: dict) -> NonInteractivePrompter:
     base = {
         wizard._MSG_PASSPHRASE: _PW,
         wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-        wizard._MSG_T212_KEY: "",
         wizard._MSG_FRED_KEY: "",
         wizard._MSG_CONFIGURE_LLM: True,
         wizard._MSG_LLM_BASE_URL: "",
@@ -594,7 +402,6 @@ def test_interactive_llm_declined_persists_nothing(patched: dict) -> None:
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -709,13 +516,14 @@ def test_noninteractive_idempotent_rerun_merges_new_secret(
 ) -> None:
     """A new secret merges with the existing store rather than replacing it."""
     monkeypatch.setattr(
-        wizard.secret_store, "load_secrets", lambda pw, **k: {"fred_api_key": "fk"}
+        wizard.secret_store,
+        "load_secrets",
+        lambda pw, **k: {"openai_api_key": "sk-openai"},
     )
-    wizard.run_setup_noninteractive(passphrase=_PW, t212_key="tk", t212_secret="ts")
+    wizard.run_setup_noninteractive(passphrase=_PW, fred_key="fk")
     assert patched["saved_secrets"] == {
+        "openai_api_key": "sk-openai",
         "fred_api_key": "fk",
-        "trading_212_api_key": "tk",
-        "trading_212_secret_key": "ts",
     }
 
 
@@ -723,6 +531,33 @@ def test_noninteractive_first_run_saves_only_new_secrets(patched: dict) -> None:
     """With no existing store (NotFound), the merge is just the new secrets."""
     wizard.run_setup_noninteractive(passphrase=_PW, fred_key="fk")
     assert patched["saved_secrets"] == {"fred_api_key": "fk"}
+
+
+@pytest.mark.criterion("REQ-ING-010")
+def test_setup_ignores_legacy_trading_212_secrets(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Validates that a setup re-run over a store an older release filled with broker
+    keys completes and renders none of them, in app/setup/wizard.py and
+    app/setup/compose_secrets.py."""
+    legacy_store = {
+        "trading_212_api_key": "legacy-key",
+        "trading_212_secret_key": "legacy-secret",
+        "fred_api_key": "fk",
+    }
+    monkeypatch.setattr(
+        wizard.secret_store, "load_secrets", lambda pw, **k: dict(legacy_store)
+    )
+    monkeypatch.setattr(wizard.secret_store, "store_exists", lambda **kw: True)
+
+    wizard.run_setup_noninteractive(passphrase=_PW)
+
+    secrets_dir = tmp_path / "secrets"
+    compose_secrets.render(patched["saved_secrets"], secrets_dir=secrets_dir)
+    rendered = {path.name: path.read_text() for path in secrets_dir.iterdir()}
+    assert rendered["fred_api_key"] == "fk"
+    assert not [name for name in rendered if name.startswith("trading_212")]
+    assert not {"legacy-key", "legacy-secret"} & set(rendered.values())
 
 
 def test_noninteractive_rerun_wrong_passphrase_fails_without_wiping(
@@ -738,17 +573,6 @@ def test_noninteractive_rerun_wrong_passphrase_fails_without_wiping(
     with pytest.raises(wizard.SetupError, match="original passphrase"):
         wizard.run_setup_noninteractive(passphrase="wrong", fred_key="fk")
     assert patched["saved_secrets"] is None
-
-
-def test_noninteractive_skip_validation_bypasses_t212(
-    patched: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """--skip-validation persists T212 without a live call, even if it would fail."""
-    monkeypatch.setattr(wizard.validators, "validate_t212", lambda k, s, **kw: False)
-    wizard.run_setup_noninteractive(
-        passphrase=_PW, t212_key="tk", t212_secret="ts", skip_validation=True
-    )
-    assert patched["saved_secrets"]["trading_212_api_key"] == "tk"
 
 
 def test_noninteractive_skip_validation_bypasses_fred(
@@ -796,7 +620,6 @@ def test_interactive_first_run_auto_launches(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -814,7 +637,6 @@ def test_interactive_no_launch_suppresses_auto_launch(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -829,7 +651,6 @@ def test_interactive_rerun_never_auto_launches(patched: dict) -> None:
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -852,7 +673,6 @@ def test_interactive_auto_launch_failure_is_non_fatal(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -931,7 +751,6 @@ class _ConfirmingPrompter(NonInteractivePrompter):
 def _first_run_answers(passphrase: str) -> dict:
     return {
         wizard._MSG_PASSPHRASE: passphrase,
-        wizard._MSG_T212_KEY: "",
         wizard._MSG_FRED_KEY: "",
         wizard._MSG_CONFIGURE_LLM: False,
     }
@@ -1117,7 +936,6 @@ def test_declining_llm_reconfigure_keeps_the_stored_llm_settings(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: False,
         }
@@ -1311,7 +1129,6 @@ def test_interactive_provider_switch_does_not_prefill_the_old_base_url(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: True,
             wizard._MSG_LLM_PROVIDER: "anthropic",
@@ -1340,7 +1157,6 @@ def test_interactive_same_provider_rerun_prefills_the_stored_values(
         {
             wizard._MSG_PASSPHRASE: _PW,
             wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: True,
             wizard._MSG_LLM_PROVIDER: "nvidia",
@@ -1373,7 +1189,6 @@ def _model_default_after(
     prompter = _DefaultTakingPrompter(
         {
             wizard._MSG_PASSPHRASE: "pw",
-            wizard._MSG_T212_KEY: "",
             wizard._MSG_FRED_KEY: "",
             wizard._MSG_CONFIGURE_LLM: True,
             wizard._MSG_LLM_PROVIDER: provider,
@@ -1460,7 +1275,6 @@ def _same_provider_rerun_answers(**overrides: object) -> dict:
     answers = {
         wizard._MSG_PASSPHRASE: _PW,
         wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-        wizard._MSG_T212_KEY: "",
         wizard._MSG_FRED_KEY: "",
         wizard._MSG_CONFIGURE_LLM: True,
         wizard._MSG_LLM_PROVIDER: "ollama",
@@ -1694,7 +1508,6 @@ def _first_setup_answers(**extra: object) -> dict:
     return {
         wizard._MSG_PASSPHRASE: _PW,
         wizard._MSG_PASSPHRASE_CONFIRM: _PW,
-        wizard._MSG_T212_KEY: "",
         wizard._MSG_FRED_KEY: "",
         wizard._MSG_CONFIGURE_LLM: False,
         **extra,
@@ -1899,24 +1712,15 @@ def test_noninteractive_whitespace_only_llm_key_flag_counts_as_missing(
     assert patched["saved_secrets"] is None
 
 
-def test_noninteractive_t212_and_fred_flags_are_stripped(
+def test_noninteractive_fred_flag_is_stripped(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seen: dict[str, tuple[str, ...]] = {}
     monkeypatch.setattr(
-        wizard.validators,
-        "validate_t212",
-        lambda k, s, **_: seen.update(t212=(k, s)) or True,
-    )
-    monkeypatch.setattr(
         wizard.validators, "validate_fred", lambda k: seen.update(fred=(k,)) or True
     )
 
-    wizard.run_setup_noninteractive(
-        passphrase=_PW, t212_key="id \n", t212_secret=" sec\r", fred_key="fred \n"
-    )
+    wizard.run_setup_noninteractive(passphrase=_PW, fred_key="fred \n")
 
-    assert seen == {"t212": ("id", "sec"), "fred": ("fred",)}
-    assert patched["saved_secrets"]["trading_212_api_key"] == "id"
-    assert patched["saved_secrets"]["trading_212_secret_key"] == "sec"  # noqa: S105 - test value, not a secret
+    assert seen == {"fred": ("fred",)}
     assert patched["saved_secrets"]["fred_api_key"] == "fred"

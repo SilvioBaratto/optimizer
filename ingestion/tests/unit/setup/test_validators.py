@@ -3,7 +3,7 @@
 Each validator makes one cheap request and returns True (200) / False (auth or
 other non-200), or raises `ValidationNetworkError` when the request itself fails
 (so the wizard distinguishes "bad key" from "network down"). No real network:
-`requests.get` is patched, matching the repo's Trading212-client test style.
+`requests.get` is patched.
 """
 
 from __future__ import annotations
@@ -25,20 +25,6 @@ def _resp(status: int) -> MagicMock:
     r = MagicMock()
     r.status_code = status
     return r
-
-
-@patch("app.setup.validators.requests.get")
-def test_validate_t212_success_sends_basic_auth(mock_get: MagicMock) -> None:
-    mock_get.return_value = _resp(200)
-    assert validators.validate_t212("k", "s") is True
-    _, kwargs = mock_get.call_args
-    assert kwargs["headers"]["Authorization"].startswith("Basic ")
-
-
-@patch("app.setup.validators.requests.get")
-def test_validate_t212_auth_fail(mock_get: MagicMock) -> None:
-    mock_get.return_value = _resp(403)
-    assert validators.validate_t212("k", "s") is False
 
 
 @patch("app.setup.validators.requests.get")
@@ -447,30 +433,9 @@ def test_validate_fred_network_failure_never_leaks_api_key(
     assert exc_cls.__name__ in str(info.value)
 
 
-@patch("app.setup.validators.requests.get")
-def test_validate_t212_network_failure_raises_validation_network_error(
-    mock_get: MagicMock,
-) -> None:
-    mock_get.side_effect = requests.ConnectionError("no route")
-    with pytest.raises(ValidationNetworkError, match="live.trading212.com"):
-        validators.validate_t212("k", "s")
-
-
 # --- throttling / outages are not "invalid key" ---------------------------------
 
 _UNAVAILABLE_STATUSES = (429, 500, 502, 503, 504)
-
-
-@pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
-@patch("app.setup.validators.requests.get")
-def test_validate_t212_rate_limit_or_outage_is_not_an_invalid_key(
-    mock_get: MagicMock, status: int
-) -> None:
-    mock_get.return_value = _resp(status)
-    with pytest.raises(
-        ValidationNetworkError, match=rf"live\.trading212\.com.*{status}"
-    ):
-        validators.validate_t212("k", "s")
 
 
 @pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)
@@ -484,15 +449,6 @@ def test_validate_fred_rate_limit_or_outage_is_not_an_invalid_key(
     ) as info:
         validators.validate_fred(_FRED_KEY)
     assert _FRED_KEY not in str(info.value)
-
-
-@pytest.mark.parametrize("status", [401, 403])
-@patch("app.setup.validators.requests.get")
-def test_validate_t212_definitive_auth_answers_stay_an_invalid_key(
-    mock_get: MagicMock, status: int
-) -> None:
-    mock_get.return_value = _resp(status)
-    assert validators.validate_t212("k", "s") is False
 
 
 @pytest.mark.parametrize("status", _UNAVAILABLE_STATUSES)

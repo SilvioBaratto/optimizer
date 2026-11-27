@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -32,10 +31,6 @@ from app.services.universe.builder.enums import (
     DurationBucket,
     FiSubclass,
 )
-from app.services.universe.universe_build_service import (
-    Trading212NotConfiguredError,
-    build_trading212_client,
-)
 from app.services.universe.yfinance_source import (
     resolve_exchange_name,
     supported_exchange_names,
@@ -46,8 +41,6 @@ logger = logging.getLogger(__name__)
 _QUOTE_TYPE_TO_INSTRUMENT_TYPE = {"EQUITY": "STOCK", "ETF": "ETF"}
 _SHORT_NAME_MAX = 100
 _ISIN_FORMAT = re.compile(r"[A-Z]{2}[A-Z0-9]{9}[0-9]")
-
-T212CatalogueLoader = Callable[[], Collection[str] | None]
 
 
 class AddInstrumentError(ValueError):
@@ -87,24 +80,6 @@ def _clean_isin(isin: str | None) -> str | None:
             "alphanumerics and a correct check digit"
         )
     return cleaned
-
-
-def _load_t212_tickers() -> frozenset[str] | None:
-    """Read the ticker of every Trading 212 catalogue line, if it can be read.
-
-    Returns:
-        The broker tickers, or ``None`` when Trading 212 is not configured, the
-        request failed, or the catalogue came back empty, since none of those
-        shows that a ticker is present or absent.
-    """
-    try:
-        lines = build_trading212_client().get_instruments()
-    except Trading212NotConfiguredError:
-        return None
-    except Exception as exc:
-        logger.warning("add_instrument: Trading 212 catalogue unavailable: %s", exc)
-        return None
-    return frozenset(t for line in lines if (t := line.get("ticker"))) or None
 
 
 def _choices(enum_type: type[Enum]) -> str:
@@ -189,32 +164,6 @@ def _first_non_empty(*values: Any) -> str | None:
     return next((v for v in values if isinstance(v, str) and v.strip()), None)
 
 
-def _t212_verdict(
-    broker_ticker: str, load_catalogue: T212CatalogueLoader, warnings: list[str]
-) -> bool:
-    """Whether the broker catalogue carries ``broker_ticker``, with a warning if not.
-
-    Only a confirmed match counts as tradeable; a ticker the catalogue lacks, or
-    a catalogue that cannot be read, proves nothing either way, so the caller
-    leaves the stored flag alone.
-    """
-    catalogue = load_catalogue()
-    if catalogue is None:
-        warnings.append(
-            "the Trading 212 catalogue could not be read, so the tradability flag "
-            f"was not set for {broker_ticker}; the annotation step judges it once "
-            "the row has an ISIN"
-        )
-        return False
-    if broker_ticker not in catalogue:
-        warnings.append(
-            f"{broker_ticker} is not in the Trading 212 catalogue; it is stored "
-            "but the tradability flag was left as it was"
-        )
-        return False
-    return True
-
-
 def _other_listings_of_isin(
     session: Session, isin: str | None, own_id: UUID
 ) -> list[str]:
@@ -237,10 +186,8 @@ def add_instrument(
     isin: str | None = None,
     fi_subclass: str | None = None,
     duration_bucket: str | None = None,
-    t212_ticker: str | None = None,
     exchange: str | None = None,
     name: str | None = None,
-    t212_catalogue: T212CatalogueLoader | None = None,
 ) -> AddInstrumentResult:
     """Validate ``yahoo_ticker`` on Yahoo and upsert its ``instruments`` row.
 
@@ -248,9 +195,8 @@ def add_instrument(
     ``yfinance_ticker`` set to the same symbol and ``currency_code`` stored as
     Yahoo's raw listing currency (``GBp`` stays pence). Re-running is idempotent:
     it updates the same row, clears any delisting, and keeps a stored ``name``,
-    ``isin``, ``t212_ticker`` or ``currency_code`` when neither the call nor
-    Yahoo supplies a replacement (the ``save_instruments_batch`` coalescing
-    rule). Asset-class details, by contrast, are overwritten so the operator can
+    ``isin`` or ``currency_code`` when neither the call nor Yahoo supplies a
+    replacement (the ``save_instruments_batch`` coalescing rule). Asset-class details, by contrast, are overwritten so the operator can
     correct them.
 
     Args:
@@ -263,15 +209,8 @@ def add_instrument(
             stored one.
         fi_subclass: :class:`FiSubclass` value, only with ``fixed_income``.
         duration_bucket: :class:`DurationBucket` value, only with ``fixed_income``.
-        t212_ticker: Trading 212 ticker to store; ``None`` keeps a stored one.
-            The tradability flag turns True only when the broker catalogue
-            carries this ticker; otherwise it is left as it was and a warning
-            says why.
         exchange: ``exchanges.name`` overriding the one Yahoo's code resolves to.
         name: Display name overriding Yahoo's ``longName``.
-        t212_catalogue: Returns the broker tickers, or ``None`` when they cannot
-            be read. Called only when ``t212_ticker`` is given; defaults to a
-            live read of the Trading 212 catalogue.
 
     Returns:
         The row id, whether it was created, and any non-fatal warnings.
@@ -312,12 +251,6 @@ def add_instrument(
         raise AddInstrumentError(f"Yahoo has no price history for {symbol}")
 
     warnings: list[str] = []
-    broker_ticker = (t212_ticker or "").strip() or None
-    tradeable = (
-        _t212_verdict(broker_ticker, t212_catalogue or _load_t212_tickers, warnings)
-        if broker_ticker
-        else None
-    )
     currency = _first_non_empty(info.get("currency"))
     if currency is None:
         warnings.append(
@@ -339,9 +272,6 @@ def add_instrument(
     )[:_SHORT_NAME_MAX]
     row.name = _first_non_empty(name, info.get("longName"), row.name)
     row.isin = isin or row.isin
-    row.t212_ticker = broker_ticker or row.t212_ticker
-    if tradeable:
-        row.is_t212_tradeable = True
     row.instrument_type = instrument_type
     row.currency_code = currency or row.currency_code
     row.yfinance_ticker = symbol

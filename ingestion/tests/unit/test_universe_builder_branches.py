@@ -1,33 +1,15 @@
-"""Branch coverage for YFinanceTickerMapper and UniverseBuilder residual paths.
+"""Branch coverage for UniverseBuilder residual paths.
 
-Targets:
-- app/services/universe/trading212/ticker_mapper.py  (~19 branches)
-- app/services/universe/builder/builder.py        (~13 branches)
-
-All network I/O is mocked. No time.sleep is exercised (patched throughout).
+Targets app/services/universe/builder/builder.py. All network I/O is mocked.
 """
 
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock
 
-import pytest
-from yfinance.exceptions import YFTickerMissingError
-
-from app.services.infrastructure.circuit_breaker import CircuitBreaker
-from app.services.market_data.yfinance import YFinanceClient
-from app.services.universe.builder.builder import (
-    UniverseBuilder,
-)
+from app.services.universe.builder.builder import UniverseBuilder
 from app.services.universe.builder.config import UniverseBuilderConfig
-from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
-from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
-from tests._fixtures.curl_errors import (
-    curl_connect_failure,
-    curl_dns_failure,
-    curl_timeout,
-)
 
 CFG = UniverseBuilderConfig()
 
@@ -95,195 +77,6 @@ def _make_api_client(
     client.get_exchanges.return_value = exchanges or [_NYSE_EXCHANGE]
     client.get_instruments.return_value = instruments or [_AAPL_INSTRUMENT]
     return client
-
-
-# ===========================================================================
-# YFinanceTickerMapper — uncovered branches
-# ===========================================================================
-
-
-class TestTickerMapperNameProperty:
-    """Covers: ticker_mapper.py line 18 — __post_init__ cache init when None."""
-
-    def test_when_cache_none_post_init_creates_default_cache(self) -> None:
-        mock_yf = MagicMock()
-        # Pass cache=None explicitly to trigger __post_init__ branch
-        mapper = YFinanceTickerMapper(config=CFG, cache=None, _yf_client=mock_yf)
-        assert mapper.cache is not None
-        assert isinstance(mapper.cache, TickerMappingCache)
-
-
-class TestTickerMapperLazyYfClient:
-    """Covers: ticker_mapper.py line 23 — lazy yf_client singleton fallback."""
-
-    def test_when_yf_client_none_property_calls_singleton(self) -> None:
-        mapper = YFinanceTickerMapper(config=CFG, cache=TickerMappingCache())
-        # _yf_client defaults to None via field(default=None)
-        mock_instance = MagicMock()
-        with patch(
-            "app.services.universe.trading212.ticker_mapper.YFinanceClient"
-        ) as mock_cls:
-            mock_cls.get_instance.return_value = mock_instance
-            client = mapper.yf_client
-        mock_cls.get_instance.assert_called_once()
-        assert client is mock_instance
-
-
-class TestTickerMapperCacheHitButVerifyFails:
-    """Covers: ticker_mapper.py line 29->35 — cache returns a ticker but verify fails."""
-
-    def test_when_cache_hit_but_verify_fails_then_falls_through_to_discovery(
-        self,
-    ) -> None:
-        cache = TickerMappingCache()
-        cache.save_mapping("AAPL", "NYSE", "AAPL")
-
-        mock_yf = MagicMock()
-        mapper = YFinanceTickerMapper(config=CFG, cache=cache, _yf_client=mock_yf)
-
-        # Patch _verify_ticker: first call (cache hit) fails, second succeeds
-        verify_results = [False, True]
-        mapper._verify_ticker = MagicMock(  # type: ignore[method-assign]
-            side_effect=verify_results
-        )
-
-        result = mapper.discover("AAPL", "NYSE")
-
-        # Falls through to ticker_attempts loop; second attempt succeeds
-        assert result == "AAPL"
-        assert mapper._verify_ticker.call_count == 2
-
-
-class TestTickerMapperDiscoverNoExchangeNoCacheSave:
-    """Covers: ticker_mapper.py line 43->45 — no exchange_name means cache.save skipped."""
-
-    def test_when_exchange_name_is_none_then_cache_not_saved(self) -> None:
-        cache = TickerMappingCache()
-        mock_yf = MagicMock()
-        mapper = YFinanceTickerMapper(config=CFG, cache=cache, _yf_client=mock_yf)
-        mapper._verify_ticker = MagicMock(return_value=True)  # type: ignore[method-assign]
-
-        result = mapper.discover("AAPL", None)
-
-        assert result == "AAPL"
-        # No exchange_name → no cache.save_mapping call
-        assert cache.get_mapping("AAPL", "") is None
-
-
-_LIVE_INFO: dict[str, Any] = {
-    "currentPrice": 10.0,
-    "marketCap": 1e9,
-    "sector": "Industrials",
-    "industry": "Aerospace",
-    "exchange": "LSE",
-    "currency": "GBp",
-}
-
-
-class TestVerifyTickerThrottling:
-    """``fetch_info`` never raises: a throttled call comes back as ``None`` while
-    the shared circuit breaker is open, and a no-data answer as ``None`` with the
-    breaker closed."""
-
-    def _mapper(
-        self, results: list[Any], *, breaker_active: bool, max_retries: int = 3
-    ) -> tuple[YFinanceTickerMapper, MagicMock]:
-        mock_yf = MagicMock()
-        mock_yf.fetch_info.side_effect = results
-        mock_yf.circuit_breaker.is_active = breaker_active
-        mapper = YFinanceTickerMapper(
-            config=CFG,
-            cache=TickerMappingCache(),
-            _yf_client=mock_yf,
-            max_retries=max_retries,
-        )
-        return mapper, mock_yf
-
-    def test_throttled_on_every_attempt_returns_false_after_full_budget(self) -> None:
-        mapper, mock_yf = self._mapper([None] * 3, breaker_active=True)
-
-        assert mapper._verify_ticker("AAPL") is False
-        assert mock_yf.fetch_info.call_count == 3
-
-    def test_throttled_then_recovered_verifies_the_ticker(self) -> None:
-        mapper, mock_yf = self._mapper([None, dict(_LIVE_INFO)], breaker_active=True)
-
-        assert mapper._verify_ticker("AAPL") is True
-        assert mock_yf.fetch_info.call_count == 2
-
-    def test_no_data_answer_with_closed_breaker_is_final(self) -> None:
-        mapper, mock_yf = self._mapper([None] * 3, breaker_active=False)
-
-        assert mapper._verify_ticker("BADTICKER") is False
-        assert mock_yf.fetch_info.call_count == 1
-
-
-class TestDiscoverThroughRealYFinanceClient:
-    """The real facade swallows request errors, so the mapper must notice
-    throttling through the breaker the facade trips."""
-
-    @staticmethod
-    def _client() -> YFinanceClient:
-        cache = MagicMock()
-        cache.get.return_value = None
-        return YFinanceClient(
-            cache=cache,
-            rate_limiter=MagicMock(),
-            circuit_breaker=CircuitBreaker(),
-            default_max_retries=3,
-        )
-
-    @staticmethod
-    def _ticker(info: PropertyMock) -> MagicMock:
-        ticker = MagicMock()
-        type(ticker).info = info
-        return ticker
-
-    @pytest.mark.parametrize(
-        "transient",
-        [
-            RuntimeError("429 Too Many Requests"),
-            curl_timeout(),
-            curl_dns_failure(),
-            curl_connect_failure(),
-        ],
-        ids=["rate-limit", "curl-timeout", "curl-dns", "curl-connect"],
-    )
-    def test_transient_failure_is_retried_after_breaker_cooldown(
-        self, transient: Exception
-    ) -> None:
-        client = self._client()
-        info = PropertyMock(side_effect=[transient, dict(_LIVE_INFO)])
-        mapper = YFinanceTickerMapper(
-            config=CFG, cache=TickerMappingCache(), _yf_client=client
-        )
-
-        with (
-            patch.object(client, "get_ticker", return_value=self._ticker(info)),
-            patch("time.sleep") as sleep,
-        ):
-            result = mapper.discover("BA", "London Stock Exchange")
-
-        assert result == "BA.L"
-        assert info.call_count == 2
-        assert any(call.args[0] > 60 for call in sleep.call_args_list)
-
-    def test_missing_ticker_is_not_retried(self) -> None:
-        client = self._client()
-        info = PropertyMock(side_effect=YFTickerMissingError("ZZZZ", ""))
-        mapper = YFinanceTickerMapper(
-            config=CFG, cache=TickerMappingCache(), _yf_client=client
-        )
-
-        with (
-            patch.object(client, "get_ticker", return_value=self._ticker(info)),
-            patch("time.sleep") as sleep,
-        ):
-            result = mapper.discover("ZZZZ", "NYSE")
-
-        assert result is None
-        assert info.call_count == 1
-        sleep.assert_not_called()
 
 
 # ===========================================================================
@@ -434,7 +227,7 @@ class TestBuilderMarkDelistedSkipWhenMethodAbsent:
 class TestBuilderDelistingDetection:
     """Covers: builder.py lines 206-216 — dropped tickers are marked as delisted."""
 
-    def test_ticker_dropped_from_t212_response_is_marked_delisted(self) -> None:
+    def test_ticker_dropped_from_the_source_response_is_marked_delisted(self) -> None:
         repo = _FakeRepo()
 
         # get_active_tickers returns an old ticker that won't be in the new response

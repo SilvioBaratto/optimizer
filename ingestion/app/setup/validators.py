@@ -19,7 +19,6 @@ public, so a key is checked for presence and the host for reachability.
 
 from __future__ import annotations
 
-import base64
 from collections.abc import Callable, Mapping
 from urllib.parse import urlsplit
 
@@ -30,11 +29,6 @@ from app.setup.host_urls import to_host_probe_url
 from app.utils.log_redaction import redact_secrets
 
 _TIMEOUT = 10
-
-_T212_BASE = {
-    "live": "https://live.trading212.com",
-    "demo": "https://demo.trading212.com",
-}
 
 
 class ValidationNetworkError(Exception):
@@ -70,19 +64,6 @@ def _accepted(status_code: int, url: str) -> bool:
             "the key could not be checked; retry shortly or use --skip-validation."
         )
     return status_code == 200
-
-
-def validate_t212(api_key: str, secret_key: str, *, mode: str = "live") -> bool:
-    """True if the Trading212 metadata endpoint accepts the key/secret pair.
-
-    Raises:
-        ValidationNetworkError: Trading212 is unreachable, throttling or erroring.
-    """
-    base = _T212_BASE.get(mode, _T212_BASE["live"])
-    token = base64.b64encode(f"{api_key}:{secret_key}".encode()).decode()
-    url = f"{base}/api/v0/equity/metadata/exchanges"
-    resp = _get(url, headers={"Authorization": f"Basic {token}"})
-    return _accepted(resp.status_code, url)
 
 
 def validate_fred(api_key: str) -> bool:

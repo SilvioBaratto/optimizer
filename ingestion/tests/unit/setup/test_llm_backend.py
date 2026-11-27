@@ -37,8 +37,8 @@ def test_a_blank_key_is_missing() -> None:
 
 
 def test_other_secrets_do_not_count() -> None:
-    """Trading 212 / FRED keys say nothing about the LLM backend."""
-    secrets = {"fred_api_key": "f", "trading_212_api_key": "t"}
+    """The FRED key says nothing about the LLM backend."""
+    secrets = {"fred_api_key": "f"}
     assert _configured({}, secrets) is False
 
 

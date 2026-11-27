@@ -328,7 +328,7 @@ def _pick_winner(
     on another venue, however much more liquid it is. Widening the allowlist puts
     the home line of every depositary receipt in the universe in front of its ADR,
     and replacing the ADR would delist its row and restart the entity on a
-    suffixed symbol that carries no ISIN, hence no Trading 212 verdict.
+    suffixed symbol that carries no ISIN.
     """
     challenger = ranked[0]
     if challenger[0].symbol in incumbents:

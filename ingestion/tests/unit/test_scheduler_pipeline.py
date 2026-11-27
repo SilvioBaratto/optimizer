@@ -6,6 +6,7 @@ All external collaborators are patched with MagicMock.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import ExitStack, contextmanager
@@ -1068,8 +1069,8 @@ class TestRunOrphanReaper:
 class TestRunUniverseStep:
     """The universe build heads the pipeline — every later step iterates `instruments`."""
 
-    def test_runs_regardless_of_trading212(self):
-        """yfinance now sources the universe — the step runs with no T212 key, no skip."""
+    def test_runs_without_any_broker_key(self):
+        """yfinance sources the universe, so the step needs no key and never skips."""
         with ExitStack() as stack:
             run_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
 
@@ -1079,7 +1080,7 @@ class TestRunUniverseStep:
 
         run_step.assert_called_once()
 
-    def test_delegates_to_build_without_a_trading212_client(self):
+    def test_delegates_to_the_build_with_only_a_request(self):
         from app.schemas.universe.build_request import UniverseBuildRequest
         from app.services.universe.universe_build_service import run_universe_build
 
@@ -1095,60 +1096,27 @@ class TestRunUniverseStep:
         assert args[2] is run_universe_build  # the build fn
         assert isinstance(args[-1], UniverseBuildRequest)  # only the request; no client
 
-    def test_run_universe_build_job_runs_build_then_annotate(self):
+    @pytest.mark.criterion("REQ-ING-011")
+    def test_universe_build_runs_only_the_universe_step(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Validates that the weekly universe_build job runs the universe step and no
+        follow-on step, in app/services/jobs/scheduler.py::run_universe_build."""
         with (
             patch(f"{M}.run_universe_step", return_value=True) as step,
-            patch(f"{M}.run_t212_annotate_step", return_value=False) as annotate,
+            patch(f"{M}._run_step") as run_step,
+            caplog.at_level(logging.INFO, logger=M),
         ):
             from app.services.jobs.scheduler import run_universe_build
 
             run_universe_build()
 
-        step.assert_called_once()
-        annotate.assert_called_once()
-
-
-class TestT212AnnotateStep:
-    """T212 mapping is a follow-on — it skips without a slot when unconfigured."""
-
-    _SVC = "app.services.universe.universe_build_service"
-
-    def test_skips_without_claiming_when_not_configured(self):
-        from app.services.universe.universe_build_service import (
-            Trading212NotConfiguredError,
-        )
-
-        with ExitStack() as stack:
-            stack.enter_context(
-                patch(
-                    f"{self._SVC}.build_trading212_client",
-                    side_effect=Trading212NotConfiguredError("no key"),
-                )
-            )
-            run_step = stack.enter_context(patch(f"{M}._run_step"))
-
-            from app.services.jobs.scheduler import run_t212_annotate_step
-
-            assert run_t212_annotate_step() is False
-
+        step.assert_called_once_with()
         run_step.assert_not_called()
-
-    def test_runs_the_annotate_step_when_configured(self):
-        from app.services.universe import t212_annotate
-
-        with ExitStack() as stack:
-            stack.enter_context(
-                patch(f"{self._SVC}.build_trading212_client", return_value=MagicMock())
-            )
-            run_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
-
-            from app.services.jobs.scheduler import run_t212_annotate_step
-
-            assert run_t212_annotate_step() is True
-
-        args = run_step.call_args.args
-        assert args[0] == "t212_annotate"
-        assert args[2] is t212_annotate.run_t212_annotate
+        assert [r.getMessage() for r in caplog.records if r.name == M] == [
+            "universe_build: starting",
+            "universe_build: finished",
+        ]
 
 
 class TestHeartbeatCompanion:

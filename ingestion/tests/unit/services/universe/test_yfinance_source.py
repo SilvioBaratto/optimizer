@@ -1,6 +1,6 @@
 """YFinanceUniverseSource contract.
 
-The source implements the ``Trading212ApiClient`` seam (get_exchanges /
+The source implements the ``UniverseSourceClient`` seam (get_exchanges /
 get_instruments) from ``yf.screen`` results: no seed lists, no ISIN (identity is
 (ticker, exchange); dedup by symbol), out-of-scope venues dropped. Query
 construction is patched so tests exercise the transform, not live Yahoo.
@@ -222,14 +222,14 @@ def test_tags_instrument_type(monkeypatch: pytest.MonkeyPatch) -> None:
     assert by_ticker == {"AAPL": "STOCK", "BND": "ETF"}
 
 
-def test_requires_no_trading212(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_satisfies_the_builder_protocols(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services.universe.builder.protocols import (
         TickerMapper,
-        Trading212ApiClient,
+        UniverseSourceClient,
     )
 
     src, _ = _source([{"quotes": []}], monkeypatch)
-    assert isinstance(src, Trading212ApiClient)
+    assert isinstance(src, UniverseSourceClient)
     assert isinstance(PassThroughTickerMapper(), TickerMapper)
 
 

@@ -2,8 +2,7 @@
 
 Secret fields are overridden by mounted compose secret files
 (`$PORTOPT_SECRETS_DIR/<field>`, default `/run/secrets`), stripped, file-wins;
-a missing or empty file falls back to env; missing both yields "" (preserves the
-T212-absent skip).
+a missing or empty file falls back to env; missing both yields "".
 """
 
 import logging
@@ -13,12 +12,7 @@ import pytest
 
 from app.config import Settings
 
-_SECRET_ENV = (
-    "FRED_API_KEY",
-    "TRADING_212_API_KEY",
-    "TRADING_212_SECRET_KEY",
-    "PORTOPT_SECRETS_DIR",
-)
+_SECRET_ENV = ("FRED_API_KEY", "PORTOPT_SECRETS_DIR")
 
 
 def _settings(monkeypatch: pytest.MonkeyPatch, **env: str) -> Settings:
@@ -53,7 +47,6 @@ def test_missing_secret_and_env_is_empty(
 ) -> None:
     s = _settings(monkeypatch, PORTOPT_SECRETS_DIR=str(tmp_path))
     assert s.fred_api_key == ""
-    assert s.trading_212_api_key == ""  # T212-absent skip stays intact
 
 
 @pytest.mark.parametrize("placeholder", ["", "\n", "  \r\n"])
@@ -72,20 +65,9 @@ def test_empty_secret_file_keeps_env_value(
 def test_empty_secret_file_with_no_env_stays_empty(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    (tmp_path / "trading_212_api_key").write_text("", encoding="utf-8")
-    s = _settings(monkeypatch, PORTOPT_SECRETS_DIR=str(tmp_path))
-    assert s.trading_212_api_key == ""
-
-
-def test_empty_placeholder_does_not_block_other_secret_files(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
     (tmp_path / "fred_api_key").write_text("", encoding="utf-8")
-    (tmp_path / "trading_212_api_key").write_text("t212-file\n", encoding="utf-8")
-    s = _settings(
-        monkeypatch, FRED_API_KEY="env-key", PORTOPT_SECRETS_DIR=str(tmp_path)
-    )
-    assert (s.fred_api_key, s.trading_212_api_key) == ("env-key", "t212-file")
+    s = _settings(monkeypatch, PORTOPT_SECRETS_DIR=str(tmp_path))
+    assert s.fred_api_key == ""
 
 
 def _deny_read(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
@@ -112,16 +94,6 @@ def test_unreadable_secret_file_falls_back_to_env(
     assert s.fred_api_key == "env-key"
 
 
-def test_unreadable_secret_file_does_not_hide_readable_ones(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    (tmp_path / "fred_api_key").write_text("file-key", encoding="utf-8")
-    (tmp_path / "trading_212_api_key").write_text("t212-file", encoding="utf-8")
-    _deny_read(monkeypatch, "fred_api_key")
-    s = _settings(monkeypatch, PORTOPT_SECRETS_DIR=str(tmp_path))
-    assert (s.fred_api_key, s.trading_212_api_key) == ("", "t212-file")
-
-
 def test_unreadable_secret_file_is_reported_without_leaking_content(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -133,17 +105,3 @@ def test_unreadable_secret_file_is_reported_without_leaking_content(
         _settings(monkeypatch, PORTOPT_SECRETS_DIR=str(tmp_path))
     assert "fred_api_key" in caplog.text
     assert "file-key" not in caplog.text
-
-
-def test_empty_secret_files_keep_every_env_value(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    (tmp_path / "fred_api_key").write_text("", encoding="utf-8")
-    (tmp_path / "trading_212_api_key").write_text("\n", encoding="utf-8")
-    s = _settings(
-        monkeypatch,
-        FRED_API_KEY="env-fred",
-        TRADING_212_API_KEY="env-t212",
-        PORTOPT_SECRETS_DIR=str(tmp_path),
-    )
-    assert (s.fred_api_key, s.trading_212_api_key) == ("env-fred", "env-t212")

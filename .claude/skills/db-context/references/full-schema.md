@@ -38,9 +38,6 @@ Alembic head: `b6c7d8e9f0a1` (62 migrations, single tree at `packages/portopt-db
 | t212_ticker | character varying | yes |
 | is_t212_tradeable | boolean | yes |
 
-`is_t212_tradeable` is tri-state: NULL = not evaluated (Trading 212 unconfigured or no ISIN),
-true = the broker catalogue carries the instrument, false = matched and absent.
-
 ---
 
 ## Universe
@@ -68,9 +65,8 @@ true = the broker catalogue carries the instrument, false = matched and absent.
 - Purpose: an owner's claim that a ticker must stay in the investable universe. `source` is
   `manual` (`portopt add-instrument --pin`) or `mandate:<portfolio_uuid>` (synced from the
   mandate's `eligible_tickers`). A pinned ticker is never marked delisted by the universe
-  build, its classification is not overwritten by the Screener upsert, and its `t212_ticker`
-  is not cleared or overwritten by `t212_annotate`. A ticker stays protected until the last
-  source releases it.
+  build and its classification is not overwritten by the Screener upsert. A ticker stays
+  protected until the last source releases it.
 
 | Column | Type | Nullable |
 |--------|------|----------|

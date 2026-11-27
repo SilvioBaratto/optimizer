@@ -54,18 +54,12 @@ class TestSetupCommand:
                 [
                     "setup",
                     "--non-interactive",
-                    "--t212-key",
-                    "tk",
-                    "--t212-secret",
-                    "ts",
                     "--fred-key",
                     "fk",
                 ],
             )
         assert result.exit_code == 0
         kwargs = mock_run.call_args.kwargs
-        assert kwargs["t212_key"] == "tk"
-        assert kwargs["t212_secret"] == "ts"  # noqa: S105 - test value, not a secret
         assert kwargs["fred_key"] == "fk"
 
     def test_non_interactive_reads_credentials_from_env(self) -> None:
@@ -75,17 +69,11 @@ class TestSetupCommand:
         so the same names the interactive wizard auto-detects must also feed the
         non-interactive path.
         """
-        env = {
-            "TRADING_212_API_KEY": "env-tk",
-            "TRADING_212_SECRET_KEY": "env-ts",
-            "FRED_API_KEY": "env-fk",
-        }
+        env = {"FRED_API_KEY": "env-fk"}
         with patch("app.setup.wizard.run_setup_noninteractive") as mock_run:
             result = runner.invoke(app, ["setup", "--non-interactive"], env=env)
         assert result.exit_code == 0
         kwargs = mock_run.call_args.kwargs
-        assert kwargs["t212_key"] == "env-tk"
-        assert kwargs["t212_secret"] == "env-ts"  # noqa: S105 - test value, not a secret
         assert kwargs["fred_key"] == "env-fk"
 
     def test_non_interactive_flag_takes_precedence_over_env(self) -> None:
@@ -654,7 +642,6 @@ class TestCompositeCommands:
     def test_refetch_all_exits_zero_when_every_step_fails(self) -> None:
         with (
             patch(f"{SCHED}.run_universe_step", return_value=False),
-            patch(f"{SCHED}.run_t212_annotate_step", return_value=False),
             patch(f"{SCHED}.run_yfinance_step", return_value=False),
             patch(f"{SCHED}.run_macro_step", return_value=False),
             patch(f"{SCHED}.run_fred_step", return_value=False),
@@ -951,8 +938,6 @@ class TestAddInstrument:
                     "government",
                     "--duration-bucket",
                     "long",
-                    "--t212-ticker",
-                    "IEGAd_EQ",
                     "--exchange",
                     "Deutsche Börse Xetra",
                     "--name",
@@ -968,7 +953,6 @@ class TestAddInstrument:
             "isin": "IE00B3F81K65",
             "fi_subclass": "government",
             "duration_bucket": "long",
-            "t212_ticker": "IEGAd_EQ",
             "exchange": "Deutsche Börse Xetra",
             "name": "iShares Euro Govt",
         }

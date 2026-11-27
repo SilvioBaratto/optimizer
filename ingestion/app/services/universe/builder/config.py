@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class UniverseBuilderConfig:
-    """Configuration for universe discovery from the Trading 212 API."""
+    """Configuration for instrument-universe discovery."""
 
     # Yahoo Finance suffix mapping by exchange. This IS the universe scope: only
     # instruments on these exchanges are discovered (both stocks and ETFs). A

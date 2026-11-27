@@ -10,9 +10,8 @@ Scheduled jobs:
   2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
      (catch afternoon market news).
   3. **universe_build** (CronTrigger, default Saturday 02:00 UTC) — instrument-
-     universe rebuild from the yfinance Screener, followed by the optional
-     Trading 212 ticker annotation. Runs *before* ``weekly_refetch`` so the
-     yfinance rebuild sees the fresh instrument set.
+     universe rebuild from the yfinance Screener. Runs *before*
+     ``weekly_refetch`` so the yfinance rebuild sees the fresh instrument set.
   4. **weekly_refetch** (CronTrigger, default Saturday 03:00 UTC) — full yfinance
      + macro rebuild, then the ``ticker_news`` retention prune.
   5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — every
@@ -107,11 +106,6 @@ _fred_jobs = BackgroundJobService(
 )
 _universe_jobs = BackgroundJobService(
     job_type="universe_build",
-    session_factory=database_manager.get_session,
-    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
-)
-_universe_annotate_jobs = BackgroundJobService(
-    job_type="t212_annotate",
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
@@ -721,12 +715,7 @@ def run_news_retention_step(*, attempt: int = 0) -> bool:
 
 
 def run_universe_step(*, attempt: int = 0) -> bool:
-    """Rebuild the instrument universe from the yfinance Screener.
-
-    Runs unconditionally — Trading 212 is no longer required. When Trading 212 is
-    configured, a follow-on annotation step maps T212 tickers onto the built
-    universe (it does not source it).
-    """
+    """Rebuild the instrument universe from the yfinance Screener."""
     from app.schemas.universe.build_request import UniverseBuildRequest
     from app.services.universe.universe_build_service import (
         run_universe_build as _build,
@@ -737,32 +726,6 @@ def run_universe_step(*, attempt: int = 0) -> bool:
         _universe_jobs,
         _build,
         UniverseBuildRequest(),
-        attempt=attempt,
-    )
-
-
-def run_t212_annotate_step(*, attempt: int = 0) -> bool:
-    """Map Trading 212 tickers onto the yfinance universe (follow-on to the build).
-
-    Trading 212 is an add-on — a missing key is a config state, not a failure:
-    the step logs, returns ``False``, and never claims a job slot.
-    """
-    from app.services.universe.t212_annotate import run_t212_annotate
-    from app.services.universe.universe_build_service import (
-        Trading212NotConfiguredError,
-        build_trading212_client,
-    )
-
-    try:
-        build_trading212_client()
-    except Trading212NotConfiguredError as exc:
-        logger.info("t212_annotate: skipped — %s", exc)
-        return False
-
-    return _run_step(
-        "t212_annotate",
-        _universe_annotate_jobs,
-        run_t212_annotate,
         attempt=attempt,
     )
 
@@ -938,12 +901,10 @@ def run_universe_build() -> None:
     """Weekly instrument-universe rebuild from the yfinance Screener.
 
     Scheduled ahead of ``weekly_refetch`` so the yfinance rebuild fetches the
-    fresh instrument set rather than last week's. When Trading 212 is configured,
-    its tickers are mapped onto the freshly built universe afterwards.
+    fresh instrument set rather than last week's.
     """
     logger.info("universe_build: starting")
     run_universe_step()
-    run_t212_annotate_step()
     logger.info("universe_build: finished")
 
 

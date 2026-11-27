@@ -1,17 +1,12 @@
-"""Render the wizard's non-secret settings into compose env files (SPEC D4).
+"""Render the wizard's non-secret settings into the fund's compose env file (SPEC D4).
 
 The install wizard persists its non-secret choices to `~/.portopt/config.toml`.
 Containers never read that file — they read environment variables — so
-`portopt start` translates those keys into env files that compose mounts as the
-LAST `env_file` entry of the consuming service (so they override `.env`):
-
-* `./.env.fund` — the fund's LLM selection (provider/model/base-url/region/Azure),
-  under the exact env-var NAMES `fund.config.load_config` reads. `portopt stop` and
-  a failed setup delete it.
-* `./.env.scheduler` — the ingestion scheduler's `TRADING_212_MODE`. It is a
-  separate file because the scheduler outlives `portopt stop`: if the mode shared
-  the fund's file, stopping the fund would delete it, and the next plain
-  `docker compose up` would recreate the scheduler against the live host.
+`portopt start` translates the fund's LLM selection (provider/model/base-url/
+region/Azure) into `./.env.fund`, under the exact env-var NAMES
+`fund.config.load_config` reads. Compose mounts it as the LAST `env_file` entry of
+the fund service (so it overrides `.env`); `portopt stop` and a failed setup delete
+it.
 
 Provider auth keys are NOT handled here — they flow only through file-based docker
 secrets (`compose_secrets`).
@@ -51,16 +46,8 @@ _BASE_URL_ENV_BY_PROVIDER = {
     "nvidia": "NVIDIA_BASE_URL",
 }
 
-# config.toml key -> the env-var name the ingestion daemon reads. Trading212 keys
-# are scoped to one environment (demo vs live host), so the daemon must be told
-# which one the wizard validated them against.
-_SCHEDULER_ENV_BY_CONFIG_KEY = {
-    "trading_212_mode": "TRADING_212_MODE",
-}
-
 # Relative to the compose project directory (the repo root), like the secrets dir.
 DEFAULT_ENV_FUND_PATH = Path(".env.fund")
-DEFAULT_ENV_SCHEDULER_PATH = Path(".env.scheduler")
 
 
 def _translate(
@@ -86,8 +73,7 @@ def config_to_env(config: Mapping[str, object]) -> dict[str, str]:
     """Translate persisted config.toml keys to the fund's env-var names.
 
     Returns only the vars the wizard set (truthy values); keys that are not the
-    fund's (the scheduler's `trading_212_mode`, unrelated config) are ignored and
-    absent settings are omitted, never emitted as empty.
+    fund's are ignored and absent settings are omitted, never emitted as empty.
     """
     env = _translate(config, _ENV_BY_CONFIG_KEY)
 
@@ -113,15 +99,6 @@ def config_to_env(config: Mapping[str, object]) -> dict[str, str]:
     return env
 
 
-def config_to_scheduler_env(config: Mapping[str, object]) -> dict[str, str]:
-    """Translate persisted config.toml keys to the ingestion scheduler's env vars.
-
-    Returns only what the wizard set (today just `TRADING_212_MODE`); absent
-    settings are omitted so the daemon's own default applies.
-    """
-    return _translate(config, _SCHEDULER_ENV_BY_CONFIG_KEY)
-
-
 def render(config: Mapping[str, object], *, path: Path) -> Path:
     """Write the fund's translated env vars to `<path>` (`.env.fund`).
 
@@ -134,25 +111,7 @@ def render(config: Mapping[str, object], *, path: Path) -> Path:
     return _write_env_file(path, config_to_env(config))
 
 
-def render_scheduler(config: Mapping[str, object], *, path: Path) -> Path:
-    """Write the scheduler's translated env vars to `<path>` (`.env.scheduler`).
-
-    ``path`` has no default on purpose, for the same reason as :func:`render`.
-
-    Always rewrites the file (empty when no mode is configured) so the scheduler's
-    `env_file` entry resolves and a mode dropped from config.toml cannot linger
-    from an earlier start. Nothing here deletes it: the scheduler keeps running
-    after `portopt stop`, and a plain `docker compose up` must still find it.
-    Returns the path written.
-    """
-    return _write_env_file(path, config_to_scheduler_env(config))
-
-
 def cleanup(*, path: Path) -> None:
-    """Remove the rendered `.env.fund` file (best effort).
-
-    Deliberately leaves `.env.scheduler` alone: callers (`portopt stop`, a failed
-    setup) run while the scheduler is still up.
-    """
+    """Remove the rendered `.env.fund` file (best effort)."""
     with contextlib.suppress(OSError):
         path.unlink(missing_ok=True)

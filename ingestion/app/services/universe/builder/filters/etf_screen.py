@@ -22,7 +22,7 @@ def dedup_etfs_by_isin(
     as-is (cannot be deduped).
 
     Args:
-        candidates: ``(exchange_name, t212_instrument)`` pairs.
+        candidates: ``(exchange_name, instrument)`` pairs.
         preference: exchange names, most-preferred first.
 
     Returns:

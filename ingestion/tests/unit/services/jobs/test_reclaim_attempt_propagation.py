@@ -117,13 +117,7 @@ class TestStepWrappersForwardAttempt:
     def test_run_universe_step_forwards_attempt(self) -> None:
         from app.services.jobs import scheduler as sched
 
-        with (
-            patch.object(sched, "_run_step", return_value=True) as run_step,
-            patch(
-                "app.services.universe.universe_build_service.build_trading212_client",
-                return_value=MagicMock(),
-            ),
-        ):
+        with patch.object(sched, "_run_step", return_value=True) as run_step:
             sched.run_universe_step(attempt=4)
 
         assert run_step.call_args.kwargs["attempt"] == 4

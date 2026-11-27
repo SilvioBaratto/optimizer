@@ -4,14 +4,14 @@ Two authoritative sources exist in the codebase:
 
 1. ``PortfolioSnapshot.sector_mapping`` — inline JSON written by the optimiser
    / import pipeline. Keys are the ticker strings used in the snapshot weights
-   (yfinance-style on ``trading212``: ``ENGI.PA``, ``ORA.PA`` …).
+   (yfinance-style: ``ENGI.PA``, ``ORA.PA`` …).
 2. ``TickerProfile.sector`` — yfinance-populated table joined via
    ``Instrument.yfinance_ticker``.
 
 Snapshot-first, TickerProfile-fallback ordering is required because the
 snapshot weights use yfinance-style ``.PA`` keys while ``Instrument.ticker``
-carries T212-style keys (``ENGIp_EQ``); a DB-only lookup against the wrong
-key column would always miss. Missing tickers default to ``Unclassified`` so
+can carry a venue-specific key (``ENGIp_EQ`` on rows an older universe source
+wrote); a DB-only lookup against the wrong key column would always miss. Missing tickers default to ``Unclassified`` so
 downstream code can always look up every input key without raising
 ``KeyError``.
 """

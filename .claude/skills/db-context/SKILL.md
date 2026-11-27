@@ -41,21 +41,19 @@ Alembic head `c4d5e6f7a8b9`, 68 migrations. Row counts below are the last verifi
 ### Core (2)
 | Table | Model | Rows | Unique On | Purpose |
 |-------|-------|-----:|-----------|---------|
-| `exchanges` | Exchange | 14 | name | Exchange dimension; parent of instruments. `t212_id` now legacy-NULL |
+| `exchanges` | Exchange | 14 | name | Exchange dimension; parent of instruments |
 | `instruments` | Instrument | 8,898 | (ticker, exchange_id) | Security master; yfinance-sourced. `yfinance_ticker` is the downstream join key |
 
 `instruments` is the head of the pipeline: every other ingestion step iterates it, so a stale
 universe silently caps what yfinance fetches. Rebuilt weekly (`universe_build`, Sat 02:00 —
-deliberately ahead of `weekly_refetch`). Now built from the yfinance source, so `t212_ticker` and
-`exchanges.t212_id` are legacy/NULL unless the T212 overlay ran; `is_t212_tradeable` is tri-state
-(NULL = not evaluated). `delisted_at`/`delisting_return` are currently all-NULL
+deliberately ahead of `weekly_refetch`), from the yfinance source. `delisted_at`/`delisting_return` are currently all-NULL
 (fresh universe); `delisting_return` stays NULL (unknown) when a ticker merely drops out of a
 universe build — only a caller that knows the terminal return passes one (−1.0 = bankruptcy).
 
 ### Universe protection (1, no FK; added by `e3a5c7d9b1f4`)
 | Table | Model | Unique On | Purpose |
 |-------|-------|-----------|---------|
-| `pinned_instruments` | PinnedInstrument | (ticker, source) | Claims that keep a ticker in the universe: `source` is `manual` (`portopt add-instrument --pin`) or `mandate:<portfolio_uuid>` (synced from `eligible_tickers` on every mandate save). Keyed by ticker text, not `instruments.id`, so a pin can precede its row. A pinned instrument is never marked delisted, keeps its classification and `t212_ticker` through the Screener upsert and `t212_annotate`. `asset_class = commodity` is also valid on `instruments` |
+| `pinned_instruments` | PinnedInstrument | (ticker, source) | Claims that keep a ticker in the universe: `source` is `manual` (`portopt add-instrument --pin`) or `mandate:<portfolio_uuid>` (synced from `eligible_tickers` on every mandate save). Keyed by ticker text, not `instruments.id`, so a pin can precede its row. A pinned instrument is never marked delisted, keeps its classification through the Screener upsert. `asset_class = commodity` is also valid on `instruments` |
 
 ### Per-ticker — Prices & Actions (4, FK → `instruments.id` CASCADE)
 | Table | Model | Rows | Unique On | Purpose |
