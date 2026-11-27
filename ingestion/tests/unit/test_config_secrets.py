@@ -65,6 +65,8 @@ def test_empty_secret_file_keeps_env_value(
 def test_empty_secret_file_with_no_env_stays_empty(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Validates ``app.config.Settings`` leaves a secret empty when its mounted file
+    is empty and no variable sets it."""
     (tmp_path / "fred_api_key").write_text("", encoding="utf-8")
     s = _settings(monkeypatch, PORTOPT_SECRETS_DIR=str(tmp_path))
     assert s.fred_api_key == ""

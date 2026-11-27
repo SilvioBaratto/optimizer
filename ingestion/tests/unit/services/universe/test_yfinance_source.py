@@ -223,6 +223,9 @@ def test_tags_instrument_type(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_satisfies_the_builder_protocols(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Validates ``app.services.universe.yfinance_source.YFinanceUniverseSource``
+    satisfies the builder's ``UniverseSourceClient`` and ``PassThroughTickerMapper``
+    its ``TickerMapper``."""
     from app.services.universe.builder.protocols import (
         TickerMapper,
         UniverseSourceClient,

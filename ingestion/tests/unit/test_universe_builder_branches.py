@@ -228,6 +228,8 @@ class TestBuilderDelistingDetection:
     """Covers: builder.py lines 206-216 — dropped tickers are marked as delisted."""
 
     def test_ticker_dropped_from_the_source_response_is_marked_delisted(self) -> None:
+        """Validates ``app.services.universe.builder.builder.UniverseBuilder.build``
+        marks delisted an active ticker the source no longer returns."""
         repo = _FakeRepo()
 
         # get_active_tickers returns an old ticker that won't be in the new response

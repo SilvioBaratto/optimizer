@@ -37,6 +37,8 @@ def test_render_writes_all_declared_secret_files(tmp_path: Path) -> None:
 
 
 def test_render_overwrites_a_docker_planted_directory(tmp_path: Path) -> None:
+    """Validates ``app.setup.compose_secrets.render`` replaces a directory Docker
+    planted at a secret's path with the value file."""
     # Docker creates a missing secret mount source as a directory when the stack comes
     # up before render, so render must replace that placeholder with the value file
     # instead of failing with a directory write error.
@@ -57,7 +59,8 @@ def test_compose_declares_a_file_for_every_secret_name() -> None:
 
 
 def test_secret_names_cover_the_fred_key_and_every_provider_key() -> None:
-    # The fund's per-provider auth secret keys must be present alongside FRED's.
+    """Validates ``app.setup.compose_secrets.SECRET_NAMES`` declares the FRED key next
+    to the fund's provider keys, each once."""
     assert "fred_api_key" in cs.SECRET_NAMES
     assert len(cs.SECRET_NAMES) >= 10
     assert len(set(cs.SECRET_NAMES)) == len(cs.SECRET_NAMES)

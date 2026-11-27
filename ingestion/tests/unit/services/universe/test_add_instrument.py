@@ -147,7 +147,8 @@ class TestCreatesTheRow:
         assert (row.fi_subclass, row.duration_bucket) == ("government", "long")
 
     def test_isin_and_name_overrides_are_stored(self, db_session) -> None:
-        """Operator-supplied fields are written to the row."""
+        """Validates ``app.services.universe.add_instrument.add_instrument`` stores an
+        operator-supplied ISIN and name on the row."""
         xetra = _exchange(db_session)
 
         _add(
@@ -249,7 +250,8 @@ class TestIdempotency:
     def test_rerun_without_name_or_isin_keeps_the_stored_values(
         self, db_session
     ) -> None:
-        """A missing optional value never erases one already stored."""
+        """Validates ``app.services.universe.add_instrument.add_instrument`` keeps a
+        stored name and ISIN when a re-run supplies none."""
         xetra = _exchange(db_session)
         _add(
             db_session,

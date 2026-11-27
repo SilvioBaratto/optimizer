@@ -368,7 +368,9 @@ class TestTimedRequest:
     def test_a_block_that_raises_is_an_error_and_the_exception_propagates(
         self,
     ) -> None:
-        """An exception means ``error``, and the caller still sees it."""
+        """Validates ``app.services.infrastructure.external_calls.timed_request``
+        records a raising block as an ``error`` request and lets the exception
+        propagate."""
         before = _request_count("Trading Economics", "error")
 
         with (

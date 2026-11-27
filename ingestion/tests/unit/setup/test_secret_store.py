@@ -36,6 +36,8 @@ def _store(tmp_path: Path) -> Path:
 
 
 def test_save_then_load_roundtrip(tmp_path: Path) -> None:
+    """Validates ``app.setup.secret_store.load_secrets`` returns what
+    ``save_secrets`` stored."""
     path = _store(tmp_path)
     secrets = {"OPENAI_API_KEY": "sk-abc123", "FRED_API_KEY": "fred-xyz"}
     secret_store.save_secrets(secrets, "correct horse battery staple", path=path)

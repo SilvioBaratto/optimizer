@@ -15,7 +15,8 @@ _SENTINEL = "S3NTINEL"
 def test_settings_repr_hides_every_secret(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Neither ``repr`` nor ``str`` of the settings shows a key or the DB password."""
+    """Validates ``app.config.Settings`` shows no key and no DB password in its
+    ``repr`` or ``str``."""
     # Mounted secret files win over env vars, so point the lookup at an empty
     # directory or a host with /run/secrets populated would change what loads.
     monkeypatch.setenv("PORTOPT_SECRETS_DIR", str(tmp_path))

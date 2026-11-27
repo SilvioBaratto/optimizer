@@ -188,6 +188,8 @@ def test_run_start_restarts_a_running_fund_whose_provider_key_was_rotated(
 def test_run_start_restarts_the_scheduler_when_its_key_was_rotated(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Validates ``app.setup.lifecycle.run_start`` restarts a running scheduler whose
+    mounted key changed since the last render."""
     _rotate(
         patched,
         monkeypatch,

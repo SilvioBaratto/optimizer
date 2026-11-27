@@ -39,6 +39,7 @@ def test_load_missing_returns_empty(tmp_path: Path) -> None:
     ],
 )
 def test_rejects_secret_looking_keys(tmp_path: Path, bad_key: str) -> None:
+    """Validates ``app.setup.config_file.save_config`` refuses a secret-looking key."""
     with pytest.raises(ValueError, match="secret"):
         config_file.save_config({bad_key: "x"}, path=tmp_path / "config.toml")
 

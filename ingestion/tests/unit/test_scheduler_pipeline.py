@@ -1069,8 +1069,10 @@ class TestRunOrphanReaper:
 class TestRunUniverseStep:
     """The universe build heads the pipeline — every later step iterates `instruments`."""
 
+    @pytest.mark.criterion("REQ-ING-011")
     def test_runs_without_any_broker_key(self):
-        """yfinance sources the universe, so the step needs no key and never skips."""
+        """Validates ``app.services.jobs.scheduler.run_universe_step`` runs the build
+        with no broker key configured and never skips it."""
         with ExitStack() as stack:
             run_step = stack.enter_context(patch(f"{M}._run_step", return_value=True))
 
@@ -1080,7 +1082,10 @@ class TestRunUniverseStep:
 
         run_step.assert_called_once()
 
+    @pytest.mark.criterion("REQ-ING-011")
     def test_delegates_to_the_build_with_only_a_request(self):
+        """Validates ``app.services.jobs.scheduler.run_universe_step`` hands
+        ``run_universe_build`` a ``UniverseBuildRequest`` and no broker client."""
         from app.schemas.universe.build_request import UniverseBuildRequest
         from app.services.universe.universe_build_service import run_universe_build
 

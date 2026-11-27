@@ -165,7 +165,10 @@ def test_interactive_skip_path_install(patched: dict) -> None:
     assert patched["path_installed"] is False
 
 
+@pytest.mark.criterion("REQ-ING-013")
 def test_noninteractive_full_persists_all(patched: dict) -> None:
+    """Validates ``app.setup.wizard.run_setup_noninteractive`` writes every key it is
+    given to the encrypted store."""
     wizard.run_setup_noninteractive(
         passphrase=_PW,
         fred_key="fk",
@@ -193,7 +196,10 @@ def test_noninteractive_fred_invalid_fails(
     assert patched["saved_secrets"] is None
 
 
+@pytest.mark.criterion("REQ-ING-013")
 def test_interactive_skipping_every_key_completes(patched: dict) -> None:
+    """Validates ``app.setup.wizard.run_setup_interactive`` completes and stores no
+    key when every optional key is skipped."""
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: _PW,
@@ -208,7 +214,10 @@ def test_interactive_skipping_every_key_completes(patched: dict) -> None:
     assert patched["bootstrapped"] == ["db", "migrate"]
 
 
+@pytest.mark.criterion("REQ-ING-013")
 def test_interactive_fred_yes_persists_it(patched: dict) -> None:
+    """Validates ``app.setup.wizard.run_setup_interactive`` writes a FRED key typed at
+    its prompt to the encrypted store."""
     prompter = NonInteractivePrompter(
         {
             wizard._MSG_PASSPHRASE: _PW,
@@ -511,10 +520,12 @@ def test_noninteractive_idempotent_rerun_preserves_untouched_secrets(
     assert patched["saved_secrets"] == {"fred_api_key": "fk"}
 
 
+@pytest.mark.criterion("REQ-ING-013")
 def test_noninteractive_idempotent_rerun_merges_new_secret(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A new secret merges with the existing store rather than replacing it."""
+    """Validates ``app.setup.wizard.run_setup_noninteractive`` merges a new key into
+    the stored ones on a re-run instead of replacing them."""
     monkeypatch.setattr(
         wizard.secret_store,
         "load_secrets",
@@ -1712,9 +1723,12 @@ def test_noninteractive_whitespace_only_llm_key_flag_counts_as_missing(
     assert patched["saved_secrets"] is None
 
 
+@pytest.mark.criterion("REQ-ING-013")
 def test_noninteractive_fred_flag_is_stripped(
     patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Validates ``app.setup.wizard.run_setup_noninteractive`` strips the whitespace
+    around a key passed as a flag before it validates and stores it."""
     seen: dict[str, tuple[str, ...]] = {}
     monkeypatch.setattr(
         wizard.validators, "validate_fred", lambda k: seen.update(fred=(k,)) or True
