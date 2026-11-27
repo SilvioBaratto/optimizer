@@ -13,6 +13,31 @@
 
 ---
 
+## Notices
+
+- **Not investment advice.** Optimizer is research and education software. Its output
+  (weights, candidate portfolios, scenarios, simulated orders) is the result of a model
+  run under assumptions you set. It is not a personal recommendation, investment advice,
+  portfolio management, or an offer to buy or sell any instrument, and nothing here is
+  provided by a regulated firm. You alone decide whether to act on any output.
+  Simulations and backtests do not predict future results; you can lose money.
+- **No broker execution.** The software places no orders with any broker. The `fund`
+  component records simulated (paper) orders only.
+- **Your data and LLM providers.** The `fund` component sends the data you give it
+  (holdings, constraints, questionnaire answers, ESG preferences) to the LLM provider
+  you configure (Ollama Cloud by default). Choose a provider whose terms you accept, or
+  run a local model. Do not enter data you are not willing to share.
+- **Third-party data.** Market data comes from third parties (Yahoo Finance through the
+  unofficial yfinance library, FRED). You, not the project, are the party to their
+  terms; use is limited to personal, non-commercial research. The project is not
+  affiliated with, endorsed by or sponsored by Yahoo or any data provider. Do not
+  redistribute data this software downloads.
+- **Licence.** Source-available under PolyForm Noncommercial 1.0.0 (not an OSI-approved
+  licence). No warranty and no liability, to the extent the law allows. No hosted
+  service, no fees, no individual support.
+
+---
+
 ## What's in here
 
 `optimizer` is not a single program — it is a workspace of four cooperating
@@ -491,4 +516,7 @@ optimizer/
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).
+Source-available under
+[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/),
+not an OSI-approved licence. No warranty and no liability, to the extent the law allows
+(see [Notices](#notices)).

@@ -7,6 +7,10 @@ name = "portopt-db"
 version = "0.2.0"
 description = "Shared SQLAlchemy models, repositories, engine and Alembic migrations for the portopt Postgres database."
 readme = "README.md"
+license = {text = "PolyForm-Noncommercial-1.0.0"}
+classifiers = [
+    "License :: Other/Proprietary License",
+]
 # 3.12 floor: matches the workspace (the root pins numpy==2.5.5 and scipy==1.18.1, which
 # require Python>=3.12).
 requires-python = ">=3.12"
