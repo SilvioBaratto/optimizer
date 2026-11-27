@@ -20,7 +20,7 @@ from sqlalchemy.pool import StaticPool
 from portopt_db.models.universe.universe import Exchange, Instrument
 
 MIGRATION_DIR = Path(__file__).parent / ".." / "alembic" / "versions"
-MIGRATION_FILENAME = "2266e24c509f_drop_trading_212_columns.py"
+MIGRATION_FILENAME = "2026_11_27_1711-2266e24c509f_drop_trading_212_columns.py"
 
 EXPECTED_REVISION = "2266e24c509f"
 EXPECTED_DOWN_REVISION = "b8d0f2a4c6e1"
@@ -38,7 +38,7 @@ _INSTRUMENT_ID = "a" * 32
 
 def _load() -> ModuleType:
     path = str((MIGRATION_DIR / MIGRATION_FILENAME).resolve())
-    spec = importlib.util.spec_from_file_location(MIGRATION_FILENAME[:-3], path)
+    spec = importlib.util.spec_from_file_location(Path(MIGRATION_FILENAME).stem, path)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -151,6 +151,8 @@ def test_downgrade_restores_three_nullable_columns(engine: Engine) -> None:
         restored = _columns(engine, table)[column]
         assert restored["nullable"] is True
         assert isinstance(restored["type"], expected_type)
+    ticker_type = _columns(engine, "instruments")["t212_ticker"]["type"]
+    assert ticker_type.length == 100
     with engine.connect() as conn:
         exchange_value = conn.execute(
             text("SELECT t212_id FROM exchanges")

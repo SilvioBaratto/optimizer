@@ -340,11 +340,15 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   `UniverseRepository` methods `set_t212_ticker`, `set_t212_tradeable`,
   `get_t212_tradeable_tickers`, `get_t212_untradeable_tickers` and
   `get_t212_unevaluated_tickers` are gone with them. `save_exchange` ignores any key but
-  `name`. **Upgrading**: the migration deletes the data in the three columns, so take a
-  database dump before you run `alembic upgrade head`. `alembic downgrade -1` re-adds the
-  columns as nullable and empty; the dropped values are not restored. A repository test
-  (`tests/test_removed_integrations.py`) now fails when a tracked file other than this
-  changelog or the Alembic history names the removed integration.
+  `name`. **Upgrading**: the migration deletes the data in the three columns, and the
+  scheduler and fund containers run `alembic upgrade head` when they start, so pulling this
+  version and restarting the stack applies it. Take the database dump **before** you pull
+  the new version and restart. `alembic downgrade -1` re-adds the columns as nullable and
+  empty; the dropped values are not restored. A repository test
+  (`tests/test_removed_integrations.py`) now fails when a tracked file names the removed
+  integration, except this changelog, the Alembic history, the tests of those migrations
+  and the three tests that assert the removal itself (the mandate, the setup wizard and
+  the universe builder import checks).
 
 ### Known / not done
 

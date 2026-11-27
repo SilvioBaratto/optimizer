@@ -34,6 +34,9 @@ _REMOVED_INTEGRATION_PATTERN = re.compile(
     "|".join(f"(?:{token})" for token in _REMOVED_INTEGRATION_TOKENS), re.IGNORECASE
 )
 
+# Longest stretch of an offending line shown in a failure message.
+_EXCERPT_CHARS = 100
+
 # Tracked files that may name a removed integration, each with the reason.
 _ALLOWED_FILES = {
     "CHANGELOG.md": "records the removal of the integration, release by release",
@@ -94,7 +97,7 @@ def _findings(name: str) -> list[str]:
         return found
     for number, line in enumerate(text.splitlines(), start=1):
         if _REMOVED_INTEGRATION_PATTERN.search(line):
-            found.append(f"{name}:{number}: {line.strip()[:100]}")
+            found.append(f"{name}:{number}: {line.strip()[:_EXCERPT_CHARS]}")
     return found
 
 
@@ -112,7 +115,7 @@ def test_no_removed_integration_names_in_tracked_files() -> None:
 
 @pytest.mark.criterion("REQ-OPS-005")
 def test_the_scan_flags_a_revision_that_names_a_removed_integration() -> None:
-    """Validates Alembic revision f4b6d8a0c2e3: a scan of it reports the names in it."""
+    """Validates ``_findings``: it reports the names a history revision holds."""
     revision = (
         "packages/portopt-db/alembic/versions/"
         "f4b6d8a0c2e3_add_is_t212_tradeable_to_instruments.py"
@@ -125,10 +128,30 @@ def test_the_scan_flags_a_revision_that_names_a_removed_integration() -> None:
 
 
 @pytest.mark.criterion("REQ-OPS-005")
-def test_every_allowed_file_is_tracked_and_every_prefix_has_files() -> None:
-    """Validates the allowlisted files, CHANGELOG.md among them: none is stale."""
+def test_no_allowlist_entry_is_stale() -> None:
+    """Validates ``_ALLOWED_FILES`` and ``_ALLOWED_PREFIXES``: no entry is stale.
+
+    An entry that is no longer tracked, or that no longer names a removed
+    integration, exempts nothing and should be deleted.
+    """
     tracked = set(_tracked_files())
 
     assert sorted(set(_ALLOWED_FILES) - tracked) == []
+    assert sorted(name for name in _ALLOWED_FILES if not _findings(name)) == []
     for prefix in _ALLOWED_PREFIXES:
-        assert any(name.startswith(prefix) for name in tracked), prefix
+        under_prefix = [name for name in tracked if name.startswith(prefix)]
+        assert any(_findings(name) for name in under_prefix), prefix
+
+
+@pytest.mark.criterion("REQ-OPS-005")
+def test_guard_does_not_allow_production_paths() -> None:
+    """Validates ``_is_allowed``: production code is never exempt from the scan."""
+    production_paths = (
+        "packages/portopt-db/src/portopt_db/ports.py",
+        "packages/portopt-db/alembic/env.py",
+        "fund/src/fund/schemas/mandate.py",
+        "ingestion/app/config.py",
+    )
+
+    assert [name for name in production_paths if _is_allowed(name)] == []
+    assert _is_allowed("CHANGELOG.md")

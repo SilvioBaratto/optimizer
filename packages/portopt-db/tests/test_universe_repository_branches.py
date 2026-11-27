@@ -68,6 +68,20 @@ class TestSaveExchange:
 
         assert ex1.id == ex2.id
 
+    @pytest.mark.criterion("REQ-DB-008")
+    def test_save_exchange_called_twice_leaves_one_row_with_a_stable_id(
+        self, db_session
+    ):
+        """Validates ``UniverseRepository.save_exchange``: a repeat keeps one row and id."""
+        repo = _repo(db_session)
+        first = repo.save_exchange({"name": "XETRA"})
+        first_id = first.id
+
+        again = repo.save_exchange({"name": "XETRA"})
+
+        assert repo.get_exchange_count() == 1
+        assert again.id == first_id
+
 
 class TestGetExchangeByName:
     """``get_exchange_by_name`` is a pure read that never creates or edits a row."""
