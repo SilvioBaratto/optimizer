@@ -450,7 +450,7 @@ cd ingestion && uv run pytest tests/
 
 # Shared DB layer (portopt-db)
 cd packages/portopt-db && uv run pytest
-cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # head: 2266e24c509f
+cd packages/portopt-db && DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db alembic upgrade head   # head: 8ed6504aee6a
 
 # Fund bridge (portopt-fund)
 cd fund && uv run pytest tests/

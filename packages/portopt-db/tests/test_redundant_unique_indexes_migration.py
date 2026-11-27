@@ -22,9 +22,15 @@ from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import (
     Column,
+    Date,
+    Float,
     Index,
+    MetaData,
     PrimaryKeyConstraint,
+    String,
+    Table,
     UniqueConstraint,
+    Uuid,
     create_engine,
     inspect,
     text,
@@ -99,6 +105,49 @@ REDUNDANT = [
 ]
 _IDS = [row[0] for row in REDUNDANT]
 
+# The first three tables lost their models when a later revision dropped them, so
+# the shape the older chain gave them (just the columns the unique keys cover) is
+# declared here and stands in for ``Base.metadata`` when the tests build them.
+_DROPPED_MODEL_TABLES = MetaData()
+Table(
+    "trading_economics_observations",
+    _DROPPED_MODEL_TABLES,
+    Column("id", Uuid, primary_key=True),
+    Column("country", String(100), nullable=False),
+    Column("indicator_key", String(100), nullable=False),
+    Column("date", Date, nullable=False),
+    Column("value", Float),
+    UniqueConstraint(
+        "country", "indicator_key", "date", name="uq_te_obs_country_key_date"
+    ),
+)
+Table(
+    "bond_yield_observations",
+    _DROPPED_MODEL_TABLES,
+    Column("id", Uuid, primary_key=True),
+    Column("country", String(100), nullable=False),
+    Column("maturity", String(10), nullable=False),
+    Column("date", Date, nullable=False),
+    Column("yield_value", Float),
+    UniqueConstraint(
+        "country", "maturity", "date", name="uq_bond_obs_country_mat_date"
+    ),
+)
+Table(
+    "economic_indicators",
+    _DROPPED_MODEL_TABLES,
+    Column("id", Uuid, primary_key=True),
+    Column("country", String(100), nullable=False),
+    UniqueConstraint("country", name="uq_economic_indicator_country"),
+)
+
+
+def _table(name: str) -> Table:
+    """The table as the tests build it: from the models, else the declared stand-in."""
+    if name in Base.metadata.tables:
+        return Base.metadata.tables[name]
+    return _DROPPED_MODEL_TABLES.tables[name]
+
 
 def _load_migration() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
@@ -137,7 +186,7 @@ def _legacy_engine():
     """
     engine = _sqlite_engine()
     for table, index, columns, _ in REDUNDANT:
-        Base.metadata.tables[table].create(engine)
+        _table(table).create(engine)
         with engine.begin() as conn:
             conn.execute(
                 text(
@@ -215,7 +264,7 @@ def test_upgrade_is_idempotent_on_databases_without_the_plain_indexes() -> None:
     """A database built from current metadata has nothing to drop."""
     engine = _sqlite_engine()
     for table, *_ in REDUNDANT:
-        Base.metadata.tables[table].create(engine)
+        _table(table).create(engine)
 
     _run(engine, "upgrade")
 

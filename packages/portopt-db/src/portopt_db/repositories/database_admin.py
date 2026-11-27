@@ -17,9 +17,6 @@ from portopt_db.repository import RepositoryBase
 logger = logging.getLogger(__name__)
 
 APP_TABLES: list[str] = [
-    "economic_indicators",
-    "trading_economics_indicators",
-    "bond_yields",
     "exchanges",
     "instruments",
     "ticker_profiles",

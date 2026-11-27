@@ -16,20 +16,25 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import uuid
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
-
-from portopt_db.models.macro.macro_regime import (
-    TradingEconomicsIndicator,
-    TradingEconomicsObservation,
+from sqlalchemy import (
+    Column,
+    Date,
+    Engine,
+    Float,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    select,
 )
+from sqlalchemy.pool import StaticPool
 
 MIGRATION_FILENAME = "a5ac0fa9b0ec_purge_non_comparable_te_rows.py"
 MIGRATION_DIR = Path(__file__).parent / ".." / "alembic" / "versions"
@@ -39,6 +44,32 @@ EXPECTED_REVISION = "a5ac0fa9b0ec"
 EXPECTED_DOWN_REVISION = "d8f0b2c4e6a1"
 
 _DAY = dt.date(2026, 10, 1)
+
+# The two tables as they stood when the revision ran. The models that mapped them
+# are gone, so the columns the revision reads and the rows these tests write are
+# declared here.
+_METADATA = MetaData()
+_INDICATORS = Table(
+    "trading_economics_indicators",
+    _METADATA,
+    Column("id", String(32), primary_key=True, default=lambda: uuid.uuid4().hex),
+    Column("country", String(100), nullable=False),
+    Column("indicator_key", String(100), nullable=False),
+    Column("value", Float),
+    Column("previous", Float),
+    Column("unit", String(50)),
+)
+_OBSERVATIONS = Table(
+    "trading_economics_observations",
+    _METADATA,
+    Column("id", String(32), primary_key=True, default=lambda: uuid.uuid4().hex),
+    Column("country", String(100), nullable=False),
+    Column("indicator_key", String(100), nullable=False),
+    Column("date", Date, nullable=False),
+    Column("value", Float),
+)
+
+_Row = tuple[Table, dict[str, object]]
 
 
 def _load_migration() -> ModuleType:
@@ -68,49 +99,47 @@ def engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    TradingEconomicsIndicator.__table__.create(eng)
-    TradingEconomicsObservation.__table__.create(eng)
+    _METADATA.create_all(eng)
     return eng
 
 
-def _snapshot(country: str, key: str, unit: str | None) -> TradingEconomicsIndicator:
-    return TradingEconomicsIndicator(
-        country=country, indicator_key=key, value=1.0, previous=0.5, unit=unit
-    )
+def _snapshot(country: str, key: str, unit: str | None) -> _Row:
+    return _INDICATORS, {
+        "country": country,
+        "indicator_key": key,
+        "value": 1.0,
+        "previous": 0.5,
+        "unit": unit,
+    }
 
 
-def _observation(country: str, key: str) -> TradingEconomicsObservation:
-    return TradingEconomicsObservation(
-        country=country, indicator_key=key, date=_DAY, value=1.0
-    )
+def _observation(country: str, key: str) -> _Row:
+    return _OBSERVATIONS, {
+        "country": country,
+        "indicator_key": key,
+        "date": _DAY,
+        "value": 1.0,
+    }
 
 
-def _snapshot_pairs(engine) -> set[tuple[str, str]]:
-    with Session(engine) as session:
-        rows = session.execute(
-            select(
-                TradingEconomicsIndicator.country,
-                TradingEconomicsIndicator.indicator_key,
-            )
-        ).all()
+def _pairs(engine: Engine, table: Table) -> set[tuple[str, str]]:
+    with engine.connect() as conn:
+        rows = conn.execute(select(table.c.country, table.c.indicator_key)).all()
     return {(country, key) for country, key in rows}
 
 
-def _observation_pairs(engine) -> set[tuple[str, str]]:
-    with Session(engine) as session:
-        rows = session.execute(
-            select(
-                TradingEconomicsObservation.country,
-                TradingEconomicsObservation.indicator_key,
-            )
-        ).all()
-    return {(country, key) for country, key in rows}
+def _snapshot_pairs(engine: Engine) -> set[tuple[str, str]]:
+    return _pairs(engine, _INDICATORS)
 
 
-def _seed(engine, *rows) -> None:
-    with Session(engine) as session:
-        session.add_all(rows)
-        session.commit()
+def _observation_pairs(engine: Engine) -> set[tuple[str, str]]:
+    return _pairs(engine, _OBSERVATIONS)
+
+
+def _seed(engine: Engine, *rows: _Row) -> None:
+    with engine.begin() as conn:
+        for table, values in rows:
+            conn.execute(table.insert().values(**values))
 
 
 def test_module_is_importable() -> None:

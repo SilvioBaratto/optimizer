@@ -3,7 +3,8 @@
 The Trading 212 broker integration was taken out of the code, the configuration and
 the database, the ISIN lookup that scraped a third-party news site through yfinance
 was taken out of the ingestion, and so were the two macro web scrapers (a financial
-newspaper's forecast page and an economics data site). A name that survives in a
+newspaper's forecast page and an economics data site) together with the six tables
+they filled. A name that survives in a
 comment, a doc or a column definition says the integration still exists, and the
 first new reference to it is the start of growing it back. The scan covers every
 tracked file, its path and its content, so an untracked ``.venv``, ``design/`` or
@@ -49,13 +50,6 @@ _REMOVED_INTEGRATION_PATTERN = re.compile(
 # Longest stretch of an offending line shown in a failure message.
 _EXCERPT_CHARS = 100
 
-# The six macro tables the two scrapers filled stay in the schema until a later
-# change drops them. Until then the models, the repository and the tests built on
-# them still carry the scrapers' names. Entries with this reason go when that change
-# deletes their files; the entries for the tests of historical revisions stay, because
-# those revisions are never edited.
-_MACRO_TABLES_DROPPED_LATER = "belongs to the macro tables a later change drops"
-_DB_SRC = "packages/portopt-db/src/portopt_db/"
 _DB_TESTS = "packages/portopt-db/tests/"
 
 # Tracked files that may name a removed integration, each with the reason.
@@ -85,26 +79,9 @@ _ALLOWED_FILES = {
         "regression test that the removed scrapers' breakers and settings do not "
         "come back"
     ),
-    f"{_DB_SRC}models/__init__.py": (
-        f"re-exports a macro model: {_MACRO_TABLES_DROPPED_LATER}"
-    ),
-    f"{_DB_SRC}models/macro/__init__.py": (
-        f"re-exports the macro models: {_MACRO_TABLES_DROPPED_LATER}"
-    ),
-    f"{_DB_SRC}models/macro/macro_regime.py": (
-        f"defines the macro models: {_MACRO_TABLES_DROPPED_LATER}"
-    ),
-    f"{_DB_SRC}repositories/macro/macro_regime_repository.py": (
-        f"reads and writes the macro tables: {_MACRO_TABLES_DROPPED_LATER}"
-    ),
-    f"{_DB_SRC}repositories/database_admin.py": (
-        f"lists the macro tables it truncates: {_MACRO_TABLES_DROPPED_LATER}"
-    ),
-    f"{_DB_TESTS}test_macro_regime_repository_branches.py": (
-        f"tests the macro repository: {_MACRO_TABLES_DROPPED_LATER}"
-    ),
-    f"{_DB_TESTS}test_upsert_updated_at.py": (
-        f"tests the macro observation upsert: {_MACRO_TABLES_DROPPED_LATER}"
+    f"{_DB_TESTS}test_drop_macro_scraper_tables_migration.py": (
+        "tests the revision that drops the six macro scraper tables, so it must "
+        "name them"
     ),
     f"{_DB_TESTS}test_purge_non_comparable_te_rows_migration.py": (
         "tests the historical revision that purged non-comparable rows from the "
@@ -260,11 +237,13 @@ def test_no_allowlist_entry_is_stale() -> None:
 
 @pytest.mark.criterion("REQ-OPS-005")
 def test_guard_does_not_allow_production_paths() -> None:
-    """Validates ``_is_allowed``: ingestion and fund code is never exempt from the
-    scan; the macro database layer is exempt only until the change that drops its
-    tables."""
+    """Validates ``_is_allowed``: no production path is exempt from the scan."""
+    db_src = "packages/portopt-db/src/portopt_db/"
     production_paths = (
-        "packages/portopt-db/src/portopt_db/ports.py",
+        f"{db_src}ports.py",
+        f"{db_src}models/macro/macro_regime.py",
+        f"{db_src}repositories/macro/macro_regime_repository.py",
+        f"{db_src}repositories/database_admin.py",
         "packages/portopt-db/alembic/env.py",
         "fund/src/fund/schemas/mandate.py",
         "ingestion/app/config.py",

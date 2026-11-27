@@ -11,13 +11,7 @@ from portopt_db.models.agent.human_audit_log import HumanAuditLog
 from portopt_db.models.agent.mifid_profile import MifidProfile
 from portopt_db.models.agent.portfolio_mandate import PortfolioMandate
 from portopt_db.models.jobs.background_job import BackgroundJob, BackgroundJobError
-from portopt_db.models.macro.macro_regime import (
-    BondYield,
-    EconomicIndicator,
-    MacroNews,
-    MacroNewsTheme,
-    TradingEconomicsIndicator,
-)
+from portopt_db.models.macro.macro_regime import MacroNews, MacroNewsTheme
 from portopt_db.models.market_data.calendars import (
     EarningsCalendar,
     EconomicEventCalendar,
@@ -67,7 +61,6 @@ __all__ = [
     "BackgroundJobError",
     "Base",
     "BaseModel",
-    "BondYield",
     "Dividend",
     "ETFAssetClass",
     "ETFHolding",
@@ -75,7 +68,6 @@ __all__ = [
     "ETFSectorWeight",
     "EarningsCalendar",
     "EconomicEventCalendar",
-    "EconomicIndicator",
     "Exchange",
     "FinancialStatement",
     "FundAutonomyState",
@@ -106,6 +98,5 @@ __all__ = [
     "TickerNews",
     "TickerProfile",
     "TimestampMixin",
-    "TradingEconomicsIndicator",
     "UUIDPrimaryKeyMixin",
 ]

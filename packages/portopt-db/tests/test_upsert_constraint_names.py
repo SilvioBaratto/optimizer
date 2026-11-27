@@ -11,14 +11,14 @@ from dataclasses import replace
 import pytest
 from _upsert_sites import collect_upsert_sites, constraint_problems
 
-_KNOWN_SITE_COUNT = 37
+_KNOWN_SITE_COUNT = 31
 
 
 @pytest.mark.criterion("REQ-DB-001")
 def test_scan_finds_every_known_upsert_site() -> None:
     """The count pins the scan itself: a refactor that hides sites must fail here.
 
-    Thirty-eight source lines mention ``constraint_name=``; one of them is the
+    Thirty-two source lines mention ``constraint_name=``; one of them is the
     wrapper ``_upsert_estimates`` forwarding its parameter, which is not a site.
     """
     assert len(collect_upsert_sites()) == _KNOWN_SITE_COUNT

@@ -9,17 +9,30 @@ This avoids reliance on sub-second timing precision in SQLite.
 """
 
 import datetime
+import uuid
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from portopt_db.models.macro.macro_regime import (
-    EconomicIndicator,
-    TradingEconomicsObservation,
-)
+from portopt_db.models.macro.macro_regime import FredObservation, MacroNews
 from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
 _PAST = datetime.datetime(2000, 1, 1, 0, 0, 0)
+_NEWS_ID = "UPDATED_AT_NEWS"
+_FRED_SERIES = "UPDATED_AT_FRED"
+
+
+def _news_row(title: str) -> dict:
+    return {
+        "id": uuid.uuid4(),
+        "news_id": _NEWS_ID,
+        "title": title,
+        "full_content": "body",
+    }
+
+
+def _fred_observations(obs_date: datetime.date, value: float) -> list[dict]:
+    return [{"date": obs_date, "value": value}]
 
 
 class TestUpsertUpdatedAtStamping:
@@ -28,43 +41,32 @@ class TestUpsertUpdatedAtStamping:
     def test_updated_at_advances_after_conflict_fallback_path(
         self, db_session: Session
     ) -> None:
-        """upsert_economic_indicator uses update_columns=None (fallback dict-scan).
-        On conflict, updated_at must advance."""
+        """upsert_macro_news uses update_columns=None (fallback dict-scan) for an
+        article that carries a body. On conflict, updated_at must advance."""
         repo = MacroRegimeRepository(db_session)
-        data_v1 = {
-            "last_inflation": 2.1,
-            "inflation_6m": None,
-            "inflation_10y_avg": None,
-            "gdp_growth_6m": None,
-            "earnings_12m": None,
-            "eps_expected_12m": None,
-            "peg_ratio": None,
-            "lt_rate_forecast": None,
-            "reference_date": None,
-        }
-        repo.upsert_economic_indicator("USA_311_B", data_v1)
+        repo.upsert_macro_news([_news_row("first headline")])
         db_session.flush()
 
         row = db_session.execute(
-            select(EconomicIndicator).where(EconomicIndicator.country == "USA_311_B")
+            select(MacroNews).where(MacroNews.news_id == _NEWS_ID)
         ).scalar_one()
         created_at = row.created_at
 
         db_session.execute(
-            text("UPDATE economic_indicators SET updated_at = :ts WHERE country = :c"),
-            {"ts": _PAST, "c": "USA_311_B"},
+            text("UPDATE macro_news SET updated_at = :ts WHERE news_id = :n"),
+            {"ts": _PAST, "n": _NEWS_ID},
         )
         db_session.flush()
         db_session.expire(row)
 
-        repo.upsert_economic_indicator("USA_311_B", {**data_v1, "last_inflation": 3.5})
+        repo.upsert_macro_news([_news_row("revised headline")])
         db_session.flush()
         db_session.expire(row)
 
         row = db_session.execute(
-            select(EconomicIndicator).where(EconomicIndicator.country == "USA_311_B")
+            select(MacroNews).where(MacroNews.news_id == _NEWS_ID)
         ).scalar_one()
-        assert row.last_inflation == 3.5
+        assert row.title == "revised headline"
         assert row.created_at == created_at, "created_at must never change on conflict"
         assert row.updated_at > _PAST, "updated_at must advance on conflict"
 
@@ -72,42 +74,38 @@ class TestUpsertUpdatedAtStamping:
         self, db_session: Session
     ) -> None:
         """Callers with an explicit update_columns list that lacks 'updated_at'
-        (e.g. upsert_te_observations) must still get updated_at refreshed when a
+        (e.g. upsert_fred_observations) must still get updated_at refreshed when a
         revised value overwrites the row; Core ON CONFLICT never fires onupdate."""
         repo = MacroRegimeRepository(db_session)
         obs_date = datetime.date(2026, 3, 15)
-        repo.upsert_te_observations(
-            "USA_311_TE", obs_date, {"GDP_GROWTH": {"value": 2.0}}
-        )
+        repo.upsert_fred_observations(_FRED_SERIES, _fred_observations(obs_date, 2.0))
         db_session.flush()
 
         row = db_session.execute(
-            select(TradingEconomicsObservation).where(
-                TradingEconomicsObservation.country == "USA_311_TE",
-                TradingEconomicsObservation.date == obs_date,
+            select(FredObservation).where(
+                FredObservation.series_id == _FRED_SERIES,
+                FredObservation.date == obs_date,
             )
         ).scalar_one()
         created_at = row.created_at
 
         db_session.execute(
             text(
-                "UPDATE trading_economics_observations SET updated_at = :ts"
-                " WHERE country = :c AND date = :d AND indicator_key = :k"
+                "UPDATE fred_observations SET updated_at = :ts"
+                " WHERE series_id = :s AND date = :d"
             ),
-            {"ts": _PAST, "c": "USA_311_TE", "d": obs_date, "k": "GDP_GROWTH"},
+            {"ts": _PAST, "s": _FRED_SERIES, "d": obs_date},
         )
         db_session.flush()
 
-        repo.upsert_te_observations(
-            "USA_311_TE", obs_date, {"GDP_GROWTH": {"value": 3.0}}
-        )
+        repo.upsert_fred_observations(_FRED_SERIES, _fred_observations(obs_date, 3.0))
         db_session.flush()
         db_session.expire(row)
 
         row = db_session.execute(
-            select(TradingEconomicsObservation).where(
-                TradingEconomicsObservation.country == "USA_311_TE",
-                TradingEconomicsObservation.date == obs_date,
+            select(FredObservation).where(
+                FredObservation.series_id == _FRED_SERIES,
+                FredObservation.date == obs_date,
             )
         ).scalar_one()
         assert row.value == 3.0

@@ -17,7 +17,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from portopt_db.models import AgentDecision, AgentRun
-from portopt_db.models.macro.macro_regime import EconomicIndicator
+from portopt_db.models.macro.macro_regime import FredObservation
 from portopt_db.repositories.macro.macro_regime_repository import MacroRegimeRepository
 
 # Long enough to clear the sub-millisecond resolution of the SQLite stand-in
@@ -105,24 +105,18 @@ def test_upsert_conflict_stamp_is_later_than_the_original_insert(
     db_session: Session,
 ) -> None:
     repo = MacroRegimeRepository(db_session)
-    payload = {
-        "last_inflation": 2.1,
-        "inflation_6m": None,
-        "inflation_10y_avg": None,
-        "gdp_growth_6m": None,
-        "earnings_12m": None,
-        "eps_expected_12m": None,
-        "peg_ratio": None,
-        "lt_rate_forecast": None,
-        "reference_date": None,
-    }
-    repo.upsert_economic_indicator("CLOCK_TEST", payload)
+    observation_date = date(2026, 1, 2)
+    repo.upsert_fred_observations(
+        "CLOCK_TEST", [{"date": observation_date, "value": 2.1}]
+    )
     db_session.flush()
-    row = db_session.query(EconomicIndicator).filter_by(country="CLOCK_TEST").one()
+    row = db_session.query(FredObservation).filter_by(series_id="CLOCK_TEST").one()
     inserted_at = row.updated_at
     time.sleep(_TICK_SECONDS)
 
-    repo.upsert_economic_indicator("CLOCK_TEST", {**payload, "last_inflation": 3.5})
+    repo.upsert_fred_observations(
+        "CLOCK_TEST", [{"date": observation_date, "value": 3.5}]
+    )
     db_session.flush()
     db_session.expire(row)
 

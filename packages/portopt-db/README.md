@@ -106,7 +106,7 @@ cd packages/portopt-db && \
 
 ## Schema
 
-The schema has 68 tables. Most hang off `instruments`; the rest stand alone. The diagram
+The schema has 62 tables. Most hang off `instruments`; the rest stand alone. The diagram
 shows the foreign keys that exist, not every column.
 
 ```mermaid
@@ -127,5 +127,5 @@ erDiagram
 The other 28 per-instrument tables (holders, estimates, ETF holdings, options) reference
 `instruments` the same way as `price_history`: all 34 have `ON DELETE CASCADE`, so deleting
 an instrument deletes its rows in every one of them. These tables carry no foreign key: `human_audit_log` (append-only, protected by
-triggers), `pinned_instruments` (keyed by ticker text), and the macro tables keyed by
-country.
+triggers), `pinned_instruments` (keyed by ticker text), `fred_observations` (keyed by
+series id) and `macro_news` (keyed by its article id).

@@ -2,8 +2,8 @@
 produce every table, column, index and unique constraint the ORM declares.
 
 Anything only ``Base.metadata.create_all`` builds is missing from an
-Alembic-only database (a restore, CI, a new environment). ``bond_yields`` was
-one: no revision created it, so every bond-yield upsert raised
+Alembic-only database (a restore, CI, a new environment). A table once went
+without a creating revision that way: every upsert into it raised
 ``UndefinedTable`` until some process happened to run ``create_all``.
 
 The check replays the literal ``op.*`` calls of each revision's ``upgrade()``
@@ -31,7 +31,7 @@ from sqlalchemy import Column, Index, Integer, MetaData, Table, UniqueConstraint
 from portopt_db.models import Base
 
 _VERSIONS_DIR = Path(__file__).resolve().parents[1] / "alembic" / "versions"
-_BOND_YIELDS_REVISION = "f5a7c9e1b3d2"
+_PINNED_INSTRUMENTS_REVISION = "e3a5c7d9b1f4"
 
 _RENAME_INDEX = re.compile(
     r"\bALTER\s+INDEX\s+(\w+)\s+RENAME\s+TO\s+(\w+)", re.IGNORECASE
@@ -574,26 +574,26 @@ def test_revision_chain_builds_the_schema_the_orm_declares(
     assert drift == []
 
 
-def test_chain_without_the_bond_yields_revision_is_flagged(
+def test_chain_without_the_pinned_instruments_revision_is_flagged(
     chain_sources: list[str],
 ) -> None:
-    """The original defect: ``bond_yields`` created by no revision."""
+    """The original defect class: a mapped table created by no revision."""
     removed = next(
         source
         for source in chain_sources
-        if _parse_revision(source).revision == _BOND_YIELDS_REVISION
+        if _parse_revision(source).revision == _PINNED_INSTRUMENTS_REVISION
     )
     (parent,) = _parse_revision(removed).down
     # Later revisions chain on top of it; splice it out so they stay reachable.
     without = [
-        source.replace(f'"{_BOND_YIELDS_REVISION}"', f'"{parent}"')
+        source.replace(f'"{_PINNED_INSTRUMENTS_REVISION}"', f'"{parent}"')
         for source in chain_sources
         if source is not removed
     ]
 
     drift = _drift(Base.metadata.tables, _replay(without))
 
-    assert "bond_yields: table is not produced by the revision chain" in drift
+    assert "pinned_instruments: table is not produced by the revision chain" in drift
 
 
 def test_a_mapped_unique_constraint_the_chain_never_creates_is_flagged(
@@ -601,15 +601,15 @@ def test_a_mapped_unique_constraint_the_chain_never_creates_is_flagged(
 ) -> None:
     """Column and constraint drift is caught even when the table exists."""
     renamed = [
-        source.replace("uq_bond_yield_country_maturity", "uq_renamed")
+        source.replace("uq_pinned_instruments_ticker_source", "uq_renamed")
         for source in chain_sources
     ]
 
     drift = _drift(Base.metadata.tables, _replay(renamed))
 
     assert (
-        "bond_yields: unique constraint uq_bond_yield_country_maturity "
-        "is not produced by the revision chain"
+        "pinned_instruments: unique constraint "
+        "uq_pinned_instruments_ticker_source is not produced by the revision chain"
     ) in drift
 
 
@@ -621,7 +621,7 @@ def test_a_later_drop_of_a_mapped_table_column_or_index_is_flagged(
         "zz_dropper",
         _head_id(chain_sources),
         """
-        op.drop_table('bond_yields')
+        op.drop_table('pinned_instruments')
         op.drop_column('instruments', 'ticker')
         op.drop_index('ix_instruments_ticker', table_name='instruments')
         """,
@@ -629,7 +629,7 @@ def test_a_later_drop_of_a_mapped_table_column_or_index_is_flagged(
 
     drift = _drift(Base.metadata.tables, _replay([*chain_sources, dropper]))
 
-    assert "bond_yields: table is not produced by the revision chain" in drift
+    assert "pinned_instruments: table is not produced by the revision chain" in drift
     assert "instruments: column ticker is not produced by the revision chain" in drift
     assert (
         "instruments: index ix_instruments_ticker is not produced by the revision chain"
