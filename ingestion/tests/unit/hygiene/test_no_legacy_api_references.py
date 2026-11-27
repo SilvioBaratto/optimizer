@@ -20,10 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.hygiene._shared_scan import (
-    HISTORICAL_DESIGN_RECORDS,
-    _iter_git_tracked_relpaths,
-)
+from tests.unit.hygiene._shared_scan import _iter_git_tracked_relpaths
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SELF = Path(__file__).resolve()
@@ -89,8 +86,6 @@ def _iter_repo_files(root: Path) -> Iterator[str]:
         relpaths = _iter_all_relpaths(root)
     for rel in relpaths:
         if (root / rel).resolve() == _SELF:
-            continue
-        if rel in HISTORICAL_DESIGN_RECORDS:
             continue
         parts = Path(rel).parts
         if any(part in _EXCLUDE_DIR_PARTS for part in parts):

@@ -46,11 +46,6 @@ def test_contributing_releases_through_a_release_branch() -> None:
     assert "git push origin main" not in _CONTRIBUTING
 
 
-def test_contributing_points_at_the_decision_that_sets_the_policy() -> None:
-    """The branching and review rules live in ADR-0007; the guide links it."""
-    assert "docs/adr/0007-branching-review-and-secrets-policy.md" in _CONTRIBUTING
-
-
 def test_db_readme_documents_the_migration_process() -> None:
     """Rollback, validation, one-way revisions and the Postgres suite are documented."""
     for required in (

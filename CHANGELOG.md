@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Dependencies:** `wcmatch` 11.0.1 -> 12.0.4 (and its helper `bracex` 3.0.1 -> 3.2.4) in
+  `uv.lock`. `pip-audit --strict` reports CVE-2026-132276 for `wcmatch` 11.0.1, which the
+  `deepagents` dependency pulls in, so the `lint` job failed on every change to `main`.
+
+### Removed
+
+- **The `docs/` folder is no longer published.** The architecture and decision records
+  (`ARCHITECTURE.md`, `DECISIONS.md`, `SPEC-RECONCILIATION.md`, `VALIDATION.md`,
+  `WRITE-PATH-AUDIT.md`), the ADRs, `integrations.md`, `nfr.md`, `test-plan.md` and the
+  requirements registry `requirements.md` left version control. The maintainer keeps them in a
+  git-ignored local folder, and earlier commits still hold them. The operator knobs that
+  `integrations.md` listed with their defaults are defined in `ingestion/app/config.py` and
+  `fund/src/fund/config.py` and named in this file.
+- **The requirement-traceability gate**, which only worked with that registry: the
+  `Requirement traceability` step and its `traceability` artifact in the `lint` job,
+  `scripts/ci/traceability.py` (also the pytest plugin the four suites loaded with
+  `-p traceability`, together with their `pythonpath` entries for `scripts/ci`) and the
+  guard tests of the removed files (`tests/ci/test_traceability.py`,
+  `tests/test_adr_format.py`, `tests/test_integration_docs.py`,
+  `tests/test_nfr_and_test_plan_docs.py`). CI no longer fails a test that cites an unknown
+  `REQ-` id or a requirement with no test. The `criterion` and `defect` markers stay
+  registered, because tests use them, but they are now plain labels that nothing verifies.
+  CONTRIBUTING.md loses its "Test traceability" section and its two ADR links.
+
 ## [0.2.0] - 2026-11-18
 
 > **Upgrading from 0.1.0.**

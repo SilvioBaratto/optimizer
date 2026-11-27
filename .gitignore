@@ -173,8 +173,10 @@ frontend/.angular/
 ideas/
 
 # Local planning & task tracking
-# docs/ holds the tracked design record; only the agent plan scratch stays local.
+# The superpowers plugin writes its plan scratch to docs/superpowers/; keep it out of git.
 docs/superpowers/
+# Local design records (decisions, NFRs, test plan, integration notes): not published.
+design/
 todo/
 plan/
 /SPEC.md

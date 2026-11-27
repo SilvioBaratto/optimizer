@@ -171,14 +171,8 @@ _EXTRA_KNOBS = {"PORTOPT_SECRETS_DIR": "/run/secrets"}
 # the owner, who alone edits the env templates, lists them in the template. The
 # checks below fail once the template names one, so an entry cannot outlive its
 # reason.
-_DB_BREAKER_DOCS = (
-    _REPO_ROOT / "docs" / "adr" / "0008-database-circuit-breaker.md",
-    _REPO_ROOT / "CLAUDE.md",
-)
-_EXTERNAL_CALL_DOCS = (
-    _REPO_ROOT / "docs" / "integrations.md",
-    _REPO_ROOT / "CHANGELOG.md",
-)
+_DB_BREAKER_DOCS = (_REPO_ROOT / "CLAUDE.md",)
+_EXTERNAL_CALL_DOCS = (_REPO_ROOT / "CHANGELOG.md",)
 _DOCUMENTED_OUTSIDE_THE_TEMPLATE: dict[str, tuple[Path, ...]] = {
     "DATABASE_BREAKER_FAILURE_THRESHOLD": _DB_BREAKER_DOCS,
     "DATABASE_BREAKER_RESET_TIMEOUT_S": _DB_BREAKER_DOCS,
