@@ -537,9 +537,9 @@ def test_noninteractive_first_run_saves_only_new_secrets(patched: dict) -> None:
 def test_setup_ignores_legacy_trading_212_secrets(
     patched: dict, monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """Validates that a setup re-run over a store an older release filled with broker
-    keys completes and renders none of them, in app/setup/wizard.py and
-    app/setup/compose_secrets.py."""
+    """Validates ``app.setup.wizard.run_setup_noninteractive`` completes over a store
+    an older release filled with broker keys, and ``app.setup.compose_secrets.render``
+    renders none of them."""
     legacy_store = {
         "trading_212_api_key": "legacy-key",
         "trading_212_secret_key": "legacy-secret",

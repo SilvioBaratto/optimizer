@@ -1100,8 +1100,8 @@ class TestRunUniverseStep:
     def test_universe_build_runs_only_the_universe_step(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Validates that the weekly universe_build job runs the universe step and no
-        follow-on step, in app/services/jobs/scheduler.py::run_universe_build."""
+        """Validates ``app.services.jobs.scheduler.run_universe_build`` runs the
+        universe step and no follow-on step."""
         with (
             patch(f"{M}.run_universe_step", return_value=True) as step,
             patch(f"{M}._run_step") as run_step,
