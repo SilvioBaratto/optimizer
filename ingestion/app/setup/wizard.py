@@ -20,6 +20,7 @@ from app.setup import (
     llm_backend,
     path_install,
     secret_store,
+    terms,
     validators,
 )
 from app.setup.prompts import Prompter
@@ -29,7 +30,10 @@ _MSG_PASSPHRASE = "Master passphrase:"  # noqa: S105 - UI label, not a secret
 _MSG_PASSPHRASE_CONFIRM = "Confirm master passphrase:"  # noqa: S105 - UI label
 _MSG_FRED_KEY = "FRED API key (optional — paste it, or press Enter to skip):"
 _MSG_CONFIGURE_LLM = "Configure the fund LLM backend?"
-_MSG_LLM_PROVIDER = "LLM provider:"
+_MSG_LLM_PROVIDER = (
+    "Portfolio data you enter (holdings, constraints, questionnaire answers) is "
+    "sent to the provider you choose.\nLLM provider:"
+)
 _MSG_LLM_MODEL = "LLM model id (type - to clear a stored one):"
 _MSG_LLM_BASE_URL = (
     "LLM base URL (blank for the hosted default, type - to clear a stored one):"
@@ -502,21 +506,27 @@ def run_setup_noninteractive(
     skip_path_install: bool = False,
     skip_validation: bool = False,
     reconfigure: bool = False,
+    accept_yahoo_terms: bool = False,
 ) -> None:
     """Non-interactive setup from flags/env — fails loud, persists nothing on error.
 
     A re-run merges the given flags over the existing store/config (never wiping an
     untouched secret); ``skip_validation`` bypasses the live credential checks; CI
-    never auto-launches (that is an interactive-only, first-run step).
+    never auto-launches (that is an interactive-only, first-run step). Yahoo's terms
+    must be accepted with ``accept_yahoo_terms`` unless an earlier setup stored the
+    acknowledgement; otherwise ``terms.YahooTermsNotAcceptedError`` is raised before
+    Docker is touched.
     """
     if not passphrase:
-        raise SetupError("A master passphrase is required (set PORTOPT_PASSPHRASE).")
+        raise SetupError(secret_store.MASTER_PHRASE_REQUIRED_MESSAGE)
     if not secret_store.store_exists():
         _require_acceptable_passphrase(passphrase)
+    config = terms.acknowledge(
+        None, config_file.load_config(), accepted_flag=accept_yahoo_terms
+    )
     _preflight()
 
     secrets: dict[str, str] = {}
-    config: dict[str, object] = {}
     fred_key = _clean_secret(fred_key)
 
     if fred_key:
@@ -547,21 +557,25 @@ def run_setup_interactive(
     skip_validation: bool = False,
     reconfigure: bool = False,
     no_launch: bool = False,
+    accept_yahoo_terms: bool = False,
 ) -> None:
     """Interactive setup via the prompt seam; each credential validates before persist.
 
     A first run (no store/config) brings the stack up at the end unless ``no_launch``;
     a re-run never auto-launches and merges over the existing store/config, pre-filling
     the LLM prompts from what was persisted. ``skip_validation`` bypasses live checks.
+    Yahoo's terms are asked first, unless ``accept_yahoo_terms`` is set or an earlier
+    setup stored the acknowledgement; declining raises
+    ``terms.YahooTermsNotAcceptedError`` before Docker or any other prompt.
     """
+    existing = config_file.load_config()
+    config = terms.acknowledge(prompter, existing, accepted_flag=accept_yahoo_terms)
     _preflight()
     first_run = _is_first_run()
-    existing = config_file.load_config()
 
     pw = _resolve_interactive_passphrase(prompter, passphrase)
 
     secrets: dict[str, str] = {}
-    config: dict[str, object] = {}
 
     # Optional integrations: ask for the key directly, empty answer = skip. A y/N
     # gate here was paste-hostile — a key pasted at the confirm prompt jams it.

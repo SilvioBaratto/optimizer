@@ -255,7 +255,11 @@ jobs:
       # Boots both stacks the way `portopt start` does. The unit suites cannot see an
       # entrypoint that dies, a migration that fails on an empty database or a worker
       # that never answers its healthcheck; `up --wait` fails the job on any of them.
+      # The scheduler refuses to start until Yahoo's terms are acknowledged, and
+      # `portopt start` passes the acknowledgement setup stored in this same variable.
       - run: docker compose --profile ingestion --profile fund up -d --wait --wait-timeout 300
+        env:
+          YAHOO_TERMS_ACKNOWLEDGED: "1"
       - name: Container logs
         if: failure()
         run: docker compose --profile ingestion --profile fund logs --no-color

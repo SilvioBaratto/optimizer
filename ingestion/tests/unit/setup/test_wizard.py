@@ -7,6 +7,8 @@ guarantees: invalid keys fail loud with nothing persisted, and exported env
 credentials are auto-detected before prompting.
 """
 
+from collections.abc import Sequence
+
 import pytest
 
 from app.setup import compose_env, compose_secrets, config_file, secret_store, wizard
@@ -32,6 +34,8 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     Defaults model a first-run with an empty store: ``load_secrets`` raises
     NotFound (so the merge starts empty), ``load_config`` is empty, and
     ``_is_first_run`` is False so no auto-launch fires unless a test opts in.
+    Yahoo's terms count as already acknowledged, so neither entry point asks for
+    them or stages them; ``test_terms.py`` covers that gate.
     """
     calls: dict = {
         "saved_secrets": None,
@@ -74,6 +78,7 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict:
     )
     monkeypatch.setattr(wizard.config_file, "load_config", lambda **kw: {})
     monkeypatch.setattr(wizard, "_is_first_run", lambda: False)
+    monkeypatch.setattr(wizard.terms, "is_acknowledged", lambda stored: True)
     monkeypatch.setattr(
         wizard.lifecycle, "run_start", lambda pw: calls.update(launched=True)
     )
@@ -1738,3 +1743,43 @@ def test_noninteractive_fred_flag_is_stripped(
 
     assert seen == {"fred": ("fred",)}
     assert patched["saved_secrets"]["fred_api_key"] == "fred"
+
+
+_LLM_DATA_NOTICE = (
+    "Portfolio data you enter (holdings, constraints, questionnaire answers) is "
+    "sent to the provider you choose."
+)
+
+
+class _SelectRecordingPrompter(NonInteractivePrompter):
+    """Answer from presets and remember the message of every ``select`` question."""
+
+    def __init__(self, answers: dict) -> None:
+        super().__init__(answers)
+        self.select_messages: list[str] = []
+
+    def select(self, message: str, choices: Sequence[str]) -> str:
+        self.select_messages.append(message)
+        return super().select(message, choices)
+
+
+@pytest.mark.criterion("REQ-ING-029")
+def test_provider_prompt_says_where_portfolio_data_goes(patched: dict) -> None:
+    """Validates wizard._configure_llm_interactive and wizard._MSG_LLM_PROVIDER.
+
+    The question the operator answers to pick a provider carries the notice.
+    """
+    prompter = _SelectRecordingPrompter(
+        {
+            wizard._MSG_CONFIGURE_LLM: True,
+            wizard._MSG_LLM_PROVIDER: "openai",
+            wizard._MSG_LLM_MODEL: "gpt-4o",
+            wizard._MSG_LLM_BASE_URL: "",
+            wizard._MSG_LLM_KEY: "sk-openai",
+        }
+    )
+
+    wizard._configure_llm_interactive(prompter, {}, {}, reconfigure=True)
+
+    assert _LLM_DATA_NOTICE in wizard._MSG_LLM_PROVIDER
+    assert prompter.select_messages == [wizard._MSG_LLM_PROVIDER]

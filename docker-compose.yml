@@ -99,6 +99,10 @@ services:
       # METRICS_PORT set only in the shell (not in the root .env that env_file
       # loads) still moves the listener together with its mapping.
       METRICS_PORT: "${METRICS_PORT:-9000}"
+      # The daemon refuses to start until Yahoo's terms are acknowledged. `portopt
+      # start` passes the acknowledgement `portopt setup` stored; for a plain
+      # `docker compose up`, set it in the shell or the root .env.
+      YAHOO_TERMS_ACKNOWLEDGED: "${YAHOO_TERMS_ACKNOWLEDGED:-false}"
     # Secrets are mounted read-only at /run/secrets/<name>; app.config reads them
     # (see PORTOPT_SECRETS_DIR). `portopt start` renders ./secrets/<name> from the
     # encrypted store before `docker compose up`; the files are git-ignored.

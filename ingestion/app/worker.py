@@ -10,6 +10,10 @@ Boots the process that owns the scheduled data pipeline:
 4. Start APScheduler and block until SIGTERM / SIGINT, or until the scheduler
    thread dies (the process then exits non-zero so the container restarts).
 
+Before any of these it exits with status 2 unless Yahoo's terms are acknowledged
+(``YAHOO_TERMS_ACKNOWLEDGED``, which ``portopt setup`` records; see
+``app.setup.terms``).
+
 There is no HTTP API. Manual runs go through ``python -m app.cli``; job
 progress is readable from the ``background_jobs`` table and the logs.
 """
@@ -34,6 +38,7 @@ from prometheus_client import start_http_server
 from app.config import settings
 from app.database import close_db, database_manager, init_db
 from app.services.jobs.scheduler import SupervisedScheduler, create_scheduler
+from app.setup.terms import require_yahoo_terms
 from app.utils.log_redaction import install_secret_redaction
 
 logger = logging.getLogger(__name__)
@@ -64,6 +69,20 @@ class _JsonFormatter(logging.Formatter):
         if record.stack_info:
             payload["stack"] = self.formatStack(record.stack_info)
         return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _configure_logging_and_require_terms() -> None:
+    """Configure logging, then stop the daemon unless Yahoo's terms are acknowledged.
+
+    The check runs right after logging, so its refusal reaches the configured
+    handler, and before anything serves metrics, opens the database or calls Yahoo.
+
+    Raises:
+        SystemExit: Yahoo's terms are not acknowledged
+            (:func:`app.setup.terms.require_yahoo_terms`, exit status 2).
+    """
+    _configure_logging()
+    require_yahoo_terms(settings)
 
 
 def _configure_logging() -> None:
@@ -215,7 +234,7 @@ def _drain_and_shutdown(scheduler: object, drain_timeout_seconds: int) -> bool:
 
 def main() -> None:
     """Run the ingestion daemon until a shutdown signal arrives."""
-    _configure_logging()
+    _configure_logging_and_require_terms()
     logger.info(
         "Starting %s (environment=%s)", settings.project_name, settings.environment
     )

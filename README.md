@@ -29,9 +29,11 @@
   run a local model. Do not enter data you are not willing to share.
 - **Third-party data.** Market data comes from third parties (Yahoo Finance through the
   unofficial yfinance library, FRED). You, not the project, are the party to their
-  terms; use is limited to personal, non-commercial research. The project is not
-  affiliated with, endorsed by or sponsored by Yahoo or any data provider. Do not
-  redistribute data this software downloads.
+  terms; use is limited to personal, non-commercial research. `portopt setup` shows
+  Yahoo's terms and asks you to acknowledge them (`--accept-yahoo-terms` in a
+  non-interactive setup), and the ingestion daemon will not start without that
+  acknowledgement. The project is not affiliated with, endorsed by or sponsored by
+  Yahoo or any data provider. Do not redistribute data this software downloads.
 - **Licence.** Source-available under PolyForm Noncommercial 1.0.0 (not an OSI-approved
   licence). No warranty and no liability, to the extent the law allows. No hosted
   service, no fees, no individual support.
@@ -203,11 +205,18 @@ uv tool install "git+https://github.com/SilvioBaratto/optimizer.git@development#
 OPTIMIZER_REPO=/path/to/optimizer portopt setup
 ```
 
-**`portopt setup`** verifies Docker + the compose plugin, validates your
+**`portopt setup`** first shows Yahoo's terms and asks you to acknowledge them
+(declining stops it before any key or setting is stored; a `--non-interactive`
+setup needs `--accept-yahoo-terms` or `PORTOPT_ACCEPT_YAHOO_TERMS=1`, and a re-run
+does not ask again). It then verifies Docker + the compose plugin, validates your
 FRED and LLM provider keys live, encrypts them (Fernet + scrypt) to
 `~/.portopt/secrets.enc` (mode `0600`, passphrase never persisted), brings up
 PostgreSQL (`docker compose up -d --wait db`), and applies the Alembic migrations.
-It seeds no data. Re-run any time with `portopt setup`.
+It seeds no data. Re-run any time with `portopt setup`. The acknowledgement is kept
+in `~/.portopt/config.toml`, and `portopt start` hands it to the scheduler as
+`YAHOO_TERMS_ACKNOWLEDGED`: the ingestion daemon refuses to start (exit status 2)
+without it. The LLM provider prompt says where your portfolio data goes: to the
+provider you choose.
 
 Lifecycle:
 
@@ -249,6 +258,7 @@ because already-fresh data is skipped.
 git clone https://github.com/SilvioBaratto/optimizer
 cd optimizer
 uv sync --all-packages --all-extras     # one venv with every member + every extra
+export YAHOO_TERMS_ACKNOWLEDGED=true    # after reading Yahoo's terms; the scheduler needs it
 docker compose --profile ingestion up -d # PostgreSQL (54320) + Adminer (18081) + scheduler (metrics 9000)
 export DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db   # alembic reads only this variable, never .env
 cd packages/portopt-db && alembic upgrade head   # apply migrations (single owner)
@@ -296,8 +306,12 @@ Run the daemon (blocks; SIGTERM to stop) — normally via Docker Compose, but it
 can run in-process:
 
 ```bash
-uv run --package portopt python -m app.worker
+YAHOO_TERMS_ACKNOWLEDGED=true uv run --package portopt python -m app.worker
 ```
+
+It refuses to start (exit status 2) until Yahoo's terms are acknowledged: set the
+variable only once you have read them, or let `portopt setup` record it for
+`portopt start`.
 
 It schedules seven jobs with APScheduler in-process (a `SQLAlchemyJobStore`):
 

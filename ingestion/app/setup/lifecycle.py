@@ -10,8 +10,10 @@ daemon always, plus the fund engine when an LLM backend is configured.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from app.setup import (
     compose_env,
@@ -21,6 +23,7 @@ from app.setup import (
     llm_backend,
     path_install,
     secret_store,
+    terms,
 )
 
 FUND_SKIPPED_NOTICE = (
@@ -69,11 +72,15 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
         rebuild: Force an image rebuild before starting, so a start after a base
             image refresh does not reuse a stale layer. Images whose sources changed
             are rebuilt without it.
+
+    Raises:
+        LifecycleError: No passphrase was given, or neither config.toml nor the
+            environment acknowledges Yahoo's terms (checked before Docker is
+            touched or a secret decrypted).
     """
     if not passphrase:
-        raise LifecycleError(
-            "A master passphrase is required (set PORTOPT_PASSPHRASE)."
-        )
+        raise LifecycleError(secret_store.MASTER_PHRASE_REQUIRED_MESSAGE)
+    config = _load_config_requiring_terms()
     docker_bootstrap.ensure_docker()
     # Resolved before anything is decrypted: compose mounts <checkout>/secrets/*, so
     # plaintext rendered into the cwd would both miss the mounts and litter a random
@@ -85,8 +92,8 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     compose_secrets.render(secrets, secrets_dir=secrets_dir)
     # Containers never read config.toml — the fund's non-secret LLM selection
     # reaches it only through the generated .env.fund env_file (the compose
-    # `environment:` block omits these vars so nothing shadows the file).
-    config = config_file.load_config()
+    # `environment:` block omits these vars so nothing shadows the file), and the
+    # scheduler's terms acknowledgement through the environment of `up` below.
     compose_env.render(config, path=repo / compose_env.DEFAULT_ENV_FUND_PATH)
     _ensure_exports_dir(repo)
     # Every service is profile-gated (a bare `up` starts nothing). The ingestion
@@ -114,10 +121,30 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
         profiles=("fund", "ingestion") if fund_enabled else ("ingestion",),
         force_build=rebuild,
         repo=repo,
+        extra_env=compose_env.config_to_scheduler_env(config),
     )
     if not fund_enabled:
         print(FUND_SKIPPED_NOTICE)
         _stop_leftover_fund(repo)
+
+
+def _load_config_requiring_terms() -> dict[str, Any]:
+    """Load config.toml, refusing a start whose scheduler would exit at boot.
+
+    Returns:
+        The persisted config. The acknowledgement of Yahoo's terms is in it, or in
+        this process's environment, which compose reads by itself.
+
+    Raises:
+        LifecycleError: Neither the config nor the environment acknowledges the
+            terms. ``up --wait`` would otherwise fail with Docker's text, so the
+            start stops before anything is built, started or rendered and says what
+            to run.
+    """
+    config = config_file.load_config()
+    if terms.is_acknowledged(config) or terms.environment_acknowledges(os.environ):
+        return config
+    raise LifecycleError(terms.START_REFUSAL_MESSAGE)
 
 
 def _ensure_exports_dir(repo: Path) -> None:

@@ -28,6 +28,7 @@ import typer.main
 from typer.testing import CliRunner
 
 from app.cli import app
+from app.setup import terms
 
 runner = CliRunner()
 
@@ -264,6 +265,62 @@ class TestSetupCommand:
             result = runner.invoke(app, ["setup"])
         assert result.exit_code == 0
         mock_run.assert_called_once()
+
+    @pytest.mark.criterion("REQ-ING-026")
+    @pytest.mark.parametrize(
+        ("wizard_entry", "mode_flags"),
+        [
+            ("app.setup.wizard.run_setup_noninteractive", ["--non-interactive"]),
+            ("app.setup.wizard.run_setup_interactive", []),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("accept_args", "accept_env", "accepted"),
+        [
+            ([], {}, False),
+            ([terms.ACCEPT_FLAG], {}, True),
+            ([], {terms.ACCEPT_ENV_VAR: "1"}, True),
+        ],
+    )
+    def test_accept_yahoo_terms_reaches_the_wizard(
+        self,
+        wizard_entry: str,
+        mode_flags: list[str],
+        accept_args: list[str],
+        accept_env: dict[str, str],
+        accepted: bool,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Validates ``app.cli.setup``: the flag or its env var accepts the terms.
+
+        Neither given means the wizard still has to ask (or, non-interactively,
+        refuse).
+        """
+        monkeypatch.delenv(terms.ACCEPT_ENV_VAR, raising=False)
+        with (
+            patch(wizard_entry) as mock_run,
+            patch("app.setup.prompts.make_prompter"),
+        ):
+            result = runner.invoke(
+                app, ["setup", *mode_flags, *accept_args], env=accept_env
+            )
+        assert result.exit_code == 0
+        assert mock_run.call_args.kwargs["accept_yahoo_terms"] is accepted
+
+    @pytest.mark.criterion("REQ-ING-026")
+    def test_declined_yahoo_terms_exit_nonzero_with_the_reason(self) -> None:
+        """Validates ``app.cli.setup``: a refusal of the terms fails the command."""
+        with (
+            patch(
+                "app.setup.wizard.run_setup_interactive",
+                side_effect=terms.YahooTermsNotAcceptedError(terms.DECLINED_MESSAGE),
+            ),
+            patch("app.setup.prompts.make_prompter"),
+        ):
+            result = runner.invoke(app, ["setup"])
+        assert result.exit_code != 0
+        assert terms.DECLINED_MESSAGE in result.output
+        assert "Setup complete." not in result.output
 
     def test_docker_down_exits_nonzero(self) -> None:
         from app.setup.docker_bootstrap import DockerError

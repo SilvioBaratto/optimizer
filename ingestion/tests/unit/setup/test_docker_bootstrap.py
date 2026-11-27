@@ -17,6 +17,7 @@ import pytest
 
 from app.setup import ca_bundle
 from app.setup import docker_bootstrap as db
+from app.setup.terms import ACKNOWLEDGEMENT_ENV_VAR
 
 # unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -424,6 +425,36 @@ class TestBuildAndUp:
         up = next(c[0][0] for c in mock_run.call_args_list if "up" in c[0][0])
         assert up.count("--profile") == 2
         assert {"fund", "ingestion"} <= set(up)
+
+    @pytest.mark.criterion("REQ-ING-028")
+    @patch("app.setup.docker_bootstrap.warn_stale_versions", return_value=[])
+    @patch("app.setup.docker_bootstrap._image_source_hash", return_value=None)
+    @patch("app.setup.docker_bootstrap.subprocess.run")
+    def test_up_gets_the_callers_extra_env_and_build_does_not(
+        self,
+        mock_run: MagicMock,
+        _img: MagicMock,
+        _warn: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Validates ``docker_bootstrap.build_and_up``: ``extra_env`` reaches ``up``.
+
+        Compose interpolates it into the scheduler service; the build has no use
+        for it, so it stays out of that call.
+        """
+        monkeypatch.delenv(ACKNOWLEDGEMENT_ENV_VAR, raising=False)
+        mock_run.return_value = _cp(0)
+
+        db.build_and_up(
+            profiles=("ingestion",), extra_env={ACKNOWLEDGEMENT_ENV_VAR: "true"}
+        )
+
+        env_by_verb = {
+            "up" if "up" in call[0][0] else "build": call.kwargs["env"]
+            for call in mock_run.call_args_list
+        }
+        assert env_by_verb["up"][ACKNOWLEDGEMENT_ENV_VAR] == "true"
+        assert ACKNOWLEDGEMENT_ENV_VAR not in env_by_verb["build"]
 
 
 class TestDockerCallsAreBounded:

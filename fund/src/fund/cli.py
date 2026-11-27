@@ -404,7 +404,10 @@ def profile(
     base_currency: str | None = typer.Option(None, "--base-currency"),
     asof: str | None = typer.Option(None, "--asof", help="ISO date; default today."),
 ) -> None:
-    """Drive the MiFID profiler to its adviser-approval gate, then detach."""
+    """Drive the MiFID profiler to its adviser-approval gate, then detach.
+
+    The answers are sent to the configured LLM provider.
+    """
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
     questionnaire = _read_answers(answers, answers_file)

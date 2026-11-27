@@ -1430,3 +1430,11 @@ def test_a_fallback_that_cannot_be_built_does_not_block_the_command(
     _seed_and_run(harness, monkeypatch)
 
     assert seen["run"] is None
+
+
+@pytest.mark.criterion("REQ-ING-029")
+def test_profile_help_says_the_answers_go_to_the_llm_provider() -> None:
+    """Validates ``fund.cli.profile``: ``--help`` says where the answers are sent."""
+    result = CliRunner().invoke(cli.app, ["profile", "--help"])
+    help_text = " ".join(result.output.split())
+    assert "The answers are sent to the configured LLM provider." in help_text

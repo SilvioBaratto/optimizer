@@ -14,7 +14,21 @@ run from there.
 
 ## Run
 
+The daemon fetches its data from Yahoo Finance through yfinance, an unofficial client,
+and Yahoo's terms (https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html) restrict
+automated access and commercial use. `portopt setup` shows them and records your
+acknowledgement in `~/.portopt/config.toml` (non-interactively: `--accept-yahoo-terms`
+or `PORTOPT_ACCEPT_YAHOO_TERMS=1`), and `portopt start` passes it to the scheduler
+container as `YAHOO_TERMS_ACKNOWLEDGED` (it stops, naming `portopt setup`, when there is
+none). Without it the worker logs why and exits with status 2 before it serves metrics
+or starts the scheduler; in the container, the entrypoint has already waited for the
+database and applied the migrations by then. Run it any other way and you
+set `YAHOO_TERMS_ACKNOWLEDGED=true` yourself, once you have read the terms: in the shell
+or the root `.env` for `docker compose`, in the shell or `ingestion/.env` for a daemon
+run on the host. Manual `python -m app.cli` commands do not check it.
+
 ```bash
+export YAHOO_TERMS_ACKNOWLEDGED=true       # after reading Yahoo's terms
 docker compose --profile ingestion up -d   # db + adminer + scheduler
 docker compose logs -f scheduler
 ```
@@ -25,7 +39,7 @@ Locally (from the workspace root):
 uv sync --all-packages --all-extras
 export DATABASE_URL=postgresql://postgres:postgres@localhost:54320/optimizer_db   # alembic reads only this variable, never .env
 (cd packages/portopt-db && alembic upgrade head)   # migration owner
-uv run --package portopt python -m app.worker      # blocks until SIGTERM/SIGINT
+YAHOO_TERMS_ACKNOWLEDGED=true uv run --package portopt python -m app.worker   # blocks until SIGTERM/SIGINT
 ```
 
 ## Scheduled jobs
@@ -148,7 +162,7 @@ project's cutoff — **do not plan a scale-out on 4.x without re-validating this
 
 ```
 app/
-  worker.py        daemon entrypoint (metrics → init_db → reap orphans → bootstrap → scheduler)
+  worker.py        daemon entrypoint (terms check → metrics → init_db → reap orphans → bootstrap → scheduler)
   cli.py           manual runs (Typer)
   database.py      thin factory: builds DbConfig from settings → portopt_db.DatabaseManager
   services/

@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from app.setup import lifecycle, path_install
+from app.setup.terms import ACKNOWLEDGEMENT_CONFIG_KEY, ACKNOWLEDGEMENT_ENV_VAR
 
 # unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -64,6 +65,7 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         calls["build_profiles"] = kw.get("profiles")
         calls["force_build"] = kw.get("force_build")
         calls["build_repo"] = kw.get("repo")
+        calls["build_env"] = kw.get("extra_env")
         calls["compose"].append("up")
         return []
 
@@ -138,6 +140,73 @@ def test_run_start_renders_secrets_then_brings_up(patched: dict) -> None:
     lifecycle.run_start("pw")
     assert patched["rendered"] == {"fred_api_key": "fk"}
     assert patched["compose"] == ["up"]
+
+
+@pytest.mark.criterion("REQ-ING-028")
+def test_run_start_passes_the_stored_acknowledgement_to_the_scheduler(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Validates ``lifecycle.run_start``: config.toml's answer reaches ``up``.
+
+    The acknowledgement travels in the compose environment the scheduler service
+    interpolates; the shell has none here, so the stored one alone must do.
+    """
+    monkeypatch.delenv(ACKNOWLEDGEMENT_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        lifecycle.config_file,
+        "load_config",
+        lambda **kw: {ACKNOWLEDGEMENT_CONFIG_KEY: True},
+    )
+
+    lifecycle.run_start("pw")
+
+    assert patched["build_env"] == {ACKNOWLEDGEMENT_ENV_VAR: "true"}
+
+
+@pytest.mark.criterion("REQ-ING-030")
+def test_run_start_refuses_before_up_when_nothing_acknowledges_the_terms(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Validates ``lifecycle.run_start`` via ``lifecycle._load_config_requiring_terms``.
+
+    An upgraded install with no stored acknowledgement and none in the environment
+    would start a scheduler that exits at boot, and ``up --wait`` would fail with
+    Docker's text; the start stops first, touching neither Docker nor the secrets,
+    and names both ways out.
+    """
+    monkeypatch.delenv(ACKNOWLEDGEMENT_ENV_VAR, raising=False)
+    docker_calls: list[str] = []
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap,
+        "ensure_docker",
+        lambda: docker_calls.append("ensure_docker"),
+    )
+
+    with pytest.raises(lifecycle.LifecycleError) as refused:
+        lifecycle.run_start("pw")
+
+    assert "portopt setup" in str(refused.value)
+    assert f"{ACKNOWLEDGEMENT_ENV_VAR}=1" in str(refused.value)
+    assert docker_calls == []
+    assert patched["compose"] == []
+    assert patched["rendered"] is None
+
+
+@pytest.mark.criterion("REQ-ING-030")
+@pytest.mark.parametrize("exported", ["1", "true"])
+def test_run_start_accepts_an_exported_acknowledgement(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, exported: str
+) -> None:
+    """Validates ``lifecycle.run_start`` via ``lifecycle._load_config_requiring_terms``.
+
+    Compose reads the exported value by itself, so nothing is added to ``up``.
+    """
+    monkeypatch.setenv(ACKNOWLEDGEMENT_ENV_VAR, exported)
+
+    lifecycle.run_start("pw")
+
+    assert patched["compose"] == ["up"]
+    assert patched["build_env"] == {}
 
 
 def _rotate(
