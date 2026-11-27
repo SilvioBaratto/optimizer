@@ -493,7 +493,6 @@ class TestDailyPipelineWiring:
                 "app.services.market_data.yfinance.get_yfinance_client",
                 return_value=MagicMock(),
             ),
-            patch("app.schemas.macro.macro_regime.MacroFetchRequest", MagicMock()),
             patch("app.schemas.macro.macro_regime.MacroNewsFetchRequest", MagicMock()),
             patch(
                 "app.schemas.market_data.yfinance_data.YFinanceFetchRequest",

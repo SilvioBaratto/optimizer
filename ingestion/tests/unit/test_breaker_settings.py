@@ -3,7 +3,7 @@
 Covers the ``breaker_*``, ``*_request_attempts``, ``*_request_timeout_seconds`` and
 ``fred_retry_*`` fields of ``app.config.Settings``; ``build_breaker`` and the
 process-wide breakers in ``app.services.infrastructure.external_calls``; the
-scrapers reading those settings; ``timed_request``; the
+FRED client reading those settings; ``timed_request``; the
 ``external_breaker_open`` gauge and its binding in ``app.worker._serve_metrics``.
 """
 
@@ -26,32 +26,20 @@ from app.services.infrastructure.external_calls import (
     process_breaker,
     timed_request,
 )
-from app.services.macro.scrapers import (
-    fred_scraper,
-    ilsole_scraper,
-    tradingeconomics_scraper,
-)
+from app.services.macro.scrapers import fred_scraper
 
 _ATTEMPT_DEFAULTS = {
     "BREAKER_FRED_MAX_ATTEMPTS": 8,
-    "BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS": 5,
-    "BREAKER_ILSOLE_MAX_ATTEMPTS": 5,
     "BREAKER_YFINANCE_MAX_ATTEMPTS": 10,
     "FRED_REQUEST_ATTEMPTS": 5,
-    "TRADINGECONOMICS_REQUEST_ATTEMPTS": 3,
-    "ILSOLE_REQUEST_ATTEMPTS": 3,
 }
 _SECONDS_DEFAULTS = {
     "FRED_REQUEST_TIMEOUT_SECONDS": 30.0,
-    "TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS": 20.0,
-    "ILSOLE_REQUEST_TIMEOUT_SECONDS": 10.0,
     "FRED_RETRY_BASE_DELAY_SECONDS": 1.0,
     "FRED_RETRY_MAX_DELAY_SECONDS": 60.0,
 }
 _BREAKER_VARS = {
     ExternalService.FRED: "BREAKER_FRED_MAX_ATTEMPTS",
-    ExternalService.TRADING_ECONOMICS: "BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS",
-    ExternalService.IL_SOLE: "BREAKER_ILSOLE_MAX_ATTEMPTS",
 }
 
 
@@ -143,11 +131,7 @@ class TestBuildBreaker:
 
     @pytest.mark.parametrize(
         ("service", "name"),
-        [
-            (ExternalService.FRED, "FRED API"),
-            (ExternalService.TRADING_ECONOMICS, "Trading Economics"),
-            (ExternalService.IL_SOLE, "IlSole24Ore"),
-        ],
+        [(ExternalService.FRED, "FRED API")],
     )
     def test_each_breaker_keeps_its_service_name(
         self, service: ExternalService, name: str
@@ -155,14 +139,7 @@ class TestBuildBreaker:
         """The name in a refusal message is the one the scrapers used."""
         assert build_breaker(service).service_name == name
 
-    @pytest.mark.parametrize(
-        "service",
-        [
-            ExternalService.FRED,
-            ExternalService.TRADING_ECONOMICS,
-            ExternalService.IL_SOLE,
-        ],
-    )
+    @pytest.mark.parametrize("service", [ExternalService.FRED])
     def test_scraper_breakers_keep_the_shared_back_off_windows(
         self, service: ExternalService
     ) -> None:
@@ -179,15 +156,7 @@ class TestProcessBreakers:
 
     @pytest.mark.parametrize(
         ("module", "attribute", "service"),
-        [
-            (fred_scraper, "_fred_circuit_breaker", ExternalService.FRED),
-            (
-                tradingeconomics_scraper,
-                "_te_circuit_breaker",
-                ExternalService.TRADING_ECONOMICS,
-            ),
-            (ilsole_scraper, "_ilsole_circuit_breaker", ExternalService.IL_SOLE),
-        ],
+        [(fred_scraper, "_fred_circuit_breaker", ExternalService.FRED)],
     )
     def test_each_scraper_uses_the_process_breaker_of_its_source(
         self, module: object, attribute: str, service: ExternalService
@@ -231,52 +200,6 @@ class TestScrapersReadTheirSettings:
         """A caller that passes a timeout keeps it."""
         assert fred_scraper.FredScraper(api_key="test-key", timeout=4).timeout == 4
 
-    def test_trading_economics_timeout_and_attempts_on_every_page(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Indicators, bond yields and the country lists read one attempt setting."""
-        monkeypatch.setattr(settings, "tradingeconomics_request_timeout_seconds", 12.5)
-        monkeypatch.setattr(settings, "tradingeconomics_request_attempts", 2)
-        retry = MagicMock(return_value=None)
-        monkeypatch.setattr(tradingeconomics_scraper, "retry_with_backoff", retry)
-        scraper = tradingeconomics_scraper.TradingEconomicsIndicatorsScraper(
-            rate_limit_delay=0.0
-        )
-
-        scraper.get_country_indicators("USA", include_bonds=False)
-        scraper.get_bond_yields("USA")
-        scraper._fetch_page("https://tradingeconomics.com/country-list/x")
-
-        assert scraper.timeout == 12.5
-        assert [c.kwargs["max_retries"] for c in retry.call_args_list] == [2, 2, 2]
-
-    def test_il_sole_timeout_and_attempts(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Il Sole reads its timeout and attempts."""
-        monkeypatch.setattr(settings, "ilsole_request_timeout_seconds", 12.5)
-        monkeypatch.setattr(settings, "ilsole_request_attempts", 2)
-        retry = MagicMock(return_value=None)
-        monkeypatch.setattr(ilsole_scraper, "retry_with_backoff", retry)
-        scraper = ilsole_scraper.IlSoleScraper()
-
-        scraper._fetch_page("previsione-economica")
-
-        assert scraper.timeout == 12.5
-        assert retry.call_args.kwargs["max_retries"] == 2
-
-    def test_an_explicit_trading_economics_timeout_wins_over_the_setting(
-        self,
-    ) -> None:
-        """A caller that passes a timeout keeps it."""
-        scraper = tradingeconomics_scraper.TradingEconomicsIndicatorsScraper(timeout=4)
-
-        assert scraper.timeout == 4
-
-    def test_an_explicit_il_sole_timeout_wins_over_the_setting(self) -> None:
-        """A caller that passes a timeout keeps it."""
-        assert ilsole_scraper.IlSoleScraper(timeout=4).timeout == 4
-
     def test_the_yfinance_breaker_reads_its_setting(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -318,40 +241,6 @@ class TestScrapersTimeTheirRequests:
 
         assert _request_count("FRED API", "ok") == before + 1
 
-    def test_a_failed_trading_economics_request_is_timed_as_an_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A request that raises counts as ``error``."""
-        monkeypatch.setattr(
-            tradingeconomics_scraper, "_te_circuit_breaker", MagicMock()
-        )
-        monkeypatch.setattr(settings, "tradingeconomics_request_attempts", 1)
-        scraper = tradingeconomics_scraper.TradingEconomicsIndicatorsScraper(
-            rate_limit_delay=0.0
-        )
-        refused = requests.exceptions.ConnectionError("refused")
-        monkeypatch.setattr(scraper.session, "get", MagicMock(side_effect=refused))
-        before = _request_count("Trading Economics", "error")
-
-        assert scraper._fetch_page("https://tradingeconomics.com/x") is None
-
-        assert _request_count("Trading Economics", "error") == before + 1
-
-    def test_an_il_sole_request_is_timed_under_its_service(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """An answered Il Sole request counts as ``ok``."""
-        monkeypatch.setattr(ilsole_scraper, "_ilsole_circuit_breaker", MagicMock())
-        monkeypatch.setattr(ilsole_scraper, "_ilsole_rate_limiter", MagicMock())
-        scraper = ilsole_scraper.IlSoleScraper()
-        response = MagicMock(status_code=200, content=b"<html></html>")
-        monkeypatch.setattr(scraper.session, "get", MagicMock(return_value=response))
-        before = _request_count("IlSole24Ore", "ok")
-
-        scraper._fetch_page("previsione-economica")
-
-        assert _request_count("IlSole24Ore", "ok") == before + 1
-
 
 class TestTimedRequest:
     """``timed_request`` records one observation per block, labelled by outcome."""
@@ -372,19 +261,21 @@ class TestTimedRequest:
         """Validates ``app.services.infrastructure.external_calls.timed_request``
         records a raising block as an ``error`` request and lets the exception
         propagate."""
-        before = _request_count("Trading Economics", "error")
+        before = _request_count("FRED API", "error")
 
         with (
             pytest.raises(requests.exceptions.Timeout),
-            timed_request(ExternalService.TRADING_ECONOMICS),
+            timed_request(ExternalService.FRED),
         ):
             raise requests.exceptions.Timeout("read timed out")
 
-        assert _request_count("Trading Economics", "error") == before + 1
+        assert _request_count("FRED API", "error") == before + 1
 
+    @pytest.mark.criterion("REQ-ING-018")
     def test_the_duration_is_observed_in_seconds(self) -> None:
-        """The observation is the wall time the block took."""
-        labels = {"service": "IlSole24Ore", "outcome": "ok"}
+        """Validates ``app.services.infrastructure.external_calls.timed_request``
+        observes the wall time the block took, in seconds."""
+        labels = {"service": "FRED API", "outcome": "ok"}
         before = REGISTRY.get_sample_value("external_request_seconds_sum", labels)
 
         with (
@@ -392,7 +283,7 @@ class TestTimedRequest:
                 "app.services.infrastructure.external_calls.time.perf_counter",
                 side_effect=[10.0, 12.5],
             ),
-            timed_request(ExternalService.IL_SOLE),
+            timed_request(ExternalService.FRED),
         ):
             pass
 

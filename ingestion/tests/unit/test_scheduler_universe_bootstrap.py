@@ -23,7 +23,7 @@ from tests._fixtures._helpers import add_and_flush
 M = "app.services.jobs.scheduler"
 
 _BOOTSTRAP_NOTICE = "first run builds the universe"
-_FULL_ORDER = ["universe", "fx", "yfinance", "macro", "fred", "news", "daily_events"]
+_FULL_ORDER = ["universe", "fx", "yfinance", "fred", "news", "daily_events"]
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +68,6 @@ def _run_pipeline(
             "run_yfinance_step",
             side_effect=_step("yfinance", yfinance_result),
         ),
-        patch.object(scheduler, "run_macro_step", side_effect=_step("macro")),
         patch.object(scheduler, "run_fred_step", side_effect=_step("fred")),
         patch.object(scheduler, "run_news_step", side_effect=_step("news")),
         patch.object(
@@ -129,7 +128,6 @@ class TestEmptyUniverseBootstrap:
             patch.object(scheduler, "run_universe_step", return_value=True),
             patch.object(scheduler, "run_fx_step"),
             patch.object(scheduler, "run_yfinance_step", side_effect=_yfinance),
-            patch.object(scheduler, "run_macro_step"),
             patch.object(scheduler, "run_fred_step"),
             patch.object(scheduler, "run_news_step"),
             patch.object(scheduler, "run_daily_events_step"),
@@ -266,7 +264,6 @@ class TestCliDailyBootstraps:
             patch(f"{M}.run_universe_step", return_value=True) as universe,
             patch(f"{M}.run_fx_step"),
             patch(f"{M}.run_yfinance_step", return_value=True),
-            patch(f"{M}.run_macro_step"),
             patch(f"{M}.run_fred_step"),
             patch(f"{M}.run_news_step"),
             patch(f"{M}.run_daily_events_step"),

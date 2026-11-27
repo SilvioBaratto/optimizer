@@ -362,6 +362,25 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   hold. **Upgrading**: nothing is needed; an instrument that never had an ISIN stays
   without one until you set it. `tests/test_removed_integrations.py` now also rejects the
   site's name in a tracked file.
+- **ingestion**: the Il Sole 24 Ore and Trading Economics macro scrapers. Gone are the two
+  scrapers and `ParseStructureError`, the Il Sole and Trading Economics parts of
+  `MacroRegimeService` (`fetch_fred_series` and `fetch_macro_news` stay), the
+  `run_bulk_macro_fetch` function, the `run_macro_step` scheduler step with its `macro_fetch`
+  job type, the `python -m app.cli macro` command, the `MacroFetchRequest`,
+  `EconomicIndicatorResponse`, `TradingEconomicsIndicatorResponse`, `BondYieldResponse`
+  and `CountryMacroSummary` schemas, the two circuit breakers, and the
+  `BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS`, `BREAKER_ILSOLE_MAX_ATTEMPTS`,
+  `TRADINGECONOMICS_REQUEST_ATTEMPTS`, `ILSOLE_REQUEST_ATTEMPTS`,
+  `TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS` and `ILSOLE_REQUEST_TIMEOUT_SECONDS`
+  settings. `daily_pipeline` and `weekly_refetch` run no macro step any more, so macro
+  series now come from FRED only; the FRED steps and the macro news fetch are unchanged.
+  **Upgrading**: nothing is needed, and a removed setting left in `.env` is ignored. The rows
+  the scrapers wrote stay in `economic_indicators`, `economic_indicator_observations`,
+  `trading_economics_indicators`, `trading_economics_observations`, `bond_yields` and
+  `bond_yield_observations` until the table-drop change that follows; nothing writes to them
+  any more. A `macro_fetch` job row left by a worker that died is no longer re-dispatched by
+  the orphan reaper. `tests/test_removed_integrations.py` now also rejects both names in a
+  tracked file.
 
 ### Known / not done
 

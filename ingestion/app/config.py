@@ -264,30 +264,9 @@ class Settings(BaseSettings):
     breaker_fred_max_attempts: int = Field(
         default=8, ge=1, alias="BREAKER_FRED_MAX_ATTEMPTS"
     )
-    breaker_tradingeconomics_max_attempts: int = Field(
-        default=5, ge=1, alias="BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS"
-    )
-    breaker_ilsole_max_attempts: int = Field(
-        default=5, ge=1, alias="BREAKER_ILSOLE_MAX_ATTEMPTS"
-    )
     fred_request_attempts: int = Field(default=5, ge=1, alias="FRED_REQUEST_ATTEMPTS")
-    tradingeconomics_request_attempts: int = Field(
-        default=3, ge=1, alias="TRADINGECONOMICS_REQUEST_ATTEMPTS"
-    )
-    ilsole_request_attempts: int = Field(
-        default=3, ge=1, alias="ILSOLE_REQUEST_ATTEMPTS"
-    )
     fred_request_timeout_seconds: float = Field(
         default=30.0, gt=0, allow_inf_nan=False, alias="FRED_REQUEST_TIMEOUT_SECONDS"
-    )
-    tradingeconomics_request_timeout_seconds: float = Field(
-        default=20.0,
-        gt=0,
-        allow_inf_nan=False,
-        alias="TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS",
-    )
-    ilsole_request_timeout_seconds: float = Field(
-        default=10.0, gt=0, allow_inf_nan=False, alias="ILSOLE_REQUEST_TIMEOUT_SECONDS"
     )
     fred_retry_base_delay_seconds: float = Field(
         default=1.0,

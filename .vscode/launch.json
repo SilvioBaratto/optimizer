@@ -46,19 +46,6 @@
       "justMyCode": false
     },
     {
-      "name": "CLI: macro (scrapers)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "app.cli",
-      "args": ["macro"],
-      "cwd": "${workspaceFolder}/ingestion",
-      "python": "${command:python.interpreterPath}",
-      "envFile": "${workspaceFolder}/.env",
-      "env": { "PYTHONUNBUFFERED": "1" },
-      "console": "integratedTerminal",
-      "justMyCode": false
-    },
-    {
       "name": "CLI: fred",
       "type": "debugpy",
       "request": "launch",

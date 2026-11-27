@@ -23,8 +23,6 @@ def _build_service() -> tuple[MacroRegimeService, MagicMock]:
 
     svc = MacroRegimeService(
         repo=repo,
-        ilsole_scraper=MagicMock(),
-        te_scraper=MagicMock(),
         fred_scraper=scraper,
     )
     return svc, scraper

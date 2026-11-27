@@ -2,18 +2,18 @@
 
 Scheduled jobs:
   1. **daily_pipeline** (CronTrigger, default 07:00 UTC) — sequential data
-     pipeline: fx → yfinance → macro → daily FRED series → news → daily-events
-     digest (the digest summarises the day's ingested data into
-     ``market_journal``). On an empty ``instruments`` table (a fresh install) it
-     first builds the universe, so prices arrive on day one instead of waiting
-     for the Saturday build.
+     pipeline: fx → yfinance → daily FRED series → news → daily-events digest
+     (the digest summarises the day's ingested data into ``market_journal``).
+     On an empty ``instruments`` table (a fresh install) it first builds the
+     universe, so prices arrive on day one instead of waiting for the Saturday
+     build.
   2. **midday_news** (CronTrigger, default 14:00 UTC) — macro news fetch
      (catch afternoon market news).
   3. **universe_build** (CronTrigger, default Saturday 02:00 UTC) — instrument-
      universe rebuild from the yfinance Screener. Runs *before*
      ``weekly_refetch`` so the yfinance rebuild sees the fresh instrument set.
   4. **weekly_refetch** (CronTrigger, default Saturday 03:00 UTC) — full yfinance
-     + macro rebuild, then the ``ticker_news`` retention prune.
+     rebuild, then the ``ticker_news`` retention prune.
   5. **fred_monthly** (CronTrigger, default 1st of month 08:00 UTC) — every
      FRED series (the daily-frequency ones are also refreshed by the daily
      pipeline).
@@ -65,7 +65,6 @@ from app.services.jobs.background_job import (
 )
 from app.services.macro.macro_regime_service import (
     run_bulk_fred_fetch,
-    run_bulk_macro_fetch,
     run_macro_news_fetch,
 )
 from app.services.macro.scrapers.fred_scraper import FRED_DAILY_SERIES
@@ -86,11 +85,6 @@ _DB_UNAVAILABLE_REASON = "db_unavailable"
 
 _yfinance_jobs = BackgroundJobService(
     job_type="yfinance_fetch",
-    session_factory=database_manager.get_session,
-    heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
-)
-_macro_jobs = BackgroundJobService(
-    job_type="macro_fetch",
     session_factory=database_manager.get_session,
     heartbeat_cadence_seconds=settings.scheduler_heartbeat_cadence_seconds,
 )
@@ -439,7 +433,7 @@ def _run_step(
             fn(*args, on_progress=on_progress)
         job = job_svc.get_job(job_id) or {}
         if job.get("status") == "failed":
-            # The step itself (e.g. a partial macro fetch) or the orphan reaper
+            # The step itself (e.g. a partial FRED fetch) or the orphan reaper
             # ended the row as failed. Overwriting it would hide a partial
             # failure from the exit code, the status column and the metrics
             # gauge, and the write would be fenced off anyway.
@@ -619,19 +613,6 @@ def run_fx_step(*, attempt: int = 0) -> bool:
     )
 
 
-def run_macro_step(*, attempt: int = 0) -> bool:
-    """Scrape Il Sole 24 Ore + Trading Economics into bond yields / indicators."""
-    from app.schemas.macro.macro_regime import MacroFetchRequest
-
-    return _run_step(
-        "macro",
-        _macro_jobs,
-        run_bulk_macro_fetch,
-        MacroFetchRequest(),
-        attempt=attempt,
-    )
-
-
 def run_fred_step(
     *,
     incremental: bool = True,
@@ -786,7 +767,7 @@ def _bootstrap_universe_if_empty() -> bool:
 
 
 def run_daily_pipeline() -> None:
-    """Sequential pipeline: fx → yfinance → macro → daily FRED → news → digest.
+    """Sequential pipeline: fx → yfinance → daily FRED → news → digest.
 
     An empty universe is built first (see ``_bootstrap_universe_if_empty``), so a
     fresh install gets prices on its first run rather than after the next
@@ -798,12 +779,13 @@ def run_daily_pipeline() -> None:
     because the fund NAV-mark (08:00 UTC) reads its rates and the multi-thousand
     ticker yfinance sweep can run past that mark, which would leave the mark
     valuing foreign holdings at the previous day's FX. The currency set it needs
-    is already stored by the previous universe build and price sweeps. Macro is
-    independent of yfinance and always runs. The FRED refresh covers only the
-    daily-frequency series: the fund attribution engine forward-fills them onto
-    the NAV grid, so a stale tail would turn into zero factor returns. The
-    daily-events digest runs last and unconditionally — it only reads whatever
-    the earlier steps landed, tolerating partial or empty sources.
+    is already stored by the previous universe build and price sweeps. The FRED
+    refresh is independent of yfinance and runs whether or not yfinance
+    succeeded. It covers only the daily-frequency series: the fund attribution
+    engine forward-fills them onto the NAV grid, so a stale tail would turn into
+    zero factor returns. The daily-events digest runs last and unconditionally —
+    it only reads whatever the earlier steps landed, tolerating partial or empty
+    sources.
     """
     logger.info("daily_pipeline: starting")
 
@@ -818,8 +800,6 @@ def run_daily_pipeline() -> None:
             " take many hours (~14 h reported for ~8,700 tickers)"
         )
     yf_ok = run_yfinance_step(mode="incremental")
-
-    run_macro_step()
 
     run_fred_step(series_ids=list(FRED_DAILY_SERIES))
 
@@ -853,7 +833,7 @@ def run_midday_news_refresh() -> None:
 
 
 def run_weekly_refetch() -> None:
-    """Full yfinance + macro data rebuild (no macro news), then news retention.
+    """Full yfinance data rebuild (no macro news), then news retention.
 
     Retention comes last and runs even when the sweep failed: it is housekeeping
     that does not depend on fresh data, and running after the sweep keeps it from
@@ -863,7 +843,6 @@ def run_weekly_refetch() -> None:
     logger.info("weekly_refetch: starting")
 
     run_yfinance_step(mode="full", period="5y", workers=settings.yfinance_fetch_workers)
-    run_macro_step()
     try:
         run_news_retention_step()
     except Exception:
@@ -927,7 +906,6 @@ def run_fred_monthly() -> None:
 # and idempotent upserts (§5.4) make the partial re-run safe.
 _RECLAIM_STEP: dict[str, Callable[..., bool]] = {
     "yfinance_fetch": run_yfinance_step,
-    "macro_fetch": run_macro_step,
     "fred_fetch": run_fred_step,
     "macro_news_fetch": run_news_step,
     "universe_build": run_universe_step,

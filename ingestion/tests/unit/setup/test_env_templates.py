@@ -56,9 +56,7 @@ def test_every_active_key_is_read_by_the_code(template: Path) -> None:
     assert not unread, f"{template.name} sets variables no code reads: {unread}"
 
 
-@pytest.mark.parametrize(
-    "dead_key", ["DATABASE_COMMAND_TIMEOUT", "TRADING_ECONOMICS_API_KEY"]
-)
+@pytest.mark.parametrize("dead_key", ["DATABASE_COMMAND_TIMEOUT"])
 def test_removed_settings_are_not_documented_even_in_comments(dead_key: str) -> None:
     """Dead names stay out of the template entirely, commented or not."""
     assert dead_key not in _ROOT_TEMPLATE.read_text(encoding="utf-8")
@@ -140,15 +138,9 @@ _DOCUMENTED_OUTSIDE_THE_TEMPLATE: dict[str, tuple[Path, ...]] = {
     "DATABASE_BREAKER_FAILURE_THRESHOLD": _DB_BREAKER_DOCS,
     "DATABASE_BREAKER_RESET_TIMEOUT_S": _DB_BREAKER_DOCS,
     "BREAKER_FRED_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
-    "BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
-    "BREAKER_ILSOLE_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "BREAKER_YFINANCE_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "FRED_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
-    "TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
-    "ILSOLE_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
     "FRED_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
-    "TRADINGECONOMICS_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
-    "ILSOLE_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "FRED_RETRY_BASE_DELAY_SECONDS": _EXTERNAL_CALL_DOCS,
     "FRED_RETRY_MAX_DELAY_SECONDS": _EXTERNAL_CALL_DOCS,
 }

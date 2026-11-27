@@ -50,7 +50,7 @@ def _infer_year(month: int, day: int) -> date | None:
 def parse_reference_date(value: Any) -> date | None:
     """Parse a multi-format reference date value into a date.
 
-    Accepts date objects, month-year strings ("Dec 2024"), IlSole compact
+    Accepts date objects, month-year strings ("Dec 2024"), compact MM/YY
     dates ("12/25" or "12/ 25"), abbreviated month-day ("Mon/DD"), ISO dates
     ("2024-12-01"), and US/EU slash formats ("M/D/YYYY", "D/M/YYYY").
     "Mon/DD" carries no year, so it resolves to the latest occurrence that is
@@ -84,7 +84,7 @@ def parse_reference_date(value: Any) -> date | None:
             except (ValueError, TypeError):
                 pass
 
-    # IlSole publishes compact MM/YY dates with an optional space after the slash.
+    # Some sources publish compact MM/YY dates with a space after the slash.
     normalized = text.replace(" ", "")
     if "/" in normalized:
         slash_parts = normalized.split("/")

@@ -106,7 +106,6 @@ class TestStepWrappersForwardAttempt:
         "wrapper",
         [
             "run_yfinance_step",
-            "run_macro_step",
             "run_fred_step",
             "run_news_step",
         ],

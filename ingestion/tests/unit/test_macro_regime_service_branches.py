@@ -5,18 +5,13 @@ Maps term-missing ranges to concrete conditions not covered by:
   - tests/unit/test_macro_regime_service_fred_key.py
 
 Uncovered branches:
-  Line  47->60  — fred_scraper property when _fred_scraper is already set
-  Lines 77-106  — fetch_and_store: None countries (defaults), exception per-country
-  Lines 170-172 — fetch_country: include_bonds=True but bond_yields empty dict
-  Lines 195-196 — fetch_country: te success but indicators empty dict
-  Lines 250-292 — fetch_fred_series: incremental=True with/without latest date,
+  fred_scraper property when _fred_scraper is already set
+  fetch_fred_series: incremental=True with/without latest date,
                   result error status, fetch exception per-series
-  Lines 304-370 — fetch_macro_news: yfinance happy path, scraper=None/not None,
+  fetch_macro_news: yfinance happy path, scraper=None/not None,
                   publish_time parsing, full_content filter, upsert exception
-  Line  375     — get_portfolio_countries returns list of PORTFOLIO_COUNTRIES
-  Lines 425,429-432 — run_bulk_macro_fetch: exception path per-country (session.rollback)
-  Lines 474-505 — run_bulk_fred_fetch happy path
-  Lines 522-542 — run_macro_news_fetch happy path
+  run_bulk_fred_fetch happy path
+  run_macro_news_fetch happy path
 
 Do NOT duplicate tests already in the two existing test files.
 """
@@ -42,55 +37,15 @@ from app.services.macro.macro_regime_service import (
 
 def _build_service(
     *,
-    ilsole_forecasts=None,
-    te_response=None,
     fred_scraper: object = None,
     repo: MagicMock | None = None,
 ) -> tuple[MacroRegimeService, MagicMock]:
     mock_repo = repo or MagicMock()
-    mock_repo.upsert_economic_indicator.return_value = 1
-    mock_repo.upsert_economic_indicator_observation.return_value = 1
-    mock_repo.upsert_te_indicators.return_value = 3
-    mock_repo.upsert_te_observations.return_value = 3
-    mock_repo.upsert_bond_yields.return_value = 2
-    mock_repo.upsert_bond_yield_observations.return_value = 2
-
-    mock_ilsole = MagicMock()
-    if isinstance(ilsole_forecasts, Exception):
-        mock_ilsole.get_forecasts.side_effect = ilsole_forecasts
-    else:
-        mock_ilsole.get_forecasts.return_value = ilsole_forecasts
-
-    mock_te = MagicMock()
-    if isinstance(te_response, Exception):
-        mock_te.get_country_indicators.side_effect = te_response
-    else:
-        mock_te.get_country_indicators.return_value = te_response
-
     service = MacroRegimeService(
         repo=mock_repo,
-        ilsole_scraper=mock_ilsole,
-        te_scraper=mock_te,
         fred_scraper=fred_scraper,  # type: ignore[arg-type]
     )
     return service, mock_repo
-
-
-_TE_SUCCESS = {
-    "status": "success",
-    "indicators": {"inflation_rate": 3.1},
-    "bond_yields": {"10y": 4.2},
-}
-_TE_SUCCESS_EMPTY_INDICATORS = {
-    "status": "success",
-    "indicators": {},
-    "bond_yields": {},
-}
-_TE_SUCCESS_EMPTY_BONDS = {
-    "status": "success",
-    "indicators": {"inflation_rate": 3.1},
-    "bond_yields": {},
-}
 
 
 # ---------------------------------------------------------------------------
@@ -118,133 +73,6 @@ class TestFredScraperPropertyAlreadySet:
         result = service.fred_scraper
         assert result is not None
         fake_cls.assert_called_once_with(api_key="test-key")
-
-
-# ---------------------------------------------------------------------------
-# fetch_and_store — None countries defaults + per-country exception
-# ---------------------------------------------------------------------------
-
-
-class TestFetchAndStore:
-    def test_when_countries_none_then_portfolio_countries_used(self) -> None:
-        service, _ = _build_service(
-            ilsole_forecasts={"gdp_growth_6m": 2.0},
-            te_response=_TE_SUCCESS,
-        )
-        result = service.fetch_and_store(countries=None)
-        # Should process PORTFOLIO_COUNTRIES — counts will be a non-empty dict
-        assert "counts" in result
-        assert "errors" in result
-
-    def test_when_fetch_country_raises_then_error_accumulated_and_loop_continues(
-        self,
-    ) -> None:
-        service, _ = _build_service(te_response=_TE_SUCCESS)
-        # Patch fetch_country to raise on second call
-        call_results = [
-            {"counts": {"te_indicators": 1}, "errors": []},
-        ]
-        side_effects = [call_results[0], RuntimeError("network down")]
-        service.fetch_country = MagicMock(side_effect=side_effects)
-
-        result = service.fetch_and_store(countries=["USA", "Broken"])
-
-        assert len(result["errors"]) == 1
-        assert "Broken" in result["errors"][0]
-
-    def test_when_all_countries_succeed_then_counts_accumulated(self) -> None:
-        service, _ = _build_service()
-        service.fetch_country = MagicMock(
-            return_value={"counts": {"te_indicators": 2}, "errors": []}
-        )
-
-        result = service.fetch_and_store(countries=["USA", "Germany"])
-
-        assert result["counts"]["te_indicators"] == 4  # 2 × 2
-
-    def test_when_country_errors_then_accumulated_with_country_prefix(self) -> None:
-        service, _ = _build_service()
-        service.fetch_country = MagicMock(
-            return_value={"counts": {}, "errors": ["ilsole_forecast: timeout"]}
-        )
-
-        result = service.fetch_and_store(countries=["Germany"])
-
-        assert any("Germany" in e for e in result["errors"])
-
-
-# ---------------------------------------------------------------------------
-# fetch_country — te success with empty indicators / empty bonds
-# ---------------------------------------------------------------------------
-
-
-class TestFetchCountryEmptySubSets:
-    def test_when_te_success_but_indicators_empty_then_te_counts_zeroed(self) -> None:
-        service, _ = _build_service(
-            ilsole_forecasts=None,
-            te_response=_TE_SUCCESS_EMPTY_INDICATORS,
-        )
-        result = service.fetch_country("USA", include_bonds=True)
-        assert result["counts"]["te_indicators"] == 0
-        assert result["counts"]["te_observations"] == 0
-
-    def test_when_te_success_but_bond_yields_empty_then_bond_counts_zeroed(
-        self,
-    ) -> None:
-        service, _ = _build_service(
-            ilsole_forecasts=None,
-            te_response=_TE_SUCCESS_EMPTY_BONDS,
-        )
-        result = service.fetch_country("USA", include_bonds=True)
-        assert result["counts"]["bond_yields"] == 0
-        assert result["counts"]["bond_yield_observations"] == 0
-
-    def test_when_include_bonds_false_then_bond_upsert_not_called(self) -> None:
-        service, mock_repo = _build_service(
-            ilsole_forecasts=None,
-            te_response=_TE_SUCCESS,
-        )
-        service.fetch_country("USA", include_bonds=False)
-        mock_repo.upsert_bond_yields.assert_not_called()
-        mock_repo.upsert_bond_yield_observations.assert_not_called()
-
-
-class TestFetchCountryBondFailureIsReported:
-    def test_when_bond_fetch_failed_then_error_is_recorded(self) -> None:
-        service, mock_repo = _build_service(
-            ilsole_forecasts={"gdp_growth_6m": 2.0},
-            te_response={
-                "status": "success",
-                "indicators": {"inflation_rate": 3.1},
-                "bond_yields": {},
-                "bond_yields_error": "Fetch failed after retries",
-            },
-        )
-
-        result = service.fetch_country("USA", include_bonds=True)
-
-        assert result["errors"] == [
-            "trading_economics_bonds: Fetch failed after retries"
-        ]
-        assert result["counts"]["bond_yields"] == 0
-        mock_repo.upsert_te_indicators.assert_called_once()
-
-    def test_when_bond_fetch_failed_then_bulk_totals_carry_the_error(self) -> None:
-        service, _ = _build_service(
-            ilsole_forecasts={"gdp_growth_6m": 2.0},
-            te_response={
-                "status": "success",
-                "indicators": {"inflation_rate": 3.1},
-                "bond_yields": {},
-                "bond_yields_error": "Parse structure failure: no rows",
-            },
-        )
-
-        outcome = service.fetch_and_store(["USA"], include_bonds=True)
-
-        assert outcome["errors"] == [
-            "USA: trading_economics_bonds: Parse structure failure: no rows"
-        ]
 
 
 # ---------------------------------------------------------------------------
@@ -433,8 +261,6 @@ class TestFetchFredSeriesDurability:
         scraper.get_series_observations.side_effect = _observations
         service = MacroRegimeService(
             repo=MacroRegimeRepository(fred_session),
-            ilsole_scraper=MagicMock(),
-            te_scraper=MagicMock(),
             fred_scraper=scraper,
         )
 
@@ -476,8 +302,6 @@ class TestFetchFredSeriesDurability:
         }
         service = MacroRegimeService(
             repo=_FailsOnSecond(fred_session),
-            ilsole_scraper=MagicMock(),
-            te_scraper=MagicMock(),
             fred_scraper=scraper,
         )
 
@@ -624,11 +448,7 @@ class TestFetchMacroNews:
             MacroRegimeRepository,
         )
 
-        service = MacroRegimeService(
-            repo=MacroRegimeRepository(db_session),
-            ilsole_scraper=MagicMock(),
-            te_scraper=MagicMock(),
-        )
+        service = MacroRegimeService(repo=MacroRegimeRepository(db_session))
 
         def run(article: dict, *, scrape: bool) -> int:
             fetcher_mock = MagicMock()
@@ -776,120 +596,7 @@ class TestFetchMacroNews:
 
 
 # ---------------------------------------------------------------------------
-# get_portfolio_countries (line 375)
-# ---------------------------------------------------------------------------
-
-
-class TestGetPortfolioCountries:
-    def test_returns_list_of_strings(self) -> None:
-        result = MacroRegimeService.get_portfolio_countries()
-        assert isinstance(result, list)
-        assert all(isinstance(c, str) for c in result)
-
-    def test_returns_non_empty_list(self) -> None:
-        assert len(MacroRegimeService.get_portfolio_countries()) > 0
-
-
-# ---------------------------------------------------------------------------
-# run_bulk_macro_fetch — exception path per-country (lines 429-432)
-# ---------------------------------------------------------------------------
-
-
-class TestRunBulkMacroFetchSuccessWithErrors:
-    """Line 425: errors from fetch_country.result["errors"] are accumulated per-country."""
-
-    def test_when_fetch_country_returns_sub_errors_then_accumulated_with_prefix(
-        self,
-    ) -> None:
-        from app.services.macro.macro_regime_service import run_bulk_macro_fetch
-
-        request = SimpleNamespace(countries=["Germany"], include_bonds=True)
-        mock_session = MagicMock()
-        mock_svc = MagicMock()
-        # fetch_country succeeds but returns sub-level errors (line 424 loop)
-        mock_svc.fetch_country.return_value = {
-            "counts": {"te_indicators": 0},
-            "errors": ["trading_economics: timeout"],
-        }
-
-        on_progress = MagicMock()
-
-        with (
-            patch("app.database.database_manager") as mock_db,
-            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
-            patch(
-                "app.services.macro.macro_regime_service.MacroRegimeService",
-                return_value=mock_svc,
-            ),
-        ):
-            mock_db.get_session.return_value.__enter__.return_value = mock_session
-            mock_db.get_session.return_value.__exit__.return_value = False
-
-            result = run_bulk_macro_fetch(request, on_progress=on_progress)
-
-        # The error is surfaced in error_count even though fetch_country didn't raise
-        assert result["error_count"] == 1
-        # Final status is "failed" because errors were present
-        final_kwargs = on_progress.call_args_list[-1].kwargs
-        assert final_kwargs.get("status") == "failed"
-
-
-class TestRunBulkMacroFetchExceptionPath:
-    def test_when_fetch_country_raises_then_rollback_called_and_error_accumulated(
-        self,
-    ) -> None:
-        from app.services.macro.macro_regime_service import run_bulk_macro_fetch
-
-        request = SimpleNamespace(countries=["Broken"], include_bonds=True)
-        mock_session = MagicMock()
-        mock_svc = MagicMock()
-        mock_svc.fetch_country.side_effect = RuntimeError("network error")
-
-        with (
-            patch("app.database.database_manager") as mock_db,
-            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
-            patch(
-                "app.services.macro.macro_regime_service.MacroRegimeService",
-                return_value=mock_svc,
-            ),
-        ):
-            mock_db.get_session.return_value.__enter__.return_value = mock_session
-            mock_db.get_session.return_value.__exit__.return_value = False
-
-            result = run_bulk_macro_fetch(request)
-
-        mock_session.rollback.assert_called_once()
-        assert result["error_count"] == 1
-
-    def test_when_errors_present_then_final_status_is_failed(self) -> None:
-        from app.services.macro.macro_regime_service import run_bulk_macro_fetch
-
-        request = SimpleNamespace(countries=["Broken"], include_bonds=True)
-        mock_session = MagicMock()
-        mock_svc = MagicMock()
-        mock_svc.fetch_country.side_effect = RuntimeError("network error")
-
-        on_progress = MagicMock()
-
-        with (
-            patch("app.database.database_manager") as mock_db,
-            patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
-            patch(
-                "app.services.macro.macro_regime_service.MacroRegimeService",
-                return_value=mock_svc,
-            ),
-        ):
-            mock_db.get_session.return_value.__enter__.return_value = mock_session
-            mock_db.get_session.return_value.__exit__.return_value = False
-
-            run_bulk_macro_fetch(request, on_progress=on_progress)
-
-        final_kwargs = on_progress.call_args_list[-1].kwargs
-        assert final_kwargs.get("status") == "failed"
-
-
-# ---------------------------------------------------------------------------
-# run_bulk_fred_fetch (lines 474-505)
+# run_bulk_fred_fetch
 # ---------------------------------------------------------------------------
 
 
@@ -995,11 +702,6 @@ class TestRunBulkFredFetch:
         with (
             patch("app.database.database_manager") as mock_db,
             patch("app.services.macro.macro_regime_service.MacroRegimeRepository"),
-            patch("app.services.macro.macro_regime_service.IlSoleScraper"),
-            patch(
-                "app.services.macro.macro_regime_service."
-                "TradingEconomicsIndicatorsScraper"
-            ),
         ):
             mock_db.get_session.return_value.__enter__.return_value = MagicMock()
             mock_db.get_session.return_value.__exit__.return_value = False
@@ -1012,7 +714,7 @@ class TestRunBulkFredFetch:
 
 
 # ---------------------------------------------------------------------------
-# run_macro_news_fetch (lines 522-542)
+# run_macro_news_fetch
 # ---------------------------------------------------------------------------
 
 
