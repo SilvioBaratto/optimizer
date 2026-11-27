@@ -362,6 +362,9 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   hold. **Upgrading**: nothing is needed; an instrument that never had an ISIN stays
   without one until you set it. `tests/test_removed_integrations.py` now also rejects the
   site's name in a tracked file.
+
+### Removed (BREAKING — ingestion CLI, scheduler and settings)
+
 - **ingestion**: the Il Sole 24 Ore and Trading Economics macro scrapers. Gone are the two
   scrapers and `ParseStructureError`, the Il Sole and Trading Economics parts of
   `MacroRegimeService` (`fetch_fred_series` and `fetch_macro_news` stay), the
@@ -374,13 +377,14 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   `TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS` and `ILSOLE_REQUEST_TIMEOUT_SECONDS`
   settings. `daily_pipeline` and `weekly_refetch` run no macro step any more, so macro
   series now come from FRED only; the FRED steps and the macro news fetch are unchanged.
-  **Upgrading**: nothing is needed, and a removed setting left in `.env` is ignored. The rows
-  the scrapers wrote stay in `economic_indicators`, `economic_indicator_observations`,
-  `trading_economics_indicators`, `trading_economics_observations`, `bond_yields` and
-  `bond_yield_observations` until the table-drop change that follows; nothing writes to them
-  any more. A `macro_fetch` job row left by a worker that died is no longer re-dispatched by
-  the orphan reaper. `tests/test_removed_integrations.py` now also rejects both names in a
-  tracked file.
+  **Upgrading**: a script or cron entry that runs `python -m app.cli macro` now fails with
+  an unknown-command error and must drop the call. A removed setting left in `.env` is
+  ignored. The rows the scrapers wrote stay in `economic_indicators`,
+  `economic_indicator_observations`, `trading_economics_indicators`,
+  `trading_economics_observations`, `bond_yields` and `bond_yield_observations` until the
+  table-drop change that follows; nothing writes to them any more. A `macro_fetch` job row
+  left by a worker that died is no longer re-dispatched by the orphan reaper.
+  `tests/test_removed_integrations.py` now also rejects both names in a tracked file.
 
 ### Known / not done
 

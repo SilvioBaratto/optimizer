@@ -601,7 +601,11 @@ class TestFetchMacroNews:
 
 
 class TestRunBulkFredFetch:
+    @pytest.mark.criterion("REQ-ING-025")
     def test_when_series_fetched_successfully_then_result_dict_returned(self) -> None:
+        """Validates ``run_bulk_fred_fetch`` and ``_final_progress``: a run that
+        records no error returns its counts and reports a final status of
+        ``completed``."""
         from app.services.macro.macro_regime_service import run_bulk_fred_fetch
 
         request = SimpleNamespace(series_ids=["GDP"], incremental=False)
@@ -611,6 +615,7 @@ class TestRunBulkFredFetch:
             "counts": {"GDP": 5},
             "errors": [],
         }
+        on_progress = MagicMock()
 
         with (
             patch("app.database.database_manager") as mock_db,
@@ -623,11 +628,15 @@ class TestRunBulkFredFetch:
             mock_db.get_session.return_value.__enter__.return_value = mock_session
             mock_db.get_session.return_value.__exit__.return_value = False
 
-            result = run_bulk_fred_fetch(request)
+            result = run_bulk_fred_fetch(request, on_progress=on_progress)
 
         assert result["series_fetched"] == 1
         assert result["observations_upserted"] == 5
         assert result["error_count"] == 0
+        final_kwargs = on_progress.call_args_list[-1].kwargs
+        assert final_kwargs["status"] == "completed"
+        assert final_kwargs["errors"] == []
+        assert "error" not in final_kwargs
 
     def test_when_some_series_return_nothing_then_only_series_with_rows_counted(
         self,
@@ -657,7 +666,11 @@ class TestRunBulkFredFetch:
         assert result["series_fetched"] == 2
         assert result["observations_upserted"] == 140
 
+    @pytest.mark.criterion("REQ-ING-025")
     def test_when_fetch_errors_then_final_status_is_failed(self) -> None:
+        """Validates ``run_bulk_fred_fetch`` and ``_final_progress``: a run that
+        records an error reports a final status of ``failed`` carrying the error
+        text."""
         from app.services.macro.macro_regime_service import run_bulk_fred_fetch
 
         request = SimpleNamespace(series_ids=["BAD"], incremental=False)

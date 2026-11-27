@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Full data rebuild: universe → yfinance (5y) + macro → FRED.
+# Full data rebuild: universe → yfinance (5y) → FRED.
 #
 # Thin wrapper over the CLI inside the scheduler container. Step order lives in
 # app/services/jobs/scheduler.py, not here.

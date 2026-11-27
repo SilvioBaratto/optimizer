@@ -290,9 +290,13 @@ class TestRunStep:
 
 
 class TestStepFailureIsolation:
+    @pytest.mark.criterion("REQ-ING-023")
     def test_when_yfinance_claim_errors_then_daily_pipeline_runs_independent_steps(
         self,
     ):
+        """Validates ``run_daily_pipeline``: a yfinance step that cannot claim its
+        slot skips only news; the fx, FRED and digest steps still run, and no
+        macro-scraper step exists to run."""
         from app.services.jobs import scheduler
 
         broken = _make_job_svc()
@@ -536,7 +540,11 @@ def _make_step_side_effect(returns: dict[str, bool]):
     ],
 )
 class TestRunDailyPipeline:
+    @pytest.mark.criterion("REQ-ING-023")
     def test_step_gating(self, yf_ok, expected, absent):
+        """Validates ``run_daily_pipeline``: news runs only after a successful
+        yfinance step, the digest always runs, and no macro-scraper step is part
+        of the pipeline."""
         returns = {
             "yfinance": yf_ok,
             "news": True,
@@ -734,7 +742,10 @@ class TestDailyPipelineRefreshesFred:
         assert "fred" in labels
         assert "macro" not in labels
 
+    @pytest.mark.criterion("REQ-ING-023")
     def test_when_no_fred_key_then_pipeline_skips_fred_and_runs_the_rest(self):
+        """Validates ``run_daily_pipeline``: without a FRED key the FRED step is
+        skipped and the yfinance, news and digest steps still run."""
         calls = self._run_pipeline(yf_ok=True, fred_key="")
 
         labels = [label for label, _ in calls]

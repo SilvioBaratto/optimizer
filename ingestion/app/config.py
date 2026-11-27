@@ -117,7 +117,7 @@ class Settings(BaseSettings):
         default="0 3 * * sat",
         alias="SCHEDULER_WEEKLY_REFETCH_CRON",
         description=(
-            "Weekly full 5y yfinance + macro rebuild. Saturday 03:00 UTC by "
+            "Weekly full 5y yfinance rebuild. Saturday 03:00 UTC by "
             "default so it runs after Friday's market close (captures the full "
             "week) and off the weekday incremental path. Runs after "
             "SCHEDULER_UNIVERSE_BUILD_CRON, before SCHEDULER_MARKET_WIDE_CRON. "
