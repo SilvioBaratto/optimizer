@@ -105,11 +105,22 @@ The entries under Security affect privacy or configuration and come first.
   REQ-FUND-038 (no write to a dot-prefixed path), REQ-FUND-039 (Hugging Face hub telemetry
   off), REQ-FUND-040 (a Groq request has a deadline) and REQ-FUND-041 (`google` ignores the
   Vertex switches) follow, and REQ-FUND-028 now also covers the SDK log variables.
+- **README**: a `## Notices` section right after the badges. It states that the output is
+  research and education material and not investment advice, that the software places no
+  orders with any broker (`fund` records paper orders only), that `fund` sends the data
+  you give it to the LLM provider you configure, that market data comes from third parties
+  under their own terms, and under which licence the code is published.
+  `tests/test_legal_notices.py` guards it.
 
 ### Changed
 
 Behaviour changes to know about:
 
+- **licence**: the README and the packages now call the licence what it is, source-available
+  under PolyForm Noncommercial 1.0.0 (not an OSI-approved licence). `ingestion`, `fund` and
+  `portopt-db` declare `license` and the `License :: Other/Proprietary License` classifier in
+  their `pyproject.toml`, as the library already did, so a built wheel of any of the four
+  carries the same terms. No version or dependency changes.
 - **pandas 3.0.6 -> 3.1.1** in the library, `portopt-db` and `ingestion` (exact pins). The
   library adds explicit casts where pandas 3.1's inline typing widened a result type. The one
   casualty is the Tel Aviv trading calendar, see "Known / not done".
