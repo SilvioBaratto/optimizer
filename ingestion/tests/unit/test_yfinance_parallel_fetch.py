@@ -200,7 +200,6 @@ class TestSharedEmptyFetchMemory:
             repo_p,
             service_p as service_cls,
             db_p,
-            patch.object(svc, "_backfill_instrument_isin_from_profiles"),
             patch("app.config.settings") as settings,
         ):
             settings.yfinance_request_timeout_seconds = 30
@@ -248,7 +247,6 @@ class TestInstrumentTypePlumbing:
             repo_p,
             service_p,
             db_p,
-            patch.object(svc, "_backfill_instrument_isin_from_profiles"),
             patch("app.config.settings") as settings,
         ):
             settings.yfinance_request_timeout_seconds = 30
@@ -273,7 +271,6 @@ class TestInstrumentTypePlumbing:
             repo_p,
             service_p,
             db_p,
-            patch.object(svc, "_backfill_instrument_isin_from_profiles"),
             patch("app.config.settings") as settings,
         ):
             settings.yfinance_request_timeout_seconds = 30

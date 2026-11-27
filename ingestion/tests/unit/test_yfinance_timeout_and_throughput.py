@@ -229,7 +229,6 @@ class TestBreakerBackoffOutsideDeadline:
             return {"shortName": "ACME"}
 
         yf_client.fetch_info.side_effect = _guarded_fetch
-        yf_client.metadata.fetch_isin.return_value = None
         repo = _make_repo()
         repo.upsert_profile.return_value = 1
 

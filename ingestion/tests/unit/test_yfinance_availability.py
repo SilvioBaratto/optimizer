@@ -38,7 +38,10 @@ from app.services.infrastructure.circuit_breaker import (
     CircuitOpenError,
 )
 from app.services.market_data.yfinance import _config, configure_yfinance
-from app.services.market_data.yfinance._base import fetch_with_resilience
+from app.services.market_data.yfinance._base import (
+    BaseClient,
+    fetch_with_resilience,
+)
 from app.services.market_data.yfinance._facade import YFinanceClient
 from app.services.market_data.yfinance.infrastructure import (
     FaultWatch,
@@ -54,7 +57,6 @@ from app.services.market_data.yfinance.ticker import (
     AnalysisClient,
     FinancialsClient,
     HoldersClient,
-    MetadataClient,
 )
 
 
@@ -824,8 +826,19 @@ def _financials(breaker: MagicMock | None = None, retries: int = 3) -> Financial
     )
 
 
-def _metadata(breaker: MagicMock | None = None, retries: int = 3) -> MetadataClient:
-    return MetadataClient(
+class _InfoClient(BaseClient):
+    """Reads ``Ticker.info`` through the shared sub-client resilience path.
+
+    ``Quote.info`` flags itself as fetched before it asks Yahoo, which makes it the
+    scraper that exposes a ticker reused after a failed attempt.
+    """
+
+    def fetch_info(self, symbol: str) -> dict[str, Any] | None:
+        return self._fetch_with_resilience(lambda: self._get_ticker(symbol).info)
+
+
+def _info_client(breaker: MagicMock | None = None, retries: int = 3) -> _InfoClient:
+    return _InfoClient(
         cache=LRUCache(),
         rate_limiter=MagicMock(),
         circuit_breaker=breaker or MagicMock(),
@@ -904,15 +917,20 @@ class TestSwallowedTransientFaults:
         assert frame.loc["Total Revenue"].iloc[0] == 100.0
         breaker.trigger.assert_not_called()
 
+    @pytest.mark.criterion("REQ-ING-022")
     def test_a_rate_limit_raised_out_of_the_scraper_does_not_poison_the_ticker(
         self, yahoo: _FakeYahoo
     ) -> None:
-        """``Quote.info`` marks itself fetched before it asks Yahoo, so a cached
-        ticker whose first fetch raised answers every retry from empty state."""
+        """Validates ``_base.fetch_with_fault_retry``: it evicts the cached ticker.
+
+        ``Quote.info`` marks itself fetched before it asks Yahoo, so a cached
+        ticker whose first fetch raised would answer every retry from empty state;
+        the retries must ask Yahoo again and trip the breaker each time.
+        """
         yahoo.handler = lambda: _Response(429)
         breaker = MagicMock()
 
-        assert _metadata(breaker).fetch_isin("AAPL") is None
+        assert _info_client(breaker).fetch_info("AAPL") is None
 
         assert breaker.trigger.call_count == 3
 

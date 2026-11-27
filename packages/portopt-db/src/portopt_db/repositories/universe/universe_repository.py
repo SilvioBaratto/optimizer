@@ -21,7 +21,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, aliased, joinedload
 
-from portopt_db.models.market_data.yfinance_data import PriceHistory, TickerProfile
+from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.pinned_instrument import PinnedInstrument
 from portopt_db.models.universe.universe import Exchange, Instrument
 from portopt_db.ports import InstrumentClass
@@ -176,9 +176,9 @@ class UniverseRepository(RepositoryBase):
             constraint="uq_instrument_ticker_exchange",
             set_={
                 "short_name": stmt.excluded.short_name,
-                # The universe source does not carry an ISIN (it is backfilled
-                # from ticker profiles), so a missing value must not erase one
-                # that is already stored.
+                # The universe source does not carry an ISIN (an operator sets one
+                # with add-instrument), so a missing value must not erase one that
+                # is already stored.
                 "name": func.coalesce(stmt.excluded.name, Instrument.name),
                 "isin": func.coalesce(stmt.excluded.isin, Instrument.isin),
                 "instrument_type": stmt.excluded.instrument_type,
@@ -397,76 +397,6 @@ class UniverseRepository(RepositoryBase):
             for ticker, instrument_id, instrument_type, asset_class, fi_subclass in rows
             if ticker is not None
         ]
-
-    def set_isin_if_missing(self, *, ticker: str, exchange_id: Any, isin: str) -> bool:
-        """Store an ISIN on an instrument that has none yet.
-
-        Matched by ``(ticker, exchange_id)``. A stored ISIN is never replaced, for
-        the same reason :meth:`backfill_isin_from_profiles` leaves one alone: an
-        identifier already pinned to the row is more likely right than a later
-        lookup.
-
-        Args:
-            ticker: Ticker of the instrument within ``exchange_id``.
-            exchange_id: UUID of the exchange the instrument belongs to.
-            isin: The ISIN to store; the caller has already vetted it.
-
-        Returns:
-            ``True`` if the ISIN was written, ``False`` if no row matched or the
-            row already had an ISIN.
-        """
-        result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
-            update(Instrument)
-            .where(Instrument.ticker == ticker)
-            .where(Instrument.exchange_id == exchange_id)
-            .where(Instrument.isin.is_(None))
-            .values(isin=isin)
-        )
-        self.session.flush()
-        return bool(result.rowcount)
-
-    def backfill_isin_from_profiles(self) -> int:
-        """Copy ISIN from ``ticker_profiles`` onto instruments that lack one.
-
-        The Screener universe build carries no ISIN, but the per-instrument
-        profile fetch stores ``info["isin"]`` on ``ticker_profiles``. This copies
-        that value onto the canonical ``instruments.isin`` for rows still missing
-        one — a single portable UPDATE (correlated subquery; compiles on both
-        PostgreSQL and the SQLite test engine). Never overwrites an existing
-        value.
-
-        A venue-suffixed symbol (``ASML.AS``, ``7203.T``) is skipped. The ISIN
-        scrape can only be tied to a suffix-less symbol; for a suffixed one it
-        answers with a secondary line of the issuer (a depositary receipt or a
-        preferred share). The fetch no longer stores such codes, but profiles
-        written before that still carry them, and copying one onto the instrument
-        would pin the wrong security to it for good, since a stored ISIN is never
-        overwritten. The same rule as ``has_exchange_suffix`` in ingestion, which
-        this package cannot import.
-
-        Returns the number of rows filled.
-        """
-        profile_isin = (
-            select(TickerProfile.isin)
-            .where(TickerProfile.instrument_id == Instrument.id)
-            .scalar_subquery()
-        )
-        symbol = func.coalesce(Instrument.yfinance_ticker, Instrument.ticker)
-        result: CursorResult[Any] = self.session.execute(  # type: ignore[assignment]
-            update(Instrument)
-            .where(Instrument.isin.is_(None))
-            .where(symbol.not_like("%.%"))
-            .where(
-                Instrument.id.in_(
-                    select(TickerProfile.instrument_id).where(
-                        TickerProfile.isin.is_not(None)
-                    )
-                )
-            )
-            .values(isin=profile_isin)
-        )
-        self.session.flush()
-        return result.rowcount or 0
 
     def get_active_instruments(self) -> Sequence[Instrument]:
         """All non-delisted instruments."""

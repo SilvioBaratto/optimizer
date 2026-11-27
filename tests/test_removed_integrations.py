@@ -1,11 +1,12 @@
 """Guard: no tracked file names an integration the project removed.
 
 The Trading 212 broker integration was taken out of the code, the configuration and
-the database. A name that survives in a comment, a doc or a column definition says
-the integration still exists, and the first new reference to it is the start of
-growing it back. The scan covers every tracked file, its path and its content, so an
-untracked ``.venv``, ``design/`` or ``__pycache__`` never takes part and the result
-does not depend on the working directory.
+the database, and the ISIN lookup that scraped a third-party news site through
+yfinance was taken out of the ingestion. A name that survives in a comment, a doc or
+a column definition says the integration still exists, and the first new reference
+to it is the start of growing it back. The scan covers every tracked file, its path
+and its content, so an untracked ``.venv``, ``design/`` or ``__pycache__`` never
+takes part and the result does not depend on the working directory.
 
 A later removal appends its names to ``_REMOVED_INTEGRATION_TOKENS``.
 """
@@ -23,11 +24,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Regular-expression fragments, matched case-insensitively and joined with "|".
 # "trading[ _-]?212" covers the prose name, the TRADING_212_* settings and the
-# trading212 package name.
+# trading212 package name; "business[ _-]?insider" covers the prose name of the site
+# the ISIN lookup scraped and its domain-style spelling.
 _REMOVED_INTEGRATION_TOKENS = (
     r"trading[ _-]?212",
     r"t212",
     r"tradeable_only",
+    r"business[ _-]?insider",
 )
 
 _REMOVED_INTEGRATION_PATTERN = re.compile(
@@ -125,6 +128,23 @@ def test_the_scan_flags_a_revision_that_names_a_removed_integration() -> None:
 
     assert any("the file name" in finding for finding in findings)
     assert any("Trading 212" in finding for finding in findings)
+
+
+@pytest.mark.criterion("REQ-OPS-005")
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "Business Insider",
+        "business insider",
+        "BusinessInsider",
+        "businessinsider.com",
+        "business_insider",
+        "business-insider",
+    ],
+)
+def test_pattern_flags_each_spelling_of_the_scraped_news_site(spelling: str) -> None:
+    """Validates ``_REMOVED_INTEGRATION_PATTERN``: it matches every spelling."""
+    assert _REMOVED_INTEGRATION_PATTERN.search(f"ISINs come from {spelling}")
 
 
 @pytest.mark.criterion("REQ-OPS-005")
