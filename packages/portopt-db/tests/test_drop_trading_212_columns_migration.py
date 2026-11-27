@@ -1,4 +1,4 @@
-"""The revision that drops the three Trading 212 columns of ``exchanges`` and ``instruments``.
+"""Revision 2266e24c509f, which drops the Trading 212 columns of the universe tables.
 
 The revision is replayed by path against in-memory SQLite, so it runs in CI without
 PostgreSQL. The tables are built from the current models and then given back the three
@@ -8,6 +8,7 @@ columns the models no longer declare, which reproduces the schema of the previou
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -32,28 +33,34 @@ _DROPPED = (
     ("instruments", "is_t212_tradeable", Boolean),
 )
 
+# Width of instruments.t212_ticker at the previous head, which the downgrade restores.
+_T212_TICKER_LENGTH = 100
+
 _EXCHANGE_ID = "e" * 32
 _INSTRUMENT_ID = "a" * 32
+_EXCHANGE_NAME = "XNAS"
+_INSTRUMENT_TICKER = "AAPL"
+_INSTRUMENT_ISIN = "US0378331005"
 
 
 def _load() -> ModuleType:
     path = str((MIGRATION_DIR / MIGRATION_FILENAME).resolve())
     spec = importlib.util.spec_from_file_location(Path(MIGRATION_FILENAME).stem, path)
     assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    revision_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision_module)
+    return revision_module
 
 
-def _run(engine: Engine, fn) -> None:
+def _run(engine: Engine, migration_step: Callable[[], None]) -> None:
     with engine.begin() as conn:
-        ctx = MigrationContext.configure(conn)
-        with Operations.context(ctx):
-            fn()
+        migration_context = MigrationContext.configure(conn)
+        with Operations.context(migration_context):
+            migration_step()
 
 
 def _columns(engine: Engine, table: str) -> dict[str, dict]:
-    return {c["name"]: c for c in inspect(engine).get_columns(table)}
+    return {info["name"]: info for info in inspect(engine).get_columns(table)}
 
 
 @pytest.fixture
@@ -69,34 +76,42 @@ def engine() -> Engine:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE exchanges ADD COLUMN t212_id INTEGER"))
         conn.execute(
-            text("ALTER TABLE instruments ADD COLUMN t212_ticker VARCHAR(100)")
+            text(
+                "ALTER TABLE instruments ADD COLUMN t212_ticker "
+                f"VARCHAR({_T212_TICKER_LENGTH})"
+            )
         )
         conn.execute(
             text("ALTER TABLE instruments ADD COLUMN is_t212_tradeable BOOLEAN")
         )
         conn.execute(
-            text("INSERT INTO exchanges (id, name, t212_id) VALUES (:id, 'XNAS', 7)"),
-            {"id": _EXCHANGE_ID},
+            text("INSERT INTO exchanges (id, name, t212_id) VALUES (:id, :name, 7)"),
+            {"id": _EXCHANGE_ID, "name": _EXCHANGE_NAME},
         )
         conn.execute(
             text(
                 "INSERT INTO instruments "
                 "(id, exchange_id, ticker, short_name, isin, yfinance_ticker, "
                 "t212_ticker, is_t212_tradeable) "
-                "VALUES (:id, :exchange_id, 'AAPL', 'Apple', 'US0378331005', 'AAPL', "
+                "VALUES (:id, :exchange_id, :ticker, 'Apple', :isin, :ticker, "
                 "'AAPL_US_EQ', 1)"
             ),
-            {"id": _INSTRUMENT_ID, "exchange_id": _EXCHANGE_ID},
+            {
+                "id": _INSTRUMENT_ID,
+                "exchange_id": _EXCHANGE_ID,
+                "ticker": _INSTRUMENT_TICKER,
+                "isin": _INSTRUMENT_ISIN,
+            },
         )
     return engine
 
 
 @pytest.mark.criterion("REQ-DB-007")
 def test_revision_follows_b8d0f2a4c6e1() -> None:
-    """Validates the drop-columns revision 2266e24c509f: it extends the previous head."""
-    mod = _load()
-    assert mod.revision == EXPECTED_REVISION
-    assert mod.down_revision == EXPECTED_DOWN_REVISION
+    """Validates revision 2266e24c509f: it extends the previous Alembic head."""
+    revision_module = _load()
+    assert revision_module.revision == EXPECTED_REVISION
+    assert revision_module.down_revision == EXPECTED_DOWN_REVISION
 
 
 @pytest.mark.criterion("REQ-DB-007")
@@ -114,7 +129,8 @@ def test_upgrade_drops_exchange_t212_id_and_both_instrument_columns(
 def test_upgrade_keeps_other_columns_and_rows(engine: Engine) -> None:
     """Validates the upgrade() of revision 2266e24c509f: other columns and rows stay."""
     expected = {
-        table: set(_columns(engine, table)) - {c for t, c, _ in _DROPPED if t == table}
+        table: set(_columns(engine, table))
+        - {column for dropped_table, column, _ in _DROPPED if dropped_table == table}
         for table in ("exchanges", "instruments")
     }
 
@@ -129,30 +145,30 @@ def test_upgrade_keeps_other_columns_and_rows(engine: Engine) -> None:
                 "SELECT id, exchange_id, ticker, isin, yfinance_ticker FROM instruments"
             )
         ).one()
-    assert tuple(exchange) == (_EXCHANGE_ID, "XNAS")
+    assert tuple(exchange) == (_EXCHANGE_ID, _EXCHANGE_NAME)
     assert tuple(instrument) == (
         _INSTRUMENT_ID,
         _EXCHANGE_ID,
-        "AAPL",
-        "US0378331005",
-        "AAPL",
+        _INSTRUMENT_TICKER,
+        _INSTRUMENT_ISIN,
+        _INSTRUMENT_TICKER,
     )
 
 
 @pytest.mark.criterion("REQ-DB-007")
 def test_downgrade_restores_three_nullable_columns(engine: Engine) -> None:
     """Validates the downgrade() of revision 2266e24c509f: nullable columns, no data."""
-    mod = _load()
-    _run(engine, mod.upgrade)
+    revision_module = _load()
+    _run(engine, revision_module.upgrade)
 
-    _run(engine, mod.downgrade)
+    _run(engine, revision_module.downgrade)
 
     for table, column, expected_type in _DROPPED:
         restored = _columns(engine, table)[column]
         assert restored["nullable"] is True
         assert isinstance(restored["type"], expected_type)
     ticker_type = _columns(engine, "instruments")["t212_ticker"]["type"]
-    assert ticker_type.length == 100
+    assert ticker_type.length == _T212_TICKER_LENGTH
     with engine.connect() as conn:
         exchange_value = conn.execute(
             text("SELECT t212_id FROM exchanges")

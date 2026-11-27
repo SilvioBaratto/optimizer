@@ -72,7 +72,10 @@ class TestSaveExchange:
     def test_save_exchange_called_twice_leaves_one_row_with_a_stable_id(
         self, db_session
     ):
-        """Validates ``UniverseRepository.save_exchange``: a repeat keeps one row and id."""
+        """Validates ``UniverseRepository.save_exchange``.
+
+        Calling it twice for one name keeps a single row and returns the same id.
+        """
         repo = _repo(db_session)
         first = repo.save_exchange({"name": "XETRA"})
         first_id = first.id
