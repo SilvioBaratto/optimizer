@@ -798,17 +798,6 @@ def test_unreachable_statements_client_fails_the_block_as_one_error() -> None:
     assert result["counts"] == _stored_counts("financials", "sec_filings")
 
 
-def test_isin_failure_is_reported_without_costing_the_profile() -> None:
-    """Report a failed ISIN lookup on its own and still store the profile."""
-    client = _answering_client()
-    client.metadata.fetch_isin.side_effect = RuntimeError(_REFUSAL)
-
-    result = _sweep(client, "full")
-
-    assert result["errors"] == [f"isin: {_REFUSAL}"]
-    assert result["counts"] == _stored_counts()
-
-
 def test_profile_extras_write_failure_keeps_the_profile_count() -> None:
     """Keep the stored profile's count when only the extras write is rejected.
 

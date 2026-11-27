@@ -242,7 +242,6 @@ def _statement_fixture() -> pd.DataFrame:
 def _yf_client_with_statements(info: dict[str, Any] | None) -> MagicMock:
     yf_client = _build_yf_client(valuation=_valuation_fixture())
     yf_client.fetch_info.return_value = info
-    yf_client.metadata.fetch_isin.return_value = None
     stmt = _statement_fixture()
     yf_client.financials.fetch_income_stmt.return_value = stmt
     yf_client.financials.fetch_balance_sheet.return_value = stmt

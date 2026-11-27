@@ -326,9 +326,8 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   and `ingestion/scripts/debug_universe_scale.py`. The weekly `universe_build` job now runs
   the universe step alone. Nothing writes `instruments.t212_ticker`,
   `instruments.is_t212_tradeable` or `exchanges.t212_id` any more; the `portopt-db` entry
-  below drops the columns. ISINs now come only from ticker profiles
-  (`backfill_isin_from_profiles`): the per-ticker ISIN lookup the annotation step made is
-  gone. **Upgrading**: nothing is needed for the stack to start. A secret store written by
+  below drops the columns. The per-ticker ISIN lookup the annotation step made is gone
+  too. **Upgrading**: nothing is needed for the stack to start. A secret store written by
   an older `portopt setup` may still hold the two Trading 212 keys; setup and
   `portopt start` ignore them and render neither. The `./secrets/trading_212_api_key`,
   `./secrets/trading_212_secret_key` and `./.env.scheduler` files an older `portopt start`
@@ -349,6 +348,20 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   integration, except this changelog, the Alembic history, the tests of those migrations
   and the three tests that assert the removal itself (the mandate, the setup wizard and
   the universe builder import checks).
+- **ingestion**, **portopt-db**: the yfinance ISIN lookup against a third-party site.
+  `yf.Ticker.isin` is experimental: it searches Business Insider by company name, a site
+  whose terms ban scrapers, and the profile step called it once per ticker. Gone are
+  `MetadataClient.fetch_isin` and its protocol entry, the ISIN injection into the profile
+  write and the `isin:` error entry it could add to a sweep, the ISIN backfill that ran
+  after each bulk yfinance sweep, `UniverseRepository.backfill_isin_from_profiles` and
+  `set_isin_if_missing`, and the helpers `is_trusted_isin` and `has_exchange_suffix`.
+  `has_valid_checksum` stays, in `app.services.market_data.yfinance.ticker.isin_checksum`.
+  A new profile carries no ISIN and the screener supplies none, so an ISIN is now stored
+  only when an operator sets it with `portopt add-instrument <TICKER> --isin <ISIN>`; the
+  `instruments.isin` and `ticker_profiles.isin` columns stay and keep the values they
+  hold. **Upgrading**: nothing is needed; an instrument that never had an ISIN stays
+  without one until you set it. `tests/test_removed_integrations.py` now also rejects the
+  site's name in a tracked file.
 
 ### Known / not done
 

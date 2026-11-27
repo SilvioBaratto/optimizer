@@ -986,7 +986,7 @@ class YFinanceDataService:
             ctx: Ticker and settings of the sweep.
             plan: Decides whether the profile is due.
             result: Receives the profile counts, the ``profile`` skip or the
-                ``profile:`` and ``isin:`` errors.
+                ``profile:`` error.
 
         Returns:
             The ``info`` Yahoo answered, kept even when storing it failed, so the
@@ -1013,12 +1013,7 @@ class YFinanceDataService:
     def _store_profile(
         self, ctx: FetchContext, info: dict[str, Any], result: FetchResult
     ) -> None:
-        """Store the profile and its extra fields, with the ISIN added to *info*."""
-        # yfinance's .info does not carry the ISIN, so Ticker.isin is asked
-        # separately and injected for ticker_profiles.isin.
-        isin = self._fetch_isin(ctx, result)
-        if isin:
-            info["isin"] = isin
+        """Store the profile and its extra fields from the ``info`` Yahoo answered."""
         result.counts["profile"] = self._write(
             self.repo.upsert_profile, ctx.instrument_id, info
         )
@@ -1027,19 +1022,6 @@ class YFinanceDataService:
         result.counts["profile_extras"] = self._write(
             self.repo.upsert_profile_extras, ctx.instrument_id, info
         )
-
-    def _fetch_isin(self, ctx: FetchContext, result: FetchResult) -> Any:
-        """Return the ticker's ISIN, or ``None`` with an ``isin:`` error on failure."""
-        # A separate third-party call: its failure must not cost the profile
-        # that was just fetched.
-        try:
-            return self._timed(
-                lambda: self.yf_client.metadata.fetch_isin(ctx.yfinance_ticker)
-            )
-        except Exception as e:
-            result.errors.append(f"isin: {e}")
-            logger.warning("Failed to fetch ISIN for %s: %s", ctx.yfinance_ticker, e)
-            return None
 
     def _fetch_prices(
         self, ctx: FetchContext, plan: FetchPlan, result: FetchResult
@@ -1943,28 +1925,6 @@ class YFinanceDataService:
 # ---------------------------------------------------------------------------
 
 
-def _backfill_instrument_isin_from_profiles() -> None:
-    """Propagate ISIN from ``ticker_profiles`` onto ``instruments`` after a sweep.
-
-    The Screener universe build stores no ISIN; the per-instrument profile fetch
-    does (``ticker_profiles.isin``). Copy it onto the canonical ``instruments.isin``
-    for rows still missing one. Idempotent and cheap (a single UPDATE); best-effort
-    so an enrichment failure never sinks the fetch result.
-    """
-    from portopt_db.repositories.universe.universe_repository import UniverseRepository
-
-    from app.database import database_manager
-
-    try:
-        with database_manager.get_session() as session:
-            filled = UniverseRepository(session).backfill_isin_from_profiles()
-            session.commit()
-        if filled:
-            logger.info("Backfilled ISIN onto %d instruments from profiles", filled)
-    except Exception:
-        logger.exception("ISIN backfill from ticker_profiles failed (non-fatal)")
-
-
 # Share of a sweep's yfinance requests that may go unanswered before the sweep
 # counts as an outage. Below it the affected categories simply refill on the
 # next run; at or above it the run says nothing about prices being current, so
@@ -2057,15 +2017,12 @@ def run_bulk_yfinance_fetch(
 
     Raises:
         YahooUnreachableError: When most requests got no answer from Yahoo. The
-            job row keeps the result and errors; the ISIN backfill is skipped
-            and the next sweep fills it.
+            job row keeps the result and errors.
     """
     if request.workers > 1:
-        result_dict = _run_bulk_yfinance_fetch_parallel(
+        return _run_bulk_yfinance_fetch_parallel(
             request, yf_client, on_progress=on_progress, workers=request.workers
         )
-        _backfill_instrument_isin_from_profiles()
-        return result_dict
 
     from app.database import database_manager
 
@@ -2144,7 +2101,6 @@ def run_bulk_yfinance_fetch(
         _conclude_sweep(result_dict, all_errors, sweep_requests, on_progress)
         logger.info("Bulk yfinance fetch completed: %d tickers", total)
 
-    _backfill_instrument_isin_from_profiles()
     return result_dict
 
 

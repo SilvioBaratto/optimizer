@@ -2,9 +2,9 @@
 
 Implements the ``UniverseSourceClient`` seam (``get_exchanges`` /
 ``get_instruments``) the ``UniverseBuilder`` reads its exchanges and instruments from.
-Instruments come from ``yf.screen`` — no seed lists, no ISIN at build time (ISIN is
-backfilled later from ticker profiles). Venues without a Yahoo-code → config-name
-mapping are dropped and logged, so nothing is silently truncated.
+Instruments come from ``yf.screen`` — no seed lists, no ISIN at build time (an
+operator sets one with ``add-instrument --isin``). Venues without a Yahoo-code →
+config-name mapping are dropped and logged, so nothing is silently truncated.
 
 Pipeline (why this matters): ``yf.screen`` exposes ~68k equities + ~49k ETFs, ~90%
 of which are cross-listings of the same entity (``NVDA`` / ``NVD.DE`` / ``1NVDA.MI`` /

@@ -1621,9 +1621,8 @@ class TestUpsertEmptyInputGuards:
 
 
 class TestUpsertProfileKeepsKnownIsin:
-    """The ISIN comes from a separate, flaky lookup that the caller injects into
-    ``info``; a refresh whose lookup failed carries none and must not erase the
-    ISIN already stored (the universe backfill copies it onto ``instruments``)."""
+    """Yahoo's ``.info`` carries no ISIN, so a refresh must not erase the one already
+    stored; an ``info`` that does carry one replaces it."""
 
     def _profile(self, session: Session, instrument_id: uuid.UUID) -> TickerProfile:
         return session.query(TickerProfile).filter_by(instrument_id=instrument_id).one()

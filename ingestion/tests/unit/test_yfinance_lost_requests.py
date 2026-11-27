@@ -28,9 +28,9 @@ def _no_backoff_sleep() -> Iterator[None]:
         yield
 
 
-def _metadata(isin: PropertyMock) -> tuple[MetadataClient, MagicMock]:
+def _metadata(options: PropertyMock) -> tuple[MetadataClient, MagicMock]:
     ticker = MagicMock()
-    type(ticker).isin = isin
+    type(ticker).options = options
     cache = MagicMock()
     cache.get.return_value = ticker
     breaker = MagicMock()
@@ -42,6 +42,8 @@ def _metadata(isin: PropertyMock) -> tuple[MetadataClient, MagicMock]:
     )
     return client, breaker
 
+
+_EXPIRATIONS = ("2026-12-18", "2027-01-15")
 
 _LOST = [
     pytest.param(
@@ -56,75 +58,78 @@ _LOST = [
 
 @pytest.mark.parametrize("failure", _LOST)
 def test_every_attempt_failing_raises_when_requested(failure: Exception) -> None:
-    isin = PropertyMock(side_effect=failure)
-    client, _ = _metadata(isin)
+    options = PropertyMock(side_effect=failure)
+    client, _ = _metadata(options)
 
     with pytest.raises(RequestLostError) as excinfo:
-        client.fetch_isin("AAPL", raise_on_lost=True)
+        client.fetch_options_expirations("AAPL", raise_on_lost=True)
 
     assert excinfo.value.__cause__ is failure
-    assert isin.call_count == 3  # the whole retry budget was spent first
+    assert options.call_count == 3  # the whole retry budget was spent first
 
 
 @pytest.mark.parametrize("failure", _LOST)
 def test_every_attempt_failing_returns_none_by_default(failure: Exception) -> None:
     client, _ = _metadata(PropertyMock(side_effect=failure))
 
-    assert client.fetch_isin("AAPL") is None
+    assert client.fetch_options_expirations("AAPL") is None
 
 
 def test_rate_limit_still_trips_the_breaker_before_raising() -> None:
     client, breaker = _metadata(PropertyMock(side_effect=YFRateLimitError()))
 
     with pytest.raises(RequestLostError):
-        client.fetch_isin("AAPL", raise_on_lost=True)
+        client.fetch_options_expirations("AAPL", raise_on_lost=True)
 
     assert breaker.trigger.called
 
 
 def test_breaker_refusing_every_attempt_counts_as_lost() -> None:
-    isin = PropertyMock(return_value="US123")
-    client, breaker = _metadata(isin)
+    options = PropertyMock(return_value=_EXPIRATIONS)
+    client, breaker = _metadata(options)
     breaker.check.side_effect = RuntimeError("circuit breaker open")
 
     with pytest.raises(RequestLostError):
-        client.fetch_isin("AAPL", raise_on_lost=True)
+        client.fetch_options_expirations("AAPL", raise_on_lost=True)
 
-    isin.assert_not_called()
+    options.assert_not_called()
 
 
-@pytest.mark.parametrize("answer", [None, "", "-"])
-def test_yahoo_having_no_isin_is_an_answer_not_a_loss(answer: str | None) -> None:
-    isin = PropertyMock(return_value=answer)
-    client, _ = _metadata(isin)
+@pytest.mark.parametrize("answer", [None, ()])
+def test_yahoo_listing_no_options_is_an_answer_not_a_loss(
+    answer: tuple[str, ...] | None,
+) -> None:
+    options = PropertyMock(return_value=answer)
+    client, _ = _metadata(options)
 
-    assert client.fetch_isin("AAPL", raise_on_lost=True) is None
-    assert isin.call_count == 1
+    assert client.fetch_options_expirations("AAPL", raise_on_lost=True) is None
+    assert options.call_count == 1
 
 
 def test_no_data_exception_is_an_answer_not_a_loss() -> None:
-    isin = PropertyMock(side_effect=YFTickerMissingError("AAPL", "no ticker"))
-    client, _ = _metadata(isin)
+    options = PropertyMock(side_effect=YFTickerMissingError("AAPL", "no ticker"))
+    client, _ = _metadata(options)
 
-    assert client.fetch_isin("AAPL", raise_on_lost=True) is None
-    assert isin.call_count == 1
+    assert client.fetch_options_expirations("AAPL", raise_on_lost=True) is None
+    assert options.call_count == 1
 
 
 def test_transient_failure_followed_by_an_answer_is_not_lost() -> None:
-    isin = PropertyMock(
-        side_effect=[requests.exceptions.ConnectionError("reset"), "US0378331005"]
+    options = PropertyMock(
+        side_effect=[requests.exceptions.ConnectionError("reset"), _EXPIRATIONS]
     )
-    client, _ = _metadata(isin)
+    client, _ = _metadata(options)
 
-    assert client.fetch_isin("AAPL", raise_on_lost=True) == "US0378331005"
+    assert client.fetch_options_expirations("AAPL", raise_on_lost=True) == _EXPIRATIONS
 
 
 def test_answer_followed_by_nothing_to_retry_is_not_lost_after_an_earlier_failure() -> (
     None
 ):
-    # The first attempt failed, the second returned "-" (Yahoo's no-ISIN marker):
-    # the final state is an answer, so the earlier failure must not leak out.
-    isin = PropertyMock(side_effect=[requests.exceptions.ConnectionError("x"), "-"])
-    client, _ = _metadata(isin)
+    # The first attempt failed, the second returned an empty tuple (Yahoo's "no
+    # options listed" answer): the final state is an answer, so the earlier
+    # failure must not leak out.
+    options = PropertyMock(side_effect=[requests.exceptions.ConnectionError("x"), ()])
+    client, _ = _metadata(options)
 
-    assert client.fetch_isin("AAPL", raise_on_lost=True) is None
+    assert client.fetch_options_expirations("AAPL", raise_on_lost=True) is None

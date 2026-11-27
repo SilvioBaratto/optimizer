@@ -65,10 +65,10 @@ class FundamentalsRepository(RepositoryBase):
         Args:
             instrument_id: The instrument this profile belongs to.
             info: The raw dict from ``yf.Ticker.info``. ``isin`` is not part of
-                that payload; the caller injects it from a separate lookup. An
-                ``info`` without a usable ``isin`` keeps the ISIN already stored
-                for the instrument (a first load stores NULL) instead of
-                overwriting it with NULL; every other column is refreshed.
+                that payload, so an ``info`` without a usable ``isin`` keeps the
+                ISIN already stored for the instrument (a first load stores NULL)
+                instead of overwriting it with NULL; every other column is
+                refreshed.
 
         Returns:
             Number of rows written (0 or 1).

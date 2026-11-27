@@ -69,7 +69,6 @@ def make_silent_yf_client() -> MagicMock:
     yf_client.holders.fetch_insider_purchases.return_value = None
     yf_client.holders.fetch_insider_roster_holders.return_value = None
     yf_client.metadata.fetch_valuation_measures.return_value = None
-    yf_client.metadata.fetch_isin.return_value = None
     yf_client.analysis.fetch_earnings_estimate.return_value = None
     yf_client.analysis.fetch_revenue_estimate.return_value = None
     yf_client.analysis.fetch_growth_estimates.return_value = None

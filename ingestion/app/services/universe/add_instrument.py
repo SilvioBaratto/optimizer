@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.services.market_data.yfinance import YFinanceClient
-from app.services.market_data.yfinance.ticker._isin import has_valid_checksum
+from app.services.market_data.yfinance.ticker.isin_checksum import has_valid_checksum
 from app.services.universe.builder.enums import (
     AssetClass,
     DurationBucket,
@@ -68,8 +68,8 @@ def _clean_isin(isin: str | None) -> str | None:
 
     Raises:
         AddInstrumentError: The code is not twelve characters with a valid check
-            digit. A stored ISIN is never replaced by a later lookup, so a typo
-            would otherwise stay on the row for good and break ISIN matching.
+            digit. Nothing else writes an ISIN onto the row, so a typo would
+            otherwise stay there until the operator notices and break ISIN matching.
     """
     cleaned = (isin or "").strip().upper()
     if not cleaned:
