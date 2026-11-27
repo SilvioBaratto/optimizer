@@ -128,6 +128,24 @@ The entries under Security affect privacy or configuration and come first.
   (holdings, constraints, questionnaire answers) is sent to the provider you choose,
   and `fund profile --help` says the answers go to the configured LLM provider
   (REQ-ING-026, REQ-ING-027, REQ-ING-028, REQ-ING-029, REQ-ING-030).
+- **fund**: the building blocks for presenting four neutral candidate portfolios to the
+  adviser; no run uses them yet, so a run still computes and gates one proposal. The
+  pure tool `fund.tools.candidates.compute_candidates` fits `hrp`, `mean_risk`,
+  `min_risk` and `risk_parity` on one returns panel with the same bounds, position cap,
+  budget and moment estimators, always in that alphabetical id order, and reports per
+  candidate only annualised volatility, CVaR 95%, largest position, number of positions,
+  turnover from current holdings and the constraint check; a method that fails or
+  breaches a constraint comes back `feasible=False` with its breaches beside the others.
+  The schemas are in `fund.schemas.candidates` (`CandidateSet`, `Candidate`,
+  `CandidateMetrics`, `ConstraintCheck`, `CANDIDATE_IDS`), and none of them has a field
+  that ranks or scores a candidate. `AgentRunRepository` gains `append_candidate_set`,
+  `latest_candidate_set`, `append_candidate_selection` and `latest_selected_weights`,
+  `fund.observe` gains `candidate_set` and `selected_candidate_id`, and the toolset binds
+  a `compute_candidates` tool that applies the risk gate's own check to each candidate
+  and persists the set as one `allocator` / `compute_candidates` decision, but no agent
+  role is given it. `optimize_portfolio` now shares its returns panel and its mean-risk
+  fit (`load_returns_panel`, `fit_mean_risk`) with the new tool; its output is unchanged
+  (REQ-FUND-043, REQ-FUND-044, REQ-FUND-045, REQ-FUND-046).
 
 ### Changed
 

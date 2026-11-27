@@ -17,6 +17,7 @@ import fund.schemas as schemas
 
 # Sub-modules whose public names roll up into the package surface.
 _SUBMODULES = (
+    "candidates",
     "enums",
     "mandate",
     "constraint_set",
@@ -29,7 +30,9 @@ _SUBMODULES = (
 
 def test_documented_surface_resolves():
     from fund.schemas import (
+        CANDIDATE_IDS,
         AllocDecision,
+        CandidateSet,
         ConstraintSet,
         GicsSector,
         Horizon,
@@ -46,7 +49,9 @@ def test_documented_surface_resolves():
     )
 
     documented = (
+        CANDIDATE_IDS,
         AllocDecision,
+        CandidateSet,
         ConstraintSet,
         GicsSector,
         Horizon,

@@ -1,7 +1,8 @@
 """Public surface for the Phase-4 fund schemas.
 
 Re-exports the four typed I/O schemas (``PortfolioMandate``, ``ConstraintSet``,
-``ViewSet``, ``AllocDecision``) with their nested models, the shared MiFID-facing
+``ViewSet``, ``AllocDecision``) with their nested models, the candidate set the
+adviser chooses from (``CandidateSet`` and its parts), the shared MiFID-facing
 enums, and the model-agnostic ``structured_call`` helper (with
 ``StructuredOutputError`` / the ``SupportsStructuredOutput`` protocol). Import
 from ``fund.schemas`` rather than the individual modules.
@@ -14,6 +15,14 @@ so importing this package pulls in no optimizer code.
 
 from __future__ import annotations
 
+from fund.schemas.candidates import (
+    CANDIDATE_IDS,
+    Candidate,
+    CandidateId,
+    CandidateMetrics,
+    CandidateSet,
+    ConstraintCheck,
+)
 from fund.schemas.constraint_set import (
     Bounds,
     ConstraintSet,
@@ -49,10 +58,18 @@ from fund.schemas.structured import (
 )
 from fund.schemas.views import View, ViewKind, ViewSet
 
-__all__ = [
+# Plain ``sorted()`` order, which the surface tests pin; ruff's isort-style order
+# would lift the one constant to the top.
+__all__ = [  # noqa: RUF022
     "AllocDecision",
     "Bounds",
+    "CANDIDATE_IDS",
+    "Candidate",
+    "CandidateId",
+    "CandidateMetrics",
+    "CandidateSet",
     "CapacityAnswers",
+    "ConstraintCheck",
     "ConstraintSet",
     "ConstraintSetRef",
     "EsgAnswers",

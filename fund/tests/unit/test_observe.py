@@ -2918,3 +2918,106 @@ def test_default_decision_bar_ignores_dormant_and_future_bars(db_session):
 
 def test_default_decision_bar_falls_back_to_today_without_recent_prices(db_session):
     assert observe.default_decision_bar(db_session, today=_TODAY) == _TODAY
+
+
+# --- the persisted candidate set and the adviser's choice ---------------------
+
+
+def _persisted_candidate_set(db_session, run):
+    """Persist a four-candidate set for ``run`` the way the bound tool does."""
+    from fund.schemas.candidates import (
+        CANDIDATE_IDS,
+        Candidate,
+        CandidateMetrics,
+        CandidateSet,
+        ConstraintCheck,
+    )
+
+    metrics = CandidateMetrics(
+        annualized_volatility=0.1,
+        cvar_95=0.02,
+        largest_position=1.0,
+        n_positions=1,
+        turnover=1.0,
+    )
+    candidate_set = CandidateSet(
+        asof=_ASOF,
+        universe=("AAA",),
+        n_observations=90,
+        periods_per_year=365,
+        candidates=tuple(
+            Candidate(
+                candidate_id=candidate_id,
+                label=f"method {candidate_id}",
+                settings={"max_weights": 1.0, "prior_config": {"cov": "ledoit_wolf"}},
+                feasible=True,
+                weights={"AAA": 1.0},
+                metrics=metrics,
+                constraint_check=ConstraintCheck(passed=True),
+            )
+            for candidate_id in CANDIDATE_IDS
+        ),
+    )
+    AgentRunRepository(db_session).append_candidate_set(
+        run.id, constraint_set=None, payload=candidate_set.model_dump(mode="json")
+    )
+    return candidate_set
+
+
+@pytest.mark.criterion("REQ-FUND-046")
+def test_candidate_set_reads_back_the_persisted_set(db_session):
+    """Validates fund.observe.candidate_set: the newest persisted set comes back equal
+    to what was written; a run without one, or a tampered row, reads as ``None``."""
+    created = datetime(2026, 1, 30, tzinfo=UTC)
+    run = _make_run(db_session, portfolio_id=_PID, created_at=created)
+    empty = _make_run(db_session, portfolio_id=_PID, created_at=created)
+    tampered = _make_run(db_session, portfolio_id=_PID, created_at=created)
+    written = _persisted_candidate_set(db_session, run)
+    ranked = {**written.model_dump(mode="json"), "rank": ["mean_risk"]}
+    AgentRunRepository(db_session).append_candidate_set(
+        tampered.id, constraint_set=None, payload=ranked
+    )
+
+    read_back = observe.candidate_set(db_session, run.id)
+
+    assert read_back == written
+    assert read_back is not None
+    assert read_back.digest() == written.digest()
+    assert observe.candidate_set(db_session, empty.id) is None
+    assert observe.candidate_set(db_session, tampered.id) is None
+
+
+@pytest.mark.criterion("REQ-FUND-046")
+def test_selected_candidate_id_names_the_adviser_choice_in_force(db_session):
+    """Validates fund.observe.selected_candidate_id: the chosen id until a newer set
+    supersedes it; an edit is a choice but names no candidate."""
+    repo = AgentRunRepository(db_session)
+    created = datetime(2026, 1, 30, tzinfo=UTC)
+    run = _make_run(db_session, portfolio_id=_PID, created_at=created)
+    written = _persisted_candidate_set(db_session, run)
+    assert observe.selected_candidate_id(run) is None
+
+    repo.append_candidate_selection(
+        run.id,
+        candidate_id="risk_parity",
+        candidate_set_hash=written.digest(),
+        weights={"AAA": 1.0},
+        metrics={},
+        settings={},
+    )
+    db_session.refresh(run)
+    assert observe.selected_candidate_id(run) == "risk_parity"
+
+    _persisted_candidate_set(db_session, run)
+    db_session.refresh(run)
+    assert observe.selected_candidate_id(run) is None
+
+    repo.append_decision(
+        run.id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": {"AAA": 1.0}}),
+        hitl_decision={"decision": "edit", "human_override": True},
+    )
+    db_session.refresh(run)
+    assert observe.selected_candidate_id(run) is None
