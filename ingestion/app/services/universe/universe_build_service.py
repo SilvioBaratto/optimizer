@@ -17,12 +17,12 @@ from typing import Any
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
 from app.database import database_manager
-from app.schemas.universe.trading212 import UniverseBuildRequest
+from app.schemas.universe.build_request import UniverseBuildRequest
 from app.services._shared import ProgressCallback, _noop
 from app.services.market_data.yfinance import get_yfinance_client
-from app.services.universe.trading212.builder import BuildProgress, UniverseBuilder
+from app.services.universe.builder.builder import BuildProgress, UniverseBuilder
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.trading212.client import Trading212Client
-from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.yfinance_source import (
     PassThroughTickerMapper,
     YFinanceUniverseSource,

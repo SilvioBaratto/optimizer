@@ -172,7 +172,7 @@ omit = [
     # branch coverage no matter what — an unreachable floor that drags the
     # real number down. There is nothing here to execute.
     '*/protocols/interfaces.py',
-    'app/services/universe/trading212/protocols.py',
+    'app/services/universe/builder/protocols.py',
 ]
 
 [tool.coverage.report]

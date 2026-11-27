@@ -20,12 +20,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.universe.trading212.builder import (
+from app.services.universe.builder.builder import (
     BuildProgress,
     BuildResult,
     UniverseBuilder,
 )
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.config import UniverseBuilderConfig
 
 # ---------------------------------------------------------------------------
 # Shared test data

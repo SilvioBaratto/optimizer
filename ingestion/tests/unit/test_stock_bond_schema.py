@@ -16,7 +16,7 @@ from portopt_db.models.market_data.etf_metadata import (
 )
 from portopt_db.models.universe.universe import Exchange, Instrument
 
-from app.services.universe.trading212.enums import (
+from app.services.universe.builder.enums import (
     AssetClass,
     DurationBucket,
     FiSubclass,

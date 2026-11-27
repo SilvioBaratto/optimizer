@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.schemas.universe.trading212 import UniverseBuildRequest
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.schemas.universe.build_request import UniverseBuildRequest
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.universe_build_service import (
     Trading212NotConfiguredError,
     build_trading212_client,
@@ -166,7 +166,7 @@ class TestRunUniverseBuild:
 
     def test_builder_progress_is_forwarded_as_kwargs(self) -> None:
         """BuildProgress is a dataclass; on_progress takes kwargs. Bridge must adapt."""
-        from app.services.universe.trading212.builder import BuildProgress
+        from app.services.universe.builder.builder import BuildProgress
 
         builder_cls = MagicMock()
         builder_cls.return_value.build.return_value = _make_result()
@@ -290,7 +290,7 @@ class TestAUMScreenRemoved:
     """The ETF AUM screen was removed — no class, no config surface, no export."""
 
     def test_aum_filter_is_not_importable(self) -> None:
-        import app.services.universe.trading212.filters as filters
+        import app.services.universe.builder.filters as filters
 
         assert not hasattr(filters, "AUMFilter")
 

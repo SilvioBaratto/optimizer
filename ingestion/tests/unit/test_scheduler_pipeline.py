@@ -1080,7 +1080,7 @@ class TestRunUniverseStep:
         run_step.assert_called_once()
 
     def test_delegates_to_build_without_a_trading212_client(self):
-        from app.schemas.universe.trading212 import UniverseBuildRequest
+        from app.schemas.universe.build_request import UniverseBuildRequest
         from app.services.universe.universe_build_service import run_universe_build
 
         with ExitStack() as stack:

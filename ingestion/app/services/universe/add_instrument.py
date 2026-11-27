@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.services.market_data.yfinance import YFinanceClient
 from app.services.market_data.yfinance.ticker._isin import has_valid_checksum
-from app.services.universe.trading212.enums import (
+from app.services.universe.builder.enums import (
     AssetClass,
     DurationBucket,
     FiSubclass,

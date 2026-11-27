@@ -40,6 +40,7 @@ from app.services.market_data.yfinance.screener.screener_client import (
     ScreenerClient,
     ScreenerError,
 )
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.canonical import (
     IngestionFloorConfig,
     Listing,
@@ -49,7 +50,6 @@ from app.services.universe.canonical import (
     passes_floor,
     split_currency,
 )
-from app.services.universe.trading212.config import UniverseBuilderConfig
 
 logger = logging.getLogger(__name__)
 

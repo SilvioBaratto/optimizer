@@ -174,8 +174,8 @@ class TestCredentialsAreNotRendered:
 
     def test_enclosing_dataclass_repr_hides_credentials(self):
         """A dataclass holding the client does not leak them either."""
-        from app.services.universe.trading212.builder import UniverseBuilder
-        from app.services.universe.trading212.config import UniverseBuilderConfig
+        from app.services.universe.builder.builder import UniverseBuilder
+        from app.services.universe.builder.config import UniverseBuilderConfig
 
         builder = UniverseBuilder(
             config=UniverseBuilderConfig(),

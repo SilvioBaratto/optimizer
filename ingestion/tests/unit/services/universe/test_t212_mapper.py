@@ -11,8 +11,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
-from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
 
 CFG = UniverseBuilderConfig()

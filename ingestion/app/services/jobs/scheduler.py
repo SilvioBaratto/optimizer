@@ -727,7 +727,7 @@ def run_universe_step(*, attempt: int = 0) -> bool:
     configured, a follow-on annotation step maps T212 tickers onto the built
     universe (it does not source it).
     """
-    from app.schemas.universe.trading212 import UniverseBuildRequest
+    from app.schemas.universe.build_request import UniverseBuildRequest
     from app.services.universe.universe_build_service import (
         run_universe_build as _build,
     )

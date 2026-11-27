@@ -2,7 +2,7 @@
 
 Targets:
 - app/services/universe/trading212/ticker_mapper.py  (~19 branches)
-- app/services/universe/trading212/builder.py        (~13 branches)
+- app/services/universe/builder/builder.py        (~13 branches)
 
 All network I/O is mocked. No time.sleep is exercised (patched throughout).
 """
@@ -17,11 +17,11 @@ from yfinance.exceptions import YFTickerMissingError
 
 from app.services.infrastructure.circuit_breaker import CircuitBreaker
 from app.services.market_data.yfinance import YFinanceClient
-from app.services.universe.trading212.builder import (
+from app.services.universe.builder.builder import (
     UniverseBuilder,
 )
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
-from app.services.universe.trading212.config import UniverseBuilderConfig
 from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
 from tests._fixtures.curl_errors import (
     curl_connect_failure,

@@ -26,7 +26,7 @@ from app.services._shared.trading_calendar import (
     parse_period_years,
     period_start_date,
 )
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.config import UniverseBuilderConfig
 from tests._fixtures.upstream_gaps import tolerate_tel_aviv_calendar_gap
 
 

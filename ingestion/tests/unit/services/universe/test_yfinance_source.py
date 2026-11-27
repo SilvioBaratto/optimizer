@@ -23,8 +23,8 @@ from app.services.market_data.yfinance.screener.screener_client import (
     ScreenerError,
 )
 from app.services.universe import yfinance_source
-from app.services.universe.trading212.builder import UniverseBuilder
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.builder import UniverseBuilder
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.yfinance_source import (
     _CODE_TO_CONFIG_NAME,
     _CODE_TO_REGION,
@@ -223,7 +223,7 @@ def test_tags_instrument_type(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_requires_no_trading212(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.services.universe.trading212.protocols import (
+    from app.services.universe.builder.protocols import (
         TickerMapper,
         Trading212ApiClient,
     )

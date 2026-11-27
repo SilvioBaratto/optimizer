@@ -2,8 +2,8 @@ import logging
 from dataclasses import dataclass, field
 
 from app.services.market_data.yfinance import YFinanceClient
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.trading212.cache.ticker_cache import TickerMappingCache
-from app.services.universe.trading212.config import UniverseBuilderConfig
 
 logger = logging.getLogger(__name__)
 

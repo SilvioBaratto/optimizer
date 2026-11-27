@@ -18,8 +18,8 @@ from portopt_db.repositories.universe.pinned_instrument_repository import (
 )
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
-from app.services.universe.trading212.builder import UniverseBuilder
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.builder import UniverseBuilder
+from app.services.universe.builder.config import UniverseBuilderConfig
 
 _NASDAQ = {"name": "NASDAQ", "workingSchedules": [{"id": 1}]}
 

@@ -394,7 +394,7 @@ def _choice_check(enum_path: str, label: str) -> Callable[[str | None], str | No
     return check
 
 
-_ENUMS = "app.services.universe.trading212.enums"
+_ENUMS = "app.services.universe.builder.enums"
 
 
 @app.command(name="add-instrument")

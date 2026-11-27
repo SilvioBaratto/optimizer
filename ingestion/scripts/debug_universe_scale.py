@@ -36,7 +36,7 @@ from typing import Any
 import yfinance as yf
 
 from app.services.market_data.yfinance import YFinanceClient
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.trading212.ticker_mapper import YFinanceTickerMapper
 from app.services.universe.universe_build_service import build_trading212_client
 

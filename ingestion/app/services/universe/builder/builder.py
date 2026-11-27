@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from app.services.universe.trading212.classification import classify_instrument
-from app.services.universe.trading212.config import UniverseBuilderConfig
-from app.services.universe.trading212.filters.etf_screen import dedup_etfs_by_isin
-from app.services.universe.trading212.protocols import (
+from app.services.universe.builder.classification import classify_instrument
+from app.services.universe.builder.config import UniverseBuilderConfig
+from app.services.universe.builder.filters.etf_screen import dedup_etfs_by_isin
+from app.services.universe.builder.protocols import (
     LiveSymbolReporter,
     TickerMapper,
     Trading212ApiClient,
