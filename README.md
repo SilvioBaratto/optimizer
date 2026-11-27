@@ -109,7 +109,7 @@ submodule's source and docstrings under `packages/portopt-core/optimizer/`.
 
 ## Requirements
 
-- **Python ≥ 3.12** (all four packages; the numpy 2.5 / pandas 3.0 pins make
+- **Python ≥ 3.12** (all four packages; the numpy 2.5 / pandas 3.1 pins make
   3.12 a hard floor). CI runs 3.12 and 3.13.
 - **[uv](https://docs.astral.sh/uv/)** — the workspace resolver / runner.
 - **Docker + the `docker compose` v2 plugin** — only for the ingestion daemon
