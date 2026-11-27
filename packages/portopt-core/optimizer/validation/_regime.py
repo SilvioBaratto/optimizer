@@ -9,7 +9,7 @@ alpha is concentrated in a single regime rather than being persistent.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Final, cast
@@ -380,7 +380,9 @@ def _identify_subperiods(
 
     blocks: list[tuple[pd.Timestamp, pd.Timestamp, str]] = []
     values = regime_timeline.values
-    index = cast(pd.DatetimeIndex, regime_timeline.index)
+    # pandas >= 3.1 annotates ``DatetimeIndex[int]`` as ``DatetimeIndex | Any``;
+    # indexing by position returns a Timestamp.
+    index = cast(Sequence[pd.Timestamp], regime_timeline.index)
 
     block_start = index[0]
     current_regime = values[0]

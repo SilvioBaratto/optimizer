@@ -120,6 +120,13 @@ def compute_listing_age(price_history: pd.DataFrame) -> pd.Series:
     return price_history.notna().sum()
 
 
+def _listed_for_at_least(listing_age: pd.Series, min_days: int) -> pd.Index:
+    """Return the tickers whose listing age is at least ``min_days``."""
+    # pandas >= 3.1 annotates this mask lookup as ``Any | int``; at runtime it is
+    # an Index, which is what ``Index.intersection`` takes.
+    return cast(pd.Index, listing_age.index[listing_age >= min_days])
+
+
 def count_financial_statements(
     statements: pd.DataFrame,
     period_type: str,
@@ -381,11 +388,11 @@ def apply_investability_screens(
     listing_age = compute_listing_age(price_history)
     listing_age = listing_age.reindex(candidates).dropna()
     candidates = candidates.intersection(
-        listing_age.index[listing_age >= config.min_trading_history]
+        _listed_for_at_least(listing_age, config.min_trading_history)
     )
 
     candidates = candidates.intersection(
-        listing_age.index[listing_age >= config.min_ipo_seasoning]
+        _listed_for_at_least(listing_age, config.min_ipo_seasoning)
     )
 
     if financial_statements is not None and len(financial_statements) > 0:

@@ -27,6 +27,7 @@ from app.services._shared.trading_calendar import (
     period_start_date,
 )
 from app.services.universe.trading212.config import UniverseBuilderConfig
+from tests._fixtures.upstream_gaps import tolerate_tel_aviv_calendar_gap
 
 
 class TestParsePeriodYears:
@@ -92,7 +93,10 @@ class TestExpectedTradingSessions:
         assert 240 <= sessions <= 256
 
     @pytest.mark.parametrize(
-        "exchange", sorted(UniverseBuilderConfig().yahoo_suffix_map)
+        "exchange",
+        tolerate_tel_aviv_calendar_gap(
+            sorted(UniverseBuilderConfig().yahoo_suffix_map)
+        ),
     )
     def test_when_universe_exchange_then_calendar_resolves(self, exchange: str) -> None:
         # The universe scope is exactly ``yahoo_suffix_map``; a venue missing from

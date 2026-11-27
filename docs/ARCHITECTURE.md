@@ -950,7 +950,8 @@ _Da qui in giù la sezione è generata da `scriptorium arch` il 2026-08-19: non 
         │   ├── job_service_mock.py  ┃ DRIVING
         │   ├── macro.py  ┃ DRIVING
         │   ├── market_data.py  ┃ DRIVING
-        │   └── universe.py  ┃ DRIVING
+        │   ├── universe.py  ┃ DRIVING
+        │   └── upstream_gaps.py  ┃ DRIVING
         ├── conftest.py  ┃ DRIVING
         ├── fixtures/
         │   └── smoke_prices.sql  ┃ DRIVING
@@ -1280,6 +1281,7 @@ Ingestion is the lean, headless worker ARCHITECTURE.md keeps deliberately unchan
 | `ingestion/tests/_fixtures/macro.py` | DRIVING | Seed builder per il dominio macro: crea un `EconomicIndicator`, una `MacroCalibration` e una `FredObservation` per un singolo paese. | `ingestion/app/models/macro/macro_regime.py`, `ingestion/tests/_fixtures/_helpers.py` |
 | `ingestion/tests/_fixtures/market_data.py` | DRIVING | Seed builder per il dominio market_data: crea `Exchange` + `Instrument` + `TickerProfile`, senza `PriceHistory` bulk per restare economico sotto SQLite. | `ingestion/app/models/market_data/yfinance_data.py`, `ingestion/app/models/universe/universe.py`, `ingestion/tests/_fixtures/universe.py`, `ingestion/tests/_fixtures/_helpers.py` |
 | `ingestion/tests/_fixtures/universe.py` | DRIVING | Seed builder per il dominio universo: crea `Exchange` + `Instrument` con semantica get-or-create. | `ingestion/app/models/universe/universe.py`, `ingestion/tests/_fixtures/_helpers.py` |
+| `ingestion/tests/_fixtures/upstream_gaps.py` | DRIVING | Marcatore pytest di fallimento atteso (strict) per il calendario di Tel Aviv, che `exchange_calendars` 4.13.3 non riesce a costruire su pandas 3.1, e helper che lo applica al solo parametro di Tel Aviv; si cancella quando esce la correzione upstream. | — |
 | `ingestion/tests/conftest.py` | DRIVING | Configurazione pytest e fixture condivise per l'intera suite: motore SQLite in-memoria session-scoped, sessione per-test con pattern SAVEPOINT, e fixture di comodo per iniettare `database_manager.get_session` e i seed per-dominio. | `ingestion/app/models/_shared/__init__.py`, `ingestion/app/database.py`, `ingestion/tests/_fixtures/__init__.py`, `ingestion/tests/_fixtures/job_service_mock.py` |
 | `ingestion/tests/fixtures/smoke_prices.sql` | DRIVING | Fixture SQL di prezzi sintetici deterministici, pensata per un workflow GitHub Actions di smoke-test che carica dati dopo `alembic upgrade head` e prima di invocare `POST /api/v1/optimize` e `POST /api/v1/backtest`. | — |
 | `ingestion/tests/integration/__init__.py` | DRIVING | Docstring di pacchetto per una cartella `integration/` che oggi non contiene ancora test — dichiara l'intento (DB reale, wiring service+repository, integrazioni esterne con mock) senza implementazione. | — |

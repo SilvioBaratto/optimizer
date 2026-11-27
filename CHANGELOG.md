@@ -110,6 +110,9 @@ The entries under Security affect privacy or configuration and come first.
 
 Behaviour changes to know about:
 
+- **pandas 3.0.6 -> 3.1.1** in the library, `portopt-db` and `ingestion` (exact pins). The
+  library adds explicit casts where pandas 3.1's inline typing widened a result type. The one
+  casualty is the Tel Aviv trading calendar, see "Known / not done".
 - **portopt-db, ingestion, fund**: SQLAlchemy 2.1 makes psycopg 3 the default driver for a
   bare `postgresql://` URL. This project declares, tunes and tests against psycopg2 only
   (connection keepalives, the circuit breaker's error classification), so the engine and
@@ -265,10 +268,12 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
 
 ### Known / not done
 
-- **pandas 3.1.1** is not adopted (pandas stays at 3.0.6; the work sits on a draft pull
-  request). `exchange_calendars` 4.13.3 cannot build the Tel Aviv (`XTAE`) calendar under
-  pandas 3.1, and without that calendar the history-length guard is lost for that venue.
-  It waits for an `exchange_calendars` release that contains upstream pull request 633.
+- **The Tel Aviv (`XTAE`) trading calendar does not build on pandas 3.1.**
+  `exchange_calendars` 4.13.3 raises while building it, so for Tel Aviv listings the
+  history-length check is skipped (the daemon logs a warning per instrument) until a release
+  contains upstream pull request 633. The two tests that cover that venue are strict expected
+  failures in `ingestion/tests/_fixtures/upstream_gaps.py`; once `exchange_calendars` is
+  fixed they pass, which fails the run, and the entry is deleted there.
 - **python-dateutil 4.0.0** is not adopted: `botocore`, reached through `langchain-aws` (the
   `aws` and `all-llm` extras), caps it below 3.0.
 - **Releases that another package's cap holds back**: `uuid-utils` 1.x (`langsmith` requires
