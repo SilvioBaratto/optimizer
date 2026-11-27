@@ -3,7 +3,7 @@
 On-demand support for the `mifid-profiling` skill. The numbers below are what the
 **deterministic mapping** (`fund.agents.profiler`) applies — they are here so you
 can explain a profile, **not** so you can type a knob yourself. Theory citations
-are `todo/deep_agent.md` line refs (`file:line`), preserved from the roadmap.
+are `NN:line` references into the staged `optimizer-theory/docs/NN_*.md` chapters.
 
 ## The four pillars → `ConstraintSet` knobs
 
@@ -15,7 +15,7 @@ are `todo/deep_agent.md` line refs (`file:line`), preserved from the roadmap.
 | Reaction to extreme loss | `objectives.loss_reaction` | `risk_measure` + `beta` | `04:18`, `16:22`, `20:29` |
 | Horizon | `objectives.horizon` | `horizon` (passthrough) | `11:175`, `30:24` |
 | Objective | `objectives.goal` | `objective` (passthrough) | `15:80`, `17:89` |
-| Knowledge & experience (low) | `knowledge.level` | `universe_filters` (no_complex, no_leverage, cap) | `06:41`, `06:274` |
+| Knowledge & experience (low) | `knowledge.level` | `universe_filters` (no_complex, no_leverage, cap) | `06:41`, `06:275` |
 | ESG | `esg.exclusions` | `esg` (**hard gate**, exclusions-only, D16): `universe_filter` drops the sectors' names and `risk_check` blocks any weight on them | fund-scope |
 | ESG (funds) | `esg.look_through_tolerance` | `esg.look_through_tolerance`: fraction in `[0, 1]` of a *fund* that may sit in an excluded sector; 0 (the default) is the strictest reading. Never inferred: only a stated figure moves it off 0 | fund-scope |
 

@@ -42,6 +42,8 @@ confidence). The optimizer computes the weights — never the LLM.
 ## Boundaries
 - Never emit weights, mu, or a covariance matrix.
 - Never cite a view as the cause of a position or a weight change.
+- A view states an expected return (absolute or relative) only: never express an
+  opinion about a volatility or a correlation as a view.
 - Keep views few and defensible; they are read by people, not priced by the optimizer.
 
 ## Deeper detail

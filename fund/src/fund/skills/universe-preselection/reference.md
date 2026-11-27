@@ -57,7 +57,7 @@ be classified fails closed. Removed names are returned as `mandate_excluded`.
 Full covariance is ill-conditioned on ~8898 names → use factor structure + shrinkage:
 `05:121` (K-factor covariance decomposition), `08:66` (the shrinkage principle),
 `08:108` (linear covariance shrinkage). Factor cyclicality / rotation context:
-`27:22`, `27:74`.
+`27:22`, `27:76`.
 
 ## Pipeline gotchas (repo)
 - `build_portfolio_pipeline(optimizer, ...)` FLATTENS pre-selection + optimizer into
