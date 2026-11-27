@@ -214,7 +214,7 @@ def test_stream_fund_attributes_parallel_delegations_to_their_own_subagent(
 
     reports = [(e.agent, e.text) for e in events if e.step == "report"]
     assert ("economist", "economist report: analysis complete.") in reports
-    assert ("allocator", "allocator report: candidate weights ready.") in reports
+    assert ("allocator", "allocator report: four candidates computed.") in reports
 
 
 def test_stream_fund_pm_round_cap_end_records_distinct_reason(stream_env) -> None:

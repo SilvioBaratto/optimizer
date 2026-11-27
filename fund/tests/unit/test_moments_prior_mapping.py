@@ -268,7 +268,7 @@ class TestAuditLogsWhatTheSolverRanWith:
         helper = TestBoundMomentsToolUsesTheProfile()
         ctx = helper._context(db_session, cs)
         (tool,) = [
-            t for t in bind_toolset("allocator", ctx) if t.name == "optimize_portfolio"
+            t for t in bind_toolset("allocator", ctx) if t.name == "compute_candidates"
         ]
 
         result = tool.invoke({"universe": _ASSETS})
@@ -281,7 +281,12 @@ class TestAuditLogsWhatTheSolverRanWith:
             .scalars()
             .all()
         )
-        logged = json.loads(decision.llm_response)["optimizer_config"]
+        (mean_risk,) = [
+            candidate
+            for candidate in json.loads(decision.llm_response)["candidates"]
+            if candidate["candidate_id"] == "mean_risk"
+        ]
+        logged = mean_risk["settings"]
         assert logged["prior_config"]["cov_estimator"] == "empirical"
         assert logged["risk_free_rate"] == pytest.approx(
             1.04 ** (1 / result["data"]["periods_per_year"]) - 1

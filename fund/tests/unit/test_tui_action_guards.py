@@ -149,7 +149,8 @@ async def _open_ask(app, pilot) -> AskView:
 
 @pytest.mark.asyncio
 async def test_an_ask_approve_shows_the_orders_it_would_execute(env) -> None:
-    """The confirm carries the gate's orders and risk verdict, not just a gate id."""
+    """The confirm carries the gate's candidates and their orders, not just a gate
+    id."""
     app = _shell(env)
     async with app.run_test(size=(120, 40)) as pilot:
         view = await _open_ask(app, pilot)
@@ -159,7 +160,7 @@ async def test_an_ask_approve_shows_the_orders_it_would_execute(env) -> None:
         assert isinstance(app.screen, ConfirmScreen)
         prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
         assert prompt.startswith("Approve and execute gate #")
-        assert "orders (audited optimizer weights" in prompt
+        assert "candidates (listed by id; the adviser picks one" in prompt
         for ticker in env.expected:
             assert f"{ticker}:" in prompt
 

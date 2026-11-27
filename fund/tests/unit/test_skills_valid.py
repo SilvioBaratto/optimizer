@@ -51,7 +51,7 @@ _REAL_TOOLS = frozenset(
         "get_regime_stats",
         "list_universe",
         "estimate_moments",
-        "optimize_portfolio",
+        "compute_candidates",
         "universe_filter",
         "risk_check",
         "backtest",
@@ -70,7 +70,7 @@ _EXPECTED_TOOLS: dict[str, frozenset[str]] = {
     "universe-preselection": frozenset(
         {"list_universe", "universe_filter", "estimate_moments"}
     ),
-    "optimization-objective-map": frozenset({"optimize_portfolio"}),
+    "optimization-objective-map": frozenset({"compute_candidates"}),
     "risk-limits-check": frozenset({"risk_check", "backtest"}),
     "rebalancing-execution": frozenset({"place_orders"}),
 }
@@ -268,8 +268,8 @@ def _sentences(text: str) -> list[str]:
     return re.split(r"(?<=[.;])\s+", " ".join(text.split()))
 
 
-def _bound_optimize_tool_args() -> set[str]:
-    """Model-facing arg names of the allocator's real bound ``optimize_portfolio``."""
+def _bound_candidates_tool_args() -> set[str]:
+    """Model-facing arg names of the allocator's real bound ``compute_candidates``."""
     from fund.agents.toolsets import RunContext, bind_toolset
     from fund.config import settings
 
@@ -282,18 +282,22 @@ def _bound_optimize_tool_args() -> set[str]:
         portfolio_id=uuid.uuid4(),
     )
     tools = {t.name: t for t in bind_toolset("allocator", ctx)}
-    return set(tools["optimize_portfolio"].args)
+    return set(tools["compute_candidates"].args)
 
 
-def test_objective_map_skill_documents_the_real_optimize_call():
+@pytest.mark.criterion("REQ-FUND-052")
+def test_objective_map_skill_documents_the_real_candidates_call():
+    """Validates the optimization-objective-map skill against
+    fund.agents.toolsets.bind_toolset: every ``compute_candidates`` call it shows takes
+    exactly the bound tool's model-facing arguments."""
     body = _read(_OBJECTIVE_MAP_SKILL, "SKILL.md")
-    real_args = _bound_optimize_tool_args()
-    calls = re.findall(r"optimize_portfolio\(([^)]*)\)", body)
-    assert calls, "SKILL.md must show the optimize_portfolio call"
+    real_args = _bound_candidates_tool_args()
+    calls = re.findall(r"compute_candidates\(([^)]*)\)", body)
+    assert calls, "SKILL.md must show the compute_candidates call"
     for raw in calls:
         documented = {a.split("=")[0].strip() for a in raw.split(",") if a.strip()}
         assert documented == real_args, (
-            f"SKILL.md calls optimize_portfolio({raw}) but the bound tool takes "
+            f"SKILL.md calls compute_candidates({raw}) but the bound tool takes "
             f"{sorted(real_args)}"
         )
 
@@ -314,7 +318,7 @@ def test_objective_map_procedure_does_not_instruct_knobs_the_tool_ignores():
     for knob in ("robust", "turnover"):
         assert knob not in procedure, (
             f"Procedure tells the allocator to apply `{knob}`, which "
-            "optimize_portfolio never receives"
+            "compute_candidates never receives"
         )
 
 
@@ -500,43 +504,64 @@ def test_orchestration_round_cap_promises_no_hitl_checkpoint():
         assert "INCOMPLETE" in text, where
 
 
-def test_orchestration_forbids_place_orders_before_risk_passes():
-    body = _read("fund-orchestration", "SKILL.md")
+@pytest.mark.criterion("REQ-FUND-052")
+def test_orchestration_forbids_place_orders_before_the_risk_gate_reports():
+    """Validates the fund-orchestration skill: the PM calls ``place_orders`` only once
+    the risk gate has reported on the latest candidate set, as the adviser's decision
+    point, never to choose a candidate itself."""
+    body = " ".join(_read("fund-orchestration", "SKILL.md").split())
 
-    assert "Never call `place_orders` unless the risk gate passed" in body
+    assert (
+        "Never call `place_orders` until the risk gate has reported on the latest "
+        "candidate set" in body
+    )
+    assert "the adviser chooses" in body
 
 
 # --- risk gate: skills must match the tools' real (weight-free) signatures ----
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_orchestration_requires_a_fresh_risk_pass_after_each_allocator_run():
-    # A risk pass is bound to one weight vector; re-running the allocator replaces
-    # the weights place_orders would commit, so the pass must be earned again.
-    body = _read("fund-orchestration", "SKILL.md")
+    """Validates the fund-orchestration skill: a new allocator run replaces the
+    candidate set under review, so risk is delegated to again, and ``place_orders``
+    places nothing without the adviser's choice."""
+    body = " ".join(_read("fund-orchestration", "SKILL.md").split())
 
     assert "delegate to risk again" in body
-    assert "refuses weights whose newest recorded risk verdict" in body
+    assert "places nothing without the adviser's choice" in body
+    assert "whose newest recorded risk verdict is missing or failed" in body
 
 
 _WEIGHT_FREE_TOOL_CALL_RE = re.compile(r"`(risk_check|backtest)\(([^)]*)\)`")
+_CANDIDATE_ARG = "candidate_id"
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 @pytest.mark.parametrize("name", _SKILL_DIRS)
 def test_skills_call_risk_tools_without_a_weights_argument(name: str):
-    # ``risk_check`` / ``backtest`` judge the allocator's audited weights and accept
-    # no arguments; a skill that tells the risk officer to pass ``weights`` makes it
-    # relay (and round) a vector the gate must never trust.
+    """Validates every skill against fund.agents.toolsets.bind_toolset: ``risk_check``
+    and ``backtest`` take a candidate id and never weights, so no skill tells the
+    risk officer to relay (and round) a vector the gate must never trust."""
     text = _read(name, "SKILL.md") + "\n" + _read(name, "reference.md")
 
     for tool, args in _WEIGHT_FREE_TOOL_CALL_RE.findall(text):
-        assert args.strip() == "", f"{name}: `{tool}({args})` takes no arguments"
+        assert args.strip() == _CANDIDATE_ARG, (
+            f"{name}: `{tool}({args})` takes only `{_CANDIDATE_ARG}`"
+        )
 
 
-def test_risk_skill_records_a_verdict_from_the_audited_weights():
+@pytest.mark.criterion("REQ-FUND-052")
+def test_risk_skill_checks_each_candidate_and_records_nothing():
+    """Validates the risk-limits-check skill: it judges each candidate's audited
+    weights by id, records no verdict and never chooses a candidate."""
     body = _read("risk-limits-check", "SKILL.md")
+    flat = " ".join(body.split())
 
-    assert "`risk_check()`" in body
+    assert f"`risk_check({_CANDIDATE_ARG})`" in body
     assert "audited" in body
+    assert "It records nothing" in flat
+    assert "never chooses between candidates" in flat
 
 
 # --- executor inputs: one name for the band, and a source for current holdings ---

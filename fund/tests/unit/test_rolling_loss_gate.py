@@ -12,13 +12,13 @@ shorter than a year, and names a zero loss tolerance instead of reporting an opa
 from __future__ import annotations
 
 import datetime as dt
-import json
 import math
 import uuid
 
 import numpy as np
 import pandas as pd
 import pytest
+from _fund_fakes import MEAN_RISK, audit_adviser_choice, candidate_set_payload
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
@@ -244,7 +244,8 @@ def _cs(**overrides: object) -> ConstraintSet:
 
 
 def _context(db_session, cs: ConstraintSet) -> RunContext:
-    """A run context over a fresh audit run, holding ``cs`` and the proposal."""
+    """A run context over a fresh audit run, holding ``cs`` and a candidate set
+    whose ``mean_risk`` candidate carries the proposal."""
     store = InMemoryStore()
     put_constraint_set(store, cs, store_key=settings.constraint_set_store_key)
     repo = AgentRunRepository(db_session)
@@ -255,11 +256,10 @@ def _context(db_session, cs: ConstraintSet) -> RunContext:
         universe=list(_WEIGHTS),
         optimizer_config={"step": "toolset"},
     )
-    repo.append_decision(
+    repo.append_candidate_set(
         run.id,
-        agent="allocator",
-        step="optimize_portfolio",
-        llm_response=json.dumps({"weights": _WEIGHTS}),
+        constraint_set=None,
+        payload=candidate_set_payload(_WEIGHTS, asof=_ASOF),
     )
     return RunContext(
         session=db_session,
@@ -269,6 +269,10 @@ def _context(db_session, cs: ConstraintSet) -> RunContext:
         run_id=run.id,
         portfolio_id=_PORTFOLIO_ID,
     )
+
+
+# The risk tools judge one candidate of the latest set, named by id.
+_MEAN_RISK_ARGS = {"candidate_id": MEAN_RISK}
 
 
 def _tool(ctx: RunContext, role: str, name: str):
@@ -287,8 +291,10 @@ class TestGateJudgesTheWorstYear:
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs())
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
-        tiers = _tool(ctx, "risk", "backtest").invoke({})["data"]["drawdown_tiers"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
+        tiers = _tool(ctx, "risk", "backtest").invoke(_MEAN_RISK_ARGS)["data"][
+            "drawdown_tiers"
+        ]
 
         assert verdict["passed"] is True, verdict
         assert tiers["verified"] is True
@@ -301,7 +307,7 @@ class TestGateJudgesTheWorstYear:
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs())
 
-        data = _tool(ctx, "risk", "backtest").invoke({})["data"]
+        data = _tool(ctx, "risk", "backtest").invoke(_MEAN_RISK_ARGS)["data"]
 
         assert data["full_sample_max_drawdown"] > data["worst_rolling_loss"]
         assert data["rolling_loss_window"] == _YEAR
@@ -311,7 +317,7 @@ class TestGateJudgesTheWorstYear:
         _seed_paths(db_session, _crash(3 * _YEAR, 0.40))
         ctx = _context(db_session, _cs(nu3=0.6))
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
 
         assert verdict["passed"] is False
         assert [v["type"] for v in verdict["violations"]] == ["drawdown_nu2"]
@@ -321,8 +327,10 @@ class TestGateJudgesTheWorstYear:
         _seed_paths(db_session, _bleed(80, 0.15))
         ctx = _context(db_session, _cs())
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
-        tiers = _tool(ctx, "risk", "backtest").invoke({})["data"]["drawdown_tiers"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
+        tiers = _tool(ctx, "risk", "backtest").invoke(_MEAN_RISK_ARGS)["data"][
+            "drawdown_tiers"
+        ]
 
         assert verdict["passed"] is False
         (violation,) = verdict["violations"]
@@ -339,7 +347,7 @@ class TestGateJudgesTheWorstYear:
         _seed_paths(db_session, _short_crash())
         ctx = _context(db_session, _cs(nu1=0.05, nu2=0.1, nu3=0.2))
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
 
         kinds = [v["type"] for v in verdict["violations"]]
         assert verdict["passed"] is False
@@ -351,7 +359,7 @@ class TestGateJudgesTheWorstYear:
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs(nu1=0.0, nu2=0.0, nu3=0.0))
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
 
         assert verdict["passed"] is False
         (violation,) = verdict["violations"]
@@ -361,11 +369,12 @@ class TestGateJudgesTheWorstYear:
         """``place_orders`` explains the refusal in the profile's terms."""
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs(nu1=0.0, nu2=0.0, nu3=0.0))
-        _tool(ctx, "risk", "risk_check").invoke({})
+        audit_adviser_choice(db_session, ctx.run_id, _WEIGHTS)
 
         result = _tool(ctx, "orchestrator", "place_orders").invoke({})
 
         assert result["ok"] is False
+        assert "zero_loss_tolerance" in result["error"]
 
 
 def _short_crash() -> dict[str, list[float]]:

@@ -51,6 +51,7 @@ EVERY_KEYWORD: dict[str, Any] = {
     "pm_directive": "trim AAA",
     "scope": "portfolio",
     "config": CONFIG,
+    "candidate_id": "mean_risk",
 }
 # The keywords each handler takes, in the order apply_action passes them.
 _RESUME = (
@@ -62,6 +63,7 @@ _RESUME = (
     "model",
     "fallback",
     "pm_directive",
+    "candidate_id",
     "actor",
     "source",
     "override_flag",
@@ -209,6 +211,7 @@ _DEFAULTS: dict[str, Any] = {
     "pm_directive": None,
     "scope": None,
     "config": settings,
+    "candidate_id": None,
 }
 
 

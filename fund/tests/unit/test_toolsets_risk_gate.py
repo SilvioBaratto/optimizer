@@ -9,10 +9,10 @@ only the position cap and the instrument screens against the new mandate.
 from __future__ import annotations
 
 import datetime as dt
-import json
 import math
 import uuid
 
+from _fund_fakes import MEAN_RISK, audit_adviser_choice, candidate_set_payload
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision
 from portopt_db.models.market_data.yfinance_data import PriceHistory
@@ -114,13 +114,17 @@ def _context(db_session, store: InMemoryStore) -> RunContext:
     )
 
 
-def _audit_proposal(ctx: RunContext, weights: dict[str, float]) -> None:
-    """Append the allocator decision a bound optimizer would have audited."""
-    AgentRunRepository(ctx.session).append_decision(
+# The risk tools judge one candidate of the latest set, named by id.
+_MEAN_RISK_ARGS = {"candidate_id": MEAN_RISK}
+
+
+def _audit_candidate(ctx: RunContext, weights: dict[str, float]) -> None:
+    """Record the candidate set the bound candidates tool would have audited, its
+    ``mean_risk`` candidate carrying ``weights``."""
+    AgentRunRepository(ctx.session).append_candidate_set(
         ctx.run_id,
-        agent="allocator",
-        step="optimize_portfolio",
-        llm_response=json.dumps({"weights": weights}),
+        constraint_set=None,
+        payload=candidate_set_payload(weights, asof=ctx.asof),
     )
 
 
@@ -147,9 +151,9 @@ class TestUnmeasurableDrawdownBlocks:
     def test_a_history_too_short_to_backtest_fails_the_gate(self, db_session) -> None:
         """With no prices the ceilings were never checked, so the book cannot pass."""
         ctx = _context(db_session, _store(_constraint_set()))
-        _audit_proposal(ctx, _WEIGHTS)
+        _audit_candidate(ctx, _WEIGHTS)
 
-        result = _tool(ctx, "risk", "risk_check").invoke({})
+        result = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)
 
         assert result["data"]["passed"] is False
         (violation,) = result["data"]["violations"]
@@ -160,9 +164,9 @@ class TestUnmeasurableDrawdownBlocks:
         """A holding with a fraction of the history leaves the drawdown unverified."""
         _seed_panel(db_session, young_days=12)
         ctx = _context(db_session, _store(_constraint_set()))
-        _audit_proposal(ctx, _WEIGHTS)
+        _audit_candidate(ctx, _WEIGHTS)
 
-        result = _tool(ctx, "risk", "risk_check").invoke({})
+        result = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)
 
         assert result["data"]["passed"] is False
         kinds = [v["type"] for v in result["data"]["violations"]]
@@ -174,8 +178,8 @@ class TestUnmeasurableDrawdownBlocks:
         """The refusal reaches the ticket: nothing is placed or audited."""
         _seed_panel(db_session, young_days=12)
         ctx = _context(db_session, _store(_constraint_set()))
-        _audit_proposal(ctx, _WEIGHTS)
-        _tool(ctx, "risk", "risk_check").invoke({})
+        # The adviser's choice carries its passing verdict; the re-check refuses it.
+        audit_adviser_choice(db_session, ctx.run_id, _WEIGHTS)
 
         result = _tool(ctx, "orchestrator", "place_orders").invoke({})
 
@@ -193,8 +197,10 @@ class TestReprofileInvalidatesAPassedVerdict:
         _seed_panel(db_session, lead_days=_YEAR_LEAD)
         store = _store(_constraint_set())
         ctx = _context(db_session, store)
-        _audit_proposal(ctx, _WEIGHTS)
-        assert _tool(ctx, "risk", "risk_check").invoke({})["data"]["passed"] is True
+        _audit_candidate(ctx, _WEIGHTS)
+        risk = _tool(ctx, "risk", "risk_check")
+        assert risk.invoke(_MEAN_RISK_ARGS)["data"]["passed"] is True
+        audit_adviser_choice(db_session, ctx.run_id, _WEIGHTS)
         put_constraint_set(
             store,
             _constraint_set(nu1=0.00005, nu2=0.0001, nu3=0.0002),
@@ -211,8 +217,7 @@ class TestReprofileInvalidatesAPassedVerdict:
         """The re-check must not turn a clean approval into a refusal."""
         _seed_panel(db_session, lead_days=_YEAR_LEAD)
         ctx = _context(db_session, _store(_constraint_set()))
-        _audit_proposal(ctx, _WEIGHTS)
-        _tool(ctx, "risk", "risk_check").invoke({})
+        audit_adviser_choice(db_session, ctx.run_id, _WEIGHTS)
 
         result = _tool(ctx, "orchestrator", "place_orders").invoke({})
 

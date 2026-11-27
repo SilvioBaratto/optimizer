@@ -4,7 +4,7 @@ Unit tests per piece (mandate field, resolver, six tools, PM seed) could all pas
 an outside ticker still reached ``place_orders``. These runs drive the real chain: a
 mandate allowlist is resolved once per run, bound to the run context, rendered into
 the PM seed and enforced by ``list_universe``, ``universe_filter``,
-``estimate_moments``, ``optimize_portfolio``, ``risk_check``, ``place_orders`` and the
+``estimate_moments``, ``compute_candidates``, ``risk_check``, ``place_orders`` and the
 adviser edit. Only the language model is scripted; the tools, the audit trail, the
 approval gate and the paper ticket are the production ones, over in-memory SQLite.
 
@@ -12,7 +12,7 @@ ESG exclusions are exercised on both halves of the allowlist: single stocks by t
 stored sector, and funds by the look-through of their latest sector snapshot against
 the client's tolerance. The resolver's own boundary cases live in ``test_eligibility``;
 the runs here prove a barred fund is also hidden from ``list_universe``, named in the
-PM seed and refused by ``optimize_portfolio``, while commodity and government-bond
+PM seed and refused by ``compute_candidates``, while commodity and government-bond
 funds stay eligible.
 """
 
@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from typing import Any
 
 import pytest
 from _fund_fakes import (
     ASOF,
     LEAD_DAYS,
+    MEAN_RISK,
     N_DAYS,
     PORTFOLIO_ID,
     START,
@@ -49,6 +51,7 @@ from portopt_db.models.universe.universe import Exchange, Instrument
 from pydantic import Field
 from sqlalchemy import select
 
+from fund import observe
 from fund.actions import apply_action
 from fund.agents import graph as graph_mod
 from fund.agents.graph import resume_fund, run_fund
@@ -148,22 +151,29 @@ def _moments_of_the_survivors(results: Any) -> tuple[str, dict[str, Any]]:
     return "estimate_moments", {"universe": _last(results, "universe_filter")["data"]}
 
 
-def _optimize_the_survivors(results: Any) -> tuple[str, dict[str, Any]]:
-    return "optimize_portfolio", {"universe": _last(results, "universe_filter")["data"]}
+def _compute_the_survivors(results: Any) -> tuple[str, dict[str, Any]]:
+    return "compute_candidates", {"universe": _last(results, "universe_filter")["data"]}
 
 
-def _optimize(*tickers: str) -> Any:
+def _compute(*tickers: str) -> Any:
     def _step(_results: Any) -> tuple[str, dict[str, Any]]:
-        return "optimize_portfolio", {"universe": list(tickers)}
+        return "compute_candidates", {"universe": list(tickers)}
 
     return _step
+
+
+def _proposed(session: Any, run_id: Any) -> dict[str, float]:
+    """The ``mean_risk`` candidate's weights in the run's latest candidate set."""
+    candidate_set = observe.candidate_set(session, run_id)
+    assert candidate_set is not None
+    return dict(candidate_set.candidate(MEAN_RISK).weights)
 
 
 _FULL_ALLOCATION = [
     _list_universe,
     _filter_what_was_listed,
     _moments_of_the_survivors,
-    _optimize_the_survivors,
+    _compute_the_survivors,
 ]
 
 
@@ -188,7 +198,7 @@ class _ScriptedAllocator(ScriptedFundModel):
                 content="",
                 tool_calls=[{"name": name, "args": args, "id": f"call_step_{issued}"}],
             )
-        return AIMessage(content="allocator report: candidate weights ready.")
+        return AIMessage(content="allocator report: four candidates computed.")
 
 
 @pytest.fixture
@@ -249,6 +259,7 @@ def _approve(session: Any, run_id: Any, saver: Any, store: Any, model: Any) -> N
         checkpointer=saver,
         store=store,
         model=model,
+        candidate_id=MEAN_RISK,
     )
 
 
@@ -280,9 +291,10 @@ def test_allowlist_run_allocates_only_the_eligible_etfs_and_places_only_them(
         ticker: spec[0] for ticker, spec in _ETF_SPECS.items()
     }
     assert {row["instrument_type"] for row in listed["instruments"]} == {"ETF"}
-    assert run.weights and set(run.weights) <= set(_ETFS)
-    repo = AgentRunRepository(db_session)
-    assert repo.risk_gate(run.run_id, run.weights)["status"] == "passed"
+    proposed = _proposed(db_session, run.run_id)
+    assert proposed and set(proposed) <= set(_ETFS)
+    candidate_set = observe.candidate_set(db_session, run.run_id)
+    assert candidate_set.candidate(MEAN_RISK).constraint_check.passed
     assert "Eligible universe" in seeds[0]
     assert ", ".join(_ETFS) in seeds[0]
 
@@ -302,13 +314,14 @@ def test_allowlist_run_allocates_only_the_eligible_etfs_and_places_only_them(
 def test_optimizing_a_stock_outside_the_allowlist_is_refused_and_the_next_call_succeeds(
     db_session, seeds
 ) -> None:
-    """A stock typed into optimize is refused with its reason and audits nothing; the
+    """A stock typed into compute_candidates is refused with its reason and audits
+    nothing; the
     allocator's later call over the listed ETFs succeeds."""
     seed_panel(db_session)
     _seed_etfs(db_session)
     mandate = _allowlist_mandate(*_ETFS)
     _persist(db_session, mandate)
-    model = _etf_model(_optimize("AAA", _ETFS[0]), *_FULL_ALLOCATION)
+    model = _etf_model(_compute("AAA", _ETFS[0]), *_FULL_ALLOCATION)
 
     run = _run_to_gate(db_session, model, mandate, MemorySaver(), _store())
 
@@ -318,10 +331,10 @@ def test_optimizing_a_stock_outside_the_allowlist_is_refused_and_the_next_call_s
     decisions = [
         d
         for d in AgentRunRepository(db_session).get_run(run.run_id).decisions
-        if d.agent == "allocator" and d.step == "optimize_portfolio"
+        if d.agent == "allocator" and d.step == "compute_candidates"
     ]
     assert len(decisions) == 1
-    assert set(run.weights) <= set(_ETFS)
+    assert set(_proposed(db_session, run.run_id)) <= set(_ETFS)
 
 
 # --- 3. the adviser edit ------------------------------------------------------
@@ -350,7 +363,7 @@ def _paused_etf_run(db_session) -> dict[str, Any]:
     return {
         "session": db_session,
         "run_id": run.run_id,
-        "weights": run.weights,
+        "weights": _proposed(db_session, run.run_id),
         "saver": saver,
         "store": store,
     }
@@ -399,7 +412,8 @@ def test_an_energy_stock_on_the_allowlist_is_barred_everywhere(
     db_session, seeds
 ) -> None:
     """With an Energy exclusion the allowlisted energy stock is absent from
-    ``list_universe``, named in the PM seed with its reason, refused by optimize, and
+    ``list_universe``, named in the PM seed with its reason, refused by the candidates
+    tool, and
     never held."""
     seed_panel(db_session)
     classify_instruments(
@@ -409,7 +423,7 @@ def test_an_energy_stock_on_the_allowlist_is_barred_everywhere(
     _persist(db_session, mandate)
     store = _store(make_energy_exclusion_constraint_set())
     model = _ScriptedAllocator(
-        universe=UNIVERSE, steps=[_optimize("AAA", "BBB"), *_FULL_ALLOCATION]
+        universe=UNIVERSE, steps=[_compute("AAA", "BBB"), *_FULL_ALLOCATION]
     )
 
     run = _run_to_gate(db_session, model, mandate, MemorySaver(), store)
@@ -418,7 +432,8 @@ def test_an_energy_stock_on_the_allowlist_is_barred_everywhere(
     listed = _last(model.transcript, "list_universe")["data"]["instruments"]
     assert [row["ticker"] for row in listed] == ["BBB", "CCC"]
     assert "AAA (esg:energy)" in seeds[0]
-    assert "AAA" not in run.weights or run.weights["AAA"] < 1e-6
+    proposed = _proposed(db_session, run.run_id)
+    assert "AAA" not in proposed or proposed["AAA"] < 1e-6
 
 
 def test_without_exclusions_every_allowlisted_stock_is_listed(db_session) -> None:
@@ -493,7 +508,8 @@ def test_an_equity_etf_within_the_tolerance_stays_listed(db_session, seeds) -> N
 
     assert _listed(model) == list(_ETFS)
     assert "(esg" not in seeds[0]
-    assert run.weights and set(run.weights) <= set(_ETFS)
+    proposed = _proposed(db_session, run.run_id)
+    assert proposed and set(proposed) <= set(_ETFS)
 
 
 def test_an_equity_etf_over_the_tolerance_is_hidden_named_and_refused(
@@ -505,13 +521,14 @@ def test_an_equity_etf_over_the_tolerance_is_hidden_named_and_refused(
         db_session,
         energy=0.08,
         constraint_set=_energy_policy(),
-        steps=[_optimize("EQETF.DE", "GOVETF.L"), *_FULL_ALLOCATION],
+        steps=[_compute("EQETF.DE", "GOVETF.L"), *_FULL_ALLOCATION],
     )
 
     assert "EQETF.DE (esg:energy)" in model.transcript[0][1]["error"]
     assert _listed(model) == ["GOVETF.L", "GLDETF.L"]
     assert "EQETF.DE (esg:energy)" in seeds[0]
-    assert run.weights and set(run.weights) <= {"GOVETF.L", "GLDETF.L"}
+    proposed = _proposed(db_session, run.run_id)
+    assert proposed and set(proposed) <= {"GOVETF.L", "GLDETF.L"}
 
 
 def test_an_equity_etf_with_a_stale_snapshot_is_barred_as_unclassified(
@@ -530,7 +547,8 @@ def test_an_equity_etf_with_a_stale_snapshot_is_barred_as_unclassified(
 
     assert _listed(model) == ["GOVETF.L", "GLDETF.L"]
     assert "EQETF.DE (esg_unclassified)" in seeds[0]
-    assert "EQETF.DE" not in run.weights or run.weights["EQETF.DE"] < 1e-6
+    proposed = _proposed(db_session, run.run_id)
+    assert "EQETF.DE" not in proposed or proposed["EQETF.DE"] < 1e-6
 
 
 def test_with_a_zero_tolerance_any_excluded_weight_bars_the_fund(db_session) -> None:
@@ -563,24 +581,28 @@ def test_without_exclusions_every_allowlisted_etf_is_listed_whatever_its_snapsho
 # --- 5. the mandate changes before the gate ------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_removing_a_held_ticker_from_the_mandate_before_approval_stops_the_order(
     db_session,
 ) -> None:
-    """The allowlist is read from the current mandate at resume, so an order holding a
-    ticker the adviser has since removed is refused and the run ends incomplete."""
+    """Validates fund.agents.graph_candidates.record_candidate_selection: the allowlist
+    is read from the current mandate at resume, so a candidate holding a ticker the
+    adviser has since removed is refused, naming it, and the run stays at its gate
+    with nothing placed."""
     env = _paused_etf_run(db_session)
     dropped = next(iter(_held(env["weights"])))
     _persist(db_session, _allowlist_mandate(*(t for t in _ETFS if t != dropped)))
 
-    _approve(
-        db_session,
-        env["run_id"],
-        env["saver"],
-        env["store"],
-        _etf_model(*_FULL_ALLOCATION),
-    )
+    with pytest.raises(ValueError, match=f"{re.escape(dropped)} \\(not_eligible"):
+        _approve(
+            db_session,
+            env["run_id"],
+            env["saver"],
+            env["store"],
+            _etf_model(*_FULL_ALLOCATION),
+        )
 
-    assert AgentRunRepository(db_session).get_run(env["run_id"]).status == "incomplete"
+    assert AgentRunRepository(db_session).get_run(env["run_id"]).status == "paused"
     assert db_session.query(PaperOrder).count() == 0
     assert PositionRepository(db_session).get_holdings(PORTFOLIO_ID) == []
 
@@ -600,9 +622,9 @@ def test_an_empty_allowlist_runs_exactly_as_before_the_feature(
 
     run = _run_to_gate(db_session, model, make_mandate(), MemorySaver(), _store())
 
-    assert run.weights == pytest.approx(expected)
+    assert _proposed(db_session, run.run_id) == pytest.approx(expected)
     assert "Eligible universe" not in seeds[0]
-    assert seeds[0].startswith("Produce an allocation")
+    assert seeds[0].startswith("Compute and present the candidate portfolios")
 
 
 def test_an_empty_allowlist_lists_the_whole_database_universe(db_session) -> None:

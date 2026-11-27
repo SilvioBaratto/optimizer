@@ -23,6 +23,7 @@ from unittest import mock
 import pytest
 from _fund_fakes import (
     ASOF,
+    MEAN_RISK,
     N_DAYS,
     PORTFOLIO_ID,
     START,
@@ -151,6 +152,7 @@ def test_approve_resumes_run_and_logs_audit(paused_env) -> None:
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -216,7 +218,7 @@ def test_approve_without_a_fill_bar_is_refused_and_leaves_the_gate_open(
     env = paused_env
     _drop_bars_after_asof(env)
     edited = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
-    extra = {"new_value": edited} if action == "edit" else {}
+    extra = {"new_value": edited} if action == "edit" else {"candidate_id": MEAN_RISK}
 
     with (
         env.get_session() as session,
@@ -250,7 +252,7 @@ def test_approve_without_a_ticket_does_not_report_plain_success(
     env = paused_env
     _drop_bars_after_asof(env)
     edited = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
-    extra = {"new_value": edited} if action == "edit" else {}
+    extra = {"new_value": edited} if action == "edit" else {"candidate_id": MEAN_RISK}
 
     with env.get_session() as session:
         result = apply_action(
@@ -308,6 +310,7 @@ def test_approve_that_regates_on_a_responded_run_is_not_reported_as_plain_succes
             checkpointer=env.saver,
             store=env.store,
             model=regating(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -318,11 +321,14 @@ def test_approve_that_regates_on_a_responded_run_is_not_reported_as_plain_succes
     assert "responded" in result.message
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_refused_by_the_mandate_reports_that_nothing_was_booked(
     paused_env,
 ) -> None:
-    """An approve the gated tool refuses (re-profiled mandate) is logged as the human's
-    decision, but the status line and the run must not claim a booked allocation."""
+    """Validates fund.actions.apply_action with
+    fund.agents.graph_candidates.record_candidate_selection: a candidate the
+    re-profiled mandate now refuses is refused before the graph resumes, so after
+    the caller's rollback nothing is booked or logged and the gate stays open."""
     env = paused_env
     with env.get_session() as session:
         classify_instruments(
@@ -336,24 +342,26 @@ def test_approve_refused_by_the_mandate_reports_that_nothing_was_booked(
     )
 
     with env.get_session() as session:
-        result = apply_action(
-            "approve",
-            session=session,
-            run_id=env.run_id,
-            portfolio_id=PORTFOLIO_ID,
-            checkpointer=env.saver,
-            store=env.store,
-            model=env.model_factory(),
-        )
-        session.commit()
+        with pytest.raises(ValueError, match="breaches the current mandate"):
+            apply_action(
+                "approve",
+                session=session,
+                run_id=env.run_id,
+                portfolio_id=PORTFOLIO_ID,
+                checkpointer=env.saver,
+                store=env.store,
+                model=env.model_factory(),
+                candidate_id=MEAN_RISK,
+            )
+        session.rollback()
 
-    assert "no paper ticket" in result.message
-    assert "incomplete" in result.message
     with env.get_session() as session:
-        assert AgentRunRepository(session).get_run(env.run_id).status == "incomplete"
+        row = AgentRunRepository(session).get_run(env.run_id)
+        assert row.status == "paused"
+        assert observe.interrupt_for(env.saver, row) is not None
+        assert HumanAuditLogRepository(session).list_recent(action="approve") == []
         assert session.query(PaperOrder).count() == 0
         assert PositionRepository(session).get_holdings(PORTFOLIO_ID) == []
-        assert len(HumanAuditLogRepository(session).list_recent(action="approve")) == 1
 
 
 def test_reject_resumes_run_and_logs_audit(paused_env) -> None:
@@ -508,6 +516,7 @@ def test_portfolio_id_derived_from_run_when_omitted(paused_env) -> None:
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -530,6 +539,7 @@ def test_apply_action_does_not_commit_the_caller_owns_the_transaction(
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         spy.assert_not_called()
         session.rollback()
@@ -1697,6 +1707,7 @@ def test_approve_is_refused_when_the_fund_froze_after_the_gate_opened(
                 checkpointer=env.saver,
                 store=env.store,
                 model=env.model_factory(),
+                candidate_id=MEAN_RISK,
             )
         session.rollback()
 
@@ -1754,6 +1765,7 @@ def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:
             store=env.store,
             model=env.model_factory(),
             idempotency_key="run-approve-1",
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -1767,6 +1779,7 @@ def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:
             store=env.store,
             model=env.model_factory(),
             idempotency_key="run-approve-1",
+            candidate_id=MEAN_RISK,
         )
         session.commit()
         rows = HumanAuditLogRepository(session).list_recent(action="approve")
@@ -1852,6 +1865,7 @@ def test_approve_refuses_a_run_whose_scope_is_frozen(paused_env, scope) -> None:
                 checkpointer=env.saver,
                 store=env.store,
                 model=env.model_factory(),
+                candidate_id=MEAN_RISK,
             )
         session.rollback()
 
@@ -1911,9 +1925,9 @@ def test_edit_rejects_an_unknown_ticker_before_writing_anything(paused_env) -> N
         with pytest.raises(ValueError, match="ZZZZ"):
             _edit(env, session, {"AAA": 0.5, "BBB": 0.3, "ZZZZ": 0.2})
         # No rollback: the rejected edit must not have touched the open transaction.
-        assert AgentRunRepository(session).latest_optimizer_weights(
-            env.run_id
-        ) == pytest.approx(env.expected)
+        repo = AgentRunRepository(session)
+        assert repo.latest_optimizer_weights(env.run_id) == {}
+        assert repo.latest_selected_weights(env.run_id) == {}
         assert HumanAuditLogRepository(session).list_recent(action="edit") == []
 
 
@@ -2145,6 +2159,7 @@ def test_retry_after_a_rolled_back_approve_places_the_lost_ticket(paused_env) ->
             store=env.store,
             model=env.model_factory(),
             idempotency_key=key,
+            candidate_id=MEAN_RISK,
         )
 
     with env.get_session() as session:
@@ -2197,6 +2212,7 @@ def test_approve_is_finalised_from_the_ticket_when_the_post_ticket_pm_turn_fails
             checkpointer=env.saver,
             store=env.store,
             model=_PostTicketOutageModel(universe=UNIVERSE, weights=env.expected),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -2217,10 +2233,12 @@ def test_approve_is_finalised_from_the_ticket_when_the_post_ticket_pm_turn_fails
 # --- an approve is bound to the weights it ticketed --------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_audit_row_records_the_weights_that_were_ticketed(paused_env) -> None:
-    """The gate's own place_orders args are the PM's proposal; the ticket is placed
-    from the audited optimizer weights. The approve row has to name what was traded,
-    or the trail cannot show what the adviser signed off."""
+    """Validates fund.actions._ticketed_weights: the ticket is placed from the
+    candidate the adviser named, so the approve row names it, the set it came from
+    and the weights that were traded, or the trail cannot show what the adviser
+    signed off."""
     env = paused_env
     with env.get_session() as session:
         apply_action(
@@ -2231,6 +2249,7 @@ def test_approve_audit_row_records_the_weights_that_were_ticketed(paused_env) ->
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -2238,7 +2257,10 @@ def test_approve_audit_row_records_the_weights_that_were_ticketed(paused_env) ->
         row = HumanAuditLogRepository(session).list_recent(action="approve")[0]
         order = session.query(PaperOrder).one()
         assert row.target == "weights"
+        candidate_set = observe.candidate_set(session, env.run_id)
         assert row.new_value == {
+            "candidate_id": MEAN_RISK,
+            "candidate_set_hash": candidate_set.digest(),
             "weights": pytest.approx(env.expected),
             "weights_hash": order.weights_hash,
         }
@@ -2356,8 +2378,8 @@ def _freeze_scope(env, scope: str) -> None:
 @pytest.mark.parametrize(
     ("action", "scope", "extra"),
     [
-        ("approve", "fund", {}),
-        ("approve", "portfolio", {}),
+        ("approve", "fund", {"candidate_id": MEAN_RISK}),
+        ("approve", "portfolio", {"candidate_id": MEAN_RISK}),
         ("respond", "portfolio", {"pm_directive": "Trim AAA first."}),
         ("edit", "fund", {"new_value": {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}}),
     ],
@@ -2489,6 +2511,7 @@ def test_an_approve_does_not_complete_a_run_a_freeze_rejected_meanwhile(
                 checkpointer=env.saver,
                 store=env.store,
                 model=model,
+                candidate_id=MEAN_RISK,
             )
         session.rollback()
 

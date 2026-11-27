@@ -10,7 +10,7 @@ the approve is refused when the run is parked at a different one.
 from __future__ import annotations
 
 import pytest
-from _fund_fakes import PORTFOLIO_ID, make_mandate
+from _fund_fakes import MEAN_RISK, PORTFOLIO_ID, make_mandate
 from _gate_env import make_gate_env
 from test_gate_resolution_key import _remove_bars_after_asof
 from textual.widgets import ContentSwitcher
@@ -58,6 +58,7 @@ def _regate(env) -> None:
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 

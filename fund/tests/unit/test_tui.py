@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import json
 import logging
 import os
 import subprocess
@@ -32,6 +31,7 @@ from typing import Any
 import pytest
 from _fund_fakes import (
     ASOF,
+    MEAN_RISK,
     PORTFOLIO_ID,
     UNIVERSE,
     NoToolsChatModel,
@@ -74,6 +74,7 @@ from fund.audit import (
     put_constraint_set,
 )
 from fund.config import settings
+from fund.schemas.candidates import CANDIDATE_IDS
 from fund.tui import app as tui_app
 from fund.tui import views as tui_views
 from fund.tui.app import (
@@ -589,6 +590,7 @@ async def test_decisions_edit_key_works_right_after_a_sidebar_pick(tui_env) -> N
         await pilot.press("enter")  # the queue row the pick left highlighted
         await pilot.pause()
         assert view.selected_run_id == tui_env.run_id
+        view.select_candidate(MEAN_RISK)
         await pilot.press("e")
         await pilot.pause()
         assert isinstance(app.screen, OrderEditScreen)
@@ -1125,6 +1127,7 @@ async def test_decisions_approve_resumes_on_worker_and_refreshes(tui_env) -> Non
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_decide_approve()
         await pilot.pause()
@@ -1160,6 +1163,7 @@ async def test_decisions_approve_survives_pm_failure_after_the_ticket(tui_env) -
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_decide_approve()
         await pilot.pause()
@@ -1670,6 +1674,7 @@ async def test_reject_pressed_mid_approve_does_not_resume_the_run_twice(
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_decide_approve()
         await _wait_until(pilot, entered.is_set)
@@ -1882,6 +1887,7 @@ async def test_decisions_gate_that_stops_rendering_cannot_be_approved_blind(
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         assert "orders" in view.gate_text
         original = observe.interrupt_for
@@ -2015,6 +2021,7 @@ async def test_decisions_enter_then_approve_acts_on_the_highlighted_gate(
         await pilot.pause()
 
         assert view.selected_run_id == other_b
+        view.select_candidate(MEAN_RISK)
         assert _cursor_key(table) == highlighted  # Enter must not reset the cursor
 
         app.action_decide_approve()
@@ -2089,6 +2096,7 @@ async def test_decisions_edit_modal_is_seeded_from_audited_weights(tui_env) -> N
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_edit_decision()
         await pilot.pause()
@@ -2099,23 +2107,25 @@ async def test_decisions_edit_modal_is_seeded_from_audited_weights(tui_env) -> N
     assert float(entries["CCC"]) == pytest.approx(tui_env.expected["CCC"], abs=1e-6)
 
 
+@pytest.mark.criterion("REQ-FUND-047")
 def test_gate_text_reads_the_run_optimizer_weights_not_the_pm_args(tui_env) -> None:
+    """Validates fund.tui._views.decisions._format_decision_gate: a rebalance gate's
+    text lists every candidate the gate carries, in id order with its weights, and
+    no single vector the PM typed."""
     from fund.tui.views import _gate_text
 
     with tui_env.get_session() as session:
-        AgentRunRepository(session).append_decision(
-            tui_env.run_id,
-            agent="allocator",
-            step="optimize_portfolio",
-            llm_response=json.dumps(
-                {"weights": {"AAA": 0.25, "BBB": 0.25, "CCC": 0.5}}
-            ),
-        )
         text = _gate_text(session, tui_env.saver, tui_env.run_id)
+        candidate_set = observe.candidate_set(session, tui_env.run_id)
 
     assert text is not None
-    assert "CCC: 0.5000" in text
-    assert "differ" in text
+    assert "candidates (listed by id; the adviser picks one to approve):" in text
+    positions = [text.index(f"  {cid} · ") for cid in CANDIDATE_IDS]
+    assert positions == sorted(positions)
+    mean_risk = candidate_set.candidate(MEAN_RISK)
+    for ticker, weight in mean_risk.weights.items():
+        assert f"{ticker}: {weight:.4f}" in text
+    assert "differ" not in text
 
 
 # --- Mandate view: run-policy editor + guardrail override (T5) ----------------
@@ -3555,6 +3565,7 @@ async def test_onboarding_full_cycle_profile_run_approve(
         # Approve the rebalance gate (fund model is role-aware; a fresh one resumes).
         decisions = await _open_decisions(app, pilot)
         decisions.select_run(fund_run_id)
+        decisions.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_decide_approve()
         await pilot.pause()
@@ -3575,7 +3586,7 @@ async def test_onboarding_full_cycle_profile_run_approve(
         allocation = next(
             d
             for d in run.decisions
-            if d.agent == "allocator" and d.step == "optimize_portfolio"
+            if d.agent == "allocator" and d.step == "compute_candidates"
         )
         profile = ConstraintSet.model_validate(allocation.constraint_set)
         optimized = optimize_portfolio(
@@ -5744,6 +5755,7 @@ async def test_deliberation_leaves_live_mode_once_the_gate_is_resolved(tui_env) 
 
         decisions = await _open_decisions(app, pilot)
         decisions.select_run(streamed)
+        decisions.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_decide_approve()
         await pilot.pause()
@@ -6242,6 +6254,7 @@ async def test_deliberation_leaves_live_mode_once_the_gate_is_decided(tui_env) -
 
         decisions = await _open_decisions(app, pilot)
         decisions.select_run(run_id)
+        decisions.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_decide_approve()
         await pilot.pause()
@@ -6615,6 +6628,7 @@ async def test_decisions_edit_commits_edited_weights(tui_env) -> None:
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_edit_decision()
         await pilot.pause()
@@ -6646,6 +6660,7 @@ async def test_decisions_e_binding_is_edit_not_export(tui_env) -> None:
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         table = view.query_one("#decisions-table", DataTable)
         table.focus()
@@ -6706,6 +6721,7 @@ async def test_decisions_edit_error_shows_typed_brackets_verbatim(tui_env) -> No
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_edit_decision()
         await pilot.pause()
@@ -6766,25 +6782,23 @@ async def test_order_edit_prefill_committed_unchanged_stays_within_budget(
     assert abs(sum(committed[0].values()) - 1.0) <= 1e-6
 
 
+@pytest.mark.criterion("REQ-FUND-050")
 @pytest.mark.asyncio
 async def test_decisions_edit_prefills_the_audited_optimizer_weights(tui_env) -> None:
-    # The gate shows the model's own place_orders args, which may be rounded; the
-    # ticket is placed from the audited optimizer output, so that is what to edit.
+    """Validates fund.tui._mixins.decisions.DecisionsMixin._proposed_weights: the
+    editor starts from the picked candidate's audited weights at full precision,
+    never from rounded figures the model typed, so an unchanged edit places exactly
+    what was computed."""
     from fund.tui.app import _parse_weights
 
-    audited = {"AAA": 1 / 3, "BBB": 1 / 3, "CCC": 1 / 3}
     with tui_env.get_session() as session:
-        AgentRunRepository(session).append_decision(
-            tui_env.run_id,
-            agent="allocator",
-            step="optimize_portfolio",
-            llm_response=json.dumps({"weights": audited}),
-        )
-        session.commit()
+        candidate_set = observe.candidate_set(session, tui_env.run_id)
+        audited = dict(candidate_set.candidate(MEAN_RISK).weights)
     app = _make_shell(tui_env)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_edit_decision()
         await pilot.pause()
@@ -6801,6 +6815,7 @@ async def test_decisions_edit_with_unknown_ticker_keeps_editor_open(tui_env) -> 
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_edit_decision()
         await pilot.pause()
@@ -9221,27 +9236,32 @@ async def test_ask_query_without_model_degrades_to_status(shell_env) -> None:
 # --- Ask action router (Phase 08 T6) ----------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-048")
 @pytest.mark.asyncio
 async def test_ask_action_unambiguous_confirms_then_approves(tui_env) -> None:
-    """'approve the gate' with one gate pushes a confirm; yes runs apply_action."""
+    """Validates fund.tui._mixins.ask through fund.actions.apply_action: 'approve the
+    gate' with one gate pushes a confirm, but Ask names no candidate, so approving the
+    rebalance gate is refused with the ids to choose from and nothing is written."""
     app = _make_shell(tui_env, portfolio_id=PORTFOLIO_ID)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_ask(app, pilot)
         view.submit_turn("approve the gate")
         await pilot.pause()
         assert isinstance(app.screen, ConfirmScreen)  # no mutation without a confirm
-        await pilot.click("#confirm-yes")
+        # The confirm lists every candidate, which can push the button below the
+        # fold of the test terminal; pressing it is what a click does.
+        app.screen.query_one("#confirm-yes", Button).press()
         await pilot.pause()
         worker = app.last_worker
         assert worker is not None
         await worker.wait()
         await pilot.pause()
-        assert "approved" in app.last_status
+        assert "requires a candidate id" in app.last_status
     with tui_env.get_session() as session:
         run = AgentRunRepository(session).get_run(tui_env.run_id)
-        assert run.status == "completed"
+        assert run.status == "paused"
         rows = HumanAuditLogRepository(session).list_recent(action="approve")
-        assert len(rows) == 1
+        assert rows == []
 
 
 @pytest.mark.asyncio
@@ -9560,9 +9580,12 @@ async def test_ask_action_unrelated_turn_clears_pending(shell_env) -> None:
         assert "model" in app.last_status.lower()
 
 
+@pytest.mark.criterion("REQ-FUND-048")
 @pytest.mark.asyncio
 async def test_ask_action_two_gates_disambiguate_to_named(tui_env) -> None:
-    """Two pending gates ask which; naming one reaches the confirm, then approves."""
+    """Validates fund.tui._mixins.ask: two pending gates ask which; naming one reaches
+    the confirm, and its approve is refused for want of a candidate id, leaving the
+    named rebalance gate open."""
     _seed_fake_gate(tui_env, PORTFOLIO_ID, thread_id="thread-gate2", seed=2)
     short = str(tui_env.run_id).split("-", 1)[0]
 
@@ -9583,9 +9606,9 @@ async def test_ask_action_two_gates_disambiguate_to_named(tui_env) -> None:
         await pilot.pause()
         await app.last_worker.wait()
         await pilot.pause()
-        assert "approved" in app.last_status
+        assert "requires a candidate id" in app.last_status
     with tui_env.get_session() as session:
-        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "completed"
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
 
 
 @pytest.mark.asyncio
@@ -9803,6 +9826,7 @@ async def test_weights_editor_error_renders_typed_brackets_literally(tui_env) ->
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
         view.select_run(tui_env.run_id)
+        view.select_candidate(MEAN_RISK)
         await pilot.pause()
         app.action_edit_decision()
         await pilot.pause()

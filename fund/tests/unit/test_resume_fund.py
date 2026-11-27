@@ -25,6 +25,7 @@ from types import SimpleNamespace
 import pytest
 from _fund_fakes import (
     ASOF,
+    MEAN_RISK,
     PORTFOLIO_ID,
     UNIVERSE,
     BrokenPlaceOrdersFundModel,
@@ -186,6 +187,7 @@ def test_resume_fund_approve_commits_ticket_positions_and_completes(db_session) 
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     orders = _paper_orders(db_session)
@@ -232,6 +234,7 @@ def test_resume_fund_approve_sizes_ticket_at_the_stored_mandate_capital(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     (order,) = _paper_orders(db_session)
@@ -264,6 +267,7 @@ def test_resume_fund_sizes_the_ticket_from_the_capital_the_run_opened_with(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     (order,) = _paper_orders(db_session)
@@ -300,6 +304,7 @@ def test_resume_fund_prices_the_ticket_at_the_run_capital_after_a_mandate_edit(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     (order,) = _paper_orders(db_session)
@@ -334,6 +339,7 @@ def test_run_and_resume_build_their_agents_over_the_same_run_scratch(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     assert scratch_owners == [run.run_id, run.run_id]
@@ -405,6 +411,7 @@ def test_resume_fund_approve_resolves_a_gate_with_parallel_place_orders(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected, parallel_orders=2),
+        candidate_id=MEAN_RISK,
     )
 
     assert len(_paper_orders(db_session)) == 1
@@ -464,6 +471,7 @@ def test_resume_fund_unknown_run_id_raises(db_session) -> None:
             checkpointer=MemorySaver(),
             store=_store_with_cs(),
             model=ScriptedFundModel(),
+            candidate_id=MEAN_RISK,
         )
 
 
@@ -499,6 +507,7 @@ def test_resume_fund_requires_active_constraint_set(db_session) -> None:
             checkpointer=saver,
             store=InMemoryStore(),
             model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            candidate_id=MEAN_RISK,
         )
 
 
@@ -680,6 +689,7 @@ def test_resume_fund_approves_when_the_profile_is_unchanged(db_session) -> None:
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
@@ -718,6 +728,7 @@ def _resume(db_session, run_id, decision, expected, saver, store) -> None:
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK if decision == "approve" else None,
     )
 
 
@@ -803,7 +814,7 @@ def test_fundrun_resume_refuses_a_run_that_is_not_at_a_gate(db_session) -> None:
     db_session.flush()
 
     with pytest.raises(ValueError, match="pending"):
-        run.resume("approve")
+        run.resume("approve", candidate_id=MEAN_RISK)
 
     assert _paper_orders(db_session) == []
 
@@ -871,7 +882,7 @@ def test_fundrun_resume_refuses_a_run_that_is_already_finalised(
     db_session.flush()
 
     with pytest.raises(ValueError, match="already finalised"):
-        run.resume("approve")
+        run.resume("approve", candidate_id=MEAN_RISK)
 
     assert _paper_orders(db_session) == []
     assert _positions_map(db_session) == {}
@@ -895,6 +906,7 @@ def test_a_second_approve_of_a_completed_run_is_refused(db_session) -> None:
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
     tickets = [o.id for o in _paper_orders(db_session)]
     holdings = _positions_map(db_session)
@@ -910,6 +922,7 @@ def test_a_second_approve_of_a_completed_run_is_refused(db_session) -> None:
             checkpointer=saver,
             store=store,
             model=model,
+            candidate_id=MEAN_RISK,
         )
 
     assert model.generate_calls == 0
@@ -927,12 +940,12 @@ def test_fundrun_resume_refuses_a_second_approve(db_session) -> None:
         MemorySaver(),
         _store_with_cs(),
     )
-    run.resume("approve")
+    run.resume("approve", candidate_id=MEAN_RISK)
     tickets = [o.id for o in _paper_orders(db_session)]
     assert len(tickets) == 1
 
     with pytest.raises(ValueError, match="already finalised"):
-        run.resume("approve")
+        run.resume("approve", candidate_id=MEAN_RISK)
 
     assert [o.id for o in _paper_orders(db_session)] == tickets
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
@@ -977,6 +990,7 @@ def test_approve_stays_refused_after_a_freeze_is_rearmed(db_session) -> None:
             checkpointer=saver,
             store=store,
             model=model,
+            candidate_id=MEAN_RISK,
         )
 
     assert model.generate_calls == 0
@@ -1030,6 +1044,7 @@ def test_approve_does_not_overwrite_a_run_rejected_while_it_was_in_flight(
             checkpointer=saver,
             store=store,
             model=model,
+            candidate_id=MEAN_RISK,
         )
 
     row = AgentRunRepository(db_session).get_run(run.run_id)
@@ -1069,6 +1084,7 @@ def test_resume_fund_backs_off_when_another_resolver_finalised_the_run_first(
             checkpointer=saver,
             store=store,
             model=model,
+            candidate_id=MEAN_RISK,
         )
 
     assert model.generate_calls == 0
@@ -1110,6 +1126,7 @@ def test_resume_fund_refuses_an_approve_once_the_run_outlived_the_approval_windo
             checkpointer=saver,
             store=store,
             model=model,
+            candidate_id=MEAN_RISK,
         )
 
     assert model.generate_calls == 0
@@ -1158,7 +1175,7 @@ def test_fundrun_resume_refuses_an_approve_once_the_run_outlived_the_approval_wi
     _age_run(db_session, run.run_id, days=settings.approval_max_age_days + 1)
 
     with pytest.raises(ValueError, match="stale"):
-        run.resume("approve")
+        run.resume("approve", candidate_id=MEAN_RISK)
 
     assert _paper_orders(db_session) == []
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
@@ -1190,6 +1207,7 @@ def test_resume_fund_refuses_an_approve_older_than_the_portfolio_holdings(
             checkpointer=saver,
             store=store,
             model=model,
+            candidate_id=MEAN_RISK,
         )
 
     assert model.generate_calls == 0
@@ -1294,7 +1312,7 @@ def test_fundrun_resume_refuses_approve_when_the_fund_is_frozen(db_session) -> N
     _freeze_by_name(db_session, "fund")
 
     with pytest.raises(RuntimeError, match="frozen"):
-        run.resume("approve")
+        run.resume("approve", candidate_id=MEAN_RISK)
 
     assert _paper_orders(db_session) == []
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
@@ -1303,11 +1321,11 @@ def test_fundrun_resume_refuses_approve_when_the_fund_is_frozen(db_session) -> N
 # --- an approved gate that is not the order commit ------------------------------
 
 _PRIOR_HOLDINGS = {"AAA": 0.6, "BBB": 0.4}
-_EXTRA_GATES = ("optimize_portfolio", "place_orders")
+_EXTRA_GATES = ("compute_candidates", "place_orders")
 
 
 def _run_to_extra_gate(db_session, saver, store, expected) -> FundRun:
-    """A portfolio's second round, whose persisted mandate adds ``optimize_portfolio``
+    """A portfolio's second round, whose persisted mandate adds ``compute_candidates``
     to the gates: the PM pauses at that gate, well before ``place_orders``. The
     portfolio already holds ``_PRIOR_HOLDINGS``. The first round's forced gate set is
     spent, so the mandate's own gates apply."""
@@ -1332,7 +1350,7 @@ def _run_to_extra_gate(db_session, saver, store, expected) -> FundRun:
         store=store,
     )
     gated = [r["name"] for r in run.interrupt["action_requests"]]
-    assert gated == ["optimize_portfolio"]
+    assert gated == ["compute_candidates"]
     return run
 
 
@@ -1348,10 +1366,12 @@ def _assert_still_awaiting_the_next_gate(db_session, run_id) -> None:
 def test_resume_fund_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
     db_session,
 ) -> None:
-    """Approving ``optimize_portfolio`` lets the PM run on to the ``place_orders`` gate,
-    which pauses the graph again. The approve must not finalise the run: that would
-    stamp it completed with no ticket, replace the holdings with an empty or partial
-    snapshot, and strand the real gate behind the finalised-run guard."""
+    """Approving ``compute_candidates`` (no candidate set exists yet, so no candidate
+    is named) lets the PM run on to the ``place_orders`` gate, which pauses the graph
+    again; its approve names the candidate. The first approve must not finalise the
+    run: that would stamp it completed with no ticket, replace the holdings with an
+    empty or partial snapshot, and strand the real gate behind the finalised-run
+    guard."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -1379,6 +1399,7 @@ def test_resume_fund_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     (order,) = _paper_orders(db_session)
@@ -1400,7 +1421,7 @@ def test_fundrun_resume_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
 
     _assert_still_awaiting_the_next_gate(db_session, run.run_id)
 
-    run.resume("approve")
+    run.resume("approve", candidate_id=MEAN_RISK)
 
     (order,) = _paper_orders(db_session)
     assert order.weights == expected
@@ -1449,7 +1470,7 @@ def test_resume_fund_matches_fundrun_resume(db_session) -> None:
         _store_with_cs(PORTFOLIO_ID),
         portfolio_id=PORTFOLIO_ID,
     )
-    run_a.resume("approve")
+    run_a.resume("approve", candidate_id=MEAN_RISK)
 
     # Portfolio B — resumed via the rebuild-to-resume path (fresh agent).
     saver_b = MemorySaver()
@@ -1468,6 +1489,7 @@ def test_resume_fund_matches_fundrun_resume(db_session) -> None:
         checkpointer=saver_b,
         store=store_b,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     repo = AgentRunRepository(db_session)
@@ -1537,6 +1559,7 @@ def test_resume_fund_approve_without_a_fill_bar_does_not_finalise(db_session) ->
             checkpointer=saver,
             store=store,
             model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            candidate_id=MEAN_RISK,
         )
 
     _assert_nothing_finalised(db_session, run.run_id)
@@ -1559,7 +1582,7 @@ def test_fundrun_resume_approve_without_a_fill_bar_does_not_finalise(
     _drop_bars_after_asof(db_session)
 
     with pytest.raises(RuntimeError, match="paper ticket"):
-        run.resume("approve")
+        run.resume("approve", candidate_id=MEAN_RISK)
 
     _assert_nothing_finalised(db_session, run.run_id)
     _assert_gate_still_open(db_session, saver, run.run_id)
@@ -1588,6 +1611,7 @@ def test_resume_fund_approve_survives_pm_failure_after_the_ticket(db_session) ->
         checkpointer=saver,
         store=store,
         model=PmFailsAfterOrderModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     assert "429" in result["resume_error"]
@@ -1611,7 +1635,7 @@ def test_fundrun_resume_approve_survives_pm_failure_after_the_ticket(
         _store_with_cs(),
     )
 
-    result = run.resume("approve")
+    result = run.resume("approve", candidate_id=MEAN_RISK)
 
     assert "429" in result["resume_error"]
     assert len(_paper_orders(db_session)) == 1
@@ -1679,6 +1703,7 @@ def test_resume_fund_reraises_when_the_gate_was_not_consumed(
             checkpointer=saver,
             store=store,
             model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            candidate_id=MEAN_RISK,
         )
 
     assert observe._has_pending_interrupt(saver, str(run.run_id))
@@ -1686,45 +1711,6 @@ def test_resume_fund_reraises_when_the_gate_was_not_consumed(
 
 
 # --- approve of a refused place_orders must not read as a completed rebalance -
-
-
-def test_resume_fund_approve_when_risk_never_checked_finalises_incomplete(
-    db_session,
-) -> None:
-    """The adviser approving cannot make a refused placement real: with no risk
-    verdict ``place_orders`` writes no ticket, so the rebuilt-to-resume run must
-    end ``incomplete`` and leave the holdings alone, like ``FundRun.resume``."""
-    seed_panel(db_session)
-    expected = expected_weights(db_session)
-    saver = MemorySaver()
-    store = _store_with_cs()
-    run = _run_to_gate(
-        ScriptedFundModel(universe=UNIVERSE, weights=expected, risk_checks=False),
-        db_session,
-        saver,
-        store,
-    )
-
-    resume_fund(
-        run.run_id,
-        "approve",
-        session=db_session,
-        checkpointer=saver,
-        store=store,
-        model=ScriptedFundModel(universe=UNIVERSE, weights=expected, risk_checks=False),
-    )
-
-    row = AgentRunRepository(db_session).get_run(run.run_id)
-    assert row.status == "incomplete"
-    assert not row.weights
-    assert _paper_orders(db_session) == []
-    assert _positions_map(db_session) == {}
-    closing = [
-        d.hitl_decision
-        for d in _decisions(db_session, run.run_id)
-        if d.agent == "orchestrator"
-    ]
-    assert {"decision": "incomplete", "reason": "place_orders_failed"} in closing
 
 
 class _ReallocatingModel(ScriptedFundModel):
@@ -1744,7 +1730,7 @@ class _ReallocatingModel(ScriptedFundModel):
 
 def _assert_finalised_with_ticket_weights(db_session, run_id, expected) -> None:
     # the model really did re-run the allocator after the ticket was placed
-    assert AgentRunRepository(db_session).latest_optimizer_weights(run_id) != expected
+    assert observe.candidate_set(db_session, run_id).universe == tuple(UNIVERSE[:2])
     orders = _paper_orders(db_session)
     assert len(orders) == 1
     assert orders[0].weights == expected
@@ -1775,6 +1761,7 @@ def test_resume_fund_approve_finalises_with_the_placed_ticket_weights(
         checkpointer=saver,
         store=store,
         model=_ReallocatingModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     _assert_finalised_with_ticket_weights(db_session, run.run_id, expected)
@@ -1792,7 +1779,7 @@ def test_fundrun_resume_approve_finalises_with_the_placed_ticket_weights(
         _store_with_cs(),
     )
 
-    run.resume("approve")
+    run.resume("approve", candidate_id=MEAN_RISK)
 
     _assert_finalised_with_ticket_weights(db_session, run.run_id, expected)
 
@@ -1851,6 +1838,7 @@ def test_resume_fund_retry_replaces_a_ticket_lost_with_the_rolled_back_session(
             checkpointer=saver,
             store=store,
             model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            candidate_id=MEAN_RISK,
         )
     assert _paper_orders(db_session) == []
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
@@ -1863,6 +1851,7 @@ def test_resume_fund_retry_replaces_a_ticket_lost_with_the_rolled_back_session(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
@@ -1889,6 +1878,7 @@ def test_resume_fund_retry_without_a_fill_bar_finalises_a_consumed_gate_incomple
             checkpointer=saver,
             store=store,
             model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            candidate_id=MEAN_RISK,
         )
     _drop_bars_after_asof(db_session)
 
@@ -1899,6 +1889,7 @@ def test_resume_fund_retry_without_a_fill_bar_finalises_a_consumed_gate_incomple
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     assert _paper_orders(db_session) == []
@@ -1919,10 +1910,10 @@ def test_fundrun_resume_retry_replaces_a_ticket_lost_with_the_rolled_back_sessio
     )
 
     with _rolled_back(db_session):
-        run.resume("approve")
+        run.resume("approve", candidate_id=MEAN_RISK)
     assert _paper_orders(db_session) == []
 
-    run.resume("approve")
+    run.resume("approve", candidate_id=MEAN_RISK)
 
     _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
 
@@ -1953,6 +1944,7 @@ def test_resume_fund_retry_places_the_ticket_once_the_fill_bar_exists(
                 checkpointer=saver,
                 store=store,
                 model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+                candidate_id=MEAN_RISK,
             )
     _assert_gate_still_open(db_session, saver, run.run_id)
 
@@ -1963,6 +1955,7 @@ def test_resume_fund_retry_places_the_ticket_once_the_fill_bar_exists(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
@@ -2005,6 +1998,7 @@ def test_resume_fund_approve_links_the_positions_to_the_paper_ticket(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     _assert_positions_trace_the_ticket(db_session)
@@ -2022,7 +2016,7 @@ def test_fundrun_resume_approve_links_the_positions_to_the_paper_ticket(
         _store_with_cs(),
     )
 
-    run.resume("approve")
+    run.resume("approve", candidate_id=MEAN_RISK)
 
     _assert_positions_trace_the_ticket(db_session)
 
@@ -2618,11 +2612,13 @@ def _assert_nothing_booked(db_session, run_id) -> None:
     )  # the refused proposal is not recorded as the run's allocation
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approve_refused_by_the_mandate_does_not_complete_the_run(
     db_session,
 ) -> None:
-    """``place_orders`` refuses weights that breach the re-profiled mandate; the run
-    must end ``incomplete``, not record the refused weights as the held book."""
+    """Validates fund.agents.graph.resume_fund: a candidate that breaches the
+    re-profiled mandate is refused before the graph resumes, so the run stays at its
+    gate and nothing is booked or recorded as its allocation."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -2632,31 +2628,28 @@ def test_resume_fund_approve_refused_by_the_mandate_does_not_complete_the_run(
     )
     _reprofile_with_energy_exclusion(db_session, store)
 
-    resume_fund(
-        run.run_id,
-        "approve",
-        session=db_session,
-        checkpointer=saver,
-        store=store,
-        model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
-    )
+    with pytest.raises(ValueError, match="breaches the current mandate"):
+        resume_fund(
+            run.run_id,
+            "approve",
+            session=db_session,
+            checkpointer=saver,
+            store=store,
+            model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+            candidate_id=MEAN_RISK,
+        )
 
-    row = AgentRunRepository(db_session).get_run(run.run_id)
-    assert row.status == "incomplete"
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+    assert observe._has_pending_interrupt(saver, str(run.run_id))
     _assert_nothing_booked(db_session, run.run_id)
-    reasons = [
-        d.hitl_decision.get("reason")
-        for d in _decisions(db_session, run.run_id)
-        if d.hitl_decision and d.hitl_decision.get("decision") == "incomplete"
-    ]
-    assert reasons == ["place_orders_failed"]
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_approve_refused_by_the_mandate_does_not_complete_the_run(
     db_session,
 ) -> None:
-    """The live in-process handle settles a refused approve exactly like the rebuild
-    path, so the two cannot diverge."""
+    """Validates fund.agents.graph.FundRun.resume: the live in-process handle refuses
+    a candidate the re-profiled mandate breaches exactly like the rebuild path."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -2666,41 +2659,11 @@ def test_fundrun_resume_approve_refused_by_the_mandate_does_not_complete_the_run
     )
     _reprofile_with_energy_exclusion(db_session, store)
 
-    run.resume("approve")
+    with pytest.raises(ValueError, match="breaches the current mandate"):
+        run.resume("approve", candidate_id=MEAN_RISK)
 
-    assert AgentRunRepository(db_session).get_run(run.run_id).status == "incomplete"
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
     _assert_nothing_booked(db_session, run.run_id)
-
-
-def test_refused_approve_that_the_pm_re_gates_keeps_the_run_alive(db_session) -> None:
-    """If the PM answers the refusal by re-gating, the run stays awaiting approval
-    (``responded``) rather than being finalised under a live checkpoint."""
-    seed_panel(db_session)
-    expected = expected_weights(db_session)
-    saver = MemorySaver()
-    store = _store_with_cs()
-    run = _run_to_gate(
-        ScriptedFundModel(universe=UNIVERSE, weights=expected, max_orders=2),
-        db_session,
-        saver,
-        store,
-    )
-    _reprofile_with_energy_exclusion(db_session, store)
-
-    resume_fund(
-        run.run_id,
-        "approve",
-        session=db_session,
-        checkpointer=saver,
-        store=store,
-        model=ScriptedFundModel(universe=UNIVERSE, weights=expected, max_orders=2),
-    )
-
-    row = AgentRunRepository(db_session).get_run(run.run_id)
-    assert row.status == "responded"
-    assert observe._has_pending_interrupt(saver, str(run.run_id))
-    assert _paper_orders(db_session) == []
-    assert _positions_map(db_session) == {}
 
 
 def test_a_placed_ticket_still_completes_the_run_after_the_refusal_guard(
@@ -2722,6 +2685,7 @@ def test_a_placed_ticket_still_completes_the_run_after_the_refusal_guard(
         checkpointer=saver,
         store=store,
         model=ScriptedFundModel(universe=UNIVERSE, weights=expected),
+        candidate_id=MEAN_RISK,
     )
 
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
@@ -2731,7 +2695,7 @@ def test_a_placed_ticket_still_completes_the_run_after_the_refusal_guard(
 
 class _ReoptimizingModel(ScriptedFundModel):
     """After a respond barge-in the PM re-delegates the allocator on a narrower
-    universe and re-gates, so the run's latest audited optimizer weights change."""
+    universe and re-gates, so the run's latest candidate set changes."""
 
     narrow_universe: list[str] = Field(default_factory=list)
 
@@ -2753,8 +2717,7 @@ class _ReoptimizingModel(ScriptedFundModel):
                 ],
             )
         if n_orders == 1 and n_task == 5:
-            # A risk pass is bound to one weight vector, so the narrower proposal
-            # must be judged again before place_orders will commit it.
+            # A recomputed set is judged again before the adviser is shown it.
             return _task_call("risk", 5)
         if n_orders == 1 and n_task == 6:
             return AIMessage(
@@ -2770,7 +2733,7 @@ class _ReoptimizingModel(ScriptedFundModel):
         return super()._pm_turn(messages)
 
     def _allocator_turn(self, messages: list[BaseMessage]) -> AIMessage:
-        if _count_tool_calls(messages, "optimize_portfolio") == 0:
+        if _count_tool_calls(messages, "compute_candidates") == 0:
             narrow = any(
                 "NARROW" in str(m.content) for m in messages if m.type == "human"
             )
@@ -2779,9 +2742,9 @@ class _ReoptimizingModel(ScriptedFundModel):
                 content="",
                 tool_calls=[
                     {
-                        "name": "optimize_portfolio",
+                        "name": "compute_candidates",
                         "args": {"universe": universe},
-                        "id": "call_optimize",
+                        "id": "call_compute_candidates",
                     }
                 ],
             )
@@ -2791,9 +2754,9 @@ class _ReoptimizingModel(ScriptedFundModel):
 def test_fundrun_resume_approve_finalises_with_weights_reoptimised_after_respond(
     db_session,
 ) -> None:
-    """The live handle's weights are captured before the pause; a respond that makes
-    the PM re-optimise changes the audited weights the ticket is placed from, so the
-    approve must finalise with those, not the stale pre-pause ones."""
+    """A respond that makes the PM recompute the candidates on a narrower universe
+    supersedes the set shown at the pause, so the approve places the named candidate
+    of the newer set and finalises with its weights, not the stale pre-pause ones."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     model = _ReoptimizingModel(
@@ -2803,10 +2766,10 @@ def test_fundrun_resume_approve_finalises_with_weights_reoptimised_after_respond
         max_orders=2,
     )
     run = _run_to_gate(model, db_session, MemorySaver(), _store_with_cs())
-    assert set(run.weights) == set(UNIVERSE)
+    assert observe.candidate_set(db_session, run.run_id).universe == tuple(UNIVERSE)
 
     run.resume("respond", pm_directive="Drop CCC and re-optimise.")
-    run.resume("approve")
+    run.resume("approve", candidate_id=MEAN_RISK)
 
     row = AgentRunRepository(db_session).get_run(run.run_id)
     orders = _paper_orders(db_session)
@@ -2835,7 +2798,7 @@ def test_fundrun_resume_refuses_a_run_finalised_since_the_gate_opened(
     )
 
     with pytest.raises(ValueError, match="already finalised"):
-        run.resume("approve")
+        run.resume("approve", candidate_id=MEAN_RISK)
 
     assert _paper_orders(db_session) == []
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
