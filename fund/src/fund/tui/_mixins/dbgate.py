@@ -5,8 +5,7 @@ refuses them at once. A write would be refused the same way, but only after the
 adviser had read a run's approval gate and answered a confirm, so the bindings that
 start one are disabled instead and the status bar says why. A key-binding confirm
 already open when the database gate shut is not checked again; its worker meets the
-breaker when it opens a session. Ask's checks and the paths that bypass the breaker
-are listed in ADR-0008 under Guarded paths and Unguarded paths.
+breaker when it opens a session.
 """
 
 from __future__ import annotations

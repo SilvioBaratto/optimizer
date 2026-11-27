@@ -4,9 +4,9 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ## Development Setup
 
-The repository is a uv workspace of four packages that share one virtualenv (see
-[ADR-0002](docs/adr/0002-four-package-uv-workspace.md)). Install through `uv`: the
-daemon and the fund bridge depend on sibling packages that only uv can resolve.
+The repository is a uv workspace of four packages that share one virtualenv. Install
+through `uv`: the daemon and the fund bridge depend on sibling packages that only uv can
+resolve.
 
 ```bash
 # Clone the repository
@@ -133,10 +133,6 @@ def build_my_estimator(config: MyConfig, **kwargs):
 
 ## Pull Request Process
 
-The branching, review and secrets policy, including the one place it departs from the
-code standard, is in
-[ADR-0007](docs/adr/0007-branching-review-and-secrets-policy.md).
-
 1. Create a branch from `development` named `feature/<slug>`, `bugfix/<slug>` or
    `hotfix/<slug>`
 2. Make your changes with tests
@@ -189,39 +185,6 @@ repository departs from the MAJOR rule of standard 5.1.1, until 1.0.0.
    only then builds the `portopt-core` sdist and wheel. Nothing is uploaded to PyPI
 7. Merge `main` back into `development` through a pull request, so that `development`
    carries the release version, the new `[0.x.0]` section and the empty `[Unreleased]`
-
-## Test traceability (documented deviation from standard 6.6)
-
-Standard 6.6 asks every test to cite the requirement ID it verifies. Here requirement
-IDs are bound to tests of the critical functions in `docs/test-plan.md`, of the items
-under its table that show an id, and of the traceability check and its wiring. The registry
-`docs/requirements.md` holds the ids, of the form `REQ-<AREA>-NNN`, and a test cites one
-with the `criterion(id)` pytest marker. Tests written before the registry were tagged
-only where they assert one of the registered requirements, so most tests cite no id.
-Of the fixes made before the `defect` marker existed, only the regression test for
-issue 1125 carries one, so the other fixes of that time are not linked to their issues
-in the trace. Both are known non-compliances (standard 1.3).
-
-Corrective action in place: the `lint` CI job collects the four suites with
-`--traceability-out` and runs `scripts/ci/traceability.py check`, which fails when a
-registered requirement has no test, a test cites a `REQ-` id the registry does not
-list, or a test carries a `defect(issue)` marker but no `REQ-` id. A new test for a
-critical function cites the requirement it asserts, with a new registry row when none
-fits, and a regression test for a GitHub issue also carries `defect(<issue>)`. Do not
-invent ids outside the registry, or issue numbers.
-
-To run the check locally, from the repository root:
-
-```bash
-TRACE="$PWD/.tmp/traceability"
-uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/core.csv"
-(cd ingestion && uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/ingestion.csv")
-(cd packages/portopt-db && uv run pytest --collect-only -qqq --traceability-out="$TRACE/portopt-db.csv")
-(cd fund && uv run pytest tests/ --collect-only -qqq --traceability-out="$TRACE/fund.csv")
-uv run python scripts/ci/traceability.py check --requirements docs/requirements.md \
-  --csv "$TRACE/core.csv" --csv "$TRACE/ingestion.csv" \
-  --csv "$TRACE/portopt-db.csv" --csv "$TRACE/fund.csv"
-```
 
 ## Questions?
 

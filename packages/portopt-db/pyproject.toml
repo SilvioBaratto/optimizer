@@ -49,12 +49,9 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# The traceability plugin (`--traceability-out`) is one file in scripts/ci, outside
-# every package, shared by the four suites; this path lets `-p traceability` load it.
-pythonpath = ["../../scripts/ci"]
-addopts = "-p no:cacheprovider -p traceability"
+addopts = "-p no:cacheprovider"
 markers = [
-    "criterion(id): cite requirement <id> of docs/requirements.md (a REQ- id) or an acceptance-criterion label",
+    "criterion(id): label the requirement or acceptance criterion this test pins",
     "defect(issue): link this regression test to GitHub issue <issue>",
     "integration: needs a real PostgreSQL server (PORTOPT_TEST_DATABASE_URL)",
 ]

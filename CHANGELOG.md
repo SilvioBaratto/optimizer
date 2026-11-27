@@ -266,6 +266,26 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   8.5.1, markdown-it-py 4.2.0 -> 4.3.0, mdit-py-plugins 0.6.1 -> 0.7.0, mako 1.4.1 -> 1.4.3,
   markupsafe 3.0.3 -> 3.0.4, tomli 2.4.1 -> 2.5.0, wcwidth 0.8.2 -> 0.9.5, peewee 4.4.0 -> 4.5.3.
 
+### Removed
+
+- **The `docs/` folder is no longer published.** The architecture and decision records
+  (`ARCHITECTURE.md`, `DECISIONS.md`, `SPEC-RECONCILIATION.md`, `VALIDATION.md`,
+  `WRITE-PATH-AUDIT.md`), the ADRs, `integrations.md`, `nfr.md`, `test-plan.md` and the
+  requirements registry `requirements.md` left version control. The maintainer keeps them in a
+  git-ignored local folder, and earlier commits still hold them. The operator knobs that
+  `integrations.md` listed with their defaults are defined in `ingestion/app/config.py` and
+  `fund/src/fund/config.py` and named in this file.
+- **The requirement-traceability gate**, which only worked with that registry: the
+  `Requirement traceability` step and its `traceability` artifact in the `lint` job,
+  `scripts/ci/traceability.py` (also the pytest plugin the four suites loaded with
+  `-p traceability`, together with their `pythonpath` entries for `scripts/ci`) and the
+  guard tests of the removed files (`tests/ci/test_traceability.py`,
+  `tests/test_adr_format.py`, `tests/test_integration_docs.py`,
+  `tests/test_nfr_and_test_plan_docs.py`). CI no longer fails a test that cites an unknown
+  `REQ-` id or a requirement with no test. The `criterion` and `defect` markers stay
+  registered, because tests use them, but they are now plain labels that nothing verifies.
+  CONTRIBUTING.md loses its "Test traceability" section and its two ADR links.
+
 ### Known / not done
 
 - **The Tel Aviv (`XTAE`) trading calendar does not build on pandas 3.1.**

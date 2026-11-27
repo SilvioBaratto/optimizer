@@ -2,8 +2,8 @@
 
 Validates ``app/services/market_data/yfinance_data_service.py``
 (``YFinanceDataService.fetch_and_store`` and the ``_fetch_and_store`` sweep it
-wraps). Only the tests with a ``criterion`` marker cite REQ-ING-001 or REQ-ING-002
-of ``docs/requirements.md``; some others here touch the same behaviour uncited.
+wraps). Only the tests with a ``criterion`` marker cite REQ-ING-001 or REQ-ING-002;
+some others here touch the same behaviour uncited.
 
 The sweep runs one block per data category: check freshness, fetch from Yahoo,
 store a non-empty answer inside a savepoint, and turn an exception into an error
