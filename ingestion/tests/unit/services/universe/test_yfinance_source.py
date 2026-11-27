@@ -1,6 +1,6 @@
 """YFinanceUniverseSource contract.
 
-The source implements the ``Trading212ApiClient`` seam (get_exchanges /
+The source implements the ``UniverseSourceClient`` seam (get_exchanges /
 get_instruments) from ``yf.screen`` results: no seed lists, no ISIN (identity is
 (ticker, exchange); dedup by symbol), out-of-scope venues dropped. Query
 construction is patched so tests exercise the transform, not live Yahoo.
@@ -23,8 +23,8 @@ from app.services.market_data.yfinance.screener.screener_client import (
     ScreenerError,
 )
 from app.services.universe import yfinance_source
-from app.services.universe.trading212.builder import UniverseBuilder
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.builder import UniverseBuilder
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.yfinance_source import (
     _CODE_TO_CONFIG_NAME,
     _CODE_TO_REGION,
@@ -222,14 +222,18 @@ def test_tags_instrument_type(monkeypatch: pytest.MonkeyPatch) -> None:
     assert by_ticker == {"AAPL": "STOCK", "BND": "ETF"}
 
 
-def test_requires_no_trading212(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.services.universe.trading212.protocols import (
+@pytest.mark.criterion("REQ-ING-015")
+def test_satisfies_the_builder_protocols(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Validates ``app.services.universe.yfinance_source.YFinanceUniverseSource``
+    satisfies the builder's ``UniverseSourceClient`` and ``PassThroughTickerMapper``
+    its ``TickerMapper``."""
+    from app.services.universe.builder.protocols import (
         TickerMapper,
-        Trading212ApiClient,
+        UniverseSourceClient,
     )
 
     src, _ = _source([{"quotes": []}], monkeypatch)
-    assert isinstance(src, Trading212ApiClient)
+    assert isinstance(src, UniverseSourceClient)
     assert isinstance(PassThroughTickerMapper(), TickerMapper)
 
 

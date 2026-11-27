@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
-from app.services.universe.trading212.enums import (
+from app.services.universe.builder.enums import (
     AssetClass,
     DurationBucket,
     FiSubclass,

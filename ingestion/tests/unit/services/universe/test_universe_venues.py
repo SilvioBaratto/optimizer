@@ -23,8 +23,8 @@ from app.services._shared.trading_calendar import (
     get_expected_trading_sessions,
 )
 from app.services.universe import yfinance_source
-from app.services.universe.trading212.builder import UniverseBuilder
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.builder import UniverseBuilder
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.yfinance_source import (
     _CODE_TO_CONFIG_NAME,
     _CODE_TO_REGION,

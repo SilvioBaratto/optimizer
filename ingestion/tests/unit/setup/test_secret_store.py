@@ -36,8 +36,10 @@ def _store(tmp_path: Path) -> Path:
 
 
 def test_save_then_load_roundtrip(tmp_path: Path) -> None:
+    """Validates ``app.setup.secret_store.load_secrets`` returns what
+    ``save_secrets`` stored."""
     path = _store(tmp_path)
-    secrets = {"TRADING_212_API_KEY": "t212-abc123", "FRED_API_KEY": "fred-xyz"}
+    secrets = {"FRED_API_KEY": "fred-xyz"}
     secret_store.save_secrets(secrets, "correct horse battery staple", path=path)
     loaded = secret_store.load_secrets("correct horse battery staple", path=path)
     assert loaded == secrets

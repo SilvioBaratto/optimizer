@@ -116,6 +116,13 @@ The entries under Security affect privacy or configuration and come first.
 
 Behaviour changes to know about:
 
+- **ingestion**: the universe builder left the `trading212` package it was named after when
+  Trading 212 sourced the universe. `UniverseBuilder`, `UniverseBuilderConfig`,
+  `classify_instrument`, the asset-class enums, the protocols and the ETF filters now import
+  from `app.services.universe.builder`, and `UniverseBuildRequest` from
+  `app.schemas.universe.build_request`. The builder's source protocol `Trading212ApiClient`
+  is now `UniverseSourceClient`. No behaviour change; code importing the old paths must
+  follow.
 - **licence**: the README and the packages now call the licence what it is, source-available
   under PolyForm Noncommercial 1.0.0 (not an OSI-approved licence). `ingestion`, `fund` and
   `portopt-db` declare `license` and the `License :: Other/Proprietary License` classifier in
@@ -308,6 +315,25 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   not carry; list the instruments you want in `--eligible` instead. **portopt-db**: the
   `UniverseReader` port no longer declares `get_t212_untradeable_tickers` and
   `get_t212_unevaluated_tickers` (the repository methods stay for now).
+- **ingestion**: the Trading 212 integration. The Trading 212 client with its ticker mapper
+  and cache, the `t212_annotate` step that followed `universe_build` (and its job type),
+  `portopt add-instrument --t212-ticker`, the Trading 212 prompts of `portopt setup` with
+  its `--t212-key` / `--t212-secret` options and live key check, the `TRADING_212_API_KEY`,
+  `TRADING_212_SECRET_KEY`, `TRADING_212_MODE`, `BREAKER_TRADING_212_MAX_ATTEMPTS`,
+  `TRADING_212_REQUEST_ATTEMPTS` and `TRADING_212_REQUEST_TIMEOUT_SECONDS` settings, the
+  Trading 212 circuit breaker, the `trading_212_api_key` / `trading_212_secret_key` compose
+  secrets, the scheduler's `.env.scheduler` env file (it only carried `TRADING_212_MODE`)
+  and `ingestion/scripts/debug_universe_scale.py`. The weekly `universe_build` job now runs
+  the universe step alone. Nothing writes `instruments.t212_ticker`,
+  `instruments.is_t212_tradeable` or `exchanges.t212_id` any more; the columns stay until a
+  later migration drops them. ISINs now come only from ticker profiles
+  (`backfill_isin_from_profiles`): the per-ticker ISIN lookup the annotation step made is
+  gone. **Upgrading**: nothing is needed for the stack to start. A secret store written by
+  an older `portopt setup` may still hold the two Trading 212 keys; setup and
+  `portopt start` ignore them and render neither. The `./secrets/trading_212_api_key`,
+  `./secrets/trading_212_secret_key` and `./.env.scheduler` files an older `portopt start`
+  rendered are no longer used, and `portopt stop --all` no longer deletes them: delete them
+  at will.
 
 ### Known / not done
 

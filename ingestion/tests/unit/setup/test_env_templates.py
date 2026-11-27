@@ -31,7 +31,7 @@ _QUOTED_ENV_NAME = re.compile(r"""["']([A-Z][A-Z0-9_]+)["']""")
 
 # Keys whose absence is a documented state (skip / clear "key required" error), so
 # a truthy placeholder would defeat the gate and fail later with an opaque 401.
-_GATING_KEYS = ["TRADING_212_API_KEY", "TRADING_212_SECRET_KEY", "FRED_API_KEY"]
+_GATING_KEYS = ["FRED_API_KEY"]
 
 
 def _read_names() -> set[str]:
@@ -126,43 +126,6 @@ def test_example_database_url_matches_the_code_default(template: Path) -> None:
     assert dotenv_values(template)["DATABASE_URL"] == default
 
 
-def test_ingestion_template_describes_the_real_trading_212_gate() -> None:
-    """Only `t212_annotate` skips without a key; the universe build never needs one."""
-    text = _INGESTION_TEMPLATE.read_text(encoding="utf-8")
-    assert "universe_build" not in text
-    assert "t212_annotate" in text
-
-
-# Every prose copy of the Trading 212 gate a reader can land on.
-_GATE_COPIES = [
-    "CLAUDE.md",
-    "README.md",
-    "ingestion/README.md",
-    "ingestion/app/services/universe/trading212/client.py",
-]
-
-# "`universe_build` skips", "the universe-build step skips", "universe build skips".
-_UNIVERSE_SKIP_CLAIM = re.compile(
-    r"universe[_\s-]build[`*\s]*(?:(?:step|job)[`*\s]+)?skips?\b", re.IGNORECASE
-)
-_NOTHING_REFRESHES_CLAIM = re.compile(r"nothing\s+(?:will\s+)?refresh", re.IGNORECASE)
-
-
-@pytest.mark.parametrize("relpath", _GATE_COPIES)
-def test_docs_do_not_repeat_the_stale_universe_build_skip_claim(relpath: str) -> None:
-    """Prose must match the template: T212 gates annotate only, never the build."""
-    text = (_REPO_ROOT / relpath).read_text(encoding="utf-8")
-    assert not _UNIVERSE_SKIP_CLAIM.search(text), relpath
-    assert not _NOTHING_REFRESHES_CLAIM.search(text), relpath
-
-
-@pytest.mark.parametrize("relpath", _GATE_COPIES)
-def test_docs_name_t212_annotate_as_the_step_the_key_gates(relpath: str) -> None:
-    """A copy that explains the missing-key skip must name the step that skips."""
-    text = (_REPO_ROOT / relpath).read_text(encoding="utf-8")
-    assert "t212_annotate" in text, relpath
-
-
 # Settings fields that are labels or developer toggles, not operator knobs.
 _NOT_KNOBS = {"project_name", "version", "debug"}
 # Read with os.getenv rather than through Settings.
@@ -179,16 +142,13 @@ _DOCUMENTED_OUTSIDE_THE_TEMPLATE: dict[str, tuple[Path, ...]] = {
     "BREAKER_FRED_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "BREAKER_ILSOLE_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
-    "BREAKER_TRADING_212_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "BREAKER_YFINANCE_MAX_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "FRED_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
     "TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
     "ILSOLE_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
-    "TRADING_212_REQUEST_TIMEOUT_SECONDS": _EXTERNAL_CALL_DOCS,
     "FRED_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "TRADINGECONOMICS_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "ILSOLE_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
-    "TRADING_212_REQUEST_ATTEMPTS": _EXTERNAL_CALL_DOCS,
     "FRED_RETRY_BASE_DELAY_SECONDS": _EXTERNAL_CALL_DOCS,
     "FRED_RETRY_MAX_DELAY_SECONDS": _EXTERNAL_CALL_DOCS,
 }

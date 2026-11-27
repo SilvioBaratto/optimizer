@@ -139,9 +139,8 @@ submodule's source and docstrings under `packages/portopt-core/optimizer/`.
 - **[uv](https://docs.astral.sh/uv/)** — the workspace resolver / runner.
 - **Docker + the `docker compose` v2 plugin** — only for the ingestion daemon
   and the fund bridge (they need PostgreSQL 16). Not needed for the library.
-- Optional API keys (ingestion): `TRADING_212_API_KEY` (+ secret),
-  `FRED_API_KEY`. Absent Trading 212 ⇒ only the `t212_annotate` step skips cleanly;
-  the universe itself is built from the yfinance Screener either way.
+- Optional API key (ingestion): `FRED_API_KEY`. The universe is built from the
+  yfinance Screener and needs no key.
 
 ---
 
@@ -205,7 +204,7 @@ OPTIMIZER_REPO=/path/to/optimizer portopt setup
 ```
 
 **`portopt setup`** verifies Docker + the compose plugin, validates your
-Trading 212 / FRED keys live, encrypts them (Fernet + scrypt) to
+FRED and LLM provider keys live, encrypts them (Fernet + scrypt) to
 `~/.portopt/secrets.enc` (mode `0600`, passphrase never persisted), brings up
 PostgreSQL (`docker compose up -d --wait db`), and applies the Alembic migrations.
 It seeds no data. Re-run any time with `portopt setup`.
@@ -227,8 +226,8 @@ portopt status    # report Docker + service health (non-zero exit if anything is
 >
 > `portopt start` renders the encrypted secrets into git-ignored
 > `./secrets/<name>` files. `portopt stop` deletes the LLM keys only the fund
-> mounts, but keeps the three the ingestion daemon mounts (Trading 212 key and
-> secret, FRED key): the daemon restarts on its own and needs them. Run
+> mounts, but keeps the FRED key the ingestion daemon mounts: the daemon
+> restarts on its own and needs it. Run
 > `portopt stop --all` to stop the daemon too and leave no plaintext on disk.
 > Both refuse while a `fund run`, `fund approve` or `fund-tui` is running inside
 > the fund container, because stopping it would kill that round mid-flight; add

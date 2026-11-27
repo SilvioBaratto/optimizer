@@ -6,14 +6,14 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from app.services.universe.trading212.classification import classify_instrument
-from app.services.universe.trading212.config import UniverseBuilderConfig
-from app.services.universe.trading212.filters.etf_screen import dedup_etfs_by_isin
-from app.services.universe.trading212.protocols import (
+from app.services.universe.builder.classification import classify_instrument
+from app.services.universe.builder.config import UniverseBuilderConfig
+from app.services.universe.builder.filters.etf_screen import dedup_etfs_by_isin
+from app.services.universe.builder.protocols import (
     LiveSymbolReporter,
     TickerMapper,
-    Trading212ApiClient,
     UniverseRepository,
+    UniverseSourceClient,
 )
 
 
@@ -47,16 +47,16 @@ ProgressCallback = Callable[[BuildProgress], None]
 
 @dataclass
 class UniverseBuilder:
-    """Orchestrates a full Trading 212 universe build.
+    """Orchestrates a full universe build.
 
-    Fetches exchange and instrument metadata from the T212 API, maps each
+    Fetches exchange and instrument metadata from the source client, maps each
     instrument to a yfinance ticker, classifies it, and persists it via the
     repository. Applies no investability filtering — that is a fund-layer
     concern.
     """
 
     config: UniverseBuilderConfig
-    api_client: Trading212ApiClient
+    api_client: UniverseSourceClient
     ticker_mapper: TickerMapper
     repository: UniverseRepository
     max_workers: int = 20
@@ -74,7 +74,7 @@ class UniverseBuilder:
     _incomplete_types: frozenset[str] = field(default=frozenset(), init=False)
 
     def build(self) -> BuildResult:
-        """Run a full universe build from the Trading 212 API.
+        """Run a full universe build from the source client.
 
         Returns:
             Aggregate counts and any per-instrument errors encountered.
@@ -137,7 +137,7 @@ class UniverseBuilder:
         )
 
     def fetch_metadata(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Return raw exchange and instrument lists from the T212 API."""
+        """Return raw exchange and instrument lists from the source client."""
         exchanges = self.api_client.get_exchanges()
         instruments = self.api_client.get_instruments()
         return exchanges, instruments

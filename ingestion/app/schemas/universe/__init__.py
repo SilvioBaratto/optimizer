@@ -1,5 +1,5 @@
 """Universe schemas."""
 
-from app.schemas.universe.trading212 import UniverseBuildRequest
+from app.schemas.universe.build_request import UniverseBuildRequest
 
 __all__ = ["UniverseBuildRequest"]

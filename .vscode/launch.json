@@ -7,19 +7,6 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "DEBUG: universe scale repro",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "scripts.debug_universe_scale",
-      "args": ["--limit", "500", "--workers", "20"],
-      "cwd": "${workspaceFolder}/ingestion",
-      "python": "${command:python.interpreterPath}",
-      "envFile": "${workspaceFolder}/.env",
-      "env": { "PYTHONUNBUFFERED": "1" },
-      "console": "integratedTerminal",
-      "justMyCode": false
-    },
-    {
       "name": "CLI: yfinance (incremental)",
       "type": "debugpy",
       "request": "launch",
@@ -46,7 +33,7 @@
       "justMyCode": false
     },
     {
-      "name": "CLI: universe (Trading 212)",
+      "name": "CLI: universe",
       "type": "debugpy",
       "request": "launch",
       "module": "app.cli",

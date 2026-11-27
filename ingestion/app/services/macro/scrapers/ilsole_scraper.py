@@ -410,7 +410,7 @@ class IlSoleScraper:
 
 # Portfolio allocation countries (based on portfolio guideline document pages 91-105)
 # Allocation strategy: USA (55-65%), Europe (15-20%), Japan (8-12%)
-# Note: China and India excluded (not available in Trading212)
+# Note: China and India are excluded from the allocation
 PORTFOLIO_COUNTRIES = [
     "USA",  # 55-65% - AI infrastructure leadership, profit margin superiority
     "Germany",  # Europe's largest economy (part of 15-20% Europe allocation)

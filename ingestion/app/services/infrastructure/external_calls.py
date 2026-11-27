@@ -17,12 +17,6 @@ from app import metrics
 from app.config import Settings, settings
 from app.services.infrastructure.circuit_breaker import CircuitBreaker
 
-# Cap on a Trading 212 breaker window and on a wait read from its rate-limit
-# headers, so a bogus header cannot set an hour-long wait.
-TRADING_212_MAX_WAIT_SECONDS = 120
-# With this base the back-off part of a window is 2, 4, 8 and 16 s at counts 1 to 4.
-_TRADING_212_BASE_WAIT_MINUTES = 1 / 30
-
 _OK = "ok"
 _ERROR = "error"
 
@@ -37,7 +31,6 @@ class ExternalService(str, Enum):
     FRED = "FRED API"
     TRADING_ECONOMICS = "Trading Economics"
     IL_SOLE = "IlSole24Ore"
-    TRADING_212 = "Trading 212"
 
 
 def build_breaker(
@@ -51,24 +44,15 @@ def build_breaker(
             ``app.config.settings`` when omitted.
 
     Returns:
-        A breaker named after ``service``. Trading 212's has a base of 1/30 min
-        and a cap of ``TRADING_212_MAX_WAIT_SECONDS`` seconds; the other sources
-        keep the ``CircuitBreaker`` default base and cap.
+        A breaker named after ``service`` with the ``CircuitBreaker`` default
+        base and cap.
     """
     config = config or settings
     max_attempts = {
         ExternalService.FRED: config.breaker_fred_max_attempts,
         ExternalService.TRADING_ECONOMICS: config.breaker_tradingeconomics_max_attempts,
         ExternalService.IL_SOLE: config.breaker_ilsole_max_attempts,
-        ExternalService.TRADING_212: config.breaker_trading_212_max_attempts,
     }[service]
-    if service is ExternalService.TRADING_212:
-        return CircuitBreaker(
-            service_name=service.value,
-            max_attempts=max_attempts,
-            base_wait_minutes=_TRADING_212_BASE_WAIT_MINUTES,
-            max_wait_minutes=TRADING_212_MAX_WAIT_SECONDS / 60,
-        )
     return CircuitBreaker(service_name=service.value, max_attempts=max_attempts)
 
 

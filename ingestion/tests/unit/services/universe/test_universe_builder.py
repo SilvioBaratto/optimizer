@@ -1,13 +1,12 @@
 """Unit tests for UniverseBuilder.build().
 
 All external I/O is mocked:
-- Trading212ApiClient  → MagicMock
+- UniverseSourceClient → MagicMock
 - UniverseRepository   → plain fake class (avoids optional-method edge-cases)
 - TickerMapper         → MagicMock
 
 No real network calls. There is no investability filtering: every classified +
-mapped STOCK/ETF is admitted. YFinanceTickerMapper unit tests live in
-``test_t212_mapper.py``.
+mapped STOCK/ETF is admitted.
 """
 
 from __future__ import annotations
@@ -20,12 +19,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.universe.trading212.builder import (
+from app.services.universe.builder.builder import (
     BuildProgress,
     BuildResult,
     UniverseBuilder,
 )
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.config import UniverseBuilderConfig
 
 # ---------------------------------------------------------------------------
 # Shared test data

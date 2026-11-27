@@ -394,7 +394,7 @@ def _choice_check(enum_path: str, label: str) -> Callable[[str | None], str | No
     return check
 
 
-_ENUMS = "app.services.universe.trading212.enums"
+_ENUMS = "app.services.universe.builder.enums"
 
 
 @app.command(name="add-instrument")
@@ -421,9 +421,6 @@ def add_instrument_command(
         callback=_choice_check(f"{_ENUMS}:DurationBucket", "duration bucket"),
         help="Duration bucket; only with --asset-class fixed_income.",
     ),
-    t212_ticker: str | None = typer.Option(
-        None, "--t212-ticker", help="Trading 212 ticker to store."
-    ),
     exchange: str | None = typer.Option(
         None,
         "--exchange",
@@ -447,7 +444,6 @@ def add_instrument_command(
             isin=isin,
             fi_subclass=fi_subclass,
             duration_bucket=duration_bucket,
-            t212_ticker=t212_ticker,
             exchange=exchange,
             name=name,
             pin=pin,
@@ -462,7 +458,6 @@ def _run_add_instrument(
     isin: str | None,
     fi_subclass: str | None,
     duration_bucket: str | None,
-    t212_ticker: str | None,
     exchange: str | None,
     name: str | None,
     pin: bool,
@@ -479,7 +474,6 @@ def _run_add_instrument(
         isin: ISIN to store, if known.
         fi_subclass: ``FiSubclass`` value, only with ``fixed_income``.
         duration_bucket: ``DurationBucket`` value, only with ``fixed_income``.
-        t212_ticker: Trading 212 ticker to store.
         exchange: Exchange name overriding the Yahoo-derived one.
         name: Display name overriding Yahoo's.
         pin: Also pin the ticker under source ``manual``.
@@ -513,7 +507,6 @@ def _run_add_instrument(
                 isin=isin,
                 fi_subclass=fi_subclass,
                 duration_bucket=duration_bucket,
-                t212_ticker=t212_ticker,
                 exchange=exchange,
                 name=name,
             )
@@ -571,18 +564,6 @@ def setup(
             "Run without prompts (CI); credentials come from the flags below or, "
             "preferably, their env vars. Also requires PORTOPT_PASSPHRASE."
         ),
-    ),
-    t212_key: str | None = typer.Option(
-        None,
-        "--t212-key",
-        envvar="TRADING_212_API_KEY",
-        help="Trading212 API key. Prefer the env var: a flag shows up in `ps`.",
-    ),
-    t212_secret: str | None = typer.Option(
-        None,
-        "--t212-secret",
-        envvar="TRADING_212_SECRET_KEY",
-        help="Trading212 secret key. Prefer the env var: a flag shows up in `ps`.",
     ),
     fred_key: str | None = typer.Option(
         None,
@@ -666,8 +647,6 @@ def setup(
         if non_interactive:
             wizard.run_setup_noninteractive(
                 passphrase=os.getenv("PORTOPT_PASSPHRASE"),
-                t212_key=t212_key,
-                t212_secret=t212_secret,
                 fred_key=fred_key,
                 llm_provider=llm_provider,
                 llm_model=llm_model,

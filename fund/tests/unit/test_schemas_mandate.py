@@ -322,14 +322,16 @@ def test_eligible_tickers_is_frozen():
 
 @pytest.mark.criterion("REQ-FUND-042")
 def test_mandate_has_no_tradeable_only_field():
-    """Validates the mandate has no broker-scope field, in test_schemas_mandate.py."""
+    """Validates ``fund.schemas.mandate.PortfolioMandate`` declares no broker-scope
+    field."""
     assert "tradeable_only" not in PortfolioMandate.model_fields
     assert "tradeable_only" not in _valid_mandate().model_dump(mode="json")
 
 
 @pytest.mark.criterion("REQ-FUND-042")
 def test_mandate_with_removed_tradeable_only_key_loads():
-    """Validates loading a mandate with the removed key, in test_schemas_mandate.py."""
+    """Validates ``fund.schemas.mandate.PortfolioMandate.from_stored`` loads a payload
+    that still carries the removed ``tradeable_only`` key."""
     stored = _valid_mandate().model_dump(mode="json") | {"tradeable_only": True}
 
     loaded = PortfolioMandate.from_stored(stored)

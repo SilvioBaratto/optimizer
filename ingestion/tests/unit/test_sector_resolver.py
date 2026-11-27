@@ -5,9 +5,9 @@ Dashboard:
 
 1. Snapshot mapping is preferred when provided.
 2. TickerProfile fallback is queried via ``Instrument.yfinance_ticker``
-   (not ``Instrument.ticker``), which is the root-cause fix for the
-   ``trading212`` 422 — its weights use yfinance-style keys like
-   ``ENGI.PA`` that do not match ``Instrument.ticker`` (``ENGIp_EQ``).
+   (not ``Instrument.ticker``), which is the root-cause fix for a snapshot
+   422 — its weights use yfinance-style keys like ``ENGI.PA`` that do not
+   match a venue-specific ``Instrument.ticker`` (``ENGIp_EQ``).
 3. Tickers unmatched by either source default to ``Unclassified``.
 """
 
@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 @pytest.fixture
 def seeded_instruments(db_session: Session) -> Iterator[None]:
-    """Seed instruments mirroring the trading212 case + a US-style ticker."""
+    """Seed an instrument with a venue-specific ticker + a US-style ticker."""
     exchange = Exchange(name="TEST_SECTOR_EXCH")
     db_session.add(exchange)
     db_session.flush()

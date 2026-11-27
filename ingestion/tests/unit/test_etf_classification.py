@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.universe.trading212.classification import (
+from app.services.universe.builder.classification import (
     Classification,
     classify_instrument,
 )

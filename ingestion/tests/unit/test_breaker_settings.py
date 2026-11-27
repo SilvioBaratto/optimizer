@@ -21,7 +21,6 @@ from app import worker as worker_module
 from app.config import Settings, settings
 from app.services.infrastructure import CircuitBreaker
 from app.services.infrastructure.external_calls import (
-    TRADING_212_MAX_WAIT_SECONDS,
     ExternalService,
     build_breaker,
     process_breaker,
@@ -37,18 +36,15 @@ _ATTEMPT_DEFAULTS = {
     "BREAKER_FRED_MAX_ATTEMPTS": 8,
     "BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS": 5,
     "BREAKER_ILSOLE_MAX_ATTEMPTS": 5,
-    "BREAKER_TRADING_212_MAX_ATTEMPTS": 5,
     "BREAKER_YFINANCE_MAX_ATTEMPTS": 10,
     "FRED_REQUEST_ATTEMPTS": 5,
     "TRADINGECONOMICS_REQUEST_ATTEMPTS": 3,
     "ILSOLE_REQUEST_ATTEMPTS": 3,
-    "TRADING_212_REQUEST_ATTEMPTS": 5,
 }
 _SECONDS_DEFAULTS = {
     "FRED_REQUEST_TIMEOUT_SECONDS": 30.0,
     "TRADINGECONOMICS_REQUEST_TIMEOUT_SECONDS": 20.0,
     "ILSOLE_REQUEST_TIMEOUT_SECONDS": 10.0,
-    "TRADING_212_REQUEST_TIMEOUT_SECONDS": 30.0,
     "FRED_RETRY_BASE_DELAY_SECONDS": 1.0,
     "FRED_RETRY_MAX_DELAY_SECONDS": 60.0,
 }
@@ -56,7 +52,6 @@ _BREAKER_VARS = {
     ExternalService.FRED: "BREAKER_FRED_MAX_ATTEMPTS",
     ExternalService.TRADING_ECONOMICS: "BREAKER_TRADINGECONOMICS_MAX_ATTEMPTS",
     ExternalService.IL_SOLE: "BREAKER_ILSOLE_MAX_ATTEMPTS",
-    ExternalService.TRADING_212: "BREAKER_TRADING_212_MAX_ATTEMPTS",
 }
 
 
@@ -152,7 +147,6 @@ class TestBuildBreaker:
             (ExternalService.FRED, "FRED API"),
             (ExternalService.TRADING_ECONOMICS, "Trading Economics"),
             (ExternalService.IL_SOLE, "IlSole24Ore"),
-            (ExternalService.TRADING_212, "Trading 212"),
         ],
     )
     def test_each_breaker_keeps_its_service_name(
@@ -178,25 +172,6 @@ class TestBuildBreaker:
 
         assert breaker.base_wait_minutes == default.base_wait_minutes
         assert breaker.max_wait_minutes == default.max_wait_minutes
-
-    def test_trading_212_windows_double_from_two_seconds_up_to_the_cap(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """2, 4, 8 s ... then the same 120 s ceiling as a reported rate-limit wait."""
-        clock = _Clock()
-        monkeypatch.setattr("app.services.infrastructure.circuit_breaker.time", clock)
-        breaker = build_breaker(
-            ExternalService.TRADING_212,
-            Settings(_env_file=None, BREAKER_TRADING_212_MAX_ATTEMPTS=20),
-        )
-        windows = []
-        for _ in range(8):
-            breaker.trigger()
-            windows.append(breaker._until - clock.now)
-            clock.now = breaker._until
-
-        assert windows == pytest.approx([2, 4, 8, 16, 32, 64, 120, 120])
-        assert TRADING_212_MAX_WAIT_SECONDS == 120
 
 
 class TestProcessBreakers:
@@ -390,19 +365,22 @@ class TestTimedRequest:
 
         assert _request_count("FRED API", "ok") == before + 1
 
+    @pytest.mark.criterion("REQ-ING-018")
     def test_a_block_that_raises_is_an_error_and_the_exception_propagates(
         self,
     ) -> None:
-        """An exception means ``error``, and the caller still sees it."""
-        before = _request_count("Trading 212", "error")
+        """Validates ``app.services.infrastructure.external_calls.timed_request``
+        records a raising block as an ``error`` request and lets the exception
+        propagate."""
+        before = _request_count("Trading Economics", "error")
 
         with (
             pytest.raises(requests.exceptions.Timeout),
-            timed_request(ExternalService.TRADING_212),
+            timed_request(ExternalService.TRADING_ECONOMICS),
         ):
             raise requests.exceptions.Timeout("read timed out")
 
-        assert _request_count("Trading 212", "error") == before + 1
+        assert _request_count("Trading Economics", "error") == before + 1
 
     def test_the_duration_is_observed_in_seconds(self) -> None:
         """The observation is the wall time the block took."""

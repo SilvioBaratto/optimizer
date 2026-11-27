@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.services.universe.trading212.builder import UniverseBuilder
-from app.services.universe.trading212.config import UniverseBuilderConfig
-from app.services.universe.trading212.filters.etf_screen import dedup_etfs_by_isin
+from app.services.universe.builder.builder import UniverseBuilder
+from app.services.universe.builder.config import UniverseBuilderConfig
+from app.services.universe.builder.filters.etf_screen import dedup_etfs_by_isin
 
 CFG = UniverseBuilderConfig()
 

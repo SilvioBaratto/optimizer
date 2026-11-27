@@ -1,6 +1,6 @@
 """A full universe build against the real repository keeps pinned instruments.
 
-The unit tests in ``test_t212_builder.py`` use fakes; this one wires the real
+The unit tests in ``test_universe_builder.py`` use fakes; this one wires the real
 ``UniverseRepository`` and ``PinnedInstrumentRepository`` over the SQLite test
 engine, so the pin lookup, the builder's subtraction and the ``mark_delisted``
 guard are exercised together. A hand-added ETF the Screener never returns must
@@ -18,8 +18,8 @@ from portopt_db.repositories.universe.pinned_instrument_repository import (
 )
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
-from app.services.universe.trading212.builder import UniverseBuilder
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.builder import UniverseBuilder
+from app.services.universe.builder.config import UniverseBuilderConfig
 
 _NASDAQ = {"name": "NASDAQ", "workingSchedules": [{"id": 1}]}
 

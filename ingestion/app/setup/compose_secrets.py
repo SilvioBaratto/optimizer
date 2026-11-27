@@ -30,9 +30,7 @@ _logger = logging.getLogger(__name__)
 # optimizer) is unchanged. `aws` is deliberately absent: it authenticates via
 # IAM/region, not a secret file.
 SECRET_NAMES = (
-    # ingestion daemon secrets (optional Trading 212 annotation + FRED macro)
-    "trading_212_api_key",
-    "trading_212_secret_key",
+    # ingestion daemon secret (FRED macro)
     "fred_api_key",
     # fund LLM-provider auth keys (name-agree with fund.config._read_secret)
     "ollama_api_key",
@@ -49,21 +47,12 @@ SECRET_NAMES = (
 # The secrets the scheduler mounts (docker-compose.yml `scheduler.secrets`; parity-
 # tested). It restarts on its own (`restart: unless-stopped`), so these files must
 # outlive a fund-only stop; every other secret is consumed by the fund alone.
-DAEMON_SECRET_NAMES = (
-    "trading_212_api_key",
-    "trading_212_secret_key",
-    "fred_api_key",
-)
+DAEMON_SECRET_NAMES = ("fred_api_key",)
 FUND_ONLY_SECRET_NAMES = tuple(
     name for name in SECRET_NAMES if name not in DAEMON_SECRET_NAMES
 )
-# The fund mounts every secret except the Trading 212 keys, which only the
-# scheduler uses (parity-tested against docker-compose.yml).
-FUND_SECRET_NAMES = tuple(
-    name
-    for name in SECRET_NAMES
-    if name not in ("trading_212_api_key", "trading_212_secret_key")
-)
+# The fund mounts every declared secret (parity-tested against docker-compose.yml).
+FUND_SECRET_NAMES = SECRET_NAMES
 
 # Relative to the compose project directory (the repo root), never the cwd: callers
 # join it onto the checkout so compose mounts exactly what was rendered.

@@ -2,8 +2,7 @@
 
 Discovers the tradable instrument universe from the yfinance Screener
 (:class:`YFinanceUniverseSource`) and persists it to ``exchanges`` /
-``instruments``. Trading 212 is no longer the source; when configured, it is
-mapped onto the built universe by a separate follow-on annotation step.
+``instruments``.
 
 Every other ingestion step iterates the ``instruments`` table, so this is the
 head of the pipeline — a stale universe silently caps what yfinance fetches.
@@ -17,41 +16,17 @@ from typing import Any
 from portopt_db.repositories.universe.universe_repository import UniverseRepository
 
 from app.database import database_manager
-from app.schemas.universe.trading212 import UniverseBuildRequest
+from app.schemas.universe.build_request import UniverseBuildRequest
 from app.services._shared import ProgressCallback, _noop
 from app.services.market_data.yfinance import get_yfinance_client
-from app.services.universe.trading212.builder import BuildProgress, UniverseBuilder
-from app.services.universe.trading212.client import Trading212Client
-from app.services.universe.trading212.config import UniverseBuilderConfig
+from app.services.universe.builder.builder import BuildProgress, UniverseBuilder
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.yfinance_source import (
     PassThroughTickerMapper,
     YFinanceUniverseSource,
 )
 
 logger = logging.getLogger(__name__)
-
-
-class Trading212NotConfiguredError(RuntimeError):
-    """Raised when a Trading 212 call is requested without both API credentials."""
-
-
-def build_trading212_client() -> Trading212Client:
-    """Construct a Trading 212 client from settings.
-
-    Delegates to :meth:`Trading212Client.from_settings` so the "configured"
-    gate (API key *and* secret) has one definition.
-
-    Raises:
-        Trading212NotConfiguredError: when ``TRADING_212_API_KEY`` or
-            ``TRADING_212_SECRET_KEY`` is unset.
-    """
-    client = Trading212Client.from_settings()
-    if client is None:
-        missing = " and ".join(Trading212Client.missing_credentials())
-        raise Trading212NotConfiguredError(
-            f"{missing} not set — Trading 212 is not configured"
-        )
-    return client
 
 
 def run_universe_build(
@@ -61,8 +36,8 @@ def run_universe_build(
 ) -> dict[str, Any]:
     """Discover and persist the instrument universe from the yfinance Screener.
 
-    Trading 212 is no longer the source — instruments come from ``yf.screen``
-    (see :class:`YFinanceUniverseSource`). No investability filtering: every
+    Instruments come from ``yf.screen`` (see :class:`YFinanceUniverseSource`).
+    No investability filtering: every
     classified STOCK/ETF is admitted (screening is a downstream fund-layer
     concern). ISIN is not populated here (D14).
 

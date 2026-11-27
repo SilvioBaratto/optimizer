@@ -1,7 +1,7 @@
 """Screener-backed universe source (SPEC D1/D9/D14).
 
-Implements the ``Trading212ApiClient`` seam (``get_exchanges`` / ``get_instruments``)
-so it drops into the existing ``UniverseBuilder`` in place of the Trading212 client.
+Implements the ``UniverseSourceClient`` seam (``get_exchanges`` /
+``get_instruments``) the ``UniverseBuilder`` reads its exchanges and instruments from.
 Instruments come from ``yf.screen`` — no seed lists, no ISIN at build time (ISIN is
 backfilled later from ticker profiles). Venues without a Yahoo-code → config-name
 mapping are dropped and logged, so nothing is silently truncated.
@@ -40,6 +40,7 @@ from app.services.market_data.yfinance.screener.screener_client import (
     ScreenerClient,
     ScreenerError,
 )
+from app.services.universe.builder.config import UniverseBuilderConfig
 from app.services.universe.canonical import (
     IngestionFloorConfig,
     Listing,
@@ -49,7 +50,6 @@ from app.services.universe.canonical import (
     passes_floor,
     split_currency,
 )
-from app.services.universe.trading212.config import UniverseBuilderConfig
 
 logger = logging.getLogger(__name__)
 

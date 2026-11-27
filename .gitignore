@@ -117,11 +117,6 @@ volumes/
 # Cache directories
 .cache/
 cache/
-# ...but NOT the Trading212 ticker-cache source package (real code, not a build artifact)
-!ingestion/app/services/universe/trading212/cache/
-!ingestion/app/services/universe/trading212/cache/**
-# ...except its build artifacts, which the `**` negation above would otherwise re-include
-ingestion/app/services/universe/trading212/cache/__pycache__/
 
 # Output files (keep structure, ignore generated files)
 optimizer/outputs/*.csv
@@ -195,12 +190,6 @@ graphify-out/
 
 # Machine-local CA bundle for corporate TLS inspection (yfinance/curl_cffi)
 .certs/
-
-# temp debug-repro cache (T212 universe)
-ingestion/scripts/.t212_universe_cache.json
-
-# One-off local T212 endpoint probe (reads secrets/, never commit)
-/_t212_probe.py
 
 # Local scratch workspace (not shared)
 /thebull/

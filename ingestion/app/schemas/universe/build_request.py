@@ -1,4 +1,4 @@
-"""Pydantic v2 schemas for Trading212 universe endpoints."""
+"""Pydantic v2 request schema for an instrument-universe build."""
 
 from pydantic import BaseModel, Field
 

@@ -18,11 +18,7 @@ logger = logging.getLogger(__name__)
 # Secret fields overridden by mounted Docker-compose secret files at runtime.
 # The container mounts each at ``$PORTOPT_SECRETS_DIR/<field>`` (default
 # ``/run/secrets``); a non-empty file wins over env/.env and is stripped.
-_SECRET_FILE_FIELDS = (
-    "trading_212_api_key",
-    "trading_212_secret_key",
-    "fred_api_key",
-)
+_SECRET_FILE_FIELDS = ("fred_api_key",)
 
 
 class Settings(BaseSettings):
@@ -96,14 +92,6 @@ class Settings(BaseSettings):
     # therefore also removes the healthcheck target.
     enable_metrics: bool = Field(default=True)
     metrics_port: int = Field(default=9000, alias="METRICS_PORT")
-
-    trading_212_api_key: str = Field(
-        default="", alias="TRADING_212_API_KEY", repr=False
-    )
-    trading_212_secret_key: str = Field(
-        default="", alias="TRADING_212_SECRET_KEY", repr=False
-    )
-    trading_212_mode: str = Field(default="live", alias="TRADING_212_MODE")
 
     fred_api_key: str = Field(default="", alias="FRED_API_KEY", repr=False)
 
@@ -282,18 +270,12 @@ class Settings(BaseSettings):
     breaker_ilsole_max_attempts: int = Field(
         default=5, ge=1, alias="BREAKER_ILSOLE_MAX_ATTEMPTS"
     )
-    breaker_trading_212_max_attempts: int = Field(
-        default=5, ge=1, alias="BREAKER_TRADING_212_MAX_ATTEMPTS"
-    )
     fred_request_attempts: int = Field(default=5, ge=1, alias="FRED_REQUEST_ATTEMPTS")
     tradingeconomics_request_attempts: int = Field(
         default=3, ge=1, alias="TRADINGECONOMICS_REQUEST_ATTEMPTS"
     )
     ilsole_request_attempts: int = Field(
         default=3, ge=1, alias="ILSOLE_REQUEST_ATTEMPTS"
-    )
-    trading_212_request_attempts: int = Field(
-        default=5, ge=1, alias="TRADING_212_REQUEST_ATTEMPTS"
     )
     fred_request_timeout_seconds: float = Field(
         default=30.0, gt=0, allow_inf_nan=False, alias="FRED_REQUEST_TIMEOUT_SECONDS"
@@ -306,12 +288,6 @@ class Settings(BaseSettings):
     )
     ilsole_request_timeout_seconds: float = Field(
         default=10.0, gt=0, allow_inf_nan=False, alias="ILSOLE_REQUEST_TIMEOUT_SECONDS"
-    )
-    trading_212_request_timeout_seconds: float = Field(
-        default=30.0,
-        gt=0,
-        allow_inf_nan=False,
-        alias="TRADING_212_REQUEST_TIMEOUT_SECONDS",
     )
     fred_retry_base_delay_seconds: float = Field(
         default=1.0,
@@ -366,10 +342,10 @@ class Settings(BaseSettings):
         compose secret is source of truth), value stripped. Missing or empty files
         leave the env/default value: ``compose_secrets.render`` writes an empty
         placeholder for every secret the store lacks, and that must not shadow a
-        key supplied through ``.env``. An unset secret stays "" (T212-absent skip
-        intact). An unreadable file (compose bind-mounts keep the 0600 host owner,
-        which the container user may not match) also falls back, with a warning,
-        instead of crashing the daemon at import.
+        key supplied through ``.env``. An unset secret stays "". An unreadable
+        file (compose bind-mounts keep the 0600 host owner, which the container
+        user may not match) also falls back, with a warning, instead of crashing
+        the daemon at import.
         """
         secrets_dir = Path(os.getenv("PORTOPT_SECRETS_DIR", "/run/secrets"))
         for field in _SECRET_FILE_FIELDS:
