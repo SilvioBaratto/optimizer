@@ -917,11 +917,16 @@ class TestSwallowedTransientFaults:
         assert frame.loc["Total Revenue"].iloc[0] == 100.0
         breaker.trigger.assert_not_called()
 
+    @pytest.mark.criterion("REQ-ING-022")
     def test_a_rate_limit_raised_out_of_the_scraper_does_not_poison_the_ticker(
         self, yahoo: _FakeYahoo
     ) -> None:
-        """``Quote.info`` marks itself fetched before it asks Yahoo, so a cached
-        ticker whose first fetch raised answers every retry from empty state."""
+        """Validates ``_base.fetch_with_fault_retry``: it evicts the cached ticker.
+
+        ``Quote.info`` marks itself fetched before it asks Yahoo, so a cached
+        ticker whose first fetch raised would answer every retry from empty state;
+        the retries must ask Yahoo again and trip the breaker each time.
+        """
         yahoo.handler = lambda: _Response(429)
         breaker = MagicMock()
 
