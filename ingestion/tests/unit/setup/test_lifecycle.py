@@ -143,29 +143,61 @@ def test_run_start_renders_secrets_then_brings_up(patched: dict) -> None:
 
 
 @pytest.mark.criterion("REQ-ING-028")
-@pytest.mark.parametrize(
-    ("stored", "expected_env"),
-    [
-        ({ACKNOWLEDGEMENT_CONFIG_KEY: True}, {ACKNOWLEDGEMENT_ENV_VAR: "true"}),
-        ({}, {}),
-    ],
-)
 def test_run_start_passes_the_stored_acknowledgement_to_the_scheduler(
-    patched: dict,
-    monkeypatch: pytest.MonkeyPatch,
-    stored: dict[str, object],
-    expected_env: dict[str, str],
+    patched: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Validates ``lifecycle.run_start``: config.toml's answer reaches ``up``.
 
     The acknowledgement travels in the compose environment the scheduler service
-    interpolates; with none stored, nothing is added and the compose default holds.
+    interpolates; the shell has none here, so the stored one alone must do.
     """
-    monkeypatch.setattr(lifecycle.config_file, "load_config", lambda **kw: stored)
+    monkeypatch.delenv(ACKNOWLEDGEMENT_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        lifecycle.config_file,
+        "load_config",
+        lambda **kw: {ACKNOWLEDGEMENT_CONFIG_KEY: True},
+    )
 
     lifecycle.run_start("pw")
 
-    assert patched["build_env"] == expected_env
+    assert patched["build_env"] == {ACKNOWLEDGEMENT_ENV_VAR: "true"}
+
+
+@pytest.mark.criterion("REQ-ING-028")
+def test_run_start_refuses_before_up_when_nothing_acknowledges_the_terms(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Validates ``lifecycle.run_start`` via ``lifecycle._scheduler_env``.
+
+    An upgraded install with no stored acknowledgement and none exported would
+    start a scheduler that exits at boot, and ``up --wait`` would fail with Docker's
+    text; the start stops first and names both ways out.
+    """
+    monkeypatch.delenv(ACKNOWLEDGEMENT_ENV_VAR, raising=False)
+
+    with pytest.raises(lifecycle.LifecycleError) as refused:
+        lifecycle.run_start("pw")
+
+    assert "portopt setup" in str(refused.value)
+    assert f"{ACKNOWLEDGEMENT_ENV_VAR}=1" in str(refused.value)
+    assert "up" not in patched["compose"]
+
+
+@pytest.mark.criterion("REQ-ING-028")
+@pytest.mark.parametrize("exported", ["1", "true"])
+def test_run_start_accepts_an_exported_acknowledgement(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, exported: str
+) -> None:
+    """Validates ``lifecycle.run_start`` via ``lifecycle._scheduler_env``.
+
+    Compose reads the exported value by itself, so nothing is added to ``up``.
+    """
+    monkeypatch.setenv(ACKNOWLEDGEMENT_ENV_VAR, exported)
+
+    lifecycle.run_start("pw")
+
+    assert patched["compose"] == ["up"]
+    assert patched["build_env"] == {}
 
 
 def _rotate(

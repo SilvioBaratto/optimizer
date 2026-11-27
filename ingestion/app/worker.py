@@ -71,17 +71,21 @@ class _JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
-def _configure_logging() -> None:
-    """Set up logging, refuse to run without Yahoo's terms, then configure yfinance.
+def _configure_logging_and_require_terms() -> None:
+    """Configure logging, then stop the daemon unless Yahoo's terms are acknowledged.
 
-    The terms check sits here, the first start-up step, so its refusal reaches the
-    configured log handler and comes before anything serves metrics, opens the
-    database or calls Yahoo.
+    The check runs right after logging, so its refusal reaches the configured
+    handler, and before anything serves metrics, opens the database or calls Yahoo.
 
     Raises:
         SystemExit: Yahoo's terms are not acknowledged
-            (:func:`app.setup.terms.require_yahoo_terms`).
+            (:func:`app.setup.terms.require_yahoo_terms`, exit status 2).
     """
+    _configure_logging()
+    require_yahoo_terms(settings)
+
+
+def _configure_logging() -> None:
     from app.services.market_data.yfinance import configure_yfinance
 
     formatter: logging.Formatter = (
@@ -95,7 +99,6 @@ def _configure_logging() -> None:
         level=getattr(logging, settings.log_level.upper()), handlers=[handler]
     )
     install_secret_redaction()
-    require_yahoo_terms(settings)
     configure_yfinance(log_level=settings.yfinance_log_level)
 
 
@@ -231,7 +234,7 @@ def _drain_and_shutdown(scheduler: object, drain_timeout_seconds: int) -> bool:
 
 def main() -> None:
     """Run the ingestion daemon until a shutdown signal arrives."""
-    _configure_logging()
+    _configure_logging_and_require_terms()
     logger.info(
         "Starting %s (environment=%s)", settings.project_name, settings.environment
     )

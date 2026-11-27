@@ -19,8 +19,10 @@ and Yahoo's terms (https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html) re
 automated access and commercial use. `portopt setup` shows them and records your
 acknowledgement in `~/.portopt/config.toml` (non-interactively: `--accept-yahoo-terms`
 or `PORTOPT_ACCEPT_YAHOO_TERMS=1`), and `portopt start` passes it to the scheduler
-container as `YAHOO_TERMS_ACKNOWLEDGED`. Without it the daemon logs why and exits with
-status 2 before it serves metrics or touches the database. Run it any other way and you
+container as `YAHOO_TERMS_ACKNOWLEDGED` (it stops, naming `portopt setup`, when there is
+none). Without it the worker logs why and exits with status 2 before it serves metrics
+or starts the scheduler; in the container, the entrypoint has already waited for the
+database and applied the migrations by then. Run it any other way and you
 set `YAHOO_TERMS_ACKNOWLEDGED=true` yourself, once you have read the terms: in the shell
 or the root `.env` for `docker compose`, in the shell or `ingestion/.env` for a daemon
 run on the host. Manual `python -m app.cli` commands do not check it.

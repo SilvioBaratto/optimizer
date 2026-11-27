@@ -19,13 +19,12 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from app import worker
 from app.config import Settings
 from app.setup import compose_env, config_file, terms, wizard
 from app.setup.prompts import NonInteractivePrompter
-
-yaml = pytest.importorskip("yaml")
 
 # unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -260,6 +259,7 @@ def test_compose_passes_the_acknowledgement_to_the_scheduler(
     ``portopt start`` and CI put it in the compose environment; without it the
     container receives a value the daemon reads as not acknowledged.
     """
+    yaml = pytest.importorskip("yaml")
     services = yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))["services"]
     passed = services["scheduler"]["environment"][terms.ACKNOWLEDGEMENT_ENV_VAR]
 
@@ -279,12 +279,55 @@ def test_settings_default_is_unacknowledged(monkeypatch: pytest.MonkeyPatch) -> 
     assert _parsed_flag("true", monkeypatch) is True
 
 
+@pytest.mark.criterion("REQ-ING-027")
+@pytest.mark.parametrize(
+    ("raw", "acknowledged"),
+    [
+        ("1", True),
+        ("TRUE", True),
+        ("yes", True),
+        ("on", True),
+        ("0", False),
+        ("false", False),
+    ],
+)
+def test_acknowledgement_spellings_read_alike_in_the_daemon_and_at_start(
+    raw: str, acknowledged: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Validates Settings.yahoo_terms_acknowledged and terms.environment_acknowledges.
+
+    ``portopt start`` must not wave through a value the daemon then reads as a no.
+    """
+    assert _parsed_flag(raw, monkeypatch) is acknowledged
+    environment = {terms.ACKNOWLEDGEMENT_ENV_VAR: raw}
+    assert terms.environment_acknowledges(environment) is acknowledged
+
+
+@pytest.mark.criterion("REQ-ING-027")
+@pytest.mark.parametrize("raw", ["", "garbage"])
+def test_an_unparsable_acknowledgement_fails_closed(
+    raw: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Validates Settings.yahoo_terms_acknowledged and terms.environment_acknowledges.
+
+    Neither reads an empty or garbled value as a yes: the daemon's settings refuse to
+    load, so it never starts, and ``portopt start`` counts it as not acknowledged.
+    """
+    monkeypatch.setenv(terms.ACKNOWLEDGEMENT_ENV_VAR, raw)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+    environment = {terms.ACKNOWLEDGEMENT_ENV_VAR: raw}
+    assert terms.environment_acknowledges(environment) is False
+
+
 @contextmanager
 def _booting_daemon(*, acknowledged: bool) -> Iterator[dict[str, MagicMock]]:
     """Patch every side effect of ``worker.main`` and set the acknowledgement.
 
-    ``_configure_logging`` runs for real, since it is the start-up step that checks
-    the terms; the root logger keeps pytest's handlers, so ``basicConfig`` adds none.
+    ``_configure_logging_and_require_terms`` runs for real, since it is the start-up
+    step that checks the terms; the root logger keeps pytest's handlers, so
+    ``basicConfig`` adds none. ``configure_yfinance`` only sets a log level.
     """
     with ExitStack() as stack:
         enter = stack.enter_context
@@ -312,10 +355,10 @@ def _booting_daemon(*, acknowledged: bool) -> Iterator[dict[str, MagicMock]]:
 def test_daemon_refuses_to_start_without_acknowledgement(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Validates worker.main via terms.require_yahoo_terms: exit 2, before any work.
+    """Validates worker._configure_logging_and_require_terms via worker.main.
 
-    Nothing is served, opened or scheduled, and the log tells the operator to run
-    ``portopt setup``.
+    The daemon exits with status 2 before it serves, opens or schedules anything, and
+    the log tells the operator to run ``portopt setup``.
     """
     caplog.set_level(logging.CRITICAL, logger=terms.__name__)
 
@@ -327,13 +370,13 @@ def test_daemon_refuses_to_start_without_acknowledgement(
 
     assert refused.value.code == _DAEMON_REFUSAL_EXIT_CODE
     assert "portopt setup" in caplog.text
-    for call in calls.values():
-        call.assert_not_called()
+    for work in ("serve", "init_db", "create_scheduler"):
+        calls[work].assert_not_called()
 
 
 @pytest.mark.criterion("REQ-ING-027")
 def test_daemon_starts_when_acknowledged() -> None:
-    """Validates worker.main via terms.require_yahoo_terms: an acknowledged boot runs."""
+    """Validates worker._configure_logging_and_require_terms: an acknowledged boot."""
     with _booting_daemon(acknowledged=True) as calls:
         worker.main()
 

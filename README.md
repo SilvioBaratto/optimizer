@@ -206,9 +206,9 @@ OPTIMIZER_REPO=/path/to/optimizer portopt setup
 ```
 
 **`portopt setup`** first shows Yahoo's terms and asks you to acknowledge them
-(declining stops setup with nothing saved; a `--non-interactive` setup needs
-`--accept-yahoo-terms` or `PORTOPT_ACCEPT_YAHOO_TERMS=1`, and a re-run does not ask
-again). It then verifies Docker + the compose plugin, validates your
+(declining stops it before any key or setting is stored; a `--non-interactive`
+setup needs `--accept-yahoo-terms` or `PORTOPT_ACCEPT_YAHOO_TERMS=1`, and a re-run
+does not ask again). It then verifies Docker + the compose plugin, validates your
 FRED and LLM provider keys live, encrypts them (Fernet + scrypt) to
 `~/.portopt/secrets.enc` (mode `0600`, passphrase never persisted), brings up
 PostgreSQL (`docker compose up -d --wait db`), and applies the Alembic migrations.
@@ -306,8 +306,12 @@ Run the daemon (blocks; SIGTERM to stop) — normally via Docker Compose, but it
 can run in-process:
 
 ```bash
-uv run --package portopt python -m app.worker
+YAHOO_TERMS_ACKNOWLEDGED=true uv run --package portopt python -m app.worker
 ```
+
+It refuses to start (exit status 2) until Yahoo's terms are acknowledged: set the
+variable only once you have read them, or let `portopt setup` record it for
+`portopt start`.
 
 It schedules seven jobs with APScheduler in-process (a `SQLAlchemyJobStore`):
 

@@ -10,7 +10,9 @@ daemon always, plus the fund engine when an LLM backend is configured.
 
 from __future__ import annotations
 
+import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 from app.setup import (
@@ -21,9 +23,8 @@ from app.setup import (
     llm_backend,
     path_install,
     secret_store,
+    terms,
 )
-
-_MASTER_PHRASE_REQUIRED = "A master passphrase is required (set PORTOPT_PASSPHRASE)."
 
 FUND_SKIPPED_NOTICE = (
     "fund decision engine not started: no LLM backend is configured "
@@ -71,9 +72,13 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
         rebuild: Force an image rebuild before starting, so a start after a base
             image refresh does not reuse a stale layer. Images whose sources changed
             are rebuilt without it.
+
+    Raises:
+        LifecycleError: No passphrase was given, or neither config.toml nor the
+            environment acknowledges Yahoo's terms (checked before ``up``).
     """
     if not passphrase:
-        raise LifecycleError(_MASTER_PHRASE_REQUIRED)
+        raise LifecycleError(secret_store.PASSPHRASE_REQUIRED_MESSAGE)
     docker_bootstrap.ensure_docker()
     # Resolved before anything is decrypted: compose mounts <checkout>/secrets/*, so
     # plaintext rendered into the cwd would both miss the mounts and litter a random
@@ -115,11 +120,34 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
         profiles=("fund", "ingestion") if fund_enabled else ("ingestion",),
         force_build=rebuild,
         repo=repo,
-        extra_env=compose_env.config_to_scheduler_env(config),
+        extra_env=_scheduler_env(config),
     )
     if not fund_enabled:
         print(FUND_SKIPPED_NOTICE)
         _stop_leftover_fund(repo)
+
+
+def _scheduler_env(config: Mapping[str, object]) -> dict[str, str]:
+    """Return what ``up`` must add to the compose environment for the scheduler.
+
+    Args:
+        config: The persisted config.toml.
+
+    Returns:
+        The stored acknowledgement of Yahoo's terms as ``YAHOO_TERMS_ACKNOWLEDGED``,
+        or nothing when the acknowledgement comes from this process's environment,
+        which compose reads by itself.
+
+    Raises:
+        LifecycleError: Neither the config nor the environment acknowledges the
+            terms. The scheduler would exit at boot and ``up --wait`` fail with
+            Docker's text, so the start stops here and says what to run.
+    """
+    if not (
+        terms.is_acknowledged(config) or terms.environment_acknowledges(os.environ)
+    ):
+        raise LifecycleError(terms.START_REFUSAL_MESSAGE)
+    return compose_env.config_to_scheduler_env(config)
 
 
 def _ensure_exports_dir(repo: Path) -> None:

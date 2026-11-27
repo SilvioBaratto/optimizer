@@ -518,7 +518,7 @@ def run_setup_noninteractive(
     Docker is touched.
     """
     if not passphrase:
-        raise SetupError("A master passphrase is required (set PORTOPT_PASSPHRASE).")
+        raise SetupError(secret_store.PASSPHRASE_REQUIRED_MESSAGE)
     if not secret_store.store_exists():
         _require_acceptable_passphrase(passphrase)
     config = terms.acknowledge(

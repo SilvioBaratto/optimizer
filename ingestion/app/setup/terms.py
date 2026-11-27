@@ -7,8 +7,8 @@ and stores the operator's acknowledgement in ``~/.portopt/config.toml``;
 (``compose_env.config_to_scheduler_env``), and the long-running ingestion daemon
 refuses to start without it. Manual one-shot CLI commands do not check it.
 
-The daemon imports this module at start-up, so it imports nothing beyond the
-standard library at run time.
+The daemon imports this module at start-up, so its module level imports nothing
+beyond the standard library.
 """
 
 from __future__ import annotations
@@ -44,8 +44,8 @@ ACCEPT_ENV_VAR = "PORTOPT_ACCEPT_YAHOO_TERMS"
 REFUSAL_EXIT_CODE = 2
 
 DECLINED_MESSAGE = (
-    "Yahoo's terms were not accepted, so setup stopped and saved nothing. The "
-    "ingestion daemon cannot run without them."
+    "Yahoo's terms were not accepted, so setup stopped before storing any key or "
+    "setting. The ingestion daemon cannot run without them."
 )
 FLAG_REQUIRED_MESSAGE = (
     f"A first non-interactive setup must accept Yahoo's terms ({YAHOO_TERMS_URL}): "
@@ -55,6 +55,12 @@ DAEMON_REFUSAL_MESSAGE = (
     f"Refusing to start: Yahoo's terms ({YAHOO_TERMS_URL}) have not been "
     "acknowledged. Run `portopt setup` to read and accept them, then "
     f"`portopt start`; a daemon started by hand needs {ACKNOWLEDGEMENT_ENV_VAR}=true."
+)
+START_REFUSAL_MESSAGE = (
+    "Yahoo's terms have not been acknowledged, so the ingestion daemon would refuse "
+    "to start. Run `portopt setup` to read and accept them, or export "
+    f"{ACKNOWLEDGEMENT_ENV_VAR}=1 before `portopt start` once you have read them "
+    f"({YAHOO_TERMS_URL})."
 )
 
 
@@ -68,6 +74,24 @@ def is_acknowledged(stored: Mapping[str, object]) -> bool:
     Only a TOML ``true`` counts; a hand-edited ``"yes"`` or ``1`` is not one.
     """
     return stored.get(ACKNOWLEDGEMENT_CONFIG_KEY) is True
+
+
+def environment_acknowledges(environ: Mapping[str, str]) -> bool:
+    """Return whether ``environ`` acknowledges the terms as the daemon would read it.
+
+    The value goes through pydantic's boolean parsing, the one ``Settings`` applies,
+    so ``1``, ``yes`` or ``on`` count. An empty or unparsable value does not, since
+    it would make the daemon's settings fail to load rather than acknowledge.
+    """
+    from pydantic import TypeAdapter, ValidationError
+
+    raw = environ.get(ACKNOWLEDGEMENT_ENV_VAR)
+    if raw is None:
+        return False
+    try:
+        return TypeAdapter(bool).validate_python(raw)
+    except ValidationError:
+        return False
 
 
 def confirm_yahoo_terms(prompter: Prompter, *, accepted_flag: bool) -> bool:
