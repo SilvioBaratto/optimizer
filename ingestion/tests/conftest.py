@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from tests._fixtures import seed_macro, seed_market_data, seed_universe
+from tests._fixtures import seed_market_data, seed_universe
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
 
@@ -111,11 +111,6 @@ def seeded_universe(db_session: Session):
 @pytest.fixture
 def seeded_market_data(db_session: Session):
     return seed_market_data(db_session)
-
-
-@pytest.fixture
-def seeded_macro(db_session: Session):
-    return seed_macro(db_session)
 
 
 @pytest.fixture

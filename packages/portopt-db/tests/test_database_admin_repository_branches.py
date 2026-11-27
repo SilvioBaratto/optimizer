@@ -308,23 +308,23 @@ class TestTruncateTablesRealTransactions:
         # ticker_news is allowlisted but deliberately never created, so its
         # TRUNCATE fails between two successful ones.
         with engine.begin() as conn:
-            for table in ("economic_indicators", "bond_yields"):
+            for table in ("exchanges", "instruments"):
                 conn.execute(text(f"CREATE TABLE {table} (id INTEGER)"))
                 conn.execute(text(f"INSERT INTO {table} VALUES (1), (2)"))
 
         with Session(engine) as session:
             cleared, errors = DatabaseAdminRepository(session).truncate_tables(
-                ["economic_indicators", "ticker_news", "bond_yields"]
+                ["exchanges", "ticker_news", "instruments"]
             )
 
         with engine.connect() as conn:
             remaining = {
                 table: conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
-                for table in ("economic_indicators", "bond_yields")
+                for table in ("exchanges", "instruments")
             }
         engine.dispose()
 
-        assert cleared == ["economic_indicators", "bond_yields"]
+        assert cleared == ["exchanges", "instruments"]
         assert len(errors) == 1
         assert "ticker_news" in errors[0]
-        assert remaining == {"economic_indicators": 0, "bond_yields": 0}
+        assert remaining == {"exchanges": 0, "instruments": 0}

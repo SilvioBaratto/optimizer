@@ -220,7 +220,6 @@
   "packages/portopt-core/optimizer/views/_factory.py::_EmpiricalOmegaBlackLitterman.fit": 33,
   "packages/portopt-core/optimizer/views/_factory.py::build_black_litterman": 44,
   "packages/portopt-core/optimizer/views/_factory.py::build_entropy_pooling": 56,
-  "packages/portopt-db/src/portopt_db/coerce.py::parse_reference_date": 54,
   "packages/portopt-db/src/portopt_db/repositories/macro/macro_regime_repository.py::MacroRegimeRepository.upsert_macro_news": 61,
   "packages/portopt-db/src/portopt_db/repositories/macro/sentiment_repository.py::SentimentRepository.get_macro_news_fallback": 35,
   "packages/portopt-db/src/portopt_db/repositories/market_data/_mapping.py::_safe_date": 34,

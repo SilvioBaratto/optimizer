@@ -163,7 +163,7 @@ app/
   schemas/         typed step arguments + progress payloads
 
 # Models, domain repositories, engine, and Alembic live in the shared package:
-../packages/portopt-db/src/portopt_db/   base, models/, repositories/, engine, config, coerce
+../packages/portopt-db/src/portopt_db/   base, models/, repositories/, engine, config
 ../packages/portopt-db/alembic/          the single migration tree
 ```
 

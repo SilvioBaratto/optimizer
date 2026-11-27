@@ -335,7 +335,7 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   at will.
 - **portopt-db**: the three Trading 212 columns `exchanges.t212_id`,
   `instruments.t212_ticker` and `instruments.is_t212_tradeable`. The new Alembic revision
-  `2266e24c509f` (the head, after `b8d0f2a4c6e1`) drops them, and the ORM attributes and the
+  `2266e24c509f` (after `b8d0f2a4c6e1`) drops them, and the ORM attributes and the
   `UniverseRepository` methods `set_t212_ticker`, `set_t212_tradeable`,
   `get_t212_tradeable_tickers`, `get_t212_untradeable_tickers` and
   `get_t212_unevaluated_tickers` are gone with them. `save_exchange` ignores any key but
@@ -362,6 +362,23 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   hold. **Upgrading**: nothing is needed; an instrument that never had an ISIN stays
   without one until you set it. `tests/test_removed_integrations.py` now also rejects the
   site's name in a tracked file.
+- **portopt-db**: the six tables the removed macro scrapers filled, `economic_indicators`,
+  `economic_indicator_observations`, `trading_economics_indicators`,
+  `trading_economics_observations`, `bond_yields` and `bond_yield_observations`. The new
+  Alembic revision `8ed6504aee6a` (the head, after `2266e24c509f`) drops them. The six ORM
+  models, the `MacroRegimeRepository` methods that read or wrote them (the economic
+  indicator, Trading Economics and bond-yield `upsert_*` and `get_*` methods, plus
+  `get_country_summary` and `get_distinct_countries`), their three entries in `APP_TABLES`
+  and the `portopt_db.coerce` module (`parse_reference_date`, which only those methods
+  called) are gone with them. The FRED observations, the macro news tables and their
+  models and methods are unchanged. **Upgrading**: the migration deletes the stored macro
+  and bond-yield history, and the scheduler and fund containers run `alembic upgrade head`
+  when they start, so pulling this version and restarting the stack applies it. Take the
+  database dump **before** you pull the new version and restart. `alembic downgrade -1`
+  recreates the six tables empty, with their columns, constraints and indexes; the deleted
+  rows are not restored. The deliberate data loss is a recorded deviation from the
+  reversible-migration rule, with the reason and the backup step, under "Destructive
+  migrations" in `packages/portopt-db/README.md`.
 
 ### Removed (BREAKING — ingestion CLI, scheduler and settings)
 
@@ -379,11 +396,9 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   series now come from FRED only; the FRED steps and the macro news fetch are unchanged.
   **Upgrading**: a script or cron entry that runs `python -m app.cli macro` now fails with
   an unknown-command error and must drop the call. A removed setting left in `.env` is
-  ignored. The rows the scrapers wrote stay in `economic_indicators`,
-  `economic_indicator_observations`, `trading_economics_indicators`,
-  `trading_economics_observations`, `bond_yields` and `bond_yield_observations` until the
-  table-drop change that follows; nothing writes to them any more. A `macro_fetch` job row
-  left by a worker that died is no longer re-dispatched by the orphan reaper.
+  ignored. The tables the scrapers filled are dropped by the **portopt-db** entry under
+  "Removed" above. A `macro_fetch` job row left by a worker that died is no longer
+  re-dispatched by the orphan reaper.
   `tests/test_removed_integrations.py` now also rejects both names in a tracked file.
 
 ### Known / not done

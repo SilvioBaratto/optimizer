@@ -39,7 +39,7 @@ class RepositoryBase:
 
         The conflict target is one of, exactly:
         - ``constraint_name`` — a named unique constraint (e.g.
-          ``uq_economic_indicator_country``), or
+          ``uq_fred_observation_series_date``), or
         - ``index_elements`` — the column name(s) of a unique index, for
           column-level ``unique=True`` columns that carry no named constraint
           (e.g. ``exchanges.name``).
