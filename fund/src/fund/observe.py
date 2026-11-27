@@ -983,7 +983,7 @@ def _economist_read_asof(
     eligible = [
         run
         for run in AgentRunRepository(session).list_runs_for_portfolio(portfolio_id)
-        if run.asof <= day and not _is_profiler_run(run)
+        if run.asof <= day and not is_profiler_run(run)
     ]
     if not eligible:
         return None, None, None
@@ -1011,8 +1011,15 @@ def _economist_read_asof(
     return text, chosen.asof, chosen.id
 
 
-def _is_profiler_run(run: Any) -> bool:
-    """Whether ``run`` is a MiFID profiling attempt rather than a rebalance round."""
+def is_profiler_run(run: Any) -> bool:
+    """Whether ``run`` is a MiFID profiling attempt rather than a rebalance round.
+
+    Args:
+        run: An ``agent_runs`` row (or any object with ``optimizer_config``).
+
+    Returns:
+        ``True`` when the run was opened for the profiler's ``save_profile`` gate.
+    """
     return (run.optimizer_config or {}).get("step") == "profiler"
 
 
@@ -1519,6 +1526,7 @@ __all__ = [
     "get_mandate",
     "holdings_summary",
     "interrupt_for",
+    "is_profiler_run",
     "list_portfolio_runs",
     "list_portfolios",
     "live_gate_id",

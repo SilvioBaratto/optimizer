@@ -539,12 +539,14 @@ def run(
 # --- approve / reject -------------------------------------------------------
 
 
-def _resume(run_id: str, decision: str) -> None:
+def _resume(run_id: str, decision: str, candidate_id: str | None = None) -> None:
     """Shared driver for ``approve`` / ``reject``: rebuild-to-resume a paused run.
 
     ``resume_run`` dispatches on the run's gate — a profiler ``save_profile`` run
     resumes via ``resume_profiler``, a rebalance ``place_orders`` run via
-    ``resume_fund`` — so one command drives either HITL gate.
+    ``resume_fund`` — so one command drives either HITL gate. ``candidate_id`` is
+    the candidate an approve of a rebalance gate places; a refused id fails the
+    command and leaves the gate open.
     """
     _boot()
     rid = _uuid(run_id, label="run id")
@@ -567,12 +569,10 @@ def _resume(run_id: str, decision: str) -> None:
                     session, persistence.saver, rid, decision
                 ),
                 config=settings,
+                candidate_id=candidate_id,
             )
             session.commit()
-            run = AgentRunRepository(session).get_run(rid)
-            ticketed = decision != "approve" or (
-                run is not None and run.status == "completed"
-            )
+            ticketed = _approve_ticketed(session, rid, decision)
     except typer.Exit:
         raise
     except (RuntimeError, ValueError, LookupError) as exc:
@@ -584,10 +584,33 @@ def _resume(run_id: str, decision: str) -> None:
     _exit(ticketed)
 
 
+def _approve_ticketed(session: Any, run_id: uuid.UUID, decision: str) -> bool:
+    """Whether ``decision`` succeeded: an approve only if it placed a ticket."""
+    if decision != "approve":
+        return True
+    run = AgentRunRepository(session).get_run(run_id)
+    return run is not None and run.status == "completed"
+
+
 @app.command()
-def approve(run_id: str = typer.Argument(..., help="Paused run UUID.")) -> None:
-    """Approve a paused run: commit the paper ticket and finalise it completed."""
-    _resume(run_id, "approve")
+def approve(
+    run_id: str = typer.Argument(..., help="Paused run UUID."),
+    candidate: str | None = typer.Option(
+        None,
+        "--candidate",
+        help=(
+            "The candidate to place: hrp, mean_risk, min_risk or risk_parity. "
+            "Required to approve a rebalance gate (there is no default); refused "
+            "for a profile gate."
+        ),
+    ),
+) -> None:
+    """Approve a paused run: place the named candidate's paper ticket and finalise it.
+
+    A rebalance gate shows four candidates and the adviser names the one placed
+    with ``--candidate``; a profile gate is approved without one.
+    """
+    _resume(run_id, "approve", candidate_id=candidate)
 
 
 @app.command()

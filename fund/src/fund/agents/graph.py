@@ -34,10 +34,11 @@ The subagent factory and caps, the run instruction, the HITL settle and resume
 helpers, the failed-round record and the stream-event shaping live in the
 ``graph_*`` modules beside this one, and this module re-exports their names.
 
-The tests replace ten names on ``fund.agents.graph``: ``run_fund``,
+The tests replace eleven names on ``fund.agents.graph``: ``run_fund``,
 ``stream_fund``, ``resume_run``, ``build_fund_agent``, ``build_backend``,
 ``_run_instruction``, ``_require_fill_bars``, ``_prepare_fund_run``,
-``_optimizer_weights`` and ``_frozen_scope``. The run graph's callers of those
+``_optimizer_weights``, ``_frozen_scope`` and ``gate_without_candidates``. The run
+graph's callers of those
 names (``build_fund_agent``, ``FundRun``, the run drivers and their setup and
 resume helpers) are defined here, and ``fund.actions``, ``fund.scheduler`` and
 the shell's drive mixin import the drivers from this module when they run, so
@@ -66,6 +67,7 @@ from fund.agents.graph_assembly import (
 from fund.agents.graph_assembly import (
     _subagent_call_cap_middleware as _subagent_call_cap_middleware,
 )
+from fund.agents.graph_candidates import gate_without_candidates
 from fund.agents.graph_failures import _FAILED_ROUND_ATTR as _FAILED_ROUND_ATTR
 from fund.agents.graph_failures import _RUN_ERROR_MAX_CHARS as _RUN_ERROR_MAX_CHARS
 from fund.agents.graph_failures import (
@@ -206,20 +208,22 @@ _ECONOMIST_DESCRIPTION = (
     "universe when the instruction lists one. Delegate first."
 )
 _ALLOCATOR_DESCRIPTION = (
-    "Pipeline step 2. Pre-selects the candidate tickers it is handed (all of the "
-    "eligible universe when the instruction lists one), estimates moments, and "
-    "runs the optimizer to produce candidate weights under the resolved "
-    "constraints; the economist's views are advisory context, not an optimizer "
-    "input. Delegate after the economist."
+    "Pipeline step 2. Pre-selects the tickers it is handed (all of the eligible "
+    "universe when the instruction lists one), estimates moments, and runs "
+    "compute_candidates to produce four candidate portfolios (hrp, mean_risk, "
+    "min_risk, risk_parity) under the resolved constraints; it reports all four "
+    "and never chooses one. The economist's views are advisory context, not an "
+    "optimizer input. Delegate after the economist."
 )
 _RISK_DESCRIPTION = (
-    "Pipeline step 3 — the blocking gate. Checks the allocator's proposal against "
-    "the MiFID/ESG/validation limits and reports pass or fail; nothing proceeds to "
-    "the executor until it passes."
+    "Pipeline step 3 — the blocking gate. Checks every candidate against the "
+    "MiFID/ESG/validation limits and reports pass or fail per candidate; it never "
+    "chooses one, and nothing proceeds to the executor while no candidate passes."
 )
 _EXECUTOR_DESCRIPTION = (
-    "Pipeline step 4. Turns the risk-approved target weights into a paper rebalance "
-    "proposal for the PM to commit. Delegate only once risk has passed."
+    "Pipeline step 4. Describes the paper trades each feasible candidate would need "
+    "from the current holdings, for the adviser to compare. Delegate only once risk "
+    "has reported."
 )
 
 
@@ -242,7 +246,7 @@ def build_allocator_subagent(
     fallback: Any | None = None,
     summarization: Sequence[Any] = (),
 ) -> dict[str, Any]:
-    """The allocator subagent (step 2) — the optimizer path; critical role."""
+    """The allocator subagent (step 2) — computes the candidates; critical role."""
     return _subagent(
         "allocator",
         description=_ALLOCATOR_DESCRIPTION,
@@ -320,7 +324,7 @@ def build_fund_agent(
     """
     from deepagents import create_deep_agent
 
-    from fund.agents.toolsets import bind_toolset, build_gate_weights_middleware
+    from fund.agents.toolsets import bind_toolset, build_gate_candidates_middleware
 
     gates = interrupt_on if interrupt_on is not None else config.interrupt_on_map()
     backend = build_backend(config, run_id=ctx.run_id)
@@ -346,7 +350,7 @@ def build_fund_agent(
         interrupt_on=cast("dict[str, Any]", gates),
         middleware=[
             _pm_round_cap_middleware(config.max_pm_rounds),
-            build_gate_weights_middleware(ctx),
+            build_gate_candidates_middleware(ctx),
             *summarization(),
         ],
         checkpointer=checkpointer,
@@ -394,12 +398,14 @@ class FundRun:
     """Handle for one fund run paused at the ``place_orders`` adviser gate.
 
     Mirrors :class:`~fund.agents.profiler.ProfilerRun`. Carries the resolved
-    ``constraint_set``, the load-bearing optimizer ``weights`` (captured from the
-    audit trail before the pause), the ``interrupt`` payload the adviser reviews,
-    the run ``status``, and enough state to resume. ``resume("approve")`` commits
-    the paper ticket and finalises the run completed, or incomplete when
-    ``place_orders`` wrote no ticket (see :func:`_settle_hitl`); ``resume("reject")``
-    commits no order, records the HITL choice, and finalises the run rejected.
+    ``constraint_set``, the audited proposal ``weights`` captured before the pause
+    (empty for a round that only computed candidates: nothing is chosen until the
+    adviser names one), the ``interrupt`` payload the adviser reviews (the whole
+    candidate set), the run ``status``, and enough state to resume.
+    ``resume("approve", candidate_id=...)`` commits the paper ticket for the named
+    candidate and finalises the run completed, or incomplete when ``place_orders``
+    wrote no ticket (see :func:`_settle_hitl`); ``resume("reject")`` commits no order,
+    records the HITL choice, and finalises the run rejected.
     """
 
     constraint_set: ConstraintSet
@@ -413,15 +419,21 @@ class FundRun:
     ctx: Any = field(repr=False, compare=False)
 
     def resume(
-        self, decision: str, *, pm_directive: str | None = None
+        self,
+        decision: str,
+        *,
+        pm_directive: str | None = None,
+        candidate_id: str | None = None,
     ) -> dict[str, Any]:
         """Resume the paused agent with an adviser ``decision``.
 
-        ``approve`` runs the gated ``place_orders`` tool (the paper ticket is written
-        and the executor decision logged inside the closure), then finalises the run
-        as completed with the optimizer's weights — unless ``place_orders`` placed no
-        ticket (a missing fill bar, the audited weights breach the current mandate, or
-        the risk gate had not passed them), in which case nothing is booked and the run
+        ``approve`` must name the ``candidate_id`` the adviser chose (see
+        :func:`_approved_weights`; an adviser edit in force needs none): the choice is
+        re-checked and recorded, then the gated ``place_orders`` tool runs (the paper
+        ticket is written and the executor decision logged inside the closure) and
+        the run finalises as completed with the chosen weights — unless
+        ``place_orders`` placed no ticket (a missing fill bar, the chosen weights
+        breach the current mandate), in which case nothing is booked and the run
         ends ``incomplete`` (or stays ``responded`` if the PM re-gated). ``reject``
         writes no order, records the HITL choice, and finalises rejected. ``respond``
         threads ``pm_directive`` back to the PM and lets it continue: if it re-gates
@@ -433,13 +445,17 @@ class FundRun:
         cross-process :func:`resume_fund` cannot diverge — both stamp the audit trail
         identically, and both refuse a run that is already finalised. The run's
         ``portfolio_id`` / ``asof`` (which ``FundRun`` does not carry) are read back
-        from its persisted row for the approve/reject path, and so are the audited
-        weights: the vector captured at the pause may have been superseded by the time
-        the adviser decides (a ``respond`` can make the PM re-optimise), and
-        finalisation must record what ``place_orders`` placed. They are read *before*
-        the resume, because the gated ``place_orders`` is the first thing the resume
-        runs and a PM that re-runs the allocator afterwards would move the latest
-        optimizer decision off the weights the ticket was placed with.
+        from its persisted row for the approve/reject path, and the approved weights
+        are resolved from the persisted set: the set at the pause may have been
+        superseded by the time the adviser decides (a ``respond`` can make the PM
+        recompute it), and finalisation must record what ``place_orders`` placed.
+        They are resolved *before* the resume, because the gated ``place_orders`` is
+        the first thing the resume runs and a PM that re-runs the allocator
+        afterwards would supersede the choice the ticket was placed with.
+
+        Raises:
+            ValueError: The approve names no candidate, an unknown or infeasible one,
+                or one the current mandate refuses; nothing was written.
         """
         from fund.audit import AgentRunRepository
 
@@ -449,7 +465,7 @@ class FundRun:
         _require_resumable(run)
         if run.portfolio_id is None:
             raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
-        approved_weights = _optimizer_weights(self.session, self.run_id)
+        approved_weights = _approved_weights(self.ctx, decision, candidate_id)
         regated_from: str | None = None
         try:
             resumed = _resume_gate(
@@ -495,6 +511,39 @@ class FundRun:
             regated_from=regated_from,
         )
         return result
+
+
+def _approved_weights(
+    ctx: Any, decision: str, candidate_id: str | None
+) -> dict[str, float]:
+    """The weights a gate decision settles on, resolved before the graph resumes.
+
+    An approve commits the candidate the adviser names, re-checked under the current
+    mandate and recorded as the run's choice, or an adviser edit in force (see
+    :func:`fund.agents.graph_candidates.approve_weights`). Any other decision places
+    nothing, so it keeps reading the run's latest proposal.
+
+    Args:
+        ctx: The resumed run's binding context.
+        decision: ``approve``, ``reject`` or ``respond``.
+        candidate_id: The candidate the adviser named, or ``None``.
+
+    Returns:
+        The weights the decision settles on.
+
+    Raises:
+        ValueError: A candidate is named on anything but an approve, or the approve
+            is refused; nothing was written.
+    """
+    from fund.agents.graph_candidates import (
+        approve_weights,
+        refuse_candidate_outside_approve,
+    )
+
+    refuse_candidate_outside_approve(decision, candidate_id)
+    if decision != "approve":
+        return _optimizer_weights(ctx.session, ctx.run_id)
+    return approve_weights(ctx, candidate_id)
 
 
 def _resume_gate(
@@ -697,7 +746,7 @@ def _prepare_fund_run(
             portfolio_id=pid_uuid,
             asof=asof,
             seed=run_seed,
-            # Candidates are picked at runtime; optimize_portfolio records them.
+            # Tickers are picked at runtime; compute_candidates records them.
             universe=[],
             optimizer_config={
                 "step": "fund",
@@ -814,14 +863,21 @@ def _settle_round(
 
     With no gate, the PM tripped the delegation round cap, its order call was cut off
     or malformed, or a blocking risk verdict left nothing to commit; each is recorded
-    as its own reason, distinct from the recursion-limit ``"round_cap"``. A freeze is
-    looked at only once a gate was reached. No commit.
+    as its own reason, distinct from the recursion-limit ``"round_cap"``. A
+    ``place_orders`` gate with no candidate set, or no feasible candidate, would give
+    the adviser nothing to choose, so it closes the round the same way
+    (``"no_candidate_set"`` / ``"no_feasible_candidate"``). A freeze is looked at
+    only once a gate was reached. No commit.
     """
     run_id = setup.run.id
+    reason: str | None = None
     if interrupt is None:
         reason = _ungated_end_reason(
             last_message, pm_round_cap_reached=pm_round_cap_reached
         )
+    else:
+        reason = gate_without_candidates(session, run_id, interrupt)
+    if reason is not None:
         _finalize_incomplete(setup.audit, run_id, reason)
         return _RoundEnd("incomplete", reason)
     if _halt_if_frozen(session, setup.audit, run_id, _coerce_uuid(portfolio_id)):
@@ -1047,7 +1103,7 @@ def stream_fund(
                                 agent="orchestrator",
                                 step="place_orders",
                                 status=StepStatus.LIVE,
-                                text="committing the risk-approved trades",
+                                text="presenting the candidates to the adviser",
                             )
                             index += 1
                 elif node == "tools" and getattr(message, "name", None) == "task":
@@ -1103,6 +1159,7 @@ def resume_fund(
     config: FundConfig = settings,
     fallback: Any | None = None,
     pm_directive: str | None = None,
+    candidate_id: str | None = None,
 ) -> dict[str, Any]:
     """Resume a paused fund run from a fresh process — the rebuild-to-resume path.
 
@@ -1125,6 +1182,10 @@ def resume_fund(
     edited since the run opened applies on resume too (a vanished mandate falls back to
     the config default gate), rebuilds the ``RunContext`` + PM agent, resumes, and
     finalises. ``decision`` is ``approve``, ``reject``, or ``respond``.
+    An approve of the order gate names the adviser's ``candidate_id`` (see
+    :func:`_approved_weights`); a missing, unknown or infeasible id, or one the
+    current mandate refuses, raises ``ValueError`` before anything is resumed or
+    written, as does an id on any other decision.
     Any other value raises ``ValueError``; ``approve`` / ``respond`` raise
     ``RuntimeError`` while the fund or portfolio is FROZEN, or when the portfolio was
     re-profiled after the run opened (``reject`` always passes). A ``respond`` threads
@@ -1228,10 +1289,10 @@ def resume_fund(
         "configurable": {"thread_id": resolved_thread_id},
         "recursion_limit": config.recursion_limit,
     }
-    # Read before the resume: the gated ``place_orders`` runs first and places these
-    # weights, while a PM that re-runs the allocator afterwards moves the latest
-    # optimizer decision off the weights the ticket was placed with.
-    approved_weights = _optimizer_weights(session, rid)
+    # Resolved before the resume: the gated ``place_orders`` runs first and places
+    # these weights, while a PM that re-runs the allocator afterwards supersedes the
+    # choice the ticket was placed with.
+    approved_weights = _approved_weights(ctx, decision, candidate_id)
     regated_from: str | None = None
     try:
         resumed = _resume_gate(
@@ -1285,6 +1346,7 @@ def resume_run(
     config: FundConfig = settings,
     fallback: Any | None = None,
     pm_directive: str | None = None,
+    candidate_id: str | None = None,
 ) -> dict[str, Any]:
     """Resume a paused run by its gate — the single entry point observers call.
 
@@ -1299,6 +1361,8 @@ def resume_run(
     ``pm_directive`` carries the adviser's free text for a ``respond`` barge-in; it is
     threaded only to the ``place_orders`` gate. The profiler gate keeps approve/reject
     (``resume_profiler`` rejects ``respond``), so a respond there raises ``ValueError``.
+    ``candidate_id`` names the candidate an approve of the ``place_orders`` gate
+    places; the profiler gate has no candidates and refuses one.
     """
     from fund.audit import AgentRunRepository
 
@@ -1308,11 +1372,10 @@ def resume_run(
         raise LookupError(f"no agent_run {rid}")
 
     if (run.optimizer_config or {}).get("step") == "profiler":
-        from fund.agents.profiler import resume_profiler
-
-        return resume_profiler(
+        return _resume_profiler_gate(
             rid,
             decision,
+            candidate_id=candidate_id,
             session=session,
             checkpointer=checkpointer,
             store=store,
@@ -1329,4 +1392,38 @@ def resume_run(
         config=config,
         fallback=fallback,
         pm_directive=pm_directive,
+        candidate_id=candidate_id,
+    )
+
+
+def _resume_profiler_gate(
+    run_id: uuid.UUID,
+    decision: str,
+    *,
+    candidate_id: str | None,
+    session: Any,
+    checkpointer: Any,
+    store: Any | None,
+    model: Any,
+    config: FundConfig,
+) -> dict[str, Any]:
+    """Resume a run paused at the profiler's ``save_profile`` gate.
+
+    Raises:
+        ValueError: ``candidate_id`` is given (a profile gate has no candidates to
+            choose from), or :func:`~fund.agents.profiler.resume_profiler` refuses
+            the decision.
+    """
+    from fund.agents.graph_candidates import refuse_candidate_at_profiler_gate
+    from fund.agents.profiler import resume_profiler
+
+    refuse_candidate_at_profiler_gate(run_id, candidate_id)
+    return resume_profiler(
+        run_id,
+        decision,
+        session=session,
+        checkpointer=checkpointer,
+        store=store,
+        model=model,
+        config=config,
     )

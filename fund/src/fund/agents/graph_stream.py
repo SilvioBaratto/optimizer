@@ -42,6 +42,8 @@ _UNGATED_END_TEXT = {
     "pm_round_cap": "delegation round cap reached before a ticket",
     "output_truncated": "the model's output limit cut off the PM's order call",
     "invalid_tool_call": "the PM's order call was malformed",
+    "no_candidate_set": "the round reached the gate without a candidate set",
+    "no_feasible_candidate": "no candidate met the client's constraints",
 }
 
 

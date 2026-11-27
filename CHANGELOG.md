@@ -129,7 +129,7 @@ The entries under Security affect privacy or configuration and come first.
   and `fund profile --help` says the answers go to the configured LLM provider
   (REQ-ING-026, REQ-ING-027, REQ-ING-028, REQ-ING-029, REQ-ING-030).
 - **fund**: the building blocks for presenting four neutral candidate portfolios to the
-  adviser; no run uses them yet, so a run still computes and gates one proposal. The
+  adviser, which a rebalance run now uses (see the BREAKING entry under Changed). The
   pure tool `fund.tools.candidates.compute_candidates` fits `hrp`, `mean_risk`,
   `min_risk` and `risk_parity` on one returns panel with the same bounds, position cap,
   budget and moment estimators, always in that alphabetical id order, and reports per
@@ -148,8 +148,8 @@ The entries under Security affect privacy or configuration and come first.
   `SELECT_CANDIDATE_DECISION` and `EDIT_DECISION`, which the adviser edit now writes.
   `fund.observe` gains `candidate_set` and `selected_candidate_id`, and the toolset binds
   a `compute_candidates` tool that applies the risk gate's own check to each candidate
-  and persists the set as one `allocator` / `compute_candidates` decision, but no agent
-  role is given it. `optimize_portfolio` now shares its returns panel and its mean-risk
+  and persists the set as one `allocator` / `compute_candidates` decision.
+  `optimize_portfolio` now shares its returns panel and its mean-risk
   fit (`ReturnsPanel`, `load_returns_panel`, `fit_mean_risk` in `fund.tools.optimize`)
   with the new tool; its results and error messages are unchanged, except that its
   practically unreachable no-weights path now reports
@@ -160,6 +160,44 @@ The entries under Security affect privacy or configuration and come first.
 
 Behaviour changes to know about:
 
+- **fund (BREAKING)**: a rebalance round no longer produces one proposal for the
+  adviser to approve. The allocator runs `compute_candidates`, which returns four
+  candidate portfolios (`hrp`, `mean_risk`, `min_risk`, `risk_parity`), always listed in
+  that id order and never ranked; the agents present and compare them and never choose
+  one (their prompts, role descriptions and skills say so, and no longer use
+  recommendation language). The `place_orders` gate now carries the whole candidate set
+  (its hash, date and universe, every candidate with its label, feasibility, weights,
+  metrics, constraint check and breaches, and the `selectable` ids) instead of one
+  weight vector and its risk verdict, and a round whose PM reaches the gate with no
+  candidate set or no feasible candidate ends `incomplete` (`no_candidate_set` /
+  `no_feasible_candidate`) without opening a gate. Approving a rebalance gate now
+  requires naming one candidate: `fund approve <run_id> --candidate <id>`, the
+  `candidate_id` of `fund.actions.apply_action`, `resume_run`, `resume_fund` and
+  `FundRun.resume`, or the candidate picked in the TUI's Decisions view
+  (`DecisionsView.select_candidate`; the candidate table and confirm follow). There is
+  no default: an approve with no id, an unknown id or an infeasible one is refused with
+  a message naming the choices and writes nothing, so the gate stays open. A valid id is
+  re-checked under the mandate in force at approve time (a refusal again writes
+  nothing); the passing verdict (`source="candidate_selection"`) and the choice (an
+  allocator `optimize_portfolio` row with `hitl_decision.decision="select_candidate"`)
+  are recorded, the approve's audit row carries `candidate_id`, `weights`,
+  `weights_hash` and `candidate_set_hash`, and paper orders derive only from that
+  candidate's weights. `place_orders` places nothing without an adviser choice (or an
+  adviser edit) newer than the run's latest candidate set, so an agent can never place
+  a candidate; `reject`, `respond` and `edit` work as before, `edit` approves without a
+  candidate id, and an id on any other decision or on a profile gate is refused.
+  `risk_check` and `backtest` now take a `candidate_id` and record no verdict, and the
+  general-purpose subagent gets an explicit empty tool list, so it can no longer reach
+  `place_orders`. `optimize_portfolio` is no longer an agent tool (it leaves
+  `fund.tools.__all__`, which gains `compute_candidates`; the function stays in
+  `fund.tools.optimize` for the readouts), and `build_gate_weights_middleware` is now
+  `build_gate_candidates_middleware`. **Upgrading**: runs left paused at their gate
+  from before this change have no candidate set and cannot be approved; reject them and
+  run a fresh round. When an approve's transaction is lost after `place_orders` ran (a
+  consumed gate), the retry must name the candidate again and the replacement ticket is
+  placed from the one it names, which may differ from the first attempt's; the PM's
+  transcript still shows the first attempt (REQ-FUND-047, REQ-FUND-048, REQ-FUND-049,
+  REQ-FUND-050, REQ-FUND-051, REQ-FUND-052).
 - **ingestion (BREAKING)**: the ingestion daemon (`python -m app.worker`, the
   `scheduler` container) now refuses to start until Yahoo's terms are acknowledged: the
   worker logs why and exits with status 2 before it serves metrics, opens its database

@@ -60,11 +60,14 @@ class DecisionsMixin(ShellHost):
                 "retry once the gate renders again"
             )
             return
+        # The adviser's pick travels with an approve only; the approve refuses a
+        # rebalance gate without one, so nothing here chooses on their behalf.
         self.last_worker = self._action_worker(
             view.selected_run_id,
             view.selected_portfolio_id,
             decision,
             view.rendered_gate_id,
+            view.selected_candidate_id if decision == "approve" else None,
         )
 
     def action_decide_killswitch(self) -> None:
@@ -202,9 +205,9 @@ class DecisionsMixin(ShellHost):
         run_id = view.selected_run_id
         portfolio_id = view.selected_portfolio_id
         shown_gate = view.rendered_gate_id
-        weights = self._proposed_weights(run_id)
+        weights = self._proposed_weights(run_id, view.selected_candidate_id)
         if not weights:
-            self._set_status("no proposed weights to edit")
+            self._set_status("no proposed weights to edit: pick a candidate first")
             return
 
         def _edited(edited: dict[str, float] | None) -> None:
@@ -240,14 +243,17 @@ class DecisionsMixin(ShellHost):
 
         self.push_screen(BargeInScreen(_gate_target(run_id, portfolio_id)), _resolved)
 
-    def _proposed_weights(self, run_id: uuid.UUID) -> dict[str, float]:
+    def _proposed_weights(
+        self, run_id: uuid.UUID, candidate_id: str | None = None
+    ) -> dict[str, float]:
         """The weights to seed the editor with, or ``{}`` on any read error.
 
-        Needs a pending gate (its ``place_orders`` interrupt). The seed is the run's
-        audited optimizer output at full precision — the vector approving actually
-        places — never the PM's own ``place_orders`` args, which that tool ignores, so
-        the editor starts from what approval would place. The run repo is imported from
-        its submodule (never the ``fund.audit`` root, which pulls the langgraph
+        Needs a pending gate (its ``place_orders`` interrupt). The seed is the picked
+        candidate's audited weights at full precision, or for a run with no candidate
+        set the latest audited proposal, never the PM's own ``place_orders`` args,
+        which that tool ignores. Nothing is picked for the adviser: with no candidate
+        picked on a candidate gate the editor stays closed. The run repo is imported
+        from its submodule (never the ``fund.audit`` root, which pulls the langgraph
         bootstrap) so this stays agent-stack-light.
         """
         from fund.audit.repository import AgentRunRepository
@@ -259,7 +265,11 @@ class DecisionsMixin(ShellHost):
                 interrupt = (
                     observe.interrupt_for(self._persistence.saver, run) if run else None
                 )
-                weights = repo.latest_optimizer_weights(run_id) if interrupt else {}
+                weights = (
+                    _seed_weights(session, repo, run_id, candidate_id)
+                    if interrupt
+                    else {}
+                )
                 session.rollback()
         except Exception:  # keep the shell alive on a read error
             return {}
@@ -273,12 +283,14 @@ class DecisionsMixin(ShellHost):
         portfolio_id: uuid.UUID | None,
         decision: str,
         shown_gate: str | None = None,
+        candidate_id: str | None = None,
     ) -> None:
         """Resolve a gate through the unified action path — off the event loop.
 
         ``shown_gate`` is the id of the gate the adviser was looking at; the decision
         is refused when the run is parked at another one (see
-        :func:`fund.actions.resolution_key`).
+        :func:`fund.actions.resolution_key`). ``candidate_id`` is the candidate the
+        adviser picked, which an approve of a rebalance gate requires.
 
         The model is built lazily (a missing key surfaces as a status line, not a
         crash) and only for decisions that drive the graph: reject / killswitch settle
@@ -286,15 +298,11 @@ class DecisionsMixin(ShellHost):
         ``apply_action`` resumes + logs on a freshly opened session, the caller commits,
         and the UI touches marshal back via ``call_from_thread``.
         """
-        from fund.actions import MODEL_FREE_ACTIONS, apply_action, resolution_key
+        from fund.actions import apply_action, resolution_key
 
-        model = None
-        if decision not in MODEL_FREE_ACTIONS:
-            try:
-                model = self._model_factory()
-            except Exception as exc:  # surface a clean message, never crash the App
-                self.call_from_thread(self._set_status, f"model unavailable: {exc}")
-                return
+        available, model = self._model_for(decision)
+        if not available:
+            return
         try:
             with self._session_factory() as session:
                 result = apply_action(
@@ -313,12 +321,33 @@ class DecisionsMixin(ShellHost):
                         decision,
                         expected_gate=shown_gate,
                     ),
+                    candidate_id=candidate_id,
                 )
                 session.commit()
         except Exception as exc:  # surface a clean message, never crash the App
             self.call_from_thread(self._set_status, f"action failed: {exc}")
             return
         self.call_from_thread(self._after_action, result.message)
+
+    def _model_for(self, decision: str) -> tuple[bool, Any | None]:
+        """The chat model ``decision`` drives the graph with, built on the worker.
+
+        Reject and killswitch settle in the DB, so they need none and a down provider
+        never blocks the emergency stop.
+
+        Returns:
+            ``(True, model)``, with ``model`` ``None`` for a model-free decision, or
+            ``(False, None)`` once a failed build has been reported as a status line.
+        """
+        from fund.actions import MODEL_FREE_ACTIONS
+
+        if decision in MODEL_FREE_ACTIONS:
+            return True, None
+        try:
+            return True, self._model_factory()
+        except Exception as exc:  # surface a clean message, never crash the App
+            self.call_from_thread(self._set_status, f"model unavailable: {exc}")
+            return False, None
 
     @work(thread=True, group="action")
     @_single_flight("committing edit")
@@ -456,6 +485,22 @@ class DecisionsMixin(ShellHost):
         self._set_status(message)
         self._refresh()
         self._refresh_runstate()
+
+
+def _seed_weights(
+    session: Any, repo: Any, run_id: uuid.UUID, candidate_id: str | None
+) -> dict[str, float]:
+    """The weights an edit of ``run_id``'s gate starts from.
+
+    The picked candidate's weights when the run has a candidate set (none until one
+    is picked), else the run's latest audited proposal (a run gated before
+    candidates existed).
+    """
+    candidate_set = observe.candidate_set(session, run_id)
+    if candidate_set is None:
+        return dict(repo.latest_optimizer_weights(run_id))
+    candidate = candidate_set.candidate(candidate_id) if candidate_id else None
+    return dict(candidate.weights) if candidate is not None else {}
 
 
 def _gate_target(run_id: uuid.UUID | None, portfolio_id: uuid.UUID | None) -> str:

@@ -339,9 +339,10 @@ def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
 # opening; keep the marker in sync with them.
 _RESPOND_FRAME = (
     "ADVISER DIRECTIVE — place_orders was NOT executed and no ticket exists. "
-    "Revise the proposal per the directive below, re-run the affected pipeline "
-    "stages (the risk gate included) and call place_orders again. "
-    "Directive: {directive}"
+    "Follow the directive below: re-run the affected pipeline stages "
+    "(compute_candidates again if the universe changes, the risk gate included) "
+    "and call place_orders again so the adviser can choose. A directive never "
+    "selects a candidate. Directive: {directive}"
 )
 
 
@@ -567,10 +568,14 @@ def _finalize_respond(
     rebuild-to-resume paths cannot diverge. The respond is always appended to the audit
     trail (carrying the directive). When the resumed PM re-gates — ``result`` carries a
     fresh interrupt — the run is flipped to ``"responded"`` (alive, still awaiting
-    approval) and is **not** finalised; a genuinely terminal result (no re-gate, so no
-    ticket passed the gate) finalises the run ``incomplete`` — the same no-gate end as
-    :func:`run_fund`. No commit (the caller owns the transaction).
+    approval) and is **not** finalised, unless the re-gated ``place_orders`` has no
+    candidate set or no feasible candidate to choose from, which finalises it
+    ``incomplete`` with that reason, as :func:`run_fund` does. A genuinely terminal
+    result (no re-gate, so no ticket passed the gate) finalises the run ``incomplete``
+    — the same no-gate end as :func:`run_fund`. No commit (the caller owns the
+    transaction).
     """
+    from fund.agents.graph_candidates import gate_without_candidates
     from fund.audit import AgentRunRepository
 
     audit = AgentRunRepository(session)
@@ -580,7 +585,12 @@ def _finalize_respond(
         step="place_orders",
         hitl_decision={"decision": "respond", "message": pm_directive},
     )
-    if _extract_interrupt(result) is not None:
+    interrupt = _extract_interrupt(result)
+    if interrupt is not None:
+        nothing_to_choose = gate_without_candidates(session, run_id, interrupt)
+        if nothing_to_choose is not None:
+            _finalize_incomplete(audit, run_id, nothing_to_choose)
+            return
         audit.mark_responded(run_id)
     else:
         reason = _ungated_end_reason(

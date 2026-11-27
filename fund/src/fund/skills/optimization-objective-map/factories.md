@@ -3,7 +3,7 @@
 Read-only support for `optimization-objective-map`. Each block is the optimizer-library
 config a profile objective maps to; `ConstraintSet.to_mean_risk_config()` builds the
 `MeanRiskConfig` ones from the stored profile in a single call. They show the *shape*
-of the intent so you can explain it. `optimize_portfolio(universe)` does not accept
+of the intent so you can explain it. `compute_candidates(universe)` does not accept
 them: the tool builds its own config from the stored ConstraintSet (the fields listed
 in the skill), so never present a skeleton as what was run, and never invent a knob
 the skeleton shows but the ConstraintSet does not carry.

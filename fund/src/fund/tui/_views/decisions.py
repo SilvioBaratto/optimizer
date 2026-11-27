@@ -40,6 +40,10 @@ class DecisionsView(ShellView):
         gate_unavailable: ``True`` while the selected gate's detail could not be
             rendered. ``a`` / ``r`` fire with no confirm, so they are refused until the
             orders are back on screen.
+        selected_candidate_id: The candidate the adviser picked for the selected
+            rebalance gate, which ``a`` approves; ``None`` until one is picked, and
+            cleared whenever the selected run changes, so a pick never carries over
+            to another gate.
     """
 
     # View-scoped so ``e``/``s`` mean edit/steer only while Decisions holds focus; the
@@ -60,6 +64,7 @@ class DecisionsView(ShellView):
         self.gate_unavailable = False
         # The gate on screen, so a decision is refused if the run has since moved on.
         self.rendered_gate_id: str | None = None
+        self.selected_candidate_id: str | None = None
         self._queue: list[RunSummary] = []
 
     def compose(self) -> ComposeResult:
@@ -114,12 +119,23 @@ class DecisionsView(ShellView):
         moves onto the selected row, so the highlight and the selection never diverge.
         """
         summary = next((row for row in self._queue if row.run_id == run_id), None)
+        if run_id != self.selected_run_id:
+            self.selected_candidate_id = None
         self.selected_run_id = run_id
         self.selected_portfolio_id = summary.portfolio_id if summary else None
         self.refresh_view()
         table = self.query_one("#decisions-table", DataTable)
         with suppress(RowDoesNotExist):
             table.move_cursor(row=table.get_row_index(str(run_id)))
+
+    def select_candidate(self, candidate_id: str | None) -> None:
+        """Pick the candidate ``a`` approves for the selected gate (``None`` clears).
+
+        A driver/test hook: the adviser's pick is held as typed and validated only by
+        the approve itself, which refuses an id the run's candidate set does not
+        offer as feasible.
+        """
+        self.selected_candidate_id = candidate_id
 
     def highlighted_run_id(self) -> uuid.UUID | None:
         """The queued run under the table cursor, or ``None`` for an empty queue."""
@@ -193,6 +209,7 @@ class DecisionsView(ShellView):
         ):
             self.selected_run_id = None
             self.selected_portfolio_id = None
+            self.selected_candidate_id = None
 
     def _paint_gate(
         self,
@@ -289,6 +306,9 @@ def _format_decision_gate(
     lines.append(f"why: {why}" if why else "why: review before it executes")
     args = request.get("args") or {}
     lines.extend(_format_risk_gate(args.get("risk_gate")))
+    if "candidates" in args:
+        lines.extend(_format_candidates(args["candidates"]))
+        return "\n".join(lines)
     if name == "place_orders" or "weights" in args:
         if audited:
             lines.append("orders (audited optimizer weights, executed on approval):")
@@ -306,6 +326,29 @@ def _format_decision_gate(
                 "approval executes the audited one"
             )
     return "\n".join(lines)
+
+
+def _format_candidates(candidates: Any) -> list[str]:
+    """Render the candidate set a rebalance gate carries: id order, never ranked.
+
+    Each candidate is shown with its label, whether it is feasible and the weights
+    approving it would place; which one is placed is the adviser's pick alone.
+    """
+    entries = [entry for entry in candidates or [] if isinstance(entry, dict)]
+    if not entries:
+        return ["candidates: none were computed, approval places no ticket"]
+    lines = ["candidates (listed by id; the adviser picks one to approve):"]
+    for entry in entries:
+        status = "feasible" if entry.get("feasible") else "infeasible"
+        weights = ", ".join(
+            f"{ticker}: {float(weight):.4f}"
+            for ticker, weight in sorted((entry.get("weights") or {}).items())
+        )
+        lines.append(
+            f"  {entry.get('candidate_id')} · {entry.get('label')} · {status}"
+            + (f" · {weights}" if weights else "")
+        )
+    return lines
 
 
 _RISK_GATE_LABELS: dict[str, str] = {

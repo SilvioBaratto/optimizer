@@ -469,6 +469,24 @@ class AgentRunRepository(RepositoryBase):
             },
         )
 
+    def adviser_choice_in_force(self, run_id: uuid.UUID) -> AgentDecision | None:
+        """The row of the adviser's choice still in force for the run, read fresh.
+
+        See :func:`current_adviser_choice`. Queried rather than read from a loaded
+        run's ``decisions``, which do not see a row appended in the same session
+        since they loaded.
+
+        Returns:
+            The choice row (its ``hitl_decision`` says whether a candidate was
+            selected or weights were edited), or ``None`` when no choice is in force.
+        """
+        stmt = select(AgentDecision).where(
+            AgentDecision.run_id == run_id,
+            AgentDecision.agent == _ALLOCATOR,
+            AgentDecision.step.in_((_OPTIMIZE_STEP, _COMPUTE_CANDIDATES_STEP)),
+        )
+        return current_adviser_choice(list(self.session.execute(stmt).scalars()))
+
     def latest_selected_weights(self, run_id: uuid.UUID) -> dict[str, float]:
         """The weights of the adviser's choice still in force for the run.
 
@@ -478,13 +496,7 @@ class AgentRunRepository(RepositoryBase):
         Returns:
             Ticker to weight, or ``{}`` when no adviser choice is in force.
         """
-        stmt = select(AgentDecision).where(
-            AgentDecision.run_id == run_id,
-            AgentDecision.agent == _ALLOCATOR,
-            AgentDecision.step.in_((_OPTIMIZE_STEP, _COMPUTE_CANDIDATES_STEP)),
-        )
-        rows = list(self.session.execute(stmt).scalars())
-        return self.decode_weights(current_adviser_choice(rows))
+        return self.decode_weights(self.adviser_choice_in_force(run_id))
 
     @staticmethod
     def weights_digest(weights: dict[str, float]) -> str:
