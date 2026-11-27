@@ -10,6 +10,8 @@ own — the caller injects one (sync).
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import json
 import threading
 import uuid
 from datetime import UTC, date, datetime
@@ -751,3 +753,120 @@ def test_insert_run_if_absent_leaves_a_recorded_run_as_it_is(committing_session)
     assert stored is not None
     assert stored.status == "failed"
     assert len(stored.decisions) == 1
+
+
+_SET_PAYLOAD = {"asof": "2026-01-02", "candidates": [], "universe": ["AAPL"]}
+
+
+def _append_plain_proposal(repo: AgentRunRepository, run_id, weights) -> None:
+    """The row the bound single optimizer writes: weights, no adviser decision."""
+    repo.append_decision(
+        run_id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": weights}),
+    )
+
+
+def _append_edit(repo: AgentRunRepository, run_id, weights) -> None:
+    """The row the adviser's ``edit`` action writes for human-typed weights."""
+    repo.append_decision(
+        run_id,
+        agent="allocator",
+        step="optimize_portfolio",
+        llm_response=json.dumps({"weights": weights}),
+        hitl_decision={"decision": "edit", "human_override": True},
+    )
+
+
+@pytest.mark.criterion("REQ-FUND-046")
+def test_latest_selected_weights_ignores_allocator_rows_and_superseded_choices(
+    db_session,
+):
+    """Validates fund.audit.repository.AgentRunRepository.latest_selected_weights,
+    append_candidate_set, latest_candidate_set and append_candidate_selection: only
+    an adviser choice or edit newer than the newest candidate set counts."""
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    chosen = {"AAPL": 1.0}
+    edited = {"AAPL": 0.6, "MSFT": 0.4}
+    assert repo.latest_selected_weights(run.id) == {}
+    assert repo.latest_candidate_set(run.id) is None
+
+    first_set = repo.append_candidate_set(
+        run.id, constraint_set={"a_gamma": 2.5}, payload=_SET_PAYLOAD
+    )
+    canonical = json.dumps(_SET_PAYLOAD, sort_keys=True)
+    assert first_set.agent == "allocator"
+    assert first_set.step == "compute_candidates"
+    assert first_set.constraint_set == {"a_gamma": 2.5}
+    assert first_set.llm_response == canonical
+    assert first_set.llm_response_hash == hashlib.sha256(canonical.encode()).hexdigest()
+    assert repo.latest_candidate_set(run.id) == (first_set.decision_index, _SET_PAYLOAD)
+    _append_plain_proposal(repo, run.id, {"AAPL": 0.5, "MSFT": 0.5})
+    assert repo.latest_selected_weights(run.id) == {}
+
+    selection = repo.append_candidate_selection(
+        run.id,
+        candidate_id="min_risk",
+        candidate_set_hash=first_set.llm_response_hash,
+        weights=chosen,
+        metrics={"turnover": 1.0},
+        settings={"objective": "minimize_risk"},
+    )
+    assert selection.step == "optimize_portfolio"
+    assert selection.hitl_decision == {
+        "decision": "select_candidate",
+        "candidate_id": "min_risk",
+        "candidate_set_hash": first_set.llm_response_hash,
+    }
+    assert json.loads(selection.llm_response) == {
+        "weights": chosen,
+        "metrics": {"turnover": 1.0},
+        "optimizer_config": {"objective": "minimize_risk"},
+        "candidate_id": "min_risk",
+        "candidate_set_hash": first_set.llm_response_hash,
+    }
+    assert repo.latest_selected_weights(run.id) == chosen
+
+    second_set = repo.append_candidate_set(
+        run.id, constraint_set=None, payload={**_SET_PAYLOAD, "asof": "2026-01-03"}
+    )
+    assert repo.latest_selected_weights(run.id) == {}
+    assert repo.latest_candidate_set(run.id) == (
+        second_set.decision_index,
+        {**_SET_PAYLOAD, "asof": "2026-01-03"},
+    )
+    _append_edit(repo, run.id, edited)
+    assert repo.latest_selected_weights(run.id) == edited
+    _append_plain_proposal(repo, run.id, {"AAPL": 1.0})
+    assert repo.latest_selected_weights(run.id) == {}
+
+
+@pytest.mark.criterion("REQ-FUND-046")
+@pytest.mark.parametrize(
+    ("stored", "error_type"),
+    [("[1, 2]", "list"), ('{"asof": "2026-01-02",', "JSONDecodeError")],
+    ids=["not-an-object", "not-json"],
+)
+def test_latest_candidate_set_is_none_for_an_unreadable_payload(
+    db_session, caplog, stored: str, error_type: str
+):
+    """Validates fund.audit.repository.AgentRunRepository.latest_candidate_set: a row
+    whose payload is corrupt or not a JSON object reads as no set, and the read logs a
+    warning naming the run, the decision index and what was wrong."""
+    repo = AgentRunRepository(db_session)
+    run = _new_run(repo)
+    row = repo.append_decision(
+        run.id, agent="allocator", step="compute_candidates", llm_response=stored
+    )
+
+    with caplog.at_level("WARNING", logger="fund.audit.repository"):
+        assert repo.latest_candidate_set(run.id) is None
+
+    (record,) = caplog.records
+    assert record.levelname == "WARNING"
+    message = record.getMessage()
+    assert str(run.id) in message
+    assert f"decision {row.decision_index}" in message
+    assert error_type in message

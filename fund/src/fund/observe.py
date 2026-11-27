@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     # advertising the SPEC §4a signature ``get_mandate -> PortfolioMandate | None``.
     from fund.attribution import AttributionResult
     from fund.performance import HoldingMark, PerformanceSummary
+    from fund.schemas.candidates import CandidateSet
     from fund.schemas.mandate import PortfolioMandate
 
 logger = logging.getLogger(__name__)
@@ -1410,6 +1411,58 @@ def run_metrics(run: Any) -> dict[str, float]:
     return {}
 
 
+def candidate_set(session: Any, run_id: uuid.UUID) -> CandidateSet | None:
+    """The run's newest candidate set, read back as it was persisted.
+
+    Fails closed: a stored payload the schema refuses (a missing candidate, a field
+    the set does not define) reads as no set rather than as a partial one.
+
+    Args:
+        session: A sync session; read-only here.
+        run_id: The run whose set to read.
+
+    Returns:
+        The set, or ``None`` when the run has none or its row does not validate.
+    """
+    from pydantic import ValidationError
+
+    from fund.audit.repository import AgentRunRepository
+    from fund.schemas.candidates import CandidateSet
+
+    stored = AgentRunRepository(session).latest_candidate_set(run_id)
+    if stored is None:
+        return None
+    decision_index, payload = stored
+    try:
+        return CandidateSet.model_validate(payload)
+    except ValidationError:
+        logger.warning(
+            "run %s: candidate set at decision %d does not validate",
+            run_id,
+            decision_index,
+        )
+        return None
+
+
+def selected_candidate_id(run: Any) -> str | None:
+    """The candidate the adviser chose for ``run``, while that choice is in force.
+
+    Args:
+        run: An ``AgentRun`` row with its ``decisions`` loaded; read-only.
+
+    Returns:
+        The chosen id, or ``None`` when no choice is in force (none was made, a newer
+        candidate set superseded it, or the adviser typed the weights instead).
+    """
+    from fund.audit.repository import current_adviser_choice
+
+    choice = current_adviser_choice(list(run.decisions))
+    if choice is None:
+        return None
+    candidate_id = (choice.hitl_decision or {}).get("candidate_id")
+    return str(candidate_id) if candidate_id is not None else None
+
+
 def _weights_from_response(raw: str | None) -> dict[str, Any] | None:
     parsed = _parse_json_object(raw)
     if parsed is None:
@@ -1459,6 +1512,7 @@ __all__ = [
     "RunSummary",
     "TranscriptEntry",
     "audit_timeline",
+    "candidate_set",
     "daily_brief",
     "default_decision_bar",
     "drift_l1",
@@ -1477,4 +1531,5 @@ __all__ = [
     "recent_events",
     "reprofile_status",
     "run_metrics",
+    "selected_candidate_id",
 ]

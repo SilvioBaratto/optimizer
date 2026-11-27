@@ -57,6 +57,7 @@ from fund.audit import AgentRunRepository, MifidProfileRepository, put_constrain
 from fund.audit.orders_repository import weights_hash
 from fund.config import settings
 from fund.schemas import ConstraintSet
+from fund.schemas.candidates import CANDIDATE_IDS, CandidateSet
 from fund.schemas.constraint_set import Bounds, EsgPolicy, UniverseFilters
 from fund.schemas.enums import GicsSector, Horizon, ObjectiveChoice, RiskMeasureChoice
 from fund.tools import moments as fund_moments
@@ -2494,3 +2495,122 @@ def test_views_reference_documents_the_equal_weight_prior_and_factor_gap() -> No
     assert "market_weights" in lower and "equal" in lower
     assert "not wired" in lower
     assert "TimeSeriesFactorModel" in ref and "not built" in lower
+
+
+# --- the bound compute_candidates (not yet exposed to any role) ---------------
+
+
+def _bound_compute_candidates(ctx: RunContext) -> BaseTool:
+    return toolsets_module._BUILDERS["compute_candidates"](ctx)
+
+
+@pytest.mark.criterion("REQ-FUND-043")
+def test_bound_compute_candidates_refuses_an_ineligible_or_excluded_ticker(
+    db_session,
+) -> None:
+    """Validates fund.agents.toolsets._compute_candidates_impl: a universe outside the
+    allowlist or holding an ESG-excluded name is refused and nothing is written."""
+    restricted = _restricted_context(db_session)
+    _classify(db_session, "AAA", sector="Energy")
+    _classify(db_session, "BBB", sector="Technology")
+    _classify(db_session, "CCC", sector="Technology")
+    excluded = _make_context(
+        db_session, store=_store_with_cs(_energy_exclusion()), universe=[]
+    )
+
+    outside = _bound_compute_candidates(restricted).invoke(
+        {"universe": ["AAA", "CCC", "SPY"]}
+    )
+    breaching = _bound_compute_candidates(excluded).invoke({"universe": _UNIVERSE})
+
+    assert outside["ok"] is False
+    assert "outside the portfolio's eligible universe" in outside["error"]
+    assert "CCC (esg:energy)" in outside["error"]
+    assert "SPY (not_in_allowlist)" in outside["error"]
+    assert breaching["ok"] is False
+    assert "universe breaches the client's mandate" in breaching["error"]
+    assert "AAA (esg_exclusion" in breaching["error"]
+    assert _allocator_decisions(db_session) == []
+    for ctx in (restricted, excluded):
+        assert AgentRunRepository(db_session).get_run(ctx.run_id).universe == []
+
+
+@pytest.mark.criterion("REQ-FUND-044")
+@pytest.mark.criterion("REQ-FUND-045")
+def test_bound_compute_candidates_attaches_the_live_constraint_check(
+    db_session,
+) -> None:
+    """Validates fund.agents.toolsets._compute_candidates_impl and
+    _checked_candidate_set: each candidate carries the risk gate's own verdict on its
+    weights, and a breached loss ceiling makes every candidate infeasible."""
+    _seed_year_panel(db_session)
+    lenient = _make_context(db_session, store=_store_with_cs(_constraint_set()))
+    no_loss_room = _make_context(
+        db_session, store=_store_with_cs(_constraint_set(nu1=0.0, nu2=0.0, nu3=0.0))
+    )
+
+    passing = _bound_compute_candidates(lenient).invoke({"universe": _UNIVERSE})
+    failing = _bound_compute_candidates(no_loss_room).invoke({"universe": _UNIVERSE})
+
+    for ctx, result in ((lenient, passing), (no_loss_room, failing)):
+        assert result["ok"] is True
+        candidate_set = CandidateSet.model_validate(result["data"])
+        listed_ids = [candidate.candidate_id for candidate in candidate_set.candidates]
+        assert listed_ids == list(CANDIDATE_IDS)
+        for candidate in candidate_set.candidates:
+            verdict = toolsets_module.check_weights_against_mandate(
+                ctx, candidate.weights
+            )["data"]
+            assert candidate.constraint_check is not None
+            assert candidate.constraint_check.passed is verdict["passed"]
+            assert list(candidate.constraint_check.violations) == verdict["violations"]
+            assert list(candidate.constraint_check.warnings) == verdict["warnings"]
+            assert candidate.feasible is verdict["passed"]
+    assert CandidateSet.model_validate(passing["data"]).selectable_ids() == (
+        CANDIDATE_IDS
+    )
+    blocked = CandidateSet.model_validate(failing["data"])
+    assert blocked.selectable_ids() == ()
+    for candidate in blocked.candidates:
+        breach_types = {breach["type"] for breach in candidate.breaches}
+        assert breach_types == {"zero_loss_tolerance"}
+        assert set(candidate.weights) == set(_UNIVERSE)
+
+
+@pytest.mark.criterion("REQ-FUND-046")
+def test_bound_compute_candidates_persists_one_decision_and_the_fitted_universe(
+    db_session,
+) -> None:
+    """Validates fund.agents.toolsets._compute_candidates_impl and
+    _record_candidate_set: one allocator/compute_candidates row holds the set, its
+    hash and the profile, and the run records the tickers actually fitted."""
+    from fund.audit.positions_repository import PositionRepository
+
+    _seed_year_panel(db_session)
+    cs = _constraint_set()
+    ctx = _make_context(db_session, store=_store_with_cs(cs), universe=[])
+    holdings = {"AAA": 0.7, "CCC": 0.3}
+    PositionRepository(db_session).set_holdings(
+        _PORTFOLIO_ID,
+        [{"ticker": ticker, "weight": weight} for ticker, weight in holdings.items()],
+        asof=_ASOF,
+    )
+
+    result = _bound_compute_candidates(ctx).invoke({"universe": [*_UNIVERSE, "ZZZ"]})
+
+    assert result["ok"] is True
+    candidate_set = CandidateSet.model_validate(result["data"])
+    (decision,) = _allocator_decisions(db_session)
+    assert decision.step == "compute_candidates"
+    assert decision.constraint_set == cs.model_dump(mode="json")
+    assert decision.llm_response == json.dumps(result["data"], sort_keys=True)
+    assert decision.llm_response_hash == candidate_set.digest()
+    assert candidate_set.missing == ("ZZZ",)
+    repo = AgentRunRepository(db_session)
+    assert repo.get_run(ctx.run_id).universe == _UNIVERSE
+    assert repo.latest_selected_weights(ctx.run_id) == {}
+    for candidate in candidate_set.candidates:
+        assert candidate.metrics is not None
+        assert candidate.metrics.turnover == pytest.approx(
+            observe.drift_l1(holdings, candidate.weights)
+        )

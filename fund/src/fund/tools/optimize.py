@@ -22,6 +22,10 @@ Contract (via ``tool_envelope``):
   ⇒ ``{ok: false, error}`` naming the shortfall;
 * a bad ``constraints`` value is caught by the envelope and returned as
   ``{ok: false}``, never raised.
+
+``load_returns_panel`` and ``fit_mean_risk`` are shared with
+``fund.tools.candidates``, so every candidate is fitted on the panel this tool would
+fit, and the mean-risk candidate is this tool's own solve.
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -83,6 +87,9 @@ _CONSTRAINT_FIELDS: frozenset[str] = frozenset(
 # once the return index (and so the bars per year) is known. It is not a
 # ``MeanRiskConfig`` field: ``risk_free_rate`` there is per bar and is overridden by it.
 ANNUAL_RISK_FREE_RATE_KEY = "annual_risk_free_rate"
+
+_NO_PRICED_ASSETS = "no priced assets in universe"
+_NO_WEIGHTS = "optimizer produced no weights"
 
 _BUDGET_TOL = 1e-9
 # Interior-point solvers reach the optimum only to ~1e-9, so a dropped asset can come
@@ -219,6 +226,129 @@ def _infeasible_bounds_error(config: MeanRiskConfig, n_assets: int) -> str | Non
     return None
 
 
+@dataclass(frozen=True)
+class ReturnsPanel:
+    """The returns panel and shared configuration every fit of one tool call uses.
+
+    Attributes:
+        returns: Linear returns, one column per priced ticker, on the common sample.
+        missing: Requested tickers with no usable prices, including a column the
+            returns step had to drop.
+        periods: Bars a year of the panel holds.
+        config: The long-only ``MeanRiskConfig`` resolved from the caller's
+            constraints, its risk-free rate already per bar of this panel.
+    """
+
+    returns: pd.DataFrame
+    missing: list[str]
+    periods: int
+    config: MeanRiskConfig
+
+
+def _with_annual_risk_free_rate(
+    config: MeanRiskConfig, constraints: dict[str, Any] | None, periods: int
+) -> MeanRiskConfig:
+    """Replace the per-bar risk-free rate by the compounded annual one, if given."""
+    annual = (constraints or {}).get(ANNUAL_RISK_FREE_RATE_KEY)
+    if annual is None:
+        return config
+    return replace(config, risk_free_rate=per_period_rate(float(annual), periods))
+
+
+def load_returns_panel(
+    session: Session,
+    asof: dt.date | str,
+    universe: Sequence[str],
+    *,
+    constraints: dict[str, Any] | None,
+    base_currency: str | None,
+    action: str,
+) -> ReturnsPanel | str:
+    """Load the returns panel for ``universe`` as of ``asof``, or say why there is none.
+
+    Args:
+        session: A sync ``portopt_db`` session; the loader does not own it.
+        asof: Inclusive upper bound on price history (no look-ahead).
+        universe: yfinance tickers to load.
+        constraints: Overrides for the ``MeanRiskConfig`` fields in
+            ``_CONSTRAINT_FIELDS`` plus ``annual_risk_free_rate``.
+        base_currency: Currency prices are FX-converted to before returns are
+            derived (``None`` keeps listing currency).
+        action: Verb phrase naming the caller's work in an error, e.g. ``"optimize"``.
+
+    Returns:
+        The panel, or the error message for an empty universe, no priced assets, too
+        little common history, or a weight cap or floor the priced assets cannot meet.
+    """
+    if not universe:
+        return "empty universe"
+    frame, missing = load_price_frame(
+        session, asof, universe, base_currency=base_currency
+    )
+    if frame.shape[1] == 0:
+        return _NO_PRICED_ASSETS
+    if frame.shape[0] < 2:
+        return f"insufficient price history to {action}"
+    config = _resolve_config(constraints)
+    returns = cast("pd.DataFrame", prices_to_returns(frame))
+    # A column with no usable price vanishes from ``returns``; counting it as priced
+    # would loosen the bounds check and leave it in neither ``assets`` nor ``missing``.
+    missing = [*missing, *dropped_by_returns(frame, returns)]
+    if returns.shape[1] == 0:
+        return _NO_PRICED_ASSETS
+    if (infeasible := _infeasible_bounds_error(config, returns.shape[1])) is not None:
+        return infeasible
+    if (reason := thin_sample_error(frame, returns, action=action)) is not None:
+        return reason
+    periods = periods_per_year(returns.index)
+    config = _with_annual_risk_free_rate(config, constraints, periods)
+    return ReturnsPanel(
+        returns=returns, missing=missing, periods=periods, config=config
+    )
+
+
+def fit_mean_risk(returns: pd.DataFrame, config: MeanRiskConfig) -> np.ndarray:
+    """Fit a ``MeanRisk`` model on ``returns`` and return its weights as solved.
+
+    The one mean-risk solve behind ``optimize_portfolio`` and the mean-risk
+    candidates of ``fund.tools.candidates``. The weights still carry solver noise;
+    ``_clean_weights`` strips it.
+
+    Args:
+        returns: Linear returns, one column per asset.
+        config: The configuration the model is built from.
+
+    Returns:
+        One weight per column of ``returns``, in column order.
+
+    Raises:
+        ValueError: The fit left no weights, or ``config`` pairs a cardinality with
+            a solver that cannot enforce it.
+    """
+    model = build_mean_risk(config)
+    model.fit(returns)
+    if model.weights_ is None:  # set by the fit above; narrows the Optional array
+        raise ValueError(_NO_WEIGHTS)
+    return np.asarray(model.weights_, dtype=float)
+
+
+def _in_sample_portfolio(
+    returns: pd.DataFrame, weights: np.ndarray, config: MeanRiskConfig
+) -> Portfolio:
+    """The portfolio ``MeanRisk.predict`` would build for ``weights`` on ``returns``.
+
+    Built from the cleaned weights, so the metrics describe exactly what the caller
+    receives, with the costs and the risk-free rate the solver ran with.
+    """
+    return Portfolio(
+        X=returns,
+        weights=weights,
+        transaction_costs=config.transaction_costs,
+        management_fees=config.management_fees,
+        risk_free_rate=config.risk_free_rate,
+    )
+
+
 @tool_envelope
 def optimize_portfolio(
     session: Session,
@@ -262,52 +392,24 @@ def optimize_portfolio(
         sample for every asset), or a weight cap or floor the priced assets cannot
         satisfy.
     """
-    if not universe:
-        return err("empty universe")
-
-    frame, missing = load_price_frame(
-        session, asof, universe, base_currency=base_currency
+    panel = load_returns_panel(
+        session,
+        asof,
+        universe,
+        constraints=constraints,
+        base_currency=base_currency,
+        action="optimize",
     )
-    if frame.shape[1] == 0:
-        return err("no priced assets in universe")
-    if frame.shape[0] < 2:
-        return err("insufficient price history to optimize")
-
-    config = _resolve_config(constraints)
-    returns = cast("pd.DataFrame", prices_to_returns(frame))
-    # A column with no usable price vanishes from ``returns``; counting it as priced
-    # would loosen the bounds check and leave it in neither ``assets`` nor ``missing``.
-    missing = [*missing, *dropped_by_returns(frame, returns)]
-    if returns.shape[1] == 0:
-        return err("no priced assets in universe")
-    infeasible = _infeasible_bounds_error(config, returns.shape[1])
-    if infeasible is not None:
-        return err(infeasible)
-
-    if (reason := thin_sample_error(frame, returns, action="optimize")) is not None:
-        return err(reason)
-    periods = periods_per_year(returns.index)
-    if constraints and constraints.get(ANNUAL_RISK_FREE_RATE_KEY) is not None:
-        config = replace(
-            config,
-            risk_free_rate=per_period_rate(
-                float(constraints[ANNUAL_RISK_FREE_RATE_KEY]), periods
-            ),
-        )
-    config = _calibrate_risk_aversion(config, returns)
-    model = build_mean_risk(config)
-    model.fit(returns)
-    fitted = model.weights_
-    if fitted is None:  # set by the fit above; guard narrows the Optional array
-        return err("optimizer produced no weights")
-    # ``predict`` reads ``weights_``, so cleaning it first keeps the reported metrics
-    # consistent with the weights the caller receives.
-    model.weights_ = _clean_weights(np.asarray(fitted, dtype=float), config)
-    portfolio = model.predict(returns)
+    if isinstance(panel, str):
+        return err(panel)
+    returns = panel.returns
+    config = _calibrate_risk_aversion(panel.config, returns)
+    cleaned = _clean_weights(fit_mean_risk(returns, config), config)
+    portfolio = _in_sample_portfolio(returns, cleaned, config)
 
     assets = [str(col) for col in returns.columns]
-    weights = {a: float(w) for a, w in zip(assets, model.weights_, strict=True)}
-    metrics = annualized_metrics(portfolio, periods)
+    weights = dict(zip(assets, map(float, cleaned), strict=True))
+    metrics = annualized_metrics(portfolio, panel.periods)
 
     return ok(
         {
@@ -315,12 +417,18 @@ def optimize_portfolio(
             "metrics": metrics,
             "assets": assets,
             "n_observations": int(returns.shape[0]),
-            "missing": missing,
+            "missing": panel.missing,
             "risk_aversion": float(config.risk_aversion),
-            "periods_per_year": periods,
+            "periods_per_year": panel.periods,
             "risk_free_rate": float(config.risk_free_rate),
         }
     )
 
 
-__all__ = ["ANNUAL_RISK_FREE_RATE_KEY", "optimize_portfolio"]
+__all__ = [
+    "ANNUAL_RISK_FREE_RATE_KEY",
+    "ReturnsPanel",
+    "fit_mean_risk",
+    "load_returns_panel",
+    "optimize_portfolio",
+]

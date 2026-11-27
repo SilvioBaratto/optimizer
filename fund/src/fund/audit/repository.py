@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -25,6 +26,8 @@ from sqlalchemy.orm import Session
 
 from fund.audit.orders_repository import weights_hash
 
+logger = logging.getLogger(__name__)
+
 _T = TypeVar("_T")
 
 # Rows fetched per round trip when a caller streams a history and usually stops
@@ -38,6 +41,80 @@ RESUMABLE_RUN_STATUSES: tuple[str, ...] = ("paused", "responded")
 
 # Statuses a run may still be finalised from; every other status is terminal.
 _OPEN_RUN_STATUSES: tuple[str, ...] = ("pending", *RESUMABLE_RUN_STATUSES)
+
+_ALLOCATOR = "allocator"
+_COMPUTE_CANDIDATES_STEP = "compute_candidates"
+_OPTIMIZE_STEP = "optimize_portfolio"
+# The ``hitl_decision`` kinds a human writes on an allocator ``optimize_portfolio``
+# row: a candidate chosen from the set, or weights the adviser typed. The bound
+# optimizer's own rows carry no ``hitl_decision``.
+SELECT_CANDIDATE_DECISION = "select_candidate"
+EDIT_DECISION = "edit"
+_ADVISER_CHOICES = frozenset({SELECT_CANDIDATE_DECISION, EDIT_DECISION})
+
+
+def _canonical_payload(payload: Mapping[str, Any]) -> tuple[str, str]:
+    """``(json, sha256)`` of ``payload`` with sorted keys, the audited text form."""
+    text = json.dumps(payload, sort_keys=True, default=str)
+    return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _stored_candidate_set(row: AgentDecision) -> dict[str, Any] | None:
+    """``row``'s stored candidate set as a JSON object, or ``None`` with a warning.
+
+    A corrupt audit row must not read silently as a run that never computed a set,
+    so what was wrong with it is logged before the reader treats it as missing.
+    """
+    try:
+        payload = json.loads(row.llm_response or "")
+    except (ValueError, TypeError) as exc:
+        problem = type(exc).__name__
+    else:
+        if isinstance(payload, dict):
+            return payload
+        problem = f"not a JSON object but a {type(payload).__name__}"
+    logger.warning(
+        "run %s: candidate set at decision %d is unreadable (%s)",
+        row.run_id,
+        row.decision_index,
+        problem,
+    )
+    return None
+
+
+def _newest(decisions: Sequence[AgentDecision], step: str) -> AgentDecision | None:
+    matching = [
+        decision
+        for decision in decisions
+        if decision.agent == _ALLOCATOR and decision.step == step
+    ]
+    return max(matching, key=lambda decision: decision.decision_index, default=None)
+
+
+def current_adviser_choice(
+    decisions: Sequence[AgentDecision],
+) -> AgentDecision | None:
+    """The adviser's choice still in force among one run's ``decisions``, if any.
+
+    The newest allocator ``optimize_portfolio`` row counts only when a human made it
+    (a candidate selection or an edit) and no candidate set was computed after it: a
+    newer set supersedes every earlier choice, and a newer optimizer proposal is not
+    a choice at all.
+
+    Args:
+        decisions: The run's decision rows, in any order.
+
+    Returns:
+        That row, or ``None`` when no adviser choice is in force.
+    """
+    proposal = _newest(decisions, _OPTIMIZE_STEP)
+    if proposal is None:
+        return None
+    newest_set = _newest(decisions, _COMPUTE_CANDIDATES_STEP)
+    if newest_set is not None and newest_set.decision_index > proposal.decision_index:
+        return None
+    kind = (proposal.hitl_decision or {}).get("decision")
+    return proposal if kind in _ADVISER_CHOICES else None
 
 
 def run_age(run: AgentRun, *, now: datetime | None = None) -> timedelta:
@@ -288,6 +365,126 @@ class AgentRunRepository(RepositoryBase):
             return {}
         weights = payload.get("weights") or {}
         return {str(k): float(v) for k, v in weights.items()}
+
+    def append_candidate_set(
+        self,
+        run_id: uuid.UUID,
+        *,
+        constraint_set: dict[str, Any] | None,
+        payload: Mapping[str, Any],
+    ) -> AgentDecision:
+        """Record one candidate computation as the allocator's decision.
+
+        Args:
+            run_id: The run the set belongs to.
+            constraint_set: The client's mapped profile the set was computed under,
+                ``None`` when the run had none.
+            payload: The candidate set as JSON-safe data. It is stored with sorted
+                keys, so the row's hash equals the set's own digest.
+
+        Returns:
+            The appended ``agent="allocator"`` / ``step="compute_candidates"`` row.
+        """
+        text, digest = _canonical_payload(payload)
+        return self.append_decision(
+            run_id,
+            agent=_ALLOCATOR,
+            step=_COMPUTE_CANDIDATES_STEP,
+            constraint_set=constraint_set,
+            llm_response=text,
+            llm_response_hash=digest,
+        )
+
+    def latest_candidate_set(
+        self, run_id: uuid.UUID
+    ) -> tuple[int, dict[str, Any]] | None:
+        """The run's newest candidate set, as stored.
+
+        Returns:
+            ``(decision_index, payload)`` of the newest ``compute_candidates`` row, or
+            ``None`` when the run has none or its payload is not a JSON object (that
+            case is logged as a warning naming the run and the decision index).
+        """
+        stmt = (
+            select(AgentDecision)
+            .where(
+                AgentDecision.run_id == run_id,
+                AgentDecision.agent == _ALLOCATOR,
+                AgentDecision.step == _COMPUTE_CANDIDATES_STEP,
+            )
+            .order_by(AgentDecision.decision_index.desc())
+        )
+        row = self.session.execute(stmt).scalars().first()
+        if row is None or not row.llm_response:
+            return None
+        payload = _stored_candidate_set(row)
+        return None if payload is None else (row.decision_index, payload)
+
+    def append_candidate_selection(
+        self,
+        run_id: uuid.UUID,
+        *,
+        candidate_id: str,
+        candidate_set_hash: str,
+        weights: dict[str, float],
+        metrics: Mapping[str, Any],
+        settings: Mapping[str, Any],
+    ) -> AgentDecision:
+        """Record the adviser's choice of one candidate as the run's proposal.
+
+        Written as the allocator ``optimize_portfolio`` row the edit path also
+        writes, so every reader of a run's proposal (its weights, metrics and
+        optimizer config) reads the chosen candidate.
+
+        Args:
+            run_id: The run the choice belongs to.
+            candidate_id: The chosen candidate's id.
+            candidate_set_hash: The digest of the set it was chosen from.
+            weights: The chosen candidate's weights.
+            metrics: Its neutral measures.
+            settings: Its effective optimizer configuration.
+
+        Returns:
+            The appended row, its ``hitl_decision`` a ``select_candidate`` naming the
+            id and the set.
+        """
+        payload = {
+            "weights": weights,
+            "metrics": dict(metrics),
+            "optimizer_config": dict(settings),
+            "candidate_id": candidate_id,
+            "candidate_set_hash": candidate_set_hash,
+        }
+        text, digest = _canonical_payload(payload)
+        return self.append_decision(
+            run_id,
+            agent=_ALLOCATOR,
+            step=_OPTIMIZE_STEP,
+            llm_response=text,
+            llm_response_hash=digest,
+            hitl_decision={
+                "decision": SELECT_CANDIDATE_DECISION,
+                "candidate_id": candidate_id,
+                "candidate_set_hash": candidate_set_hash,
+            },
+        )
+
+    def latest_selected_weights(self, run_id: uuid.UUID) -> dict[str, float]:
+        """The weights of the adviser's choice still in force for the run.
+
+        See :func:`current_adviser_choice`: a candidate selection or an edit counts
+        only while no newer candidate set exists, and never an optimizer proposal.
+
+        Returns:
+            Ticker to weight, or ``{}`` when no adviser choice is in force.
+        """
+        stmt = select(AgentDecision).where(
+            AgentDecision.run_id == run_id,
+            AgentDecision.agent == _ALLOCATOR,
+            AgentDecision.step.in_((_OPTIMIZE_STEP, _COMPUTE_CANDIDATES_STEP)),
+        )
+        rows = list(self.session.execute(stmt).scalars())
+        return self.decode_weights(current_adviser_choice(rows))
 
     @staticmethod
     def weights_digest(weights: dict[str, float]) -> str:
@@ -719,8 +916,11 @@ class AgentRunRepository(RepositoryBase):
 
 
 __all__ = [
+    "EDIT_DECISION",
     "RESUMABLE_RUN_STATUSES",
+    "SELECT_CANDIDATE_DECISION",
     "AgentRunRepository",
     "RunNotOpenError",
+    "current_adviser_choice",
     "run_age",
 ]

@@ -37,7 +37,11 @@ The bound closures also carry the load-bearing invariant into the audit trail:
   set + the *effective* optimizer config actually applied + the optimizer's
   weights); ``risk_check`` appends the risk verdict on those weights; the PM-level
   ``place_orders`` is refused unless that verdict passed them, and appends the
-  executor's execution decision + HITL outcome.
+  executor's execution decision + HITL outcome;
+* the bound ``compute_candidates`` (built, but assigned to no role yet) refuses a
+  universe exactly as ``optimize_portfolio`` does, judges each of its four
+  candidates with the live check ``risk_check`` applies, and appends one
+  ``agent_decision`` (allocator, ``compute_candidates``) holding the whole set.
 
 The whole closure body degrades through :func:`~fund.tools._base.tool_envelope`,
 so a mis-resolved profile or a failed audit write returns ``{ok: false, error}``
@@ -82,6 +86,7 @@ if TYPE_CHECKING:
     from fund.config import FundConfig
     from fund.execution import ExecutionVenue
     from fund.schemas import ConstraintSet
+    from fund.schemas.candidates import CandidateSet, ConstraintCheck
     from fund.tools.eligibility import Eligibility
 
 # Canonical role → tool-name map. Keys are the ``skills.SKILLS_BY_AGENT`` role
@@ -259,6 +264,26 @@ def _instrument_breaches(
         cs,
         tickers,
         funds_by_look_through=judges_funds_by_look_through(ctx.eligible),
+    )
+
+
+def _mandate_breach_error(
+    ctx: RunContext, cs: ConstraintSet | None, universe: list[str]
+) -> ToolResult | None:
+    """An error envelope naming each name in ``universe`` the mandate forbids.
+
+    ``None`` without a constraint set or when nothing breaches. The weights tools
+    refuse such a universe outright rather than fit around it, so no weight on a
+    forbidden name is ever computed.
+    """
+    if cs is None:
+        return None
+    breaches = _instrument_breaches(ctx, cs, universe)
+    if not breaches:
+        return None
+    return err(
+        "universe breaches the client's mandate: "
+        f"{_describe_breaches(breaches)}; remove these names and retry"
     )
 
 
@@ -508,13 +533,8 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     if (bad := _ineligible(ctx, universe)) is not None:
         return bad
     cs = _resolve_constraint_set(ctx)
-    if cs is not None:
-        breaches = _instrument_breaches(ctx, cs, universe)
-        if breaches:
-            return err(
-                "universe breaches the client's mandate: "
-                f"{_describe_breaches(breaches)}; remove these names and retry"
-            )
+    if (refused := _mandate_breach_error(ctx, cs, universe)) is not None:
+        return refused
     constraints = _optimizer_constraints(cs) if cs is not None else None
     result = _tools.optimize_portfolio(
         ctx.session,
@@ -546,6 +566,81 @@ def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
             ctx.run_id, result["data"]["assets"]
         )
     return result
+
+
+def _current_holdings(ctx: RunContext) -> dict[str, float]:
+    """The book's current weights from the positions snapshot, turnover's basis."""
+    from fund.audit.positions_repository import PositionRepository
+
+    holdings = PositionRepository(ctx.session).get_holdings(ctx.portfolio_id)
+    return {position.ticker: float(position.weight) for position in holdings}
+
+
+def _live_check(ctx: RunContext, weights: dict[str, float]) -> ConstraintCheck:
+    """The risk gate's own verdict on ``weights``, as a candidate's check."""
+    from fund.tools.candidates import constraint_check_from
+
+    return constraint_check_from(_check_weights_impl(ctx, weights))
+
+
+def _checked_candidate_set(ctx: RunContext, raw: dict[str, Any]) -> CandidateSet:
+    """The computed set, each solved candidate judged by the live constraint check.
+
+    The pure tool checks the bounds only. Here every candidate with weights is judged
+    as the risk gate judges a proposal (bounds and position cap, ESG and K&E screens,
+    the eligible universe, the loss ceilings), so a candidate is feasible only when
+    its method solved and that verdict passed.
+    """
+    from fund.schemas.candidates import CandidateSet
+    from fund.tools.candidates import recheck_candidates
+
+    return recheck_candidates(
+        CandidateSet.model_validate(raw), lambda weights: _live_check(ctx, weights)
+    )
+
+
+def _record_candidate_set(
+    ctx: RunContext, cs: ConstraintSet | None, candidate_set: CandidateSet
+) -> None:
+    """Persist the set as the allocator's decision and record the fitted universe."""
+    from fund.audit import AgentRunRepository
+
+    repo = AgentRunRepository(ctx.session)
+    repo.append_candidate_set(
+        ctx.run_id,
+        constraint_set=cs.model_dump(mode="json") if cs is not None else None,
+        payload=candidate_set.model_dump(mode="json"),
+    )
+    # Every method fitted the set's universe; a requested ticker without prices is
+    # in ``missing`` and was never allocated.
+    repo.set_universe(ctx.run_id, candidate_set.universe)
+
+
+@tool_envelope
+@_serialised
+def _compute_candidates_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
+    from fund.tools.candidates import compute_candidates
+
+    # Before anything runs: a refused call must reach neither the candidate-set
+    # decision nor ``set_universe``.
+    if (bad := _ineligible(ctx, universe)) is not None:
+        return bad
+    cs = _resolve_constraint_set(ctx)
+    if (refused := _mandate_breach_error(ctx, cs, universe)) is not None:
+        return refused
+    result = compute_candidates(
+        ctx.session,
+        ctx.asof,
+        universe,
+        constraints=_optimizer_constraints(cs) if cs is not None else None,
+        current_weights=_current_holdings(ctx),
+        base_currency=ctx.base_currency,
+    )
+    if not result.get("ok"):
+        return result
+    candidate_set = _checked_candidate_set(ctx, result["data"])
+    _record_candidate_set(ctx, cs, candidate_set)
+    return ok(candidate_set.model_dump(mode="json"))
 
 
 def _audited_weights(ctx: RunContext) -> dict[str, float]:
@@ -991,6 +1086,28 @@ def _bind_optimize(ctx: RunContext) -> BaseTool:
     return optimize_portfolio
 
 
+def _bind_compute_candidates(ctx: RunContext) -> BaseTool:
+    from langchain_core.tools import tool
+
+    @tool
+    def compute_candidates(universe: list[str]) -> ToolResult:
+        """Compute four candidate portfolios for ``universe`` as of the run date:
+        hrp, mean_risk, min_risk and risk_parity, always in that alphabetical order,
+        which says nothing about them. skfolio computes every weight from the run's
+        risk profile; you never emit a weight and never choose a candidate, the
+        adviser does. Each candidate reports its annualised volatility, CVaR 95%,
+        largest position, number of positions, turnover from current holdings and
+        the constraint check; one that failed or breached a constraint is listed
+        with ``feasible`` false and its breaches. Fails, naming the offenders, if
+        ``universe`` holds a name the client's mandate forbids or a name outside the
+        portfolio's eligible universe; fails too if it is too small for the position
+        cap, has no priced name, or has too little common price history. Returns the
+        ``{ok, data}`` envelope with the candidate set."""
+        return _compute_candidates_impl(ctx, universe)
+
+    return compute_candidates
+
+
 def _bind_risk_check(ctx: RunContext) -> BaseTool:
     from langchain_core.tools import tool
 
@@ -1165,6 +1282,8 @@ _BUILDERS: dict[str, Any] = {
     "universe_filter": _bind_universe_filter,
     "estimate_moments": _bind_estimate_moments,
     "optimize_portfolio": _bind_optimize,
+    # Bound but assigned to no role yet, so no agent can call it.
+    "compute_candidates": _bind_compute_candidates,
     "risk_check": _bind_risk_check,
     "backtest": _bind_backtest,
     "place_orders": _bind_place_orders,
