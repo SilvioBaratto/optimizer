@@ -163,24 +163,32 @@ def _referenced_name(node: ast.AST) -> str | None:
     return None
 
 
+def _renamed_kind_imports(node: ast.ImportFrom) -> Iterator[str]:
+    # A renamed import would hide every later reference from the name match.
+    for alias in node.names:
+        if alias.name in _KIND_NAMES and alias.asname not in (None, alias.name):
+            yield f"{alias.name} as {alias.asname}"
+
+
+def _row_keywords(call: ast.Call) -> Iterator[str]:
+    for passed in call.keywords:
+        value = passed.value
+        if isinstance(value, ast.Constant) and (passed.arg, value.value) in (
+            _ROW_KEYWORDS
+        ):
+            yield f"{passed.arg}={value.value!r}"
+
+
 def _what_at(node: ast.AST, slots: set[int]) -> Iterator[str]:
     if isinstance(node, ast.ImportFrom):
-        # A renamed import would hide every later reference from the name match.
-        for alias in node.names:
-            if alias.name in _KIND_NAMES and alias.asname not in (None, alias.name):
-                yield f"{alias.name} as {alias.asname}"
+        yield from _renamed_kind_imports(node)
     elif _referenced_name(node) in _KIND_NAMES:
         yield str(_referenced_name(node))
     elif isinstance(node, ast.Constant) and node.value in _KIND_VALUES:
         if id(node) in slots:
             yield repr(node.value)
     elif isinstance(node, ast.Call):
-        for passed in node.keywords:
-            value = passed.value
-            if isinstance(value, ast.Constant) and (passed.arg, value.value) in (
-                _ROW_KEYWORDS
-            ):
-                yield f"{passed.arg}={value.value!r}"
+        yield from _row_keywords(node)
 
 
 def choice_sites(source: str, module: str) -> set[_Site]:
