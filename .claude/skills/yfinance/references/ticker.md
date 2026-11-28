@@ -45,7 +45,7 @@ ticker.get_dividends(period="max")   # method with params
 | `actions` | `get_actions(period)` | DataFrame | Dividends + splits + capital gains |
 | `capital_gains` | `get_capital_gains(period)` | Series | Capital-gains distributions (funds) |
 | `get_shares_full(start, end)` | — | DataFrame | Historical shares outstanding |
-| `isin` | `get_isin()` | str | ISIN identifier |
+| `isin` | `get_isin()` | str | ISIN identifier. **Caution**: `Ticker.isin` / `get_isin()` scrape a third-party site whose terms ban scrapers; this repo never calls them |
 | `options` | — | tuple | Available option expiry dates |
 | `option_chain(date)` | — | `Options` namedtuple | `.calls`, `.puts`, `.underlying` for one expiry |
 | `valuation` | `get_valuation_measures(freq='quarterly', periods=5)` | DataFrame | 9 valuation metrics × historical periods |

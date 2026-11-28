@@ -22,6 +22,9 @@ print(fi.previous_close)
 print(fi.currency)
 
 # ISIN identifier
+# Caution: `Ticker.isin` / `get_isin()` scrape a third-party site whose terms ban
+# scrapers; this repo never calls them (tests/test_no_ticker_isin_lookup.py fails on
+# it). Store an ISIN you already know: `portopt add-instrument <TICKER> --isin <ISIN>`.
 print(ticker.isin)  # e.g., "US0378331005"
 ```
 
