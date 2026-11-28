@@ -365,7 +365,11 @@ def test_resuming_a_run_that_never_reached_the_gate_is_refused(db_session):
     assert MifidProfileRepository(db_session).get_active(pid) is None
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_save_profile_tool_description_says_the_call_raises_the_gate(db_session):
+    """Validates fund.agents.profiler._make_save_profile: the ``save_profile``
+    description says the call itself pauses for the user's review and never tells
+    the model to wait for an approval first."""
     from fund.agents.profiler import _make_save_profile
 
     answers = make_answers()

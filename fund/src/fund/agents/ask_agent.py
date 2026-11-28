@@ -564,7 +564,7 @@ def make_list_portfolios_tool(ctx: AskToolContext) -> BaseTool:
 
     @tool
     def list_portfolios() -> str:
-        """List every portfolio id the fund manages."""
+        """List every portfolio id the tool tracks."""
         return ctx.read(
             lambda s: [
                 str(p)
@@ -669,7 +669,7 @@ def make_mandate_tool(ctx: AskToolContext) -> BaseTool:
 
     @tool
     def mandate(portfolio_id: str = "") -> str:
-        """Show a portfolio's mandate (limits, eligible tickers) and its warnings."""
+        """Show a portfolio's settings (limits, eligible tickers) and their warnings."""
 
         def work(session: Any) -> Any:
             """Read the mandate and its warnings for one resolved portfolio."""

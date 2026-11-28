@@ -33,7 +33,8 @@ from fund.config import settings
 from fund.tools.eligibility import Eligibility
 
 _RECOMMENDATION = re.compile(
-    r"recommend|best|prefer|suggest|optimal|ideal|winner|matching the (client|profile)",
+    r"recommend|best|prefer|suggest|optimal|ideal|winner"
+    r"|matching the (client|profile|user|inputs)",
     re.IGNORECASE,
 )
 _RUN_ROLES = ("orchestrator", "economist", "allocator", "risk", "executor")
@@ -110,7 +111,7 @@ def test_fund_run_text_has_no_recommendation_language() -> None:
     """Validates fund.agents.prompts, the role descriptions in fund.agents.graph, the
     run and respond instructions, the docstrings of every tool
     fund.agents.toolsets.bind_toolset binds and the role skills: none ranks a
-    candidate or calls one recommended, best, optimal or matching the client, and the
+    candidate or calls one recommended, best, optimal or matching the user, and the
     PM, allocator, risk and executor prompts and the ``place_orders`` tool tell the
     agents the user chooses while they never choose."""
     texts = _fund_run_text()

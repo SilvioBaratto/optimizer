@@ -88,7 +88,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
 
         with Vertical(classes="q-dialog"):
             yield Label("Optimisation inputs", classes="q-title")
-            # Only fields scroll: a short terminal can't push the buttons away.
+            # Only fields scroll, so the error line and buttons stay on a short screen.
             with VerticalScroll(classes="q-form"):
                 if self._ask_capital:
                     yield Input(placeholder="capital (e.g. 100000)", id="q-capital")

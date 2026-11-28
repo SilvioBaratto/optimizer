@@ -6,8 +6,8 @@ import package **`fund`** (src-layout). Fourth member of the `optimizer` uv work
 
 **Load-bearing principle: the optimizer computes candidate portfolios; you choose;
 paper tickets only.** Agents emit only structured inputs and enums (constraint sets,
-view sets, allocation decisions) — never portfolio weights, and never a choice
-between candidates. Weights come from `optimizer` (skfolio), run deterministically
+view sets, allocation records (`AllocDecision`, no weights)) — never portfolio
+weights, and never a choice between candidates. Weights come from `optimizer` (skfolio), run deterministically
 inside `@tool` functions; orders are simulated paper tickets and nothing is sent to a
 broker.
 

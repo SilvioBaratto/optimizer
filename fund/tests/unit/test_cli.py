@@ -83,7 +83,8 @@ _OTHER_THAN_MEAN_RISK = tuple(cid for cid in CANDIDATE_IDS if cid != MEAN_RISK)
 _REPORT_CANDIDATES_HEADING = "candidates (listed by id; you choose):"
 # The same words the fund-run language guard refuses: the report must not rank either.
 _RECOMMENDATION = re.compile(
-    r"recommend|best|prefer|suggest|optimal|ideal|winner|matching the (client|profile)",
+    r"recommend|best|prefer|suggest|optimal|ideal|winner"
+    r"|matching the (client|profile|user|inputs)",
     re.IGNORECASE,
 )
 

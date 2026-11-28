@@ -4,13 +4,21 @@ The fund computes candidate portfolios that the person running it reviews and
 approves themselves, on paper. Nothing it shows that person, nor anything its agents
 read, may present it as a suitability assessment, an investment adviser, a fund
 manager or an agent that chooses the portfolio, and the person is "you" or "the user",
-never "the adviser". Identifiers, stored data, CLI flags and developer docstrings keep
-their names, so the scans below read only the text a person or an agent sees.
+never "the adviser". Identifiers, stored data and CLI flags keep their names.
+
+The phrase scan reads raw source on purpose (comments, docstrings and CLAUDE.md
+included), so an old phrase cannot survive anywhere. The adviser scan reads only the
+text a person or an agent sees: non-docstring string literals, ``@tool`` docstrings,
+the bound tool descriptions, the skills and the READMEs. The model-facing scan adds the
+schemas the agents are bound to. No exception exists today; when the first genuine
+quotation needs one, it is added with its reason.
 """
 
 from __future__ import annotations
 
 import ast
+import functools
+import json
 import re
 import uuid
 from collections.abc import Iterator
@@ -18,7 +26,9 @@ from pathlib import Path
 
 import pytest
 from _fund_fakes import ASOF, PORTFOLIO_ID
+from langchain_core.utils.function_calling import convert_to_openai_tool
 
+from fund import schemas
 from fund.agents.ask_agent import build_ask_tools
 from fund.agents.toolsets import TOOLS_BY_AGENT, RunContext, bind_toolset
 from fund.config import settings
@@ -41,8 +51,12 @@ _OLD_PHRASES = (
     "the LLM chooses, the optimizer computes",
 )
 _ADVISER = re.compile(r"\badvisers?\b", re.IGNORECASE)
-# Each entry quotes the exact text that may keep the word, with the reason it does.
-_ADVISER_ALLOWED: dict[str, str] = {}
+# Word boundaries keep identifiers such as ``mandate_excluded`` and ``MiFIDAnswers``
+# out of the match: only the prose words are the old framing.
+_OLD_TERMS = re.compile(
+    r"\b(advisers?|clients?|suitability|esma|pillars?|mandates?|guardrails?|mifid)\b",
+    re.IGNORECASE,
+)
 _WHITESPACE = re.compile(r"\s+")
 
 
@@ -73,7 +87,7 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
     return found
 
 
-def _string_literals(path: Path, *, docstrings: bool) -> Iterator[tuple[int, str]]:
+def _string_literals(path: Path, *, docstrings: bool) -> Iterator[tuple[int, int, str]]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     skipped = set() if docstrings else _docstring_nodes(tree)
     for node in ast.walk(tree):
@@ -82,7 +96,15 @@ def _string_literals(path: Path, *, docstrings: bool) -> Iterator[tuple[int, str
             and isinstance(node.value, str)
             and id(node) not in skipped
         ):
-            yield node.lineno, node.value
+            yield node.lineno, node.col_offset, node.value
+
+
+def _visible_literals(path: Path, label: str) -> dict[str, str]:
+    # Keyed by line and column: two literals on one line must both be scanned.
+    return {
+        f"{label}:{line}:{col}": text
+        for line, col, text in _string_literals(path, docstrings=False)
+    }
 
 
 def _python_sources() -> list[Path]:
@@ -93,6 +115,7 @@ def _markdown_sources() -> list[Path]:
     return [*sorted(_SKILLS.rglob("*.md")), *_READMES]
 
 
+@functools.cache
 def _phrase_haystacks() -> dict[str, str]:
     # Raw text finds a phrase in a comment or across a wrapped line; the parsed
     # literals find one split over implicitly concatenated string parts.
@@ -101,7 +124,7 @@ def _phrase_haystacks() -> dict[str, str]:
             "\n".join(
                 [
                     path.read_text(encoding="utf-8"),
-                    *(text for _, text in _string_literals(path, docstrings=True)),
+                    *(text for *_, text in _string_literals(path, docstrings=True)),
                 ]
             )
         )
@@ -130,19 +153,50 @@ def _tool_descriptions() -> dict[str, str]:
         saver=None,
         focus=None,
     )
-    return {f"tool {tool.name}": tool.description for tool in (*run_tools, *ask_tools)}
+    return {
+        f"tool {tool.name}": f"{tool.description}\n{json.dumps(tool.args)}"
+        for tool in (*run_tools, *ask_tools)
+    }
+
+
+def _structured_call_schema_names() -> set[str]:
+    names: set[str] = set()
+    for path in _python_sources():
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            func = node.func if isinstance(node, ast.Call) else None
+            called = getattr(func, "id", None) or getattr(func, "attr", None)
+            if called == "structured_call" and len(node.args) >= 2:
+                schema = node.args[1]
+                if isinstance(schema, ast.Name):
+                    names.add(schema.id)
+    return names
+
+
+def _structured_output_schemas() -> dict[str, str]:
+    # ``structured_call`` binds with ``method="function_calling"``, so each model's
+    # class docstrings and field descriptions reach the LLM as the tool schema.
+    return {
+        f"schema {name}": json.dumps(convert_to_openai_tool(getattr(schemas, name)))
+        for name in sorted(_structured_call_schema_names())
+    }
 
 
 def _user_visible_texts() -> dict[str, str]:
-    texts = {
-        f"{path.relative_to(_REPO)}:{line}": text
-        for path in _python_sources()
-        for line, text in _string_literals(path, docstrings=False)
-    }
+    texts: dict[str, str] = {}
+    for path in _python_sources():
+        texts.update(_visible_literals(path, str(path.relative_to(_REPO))))
     texts.update(_tool_descriptions())
     for path in _markdown_sources():
         texts[str(path.relative_to(_REPO))] = path.read_text(encoding="utf-8")
     return texts
+
+
+def _hits(pattern: re.Pattern[str], texts: dict[str, str]) -> dict[str, list[str]]:
+    return {
+        source: sorted({match.group(0).lower() for match in pattern.finditer(text)})
+        for source, text in texts.items()
+        if pattern.search(text)
+    }
 
 
 @pytest.mark.criterion("REQ-FUND-052")
@@ -162,15 +216,34 @@ def test_old_user_visible_phrases_are_gone(phrase: str) -> None:
 @pytest.mark.criterion("REQ-FUND-052")
 def test_user_visible_text_never_calls_the_user_an_adviser() -> None:
     """Validates every non-docstring string literal under fund/src/fund, the
-    docstring of every ``@tool`` there and the descriptions of the tools
-    fund.agents.toolsets.bind_toolset and fund.agents.ask_agent.build_ask_tools
-    bind, the skills, README.md and
-    fund/README.md: the person running the tool is never called an adviser, outside
-    the quoted exceptions in ``_ADVISER_ALLOWED``."""
-    hits = {
-        source: sorted({match.group(0).lower() for match in _ADVISER.finditer(text)})
-        for source, text in _user_visible_texts().items()
-        if _ADVISER.search(text)
-        and not any(quote in text for quote in _ADVISER_ALLOWED)
-    }
-    assert hits == {}
+    docstring of every ``@tool`` there, the descriptions of the tools
+    fund.agents.toolsets.bind_toolset and fund.agents.ask_agent.build_ask_tools bind,
+    the skills, README.md and fund/README.md: the person running the tool is never
+    called an adviser."""
+    assert _hits(_ADVISER, _user_visible_texts()) == {}
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+def test_two_adviser_literals_on_one_line_are_both_found(tmp_path: Path) -> None:
+    """Validates the literal scan behind
+    test_user_visible_text_never_calls_the_user_an_adviser: literals sharing a line
+    are kept apart, so neither can hide the other."""
+    source = tmp_path / "two_on_a_line.py"
+    source.write_text('PAIR = ("the adviser", "an adviser")\n', encoding="utf-8")
+
+    hits = _hits(_ADVISER, _visible_literals(source, "synthetic"))
+
+    assert set(hits) == {"synthetic:1:8", "synthetic:1:23"}
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+def test_model_facing_schemas_and_tool_descriptions_drop_the_old_framing() -> None:
+    """Validates the descriptions and argument schemas of every tool
+    fund.agents.toolsets.bind_toolset and fund.agents.ask_agent.build_ask_tools bind,
+    and the JSON schema of every model passed to fund.schemas.structured_call (the
+    profiler's ``MiFIDAnswers``): none says adviser, client, suitability, ESMA,
+    pillar, mandate, guardrail or MiFID as prose."""
+    schema_texts = _structured_output_schemas()
+    assert "schema MiFIDAnswers" in schema_texts
+
+    assert _hits(_OLD_TERMS, {**_tool_descriptions(), **schema_texts}) == {}

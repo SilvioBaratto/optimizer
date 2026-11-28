@@ -187,10 +187,10 @@ def test_risk_prompt_says_the_check_reads_a_candidate_and_records_nothing():
 
 @pytest.mark.criterion("REQ-FUND-052")
 def test_pm_prompt_explains_how_to_read_a_user_directive():
-    # A ``respond`` barge-in reaches the PM as the ``place_orders`` tool result; the
-    # prompt must say that is a steer, not a placed order, and what to do with it.
-    """Validates fund.agents.prompts.PM_SYSTEM_PROMPT: a ``USER DIRECTIVE`` result
-    means ``place_orders`` was not executed, and the PM gates again."""
+    """Validates fund.agents.prompts.PM_SYSTEM_PROMPT: a ``respond`` barge-in reaches
+    the PM as the ``place_orders`` tool result opening ``USER DIRECTIVE``, so the
+    prompt must say that is a steer, not a placed order: ``place_orders`` was not
+    executed, and the PM gates again."""
     lower = " ".join(PM_SYSTEM_PROMPT.lower().replace("`", "").split())
     assert "user directive" in lower
     assert "not executed" in lower

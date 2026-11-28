@@ -112,7 +112,7 @@ class MiFIDQuestion(BaseModel):
 
 
 class KnowledgeAnswers(BaseModel):
-    """Pillar 1 — knowledge & experience. Low ``level`` (``none`` / ``basic``)
+    """Input section 1 — knowledge & experience. Low ``level`` (``none`` / ``basic``)
     drives the ``UniverseFilters`` restrictions the fund toolsets enforce."""
 
     model_config = _ANSWERS_CONFIG
@@ -126,9 +126,9 @@ class KnowledgeAnswers(BaseModel):
 
 
 class CapacityAnswers(BaseModel):
-    """Pillar 2 — financial situation / loss capacity (attitude-independent).
+    """Input section 2 — financial situation / loss capacity (attitude-independent).
 
-    ``max_1yr_loss_pct`` is the largest one-year loss the client can absorb as a
+    ``max_1yr_loss_pct`` is the largest one-year loss the user can absorb as a
     fraction of the invested capital; ``buffer_months`` is the emergency cash
     buffer (months of essential expenses) held **outside** this portfolio. Both
     feed ``_appetite_from_capacity`` (SPEC §8.2) — never fused with tolerance.
@@ -154,7 +154,7 @@ class CapacityAnswers(BaseModel):
 
 
 class ObjectivesAnswers(BaseModel):
-    """Pillar 3 — investment objectives, horizon, and attitudinal risk tolerance.
+    """Input section 3 — investment objectives, horizon, attitudinal risk tolerance.
 
     ``likert_items`` are the attitudinal risk-tolerance responses (the appetite
     driver); ``loss_reaction`` is the reaction to an extreme drawdown scenario
@@ -192,11 +192,11 @@ class ObjectivesAnswers(BaseModel):
 
 
 class EsgAnswers(BaseModel):
-    """Pillar 4 — ESG preferences. ``exclusions`` are GICS sectors the client
-    refuses to hold; the profiler turns them into a HARD ``EsgPolicy`` block.
+    """Input section 4 — ESG preferences. ``exclusions`` are GICS sectors the user
+    wants excluded; the profiler turns them into a HARD ``EsgPolicy`` block.
     ``exclusions`` has no default: "no preference" is an explicit empty tuple, so an
     omitted answer cannot pass as one. ``other_preferences`` keeps the stated
-    preferences no sector expresses so the adviser sees them.
+    preferences no sector expresses so the user sees them.
 
     ``look_through_tolerance`` is how much of a *fund* may sit in an excluded sector.
     A fund has no single sector, so without a stated share the only fund screen is
@@ -234,14 +234,14 @@ class EsgAnswers(BaseModel):
 
 
 class MiFIDAnswers(BaseModel):
-    """The four ESMA pillars a suitability assessment consumes.
+    """The user's optimisation inputs: the four input sections the limits derive from.
 
-    ``base_currency`` is the client's reporting currency (ISO-4217 alpha).
+    ``base_currency`` is the user's reporting currency (ISO-4217 alpha).
     The ``portfolio_id`` is **not** carried here — it is a persistence concern
     supplied to ``build_constraint_set`` / ``run_profiler`` at mapping time.
 
-    ``unanswered`` names the data the client text did not state; the values filled in
-    for them are placeholders, not client answers, and the profiler flags each one at
+    ``unanswered`` names the data the user's text did not state; the values filled in
+    for them are placeholders, not the user's answers, and the profiler flags each at
     the HITL gate. It defaults to empty so a fully-answered form, the TUI form path and
     records persisted before the field existed all validate unchanged.
     """

@@ -1391,12 +1391,14 @@ def test_bound_place_orders_appends_executor_decision(db_session) -> None:
     assert decision.hitl_decision == {"decision": "approve"}
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_place_orders_description_says_the_call_itself_awaits_approval(
     db_session,
 ) -> None:
-    """The HITL gate pauses at the ``place_orders`` call, so the model-facing text
-    must not tell the model to wait for approval before calling it (a model that
-    does ends the run with no ticket)."""
+    """Validates fund.agents.toolsets._bind_place_orders: the HITL gate pauses at the
+    ``place_orders`` call, so the model-facing text must not tell the model to wait
+    for approval before calling it (a model that does ends the run with no ticket),
+    and it names the user as the one who chooses."""
     place = _find(
         bind_toolset("orchestrator", _make_context(db_session)), "place_orders"
     )
@@ -2178,7 +2180,10 @@ def test_parallel_optimize_calls_each_append_one_distinct_decision(
     assert sorted(indexes) == [0, 1]
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_place_orders_takes_no_model_supplied_weights(db_session) -> None:
+    """Validates fund.agents.toolsets._bind_place_orders: the tool takes no weights,
+    and its description never says to call it after an approval."""
     ctx = _make_context(db_session)
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
