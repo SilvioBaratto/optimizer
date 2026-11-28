@@ -37,7 +37,7 @@ dependencies = [
     # on another package happening to pull them in.
     "certifi==2026.11.20",
     "urllib3==2.8.0",
-    "python-dateutil==2.9.0.post0",
+    "python-dateutil==4.0.0",
     # Scheduling
     "APScheduler==3.11.3",
     # Monitoring
