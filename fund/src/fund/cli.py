@@ -63,7 +63,7 @@ from fund.audit import (
 from fund.audit.orders_repository import weights_hash
 from fund.config import settings, silence_http_request_logs
 from fund.database import get_session
-from fund.schemas.candidates import CANDIDATE_IDS
+from fund.schemas.candidates import CANDIDATE_IDS, Candidate, ConstraintCheck
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
 logger = logging.getLogger(__name__)
@@ -667,9 +667,104 @@ def _run_ticket(session: Any, run: AgentRun) -> PaperOrder | None:
     )
 
 
+def _report_metric_lines(run: AgentRun) -> list[str]:
+    """The ``metrics:`` line of the run's own adviser choice, or nothing."""
+    metrics = observe.run_metrics(run)
+    if not metrics:
+        return []
+    return ["metrics: " + ", ".join(f"{k}={v:.4f}" for k, v in sorted(metrics.items()))]
+
+
+# The candidate measures in the order every row prints them.
+_CANDIDATE_MEASURES = (
+    "annualized_volatility",
+    "cvar_95",
+    "largest_position",
+    "n_positions",
+    "turnover",
+)
+_NO_VALUE = "—"
+
+
+def _report_candidate_lines(session: Any, run: AgentRun) -> list[str]:
+    """The run's candidate set as report lines, then the adviser's choice.
+
+    One row per candidate in the id order the set holds, never re-sorted, each with
+    the same columns: id, label, feasibility or its breaches, the five neutral
+    measures and the constraint check. The choice line follows only once the adviser
+    has chosen; nothing is listed for a run without a set (a profile run).
+
+    Args:
+        session: A read-only session.
+        run: The run being reported, with its ``decisions`` loaded.
+
+    Returns:
+        The heading, the rows and, when a choice is in force, the choice line.
+    """
+    candidate_set = observe.candidate_set(session, run.id)
+    if candidate_set is None:
+        return []
+    lines = ["candidates (listed by id; the adviser chooses):"]
+    lines.extend(_candidate_line(candidate) for candidate in candidate_set.candidates)
+    choice = _adviser_choice(run)
+    if choice is not None:
+        lines.append(f"chosen by the adviser: {choice}")
+    return lines
+
+
+def _candidate_line(candidate: Candidate) -> str:
+    """One report row for ``candidate``; a dash stands for a measure it lacks."""
+    from fund.agents.toolsets import describe_breaches
+
+    status = (
+        "feasible"
+        if candidate.feasible
+        else f"infeasible: {describe_breaches(list(candidate.breaches))}"
+    )
+    values = candidate.metrics.model_dump() if candidate.metrics else {}
+    measures = "  ".join(
+        f"{name}={_measure(values.get(name))}" for name in _CANDIDATE_MEASURES
+    )
+    return (
+        f"  {candidate.candidate_id}  {candidate.label}  {status}  {measures}  "
+        f"check={_check_verdict(candidate.constraint_check)}"
+    )
+
+
+def _measure(value: float | int | None) -> str:
+    if value is None:
+        return _NO_VALUE
+    return str(value) if isinstance(value, int) else f"{value:.4f}"
+
+
+def _check_verdict(check: ConstraintCheck | None) -> str:
+    if check is None:
+        return _NO_VALUE
+    if check.passed:
+        return "passed"
+    return f"failed ({len(check.violations)} violations)"
+
+
+def _adviser_choice(run: AgentRun) -> str | None:
+    """The candidate the adviser chose, ``edited weights`` for an edit, or ``None``."""
+    from fund.audit.repository import EDIT_DECISION, current_adviser_choice
+
+    choice = current_adviser_choice(list(run.decisions))
+    if choice is None:
+        return None
+    hitl = choice.hitl_decision or {}
+    if hitl.get("decision") == EDIT_DECISION:
+        return "edited weights (no candidate)"
+    return observe.selected_candidate_id(run)
+
+
 @app.command()
 def report(run_id: str = typer.Argument(..., help="Run UUID.")) -> None:
-    """Tabular audit of one run: mandate, weights, metrics, ticket, decisions."""
+    """Tabular audit of one run: mandate, weights, candidates, ticket, decisions.
+
+    The candidates are listed by id with neutral measures, followed by the one the
+    adviser chose once a choice exists.
+    """
     _boot()
     rid = _uuid(run_id, label="run id")
     lines: list[str] = []
@@ -693,12 +788,8 @@ def report(run_id: str = typer.Argument(..., help="Run UUID.")) -> None:
                     f"current mandate: capital={mandate.capital} "
                     f"{mandate.base_currency} drift={mandate.drift_l1_threshold}"
                 )
-            metrics = observe.run_metrics(run)
-            if metrics:
-                lines.append(
-                    "metrics: "
-                    + ", ".join(f"{k}={v:.4f}" for k, v in sorted(metrics.items()))
-                )
+            lines.extend(_report_metric_lines(run))
+            lines.extend(_report_candidate_lines(session, run))
             ticket = _run_ticket(session, run)
             if ticket is not None:
                 lines.append(

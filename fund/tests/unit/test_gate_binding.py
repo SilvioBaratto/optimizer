@@ -13,12 +13,12 @@ import pytest
 from _fund_fakes import MEAN_RISK, PORTFOLIO_ID, make_mandate
 from _gate_env import make_gate_env
 from test_gate_resolution_key import _remove_bars_after_asof
-from textual.widgets import ContentSwitcher
+from textual.widgets import Button, ContentSwitcher
 
 from fund import observe
 from fund.actions import GateMovedError, apply_action, resolution_key
 from fund.audit import AgentRunRepository, HumanAuditLogRepository, MandateRepository
-from fund.tui.app import ShellApp
+from fund.tui.app import ConfirmScreen, ShellApp
 from fund.tui.views import DecisionsView
 
 
@@ -132,11 +132,13 @@ async def test_the_decisions_view_remembers_the_gate_it_rendered(env) -> None:
         assert decisions.rendered_gate_id is not None
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 @pytest.mark.asyncio
 async def test_an_approve_after_the_run_moved_to_another_gate_is_not_sent(
     env, regating_run
 ) -> None:
-    """Pressing approve on a stale view reports the move and resolves nothing."""
+    """Validates fund.tui._mixins.decisions.DecisionsMixin._approve_candidate:
+    confirming an approve on a stale view reports the move and resolves nothing."""
     app = _shell(env)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
@@ -147,11 +149,16 @@ async def test_an_approve_after_the_run_moved_to_another_gate_is_not_sent(
         decisions.select_run(env.run_id)
         await pilot.pause()
         shown = decisions.rendered_gate_id
+        assert decisions.select_candidate(MEAN_RISK)
 
         _regate(env)  # another process re-gates the run; this view is not repainted
         assert _live_gate(env) != shown
 
         app._decide("approve")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        app.screen.query_one("#confirm-yes", Button).press()
+        await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
 

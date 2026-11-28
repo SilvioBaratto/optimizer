@@ -26,6 +26,7 @@ from _fund_fakes import (
     make_constraint_set,
     make_energy_exclusion_constraint_set,
     make_mandate,
+    mark_candidates_infeasible,
     seed_panel,
 )
 from langchain_core.messages import AIMessage, BaseMessage
@@ -36,7 +37,6 @@ from portopt_db.models import AgentDecision, HumanAuditLog, PaperOrder
 import fund.tools as fund_tools
 from fund import observe
 from fund.actions import apply_action
-from fund.agents import toolsets
 from fund.agents.graph import FundRun, resume_fund, resume_run, run_fund
 from fund.agents.graph_assembly import _general_purpose_subagent
 from fund.agents.graph_stream import _UNGATED_END_TEXT
@@ -49,7 +49,7 @@ from fund.agents.toolsets import (
 from fund.audit import AgentRunRepository, put_constraint_set
 from fund.audit.orders_repository import weights_hash
 from fund.config import settings
-from fund.schemas.candidates import CANDIDATE_IDS, Candidate, CandidateSet
+from fund.schemas.candidates import CANDIDATE_IDS, Candidate
 
 # The gate shows these fields of every candidate, in id order.
 _GATE_FIELDS = frozenset(
@@ -67,7 +67,6 @@ _UNKNOWN_CANDIDATE = "max_sharpe"
 _MARKED_INFEASIBLE = "hrp"
 _RETRY_CANDIDATE = "min_risk"
 _AFTER_RESPOND_CANDIDATE = "hrp"
-_TEST_BREACH = {"type": "test_breach", "reason": "marked infeasible by the test"}
 _DIRECTIVE = "re-run the allocator with the same universe"
 # A long-only edit the fixture's mandate admits: fully invested, no position over
 # the default cap, and the oscillating panel keeps its one-year loss well inside nu2.
@@ -165,32 +164,6 @@ def _candidate(db_session, run_id, candidate_id: str) -> Candidate:
 def _only_order(db_session) -> PaperOrder:
     (order,) = db_session.query(PaperOrder).all()
     return order
-
-
-def _marked_infeasible(candidate: Candidate) -> Candidate:
-    return Candidate.model_validate(
-        {**candidate.model_dump(), "feasible": False, "breaches": [_TEST_BREACH]}
-    )
-
-
-def _mark_infeasible(monkeypatch: pytest.MonkeyPatch, *candidate_ids: str) -> None:
-    """Make the bound candidates tool report ``candidate_ids`` as infeasible."""
-    real = toolsets._checked_candidate_set
-
-    def checked(ctx: RunContext, raw: dict[str, Any]) -> CandidateSet:
-        """The live-checked set with ``candidate_ids`` marked infeasible."""
-        candidate_set = real(ctx, raw)
-        candidates = [
-            _marked_infeasible(candidate)
-            if candidate.candidate_id in candidate_ids
-            else candidate
-            for candidate in candidate_set.candidates
-        ]
-        return CandidateSet.model_validate(
-            {**candidate_set.model_dump(), "candidates": candidates}
-        )
-
-    monkeypatch.setattr(toolsets, "_checked_candidate_set", checked)
 
 
 class _AllocatorSkipsCandidatesModel(ScriptedFundModel):
@@ -302,7 +275,7 @@ def test_round_with_no_feasible_candidate_ends_incomplete_without_a_gate(
     only reject."""
     seed_panel(db_session)
     if scenario == "none_feasible":
-        _mark_infeasible(monkeypatch, *CANDIDATE_IDS)
+        mark_candidates_infeasible(monkeypatch, *CANDIDATE_IDS)
     model_type = (
         _AllocatorSkipsCandidatesModel if scenario == "no_set" else ScriptedFundModel
     )
@@ -370,7 +343,7 @@ def test_approve_with_an_unknown_or_infeasible_candidate_is_refused(
     """Validates fund.agents.graph_candidates.resolve_approval: an approve naming an
     id outside the set, or a candidate the set marks infeasible, is refused naming
     it, and nothing is written."""
-    _mark_infeasible(monkeypatch, _MARKED_INFEASIBLE)
+    mark_candidates_infeasible(monkeypatch, _MARKED_INFEASIBLE)
     saver, store = MemorySaver(), _store_with_cs()
     run = _paused_run(db_session, saver, store)
     before = _snapshot(db_session, run.run_id)
@@ -766,7 +739,7 @@ def test_a_regate_after_an_approved_extra_gate_with_nothing_to_choose_ends_incom
             lambda *_a, **_k: {"ok": False, "error": "solver unavailable"},
         )
     else:
-        _mark_infeasible(monkeypatch, *CANDIDATE_IDS)
+        mark_candidates_infeasible(monkeypatch, *CANDIDATE_IDS)
 
     _approve(db_session, saver, store, run.run_id)
 
@@ -794,7 +767,7 @@ def test_a_regate_after_a_refused_placement_with_nothing_feasible_ends_incomplet
     run = _paused_run(db_session, saver, store)
     monkeypatch.setattr(graph_mod, "_require_fill_bars", lambda *_a, **_k: None)
     _drop_bars_after_asof(db_session)
-    _mark_infeasible(monkeypatch, *CANDIDATE_IDS)
+    mark_candidates_infeasible(monkeypatch, *CANDIDATE_IDS)
 
     _resume(
         db_session,

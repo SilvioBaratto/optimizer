@@ -614,6 +614,46 @@ def audit_adviser_choice(
     )
 
 
+MARKED_INFEASIBLE_BREACH = {
+    "type": "test_breach",
+    "reason": "marked infeasible by the test",
+}
+
+
+def mark_candidates_infeasible(monkeypatch: Any, *candidate_ids: str) -> None:
+    """Make the bound candidates tool report ``candidate_ids`` as infeasible.
+
+    Each named candidate keeps its weights and measures but carries
+    :data:`MARKED_INFEASIBLE_BREACH`, as a method that solved and then breached a
+    constraint would.
+    """
+    from fund.agents import toolsets
+    from fund.schemas.candidates import Candidate, CandidateSet
+
+    real = toolsets._checked_candidate_set
+
+    def checked(ctx: Any, raw: dict[str, Any]) -> CandidateSet:
+        """The live-checked set with ``candidate_ids`` marked infeasible."""
+        candidate_set = real(ctx, raw)
+        candidates = [
+            Candidate.model_validate(
+                {
+                    **candidate.model_dump(),
+                    "feasible": False,
+                    "breaches": [MARKED_INFEASIBLE_BREACH],
+                }
+            )
+            if candidate.candidate_id in candidate_ids
+            else candidate
+            for candidate in candidate_set.candidates
+        ]
+        return CandidateSet.model_validate(
+            {**candidate_set.model_dump(), "candidates": candidates}
+        )
+
+    monkeypatch.setattr(toolsets, "_checked_candidate_set", checked)
+
+
 def _set_digest(payload: dict[str, Any]) -> str:
     from fund.schemas.candidates import CandidateSet
 

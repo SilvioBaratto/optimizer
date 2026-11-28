@@ -365,9 +365,9 @@ a provider's SDK with the matching extra (`uv sync --package portopt-fund
 | `fund profile <portfolio_id>` | Build/refresh an investor profile from a questionnaire |
 | `fund mandate set <portfolio_id>` / `fund mandate show <portfolio_id>` | Write or display a portfolio's mandate (capital, base currency, drift threshold, benchmark, eligible tickers via repeatable `--eligible` / `--clear-eligible`) |
 | `fund run <portfolio_id> --asof <date>` | Run a decision round for a rebalance bar |
-| `fund approve <run_id>` / `fund reject <run_id>` | Resolve a paused (human-in-the-loop) run |
+| `fund approve <run_id> --candidate <id>` / `fund reject <run_id>` | Resolve a paused (human-in-the-loop) run; a rebalance gate is approved by naming one of its candidates, a profile gate without `--candidate` |
 | `fund status [portfolio_id]` | Show the paused-run queue |
-| `fund report <run_id>` | Tabular audit of one run |
+| `fund report <run_id>` | Tabular audit of one run, with its candidates and the one the adviser chose |
 | `fund nav-mark [--rebuild]` | Mark every active mandate's NAV now (the daily step, run by hand) |
 
 Two more entry points ship with it:
@@ -379,10 +379,38 @@ Two more entry points ship with it:
   at fresh closes.
 - **`fund-tui`** — a Textual oversight cockpit with eight views (Posture,
   Deliberation, Decisions, Mandate, Audit, Performance, Ask, Daily brief). Every
-  action it takes (approve, reject, freeze, mandate edits) goes through a confirm
-  and lands in the audit log; **Ask** answers questions about the fund in plain
+  action it takes (approve, reject, freeze, mandate edits) lands in the audit log;
+  approving a rebalance gate's candidate, a killswitch, a re-arm and every action
+  typed in Ask ask for a confirm first. **Ask** answers questions about the fund in plain
   language by reading its data, docs and source (read-only), keeps a saved
   conversation per portfolio, and `/clear` deletes it. Press `?` for the key map.
+
+#### Choosing a candidate at the rebalance gate
+
+A rebalance round computes four candidate portfolios over the same eligible universe,
+constraints and ESG exclusions: `hrp` (hierarchical risk parity), `mean_risk` (a
+mean-risk optimisation, labelled by its objective and risk measure), `min_risk` (minimum
+variance) and `risk_parity` (equal risk contribution). They are always listed in that
+id order, each with the same measures: annualised volatility, CVaR 95%, largest
+position, number of positions, turnover from current holdings and the constraint check.
+A candidate that fails or breaches a constraint is shown as infeasible with its
+breaches. The agents present and compare the candidates and never choose one; there is
+no default.
+
+The adviser chooses at the `place_orders` gate, and paper orders are placed from the
+chosen candidate's weights only:
+
+```bash
+fund report <run_id>                           # the candidates, by id, with their measures
+fund approve <run_id> --candidate min_risk     # approve that candidate
+fund reject <run_id>                           # or place nothing
+```
+
+An approve without `--candidate`, or with an unknown or infeasible id, is refused and
+the gate stays open. In `fund-tui` the Decisions view lists the candidates in a table:
+select a feasible row (`↵`), press `a`, and accept the confirm that names the candidate,
+its weights and its measures. Ask does not approve a rebalance gate; it points to
+Decisions.
 
 #### Restricting a portfolio to a set of instruments
 

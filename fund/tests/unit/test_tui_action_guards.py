@@ -11,8 +11,8 @@ from _fund_fakes import PORTFOLIO_ID, make_mandate
 from _gate_env import make_gate_env
 from textual.widgets import ContentSwitcher, Static
 
-from fund.audit import MandateRepository
-from fund.tui import app as tui_app
+from fund import observe
+from fund.audit import AgentRunRepository, HumanAuditLogRepository, MandateRepository
 from fund.tui.app import ConfirmScreen, ShellApp
 from fund.tui.barge_in import BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen
@@ -147,37 +147,39 @@ async def _open_ask(app, pilot) -> AskView:
     return app.query_one("#view-ask", AskView)
 
 
-@pytest.mark.criterion("REQ-FUND-047")
+@pytest.mark.criterion("REQ-FUND-054")
 @pytest.mark.asyncio
-async def test_an_ask_approve_shows_the_orders_it_would_execute(env) -> None:
-    """Validates fund.tui._mixins.ask._ask_confirm_prompt.
-
-    The confirm carries the gate's candidates and their orders, not just a gate
-    id."""
+async def test_an_ask_approve_of_a_rebalance_gate_is_refused(env) -> None:
+    """Validates fund.tui._mixins.ask.AskMixin._confirm_ask_action: approving a
+    rebalance gate from Ask is refused before any confirm, with a pointer to the
+    Decisions view, where a candidate is chosen; nothing is written."""
     app = _shell(env)
     async with app.run_test(size=(120, 40)) as pilot:
         view = await _open_ask(app, pilot)
         view.submit_turn("approve the gate")
         await pilot.pause()
 
-        assert isinstance(app.screen, ConfirmScreen)
-        prompt = str(app.screen.query_one(".confirm-prompt", Static).render())
-        assert prompt.startswith("Approve and execute gate #")
-        assert "candidates (listed by id; the adviser picks one" in prompt
-        for ticker in env.expected:
-            assert f"{ticker}:" in prompt
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert app.last_worker is None
+        assert "Decisions" in app.last_status
+        assert "Decisions" in str(view.query_one("#ask-log", Static).render())
+    with env.get_session() as session:
+        assert AgentRunRepository(session).get_run(env.run_id).status == "paused"
+        assert HumanAuditLogRepository(session).list_recent(action="approve") == []
 
 
+@pytest.mark.criterion("REQ-FUND-054")
 @pytest.mark.asyncio
 async def test_an_ask_approve_is_refused_when_the_gate_cannot_be_read(
     env, monkeypatch
 ) -> None:
-    """Like Decisions, no approve is offered for orders the adviser could not see."""
+    """Validates fund.tui._mixins.ask.AskMixin._confirm_ask_action: like Decisions,
+    no approve is offered for a gate whose pending call cannot be read."""
 
     def unreadable(*_args, **_kwargs):
         raise RuntimeError("checkpointer pool timeout")
 
-    monkeypatch.setattr(tui_app, "_gate_text", unreadable)
+    monkeypatch.setattr(observe, "interrupt_for", unreadable)
     app = _shell(env)
     async with app.run_test(size=(120, 40)) as pilot:
         view = await _open_ask(app, pilot)

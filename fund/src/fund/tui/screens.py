@@ -22,10 +22,10 @@ if TYPE_CHECKING:
 class ConfirmScreen(ModalScreen[bool]):
     """A modal stating an irreversible consequence, awaiting a deliberate choice.
 
-    Pushed before a destructive, undo-less action (the killswitch): it renders the
-    spelled-out consequence over a Confirm | Cancel row and dismisses ``True`` only on
-    an explicit Confirm, ``False`` on Cancel or ``escape`` — so nothing irreversible
-    fires without a second, deliberate step.
+    Pushed before an undo-less action (the killswitch, approving a rebalance gate's
+    candidate): it renders the spelled-out consequence over a Confirm | Cancel row and
+    dismisses ``True`` only on an explicit Confirm, ``False`` on Cancel or ``escape``
+    — so nothing irreversible fires without a second, deliberate step.
 
     Args:
         prompt: The consequence text shown above the buttons.
@@ -328,7 +328,8 @@ GLOBAL
 VIEW-SCOPED
   Posture       d daily brief
   Deliberation  f follow live   x expand read-out
-  Decisions     e edit weights   s steer PM
+  Decisions     ↵ select gate / candidate (a then confirms it)
+                e edit weights   s steer PM
   Mandate       x remove directive
   Performance   ↵ drill into a holding
   Ask           ↵ ask   /clear delete history   shift+tab log, then e export

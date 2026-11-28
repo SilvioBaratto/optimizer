@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import re
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -40,6 +41,7 @@ from _fund_fakes import (
     FreezeMidRunModel,
     PmFailsAfterOrderModel,
     ScriptedFundModel,
+    audit_candidate_set,
     expected_weights,
     make_constraint_set,
     seed_panel,
@@ -67,7 +69,9 @@ from fund.audit import (
     put_constraint_set,
 )
 from fund.audit.human_audit_repository import HumanAuditLogRepository
+from fund.audit.orders_repository import weights_hash
 from fund.config import FundConfig, settings
+from fund.schemas.candidates import CANDIDATE_IDS
 from fund.schemas.enums import GicsSector
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
@@ -75,6 +79,13 @@ _ASOF_STR = ASOF.isoformat()
 # A rebalance gate is approved by naming one candidate; the fixture's profile maps
 # the old single optimizer onto ``mean_risk``.
 _CANDIDATE = ("--candidate", MEAN_RISK)
+_OTHER_THAN_MEAN_RISK = tuple(cid for cid in CANDIDATE_IDS if cid != MEAN_RISK)
+_REPORT_CANDIDATES_HEADING = "candidates (listed by id; the adviser chooses):"
+# The same words the fund-run language guard refuses: the report must not rank either.
+_RECOMMENDATION = re.compile(
+    r"recommend|best|prefer|suggest|optimal|ideal|winner|matching the (client|profile)",
+    re.IGNORECASE,
+)
 
 
 # --- fakes for the injected persistence handles -----------------------------
@@ -850,6 +861,96 @@ def test_approve_refuses_a_run_older_than_a_completed_one(harness, monkeypatch) 
     assert _audit_rows(harness, "approve") == []
 
 
+@pytest.mark.criterion("REQ-FUND-053")
+def test_approve_requires_the_candidate_flag_for_a_rebalance_gate(
+    harness, monkeypatch
+) -> None:
+    """Validates fund.cli.approve: a rebalance gate approved without --candidate is
+    refused with the ids to choose from, exits 1 and leaves the gate open."""
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+
+    res = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+
+    assert res.exit_code == 1, res.output
+    assert "requires a candidate id" in res.output
+    for candidate_id in CANDIDATE_IDS:
+        assert candidate_id in res.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(run_id).status == "paused"
+        assert OrderRepository(session).list_for_portfolio(PORTFOLIO_ID) == []
+        session.rollback()
+    assert _audit_rows(harness, "approve") == []
+
+
+@pytest.mark.criterion("REQ-FUND-053")
+def test_approve_with_an_unknown_candidate_is_refused(harness, monkeypatch) -> None:
+    """Validates fund.cli.approve: an id outside the set is refused by name."""
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+
+    res = harness.runner.invoke(
+        cli.app, ["approve", str(run_id), "--candidate", "max_sharpe"]
+    )
+
+    assert res.exit_code == 1, res.output
+    assert "'max_sharpe' is not in the run's candidate set" in res.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(run_id).status == "paused"
+        session.rollback()
+    assert _audit_rows(harness, "approve") == []
+
+
+@pytest.mark.criterion("REQ-FUND-053")
+@pytest.mark.parametrize("candidate_id", _OTHER_THAN_MEAN_RISK)
+def test_approve_with_candidate_places_that_candidate(
+    harness, monkeypatch, candidate_id
+) -> None:
+    """Validates fund.cli.approve: the run, its ticket and the audit row carry the
+    named candidate's weights, not the questionnaire's mean-risk ones."""
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    with harness.read() as session:
+        named = observe.candidate_set(session, run_id).candidate(candidate_id)
+        session.rollback()
+
+    res = harness.runner.invoke(
+        cli.app, ["approve", str(run_id), "--candidate", candidate_id]
+    )
+
+    assert res.exit_code == 0, res.output
+    with harness.read() as session:
+        run = AgentRunRepository(session).get_run(run_id)
+        assert run.status == "completed"
+        assert run.weights == named.weights
+        (order,) = OrderRepository(session).list_for_portfolio(PORTFOLIO_ID)
+        assert order.weights_hash == weights_hash(named.weights)
+        session.rollback()
+    (row,) = _audit_rows(harness, "approve")
+    assert row["new_value"]["candidate_id"] == candidate_id
+
+
+@pytest.mark.criterion("REQ-FUND-053")
+def test_profile_gate_approve_takes_no_candidate(harness, monkeypatch) -> None:
+    """Validates fund.cli.approve: --candidate on a profile gate is refused and the
+    gate stays open; the same gate approves without one."""
+    run_id = _profile_to_gate(harness, monkeypatch)
+
+    named = harness.runner.invoke(
+        cli.app, ["approve", str(run_id), "--candidate", MEAN_RISK]
+    )
+
+    assert named.exit_code == 1, named.output
+    assert "profiler gate" in named.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(run_id).status == "paused"
+        session.rollback()
+
+    bare = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+
+    assert bare.exit_code == 0, bare.output
+    with harness.read() as session:
+        assert AgentRunRepository(session).get_run(run_id).status == "completed"
+        session.rollback()
+
+
 def test_reject_finalizes_run(harness, monkeypatch) -> None:
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
     res = harness.runner.invoke(cli.app, ["reject", str(run_id)])
@@ -1009,7 +1110,8 @@ def test_report_of_a_rejected_run_shows_no_ticket(harness, monkeypatch) -> None:
 def test_report_metrics_come_from_the_requested_run(harness, monkeypatch) -> None:
     """Validates fund.cli.report with fund.observe.run_metrics: an approved run
     reports the measures of the candidate the adviser chose for it, and a newer run
-    still awaiting its choice reports none of them."""
+    still awaiting its choice has no metrics line (its candidates are listed, each
+    with its own measures)."""
     first, _expected, _res = _seed_and_run(harness, monkeypatch)
     assert (
         harness.runner.invoke(cli.app, ["approve", str(first), *_CANDIDATE]).exit_code
@@ -1030,10 +1132,11 @@ def test_report_metrics_come_from_the_requested_run(harness, monkeypatch) -> Non
     own = harness.runner.invoke(cli.app, ["report", str(first)])
     other = harness.runner.invoke(cli.app, ["report", str(second_id)])
 
-    assert f"annualized_volatility={volatility:.4f}" in own.output
-    # The newer run has no adviser choice yet, so it reports no candidate's figures,
-    # never the first run's.
-    assert "annualized_volatility=" not in other.output
+    (own_metrics,) = [ln for ln in own.output.splitlines() if ln.startswith("metrics:")]
+    assert f"annualized_volatility={volatility:.4f}" in own_metrics
+    # The newer run has no adviser choice yet, so no figures are reported as its
+    # metrics, never the first run's.
+    assert not any(ln.startswith("metrics:") for ln in other.output.splitlines())
 
 
 def test_report_labels_the_mandate_as_the_current_one(harness, monkeypatch) -> None:
@@ -1095,7 +1198,144 @@ def test_report_unknown_run_errors(harness) -> None:
     assert "no run" in res.output.lower()
 
 
+def _candidate_lines(output: str) -> list[str]:
+    """The report's candidate rows, in the order printed."""
+    return [
+        line
+        for line in output.splitlines()
+        if any(line.startswith(f"  {cid}  ") for cid in CANDIDATE_IDS)
+    ]
+
+
+@pytest.mark.criterion("REQ-FUND-053")
+def test_report_lists_candidates_in_id_order_with_metrics_and_the_choice(
+    harness, monkeypatch
+) -> None:
+    """Validates fund.cli._report_candidate_lines: every candidate in id order with
+    its label, feasibility, five measures and check, then the adviser's choice."""
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    chosen = "min_risk"
+    approved = harness.runner.invoke(
+        cli.app, ["approve", str(run_id), "--candidate", chosen]
+    )
+    assert approved.exit_code == 0, approved.output
+    with harness.read() as session:
+        candidate_set = observe.candidate_set(session, run_id)
+        session.rollback()
+
+    res = harness.runner.invoke(cli.app, ["report", str(run_id)])
+
+    assert res.exit_code == 0, res.output
+    assert _REPORT_CANDIDATES_HEADING in res.output
+    rows = _candidate_lines(res.output)
+    assert [row.split()[0] for row in rows] == list(CANDIDATE_IDS)
+    for row, candidate in zip(rows, candidate_set.candidates, strict=True):
+        metrics = candidate.metrics
+        assert candidate.label in row
+        assert "  feasible  " in row
+        assert f"annualized_volatility={metrics.annualized_volatility:.4f}" in row
+        assert f"cvar_95={metrics.cvar_95:.4f}" in row
+        assert f"largest_position={metrics.largest_position:.4f}" in row
+        assert f"n_positions={metrics.n_positions}" in row
+        assert f"turnover={metrics.turnover:.4f}" in row
+        assert row.endswith("check=passed")
+    assert f"chosen by the adviser: {chosen}" in res.output
+    assert res.output.index(rows[-1]) < res.output.index("chosen by the adviser")
+
+
+@pytest.mark.criterion("REQ-FUND-053")
+def test_report_of_a_paused_run_lists_the_candidates_and_no_choice(
+    harness, monkeypatch
+) -> None:
+    """Validates fund.cli._report_candidate_lines: before the adviser chooses, the
+    candidates are listed and no choice is claimed."""
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+
+    res = harness.runner.invoke(cli.app, ["report", str(run_id)])
+
+    assert res.exit_code == 0, res.output
+    assert len(_candidate_lines(res.output)) == len(CANDIDATE_IDS)
+    assert "chosen by the adviser" not in res.output
+
+
+@pytest.mark.criterion("REQ-FUND-053")
+def test_report_shows_an_infeasible_candidate_with_its_breach(
+    harness, monkeypatch
+) -> None:
+    """Validates fund.cli._report_candidate_lines: an infeasible candidate keeps its
+    row, names its breach and shows no measures."""
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    with harness.read() as session:
+        audit_candidate_set(session, run_id, {"AAA": 0.5, "CCC": 0.5})
+        session.commit()
+
+    res = harness.runner.invoke(cli.app, ["report", str(run_id)])
+
+    rows = _candidate_lines(res.output)
+    (hrp,) = (row for row in rows if row.startswith("  hrp  "))
+    assert "infeasible: portfolio (solver_failed: not fitted by this test)" in hrp
+    assert "annualized_volatility=—" in hrp
+    assert hrp.endswith("check=—")
+
+
+@pytest.mark.criterion("REQ-FUND-053")
+def test_report_of_a_run_without_a_candidate_set_lists_none(
+    harness, monkeypatch
+) -> None:
+    """Validates fund.cli._report_candidate_lines: a profile run has no candidates."""
+    run_id = _profile_to_gate(harness, monkeypatch)
+
+    res = harness.runner.invoke(cli.app, ["report", str(run_id)])
+
+    assert res.exit_code == 0, res.output
+    assert _REPORT_CANDIDATES_HEADING not in res.output
+    assert _candidate_lines(res.output) == []
+
+
+@pytest.mark.criterion("REQ-FUND-053")
+def test_report_text_has_no_recommendation_language(harness, monkeypatch) -> None:
+    """Validates fund.cli.report: neither a paused nor an approved run's report
+    ranks or recommends a candidate."""
+    run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
+    paused = harness.runner.invoke(cli.app, ["report", str(run_id)])
+    approve = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
+    assert approve.exit_code == 0, approve.output
+    approved = harness.runner.invoke(cli.app, ["report", str(run_id)])
+
+    assert f"chosen by the adviser: {MEAN_RISK}" in approved.output
+    for output in (paused.output, approved.output):
+        assert _REPORT_CANDIDATES_HEADING in output
+        assert _RECOMMENDATION.search(output) is None, _RECOMMENDATION.search(output)
+
+
 # --- profile ----------------------------------------------------------------
+
+
+def _profile_to_gate(harness, monkeypatch) -> uuid.UUID:
+    """Drive ``profile`` to its save_profile gate and make the resume model a plain
+    closing turn; return the paused profiler run's id."""
+    answers = make_answers()
+    monkeypatch.setattr(
+        cli,
+        "build_primary",
+        lambda *a, **k: make_profiler_model(answers, portfolio_id=str(PORTFOLIO_ID)),
+    )
+    res = harness.runner.invoke(
+        cli.app,
+        ["profile", str(PORTFOLIO_ID), "--answers", "Growth over ten years, EUR."],
+    )
+    assert res.exit_code == 0, res.output
+    monkeypatch.setattr(
+        cli,
+        "build_primary",
+        lambda *a, **k: ScriptedProfilerModel(
+            chat_responses=[final_reply(), final_reply()]
+        ),
+    )
+    with harness.read() as session:
+        (paused,) = AgentRunRepository(session).list_paused_runs(PORTFOLIO_ID)
+        session.rollback()
+        return paused.id
 
 
 def test_profile_reaches_gate_and_detaches(harness, monkeypatch) -> None:

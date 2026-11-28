@@ -15,11 +15,14 @@ from textual.widgets import ContentSwitcher, Static
 from fund import observe
 from fund.tui._mixins.flight import _ROUND_BUSY, _round_flight, _single_flight
 from fund.tui._mixins.host import ShellHost
+from fund.tui._views.candidates import ALLOCATOR_AGENT, CANDIDATES_STEP
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen, describe_error
 from fund.tui.views import DeliberationView, ShellView
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from textual.worker import Worker
 
     from fund.tui.questionnaire import OnboardingSubmission
@@ -327,14 +330,12 @@ class DriveMixin(ShellHost):
                 if run is None:
                     self.call_from_thread(self._set_status, "run not found")
                     return
-                if agent == "allocator":
+                if agent == ALLOCATOR_AGENT:
                     decision = next(
                         (d for d in run.decisions if d.decision_index == key), None
                     )
                     weights = AgentRunRepository.decode_weights(decision)
-                    constraint_set: Any = (
-                        decision.constraint_set if decision is not None else None
-                    )
+                    constraint_set = _recorded_constraint_set(run.decisions, key)
                     mandate = (
                         observe.get_mandate(session, run.portfolio_id)
                         if run.portfolio_id is not None
@@ -353,18 +354,9 @@ class DriveMixin(ShellHost):
                     )
                 else:
                     weights = repo.latest_optimizer_weights(run_id)
-                    # Risk evaluates the run's authoritative allocation; pair its bounds
-                    # with the SAME newest allocator proposal those weights came from
-                    # (decisions are decision_index ASC, so scan reversed — mirrors
-                    # ``observe.run_metrics``).
-                    constraint_set = next(
-                        (
-                            d.constraint_set
-                            for d in reversed(run.decisions)
-                            if d.agent == "allocator" and d.step == "optimize_portfolio"
-                        ),
-                        None,
-                    )
+                    # Risk evaluates the run's authoritative allocation, under the
+                    # bounds the newest allocator step recorded.
+                    constraint_set = _recorded_constraint_set(run.decisions)
                     mandate = (
                         observe.get_mandate(session, run.portfolio_id)
                         if run.portfolio_id is not None
@@ -715,6 +707,39 @@ class DriveMixin(ShellHost):
         """On the main thread once onboarding committed: refresh the picker + report."""
         self._populate_picker()
         self._after_action(message)
+
+
+_OPTIMIZE_STEP = "optimize_portfolio"
+
+
+def _recorded_constraint_set(decisions: Sequence[Any], upto: int | None = None) -> Any:
+    """The constraint set a replay of the allocator row at ``upto`` runs under.
+
+    In a run with candidates the adviser's choice and edit rows record none, so the
+    newest ``compute_candidates`` row at or before the replayed one supplies the set
+    its candidates were fitted under; a set recorded after it never applies. A run
+    from before candidates existed reads as it always did: the replayed
+    ``optimize_portfolio`` row's own constraint set, none for an adviser edit.
+
+    Args:
+        decisions: The run's decisions in ``decision_index`` order.
+        upto: The replayed row's index, or ``None`` for the newest
+            ``optimize_portfolio`` row.
+
+    Returns:
+        The recorded ``ConstraintSet`` dump, or ``None``.
+    """
+    allocator = [
+        decision
+        for decision in decisions
+        if decision.agent == ALLOCATOR_AGENT
+        and (upto is None or decision.decision_index <= upto)
+    ]
+    sets = [decision for decision in allocator if decision.step == CANDIDATES_STEP]
+    if sets:
+        return sets[-1].constraint_set
+    replayed = [decision for decision in allocator if decision.step == _OPTIMIZE_STEP]
+    return replayed[-1].constraint_set if replayed else None
 
 
 def _recorded_train_size(optimizer_config: dict[str, Any] | None) -> int | None:

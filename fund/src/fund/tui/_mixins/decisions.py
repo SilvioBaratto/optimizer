@@ -13,6 +13,7 @@ from textual.widgets import ContentSwitcher
 from fund import observe
 from fund.tui._mixins.flight import _single_flight
 from fund.tui._mixins.host import ShellHost
+from fund.tui._views.candidates import approve_prompt
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.screens import (
     ConfirmScreen,
@@ -20,7 +21,7 @@ from fund.tui.screens import (
     RationaleConfirmScreen,
     ScopePickScreen,
 )
-from fund.tui.views import DecisionsView, ShellView
+from fund.tui.views import _NO_PICK, DecisionsView, ShellView
 
 # Logs under ``fund.tui.app``, the shell's name that operators and tests filter on.
 logger = logging.getLogger("fund.tui.app")
@@ -34,7 +35,11 @@ class DecisionsMixin(ShellHost):
     """
 
     def action_decide_approve(self) -> None:
-        """Approve the selected Decisions gate (the ``a`` binding)."""
+        """Approve the selected Decisions gate (the ``a`` binding).
+
+        A rebalance gate is approved with the candidate the adviser selected, behind
+        a confirm naming it; any other gate is approved at once.
+        """
         self._decide("approve")
 
     def action_decide_reject(self) -> None:
@@ -46,29 +51,68 @@ class DecisionsMixin(ShellHost):
 
         A no-op with a status message unless the Decisions view is active, a paused
         run is selected, and that gate's detail rendered — the same guard the cockpit
-        uses for a blind approve.
+        uses for a blind approve. An approve of a rebalance gate goes through
+        :meth:`_approve_candidate`; every other decision carries no candidate.
         """
         view = self._selected_gate_view("select a paused run first")
         if view is None or view.selected_run_id is None:
             return
-        # Approve/reject act at once with no confirm, so the adviser must have the
-        # orders on screen: a failed gate render fails closed rather than releasing a
-        # gate they could not read.
+        # Reject and a non-rebalance approve act at once with no confirm, so the
+        # adviser must have the gate on screen: a failed gate render fails closed
+        # rather than releasing a gate they could not read.
         if view.gate_unavailable:
             self._set_status(
                 f"cannot {decision}: gate details unavailable - "
                 "retry once the gate renders again"
             )
             return
-        # The adviser's pick travels with an approve only; the approve refuses a
-        # rebalance gate without one, so nothing here chooses on their behalf.
+        if decision == "approve" and view.at_order_gate:
+            self._approve_candidate(view, view.selected_run_id)
+            return
         self.last_worker = self._action_worker(
             view.selected_run_id,
             view.selected_portfolio_id,
             decision,
             view.rendered_gate_id,
-            view.selected_candidate_id if decision == "approve" else None,
         )
+
+    def _approve_candidate(self, view: DecisionsView, run_id: uuid.UUID) -> None:
+        """Approve the rebalance gate on screen with the selected candidate.
+
+        Refused with a status line unless a feasible candidate of the set the gate
+        was opened on is selected. Otherwise a confirm names the candidate's id,
+        label, weights and measures, and only an explicit Confirm sends the approve,
+        carrying that id; nothing is chosen for the adviser. The approve is not sent
+        if the gate or the selection changed while the confirm was open.
+        """
+        refusal = view.approve_refusal()
+        candidate = view.selected_candidate()
+        if refusal is not None or candidate is None:
+            self._set_status(refusal or _NO_PICK)
+            return
+        portfolio_id = view.selected_portfolio_id
+        shown_gate = view.rendered_gate_id
+        candidate_id = str(candidate["candidate_id"])
+
+        def _confirmed(ok: bool | None) -> None:
+            if not ok:
+                self._set_status("approve cancelled")
+                return
+            if (view.rendered_gate_id, view.selected_candidate_id) != (
+                shown_gate,
+                candidate_id,
+            ):
+                self._set_status(
+                    "the gate changed while the confirm was open - review it and "
+                    "approve again"
+                )
+                return
+            self.last_worker = self._action_worker(
+                run_id, portfolio_id, "approve", shown_gate, candidate_id
+            )
+
+        prompt = approve_prompt(_gate_target(run_id, portfolio_id), candidate)
+        self.push_screen(ConfirmScreen(prompt), _confirmed)
 
     def action_decide_killswitch(self) -> None:
         """Killswitch the selected Decisions gate at a chosen scope (the ``k`` binding).
@@ -192,12 +236,13 @@ class DecisionsMixin(ShellHost):
         return view
 
     def action_edit_decision(self) -> None:
-        """Edit the selected gate's proposed weights before committing (``e`` binding).
+        """Edit the selected gate's weights before committing (``e`` binding).
 
         View-scoped to Decisions (``DecisionsView.BINDINGS``) so it does not collide
-        with the global Audit export ``e``. Reads the gate's proposed weights, opens the
-        editor, and on Commit threads the edit through ``apply_action("edit")``. A no-op
-        with a hint off Decisions or without a selected paused gate.
+        with the global Audit export ``e``. Opens the editor on the weights of the
+        candidate row the adviser selected, and on Commit threads the edit through
+        ``apply_action("edit")``. A no-op with a hint off Decisions, without a
+        selected paused gate, or on a rebalance gate with no candidate selected.
         """
         view = self._selected_gate_view("select a paused gate to edit")
         if view is None or view.selected_run_id is None:
@@ -207,7 +252,10 @@ class DecisionsMixin(ShellHost):
         shown_gate = view.rendered_gate_id
         weights = self._proposed_weights(run_id, view.selected_candidate_id)
         if not weights:
-            self._set_status("no proposed weights to edit: pick a candidate first")
+            self._set_status(
+                "nothing to edit: select a candidate row first, the editor starts "
+                "from its weights"
+            )
             return
 
         def _edited(edited: dict[str, float] | None) -> None:

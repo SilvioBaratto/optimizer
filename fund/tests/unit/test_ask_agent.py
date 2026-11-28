@@ -1447,3 +1447,20 @@ def test_a_tool_message_is_never_taken_as_the_answer() -> None:
     )
 
     assert run_ask_turn(agent, scope="fund", question="q").startswith("(the agent")
+
+
+@pytest.mark.criterion("REQ-FUND-054")
+@pytest.mark.parametrize("focus", [None, uuid.uuid4()], ids=["fund", "portfolio"])
+def test_the_prompt_describes_candidates_neutrally_and_sends_approval_to_decisions(
+    focus,
+) -> None:
+    """Validates fund.agents.ask_agent.ask_system_prompt: the agent is told to
+    describe every candidate neutrally in id order without choosing one, and that
+    approving a rebalance gate means choosing a candidate in the Decisions view."""
+    prompt = ask_agent.ask_system_prompt(focus)
+
+    assert "hrp, mean_risk, min_risk, risk_parity" in prompt
+    assert "never recommend, rank or favour one" in prompt
+    assert "the adviser chooses" in prompt
+    assert "Decisions view" in prompt
+    assert "'approve the gate'" not in prompt
