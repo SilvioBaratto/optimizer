@@ -112,6 +112,49 @@ def test_extraction_prompt_lists_an_unstated_tolerance_as_unanswered():
     assert "esg.exclusions is non-empty" in system
 
 
+@pytest.mark.criterion("REQ-FUND-055")
+def test_extraction_prompt_treats_no_esg_exclusions_as_a_complete_answer():
+    """Validates fund.agents.profiler._extraction_messages: an empty sector list is
+    the user's complete ESG answer, never an unstated datum or a conservative value,
+    and a sector list is marked unstated only when the model cannot tell the user
+    named it, as the schema's validator keeps it."""
+    from fund.agents.profiler import _extraction_messages
+
+    system = _extraction_messages("EUR, growth")[0]["content"]
+
+    assert "esg.exclusions []" not in system
+    assert (
+        "with no sector excluded list neither 'esg.exclusions' nor "
+        "'esg.look_through_tolerance' in unanswered" in system
+    )
+    assert (
+        "list 'esg.exclusions' only when it holds a sector you cannot tell the user "
+        "named" in system
+    )
+
+
+@pytest.mark.criterion("REQ-FUND-055")
+def test_no_esg_exclusions_reach_the_gate_as_a_complete_answer(db_session):
+    """Validates fund.agents.profiler.run_profiler: an extraction with no sector
+    excluded pauses at the gate with no ESG exclusion and no unanswered flag, even
+    when the model listed the ESG data as unstated."""
+    pid = uuid.uuid4()
+    extracted = make_answers().model_dump(mode="json")
+    extracted["unanswered"] = ["esg.exclusions", "esg.look_through_tolerance"]
+    model = ScriptedProfilerModel(
+        structured_outcomes=[extracted],
+        chat_responses=[save_tool_call(str(pid)), final_reply()],
+    )
+
+    run = _run(model, db_session, portfolio_id=pid)
+
+    description = run.interrupt["action_requests"][0]["description"]
+    assert "ESG exclusions: none" in description
+    assert "inconsistency flags: none" in description
+    assert run.answers.unanswered == ()
+    assert run.constraint_set.esg.exclusions == ()
+
+
 def test_a_stated_look_through_tolerance_is_carried_to_the_constraint_set(db_session):
     # "No energy, and at most 5% of a fund in it": the extraction gives 0.05 and
     # nothing is left for the adviser to confirm.

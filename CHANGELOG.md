@@ -155,6 +155,16 @@ The entries under Security affect privacy or configuration and come first.
   practically unreachable no-weights path now reports
   `ValueError: optimizer produced no weights` instead of the bare text
   (REQ-FUND-043, REQ-FUND-044, REQ-FUND-045, REQ-FUND-046).
+- **fund**: a guard that only a human resumes a paused run with approve.
+  `fund/tests/unit/hygiene/test_no_unattended_approval.py` parses `fund/src` and lists
+  every reference on the resume chain whose decision can be an approve, from
+  `Command(resume=...)` through `apply_action`'s dispatch table (`ACTION_HANDLERS`) up
+  to `fund approve`, the Decisions keys, the candidate confirm,
+  the weight editor and a confirmed Ask action, each with its reason; a new reference
+  fails it until a reason is written down. The daemon (`fund.scheduler`, `fund.worker`),
+  the agent graphs with their toolsets and subagents, the Ask agent and `fund.tools`
+  hold none, and the resume code in `fund.agents.graph`, `graph_hitl` and `profiler`
+  only forwards the decision it is handed (REQ-FUND-051).
 
 ### Changed
 
@@ -268,6 +278,15 @@ Behaviour changes to know about:
   `mifid-profiling` and the CLI commands and flags (`fund mandate set`, `fund profile`,
   `--candidate`) are unchanged. `fund/tests/unit/test_no_advice_language.py` fails on
   the old phrases and on "adviser" in any user-visible string (REQ-FUND-052).
+- **fund**: excluding sectors on ESG grounds is optional, and an empty list is a
+  complete answer. Inputs with no sector excluded no longer list `esg.exclusions` or
+  `esg.look_through_tolerance` in `MiFIDAnswers.unanswered` (the schema drops them,
+  whatever the extraction model or a stored record put there), so the profile gate shows
+  no `unanswered_input:esg.exclusions` flag. The extraction prompt and the ESG field
+  descriptions no longer call an empty list a conservative value: with no sector
+  excluded they tell the model to list neither ESG datum as unanswered. A non-empty
+  exclusion list the model marks as unstated is still flagged, and excluding every
+  sector still blocks the profile (REQ-FUND-055).
 - **ingestion (BREAKING)**: the ingestion daemon (`python -m app.worker`, the
   `scheduler` container) now refuses to start until Yahoo's terms are acknowledged: the
   worker logs why and exits with status 2 before it serves metrics, opens its database
