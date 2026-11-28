@@ -284,10 +284,13 @@ def _tool(ctx: RunContext, role: str, name: str):
 class TestGateJudgesTheWorstYear:
     """The bound ``risk_check`` / ``backtest`` compare the tiers with the worst year."""
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_a_slow_multi_year_bleed_passes_a_one_year_tolerance(
         self, db_session
     ) -> None:
-        """A 38% multi-year drawdown does not breach a 25% one-year ceiling."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        A 38% multi-year drawdown does not breach a 25% one-year ceiling."""
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs())
 
@@ -302,8 +305,11 @@ class TestGateJudgesTheWorstYear:
         assert 0.14 < tiers["worst_rolling_loss"] < 0.25
         assert tiers["breached"] == ["nu1"]
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_the_full_sample_drawdown_is_still_reported(self, db_session) -> None:
-        """The multi-year figure stays in the reply, as information."""
+        """Validates fund.agents.toolsets._backtest_impl.
+
+        The multi-year figure stays in the reply, as information."""
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs())
 
@@ -312,8 +318,11 @@ class TestGateJudgesTheWorstYear:
         assert data["full_sample_max_drawdown"] > data["worst_rolling_loss"]
         assert data["rolling_loss_window"] == _YEAR
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_a_crash_inside_a_year_still_blocks(self, db_session) -> None:
-        """A 40% fall within one year breaches the 25% ceiling."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        A 40% fall within one year breaches the 25% ceiling."""
         _seed_paths(db_session, _crash(3 * _YEAR, 0.40))
         ctx = _context(db_session, _cs(nu3=0.6))
 
@@ -322,8 +331,11 @@ class TestGateJudgesTheWorstYear:
         assert verdict["passed"] is False
         assert [v["type"] for v in verdict["violations"]] == ["drawdown_nu2"]
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_a_history_shorter_than_a_year_fails_closed(self, db_session) -> None:
-        """Eighty days cannot show a year's loss, so the ceilings stay unverified."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        Eighty days cannot show a year's loss, so the ceilings stay unverified."""
         _seed_paths(db_session, _bleed(80, 0.15))
         ctx = _context(db_session, _cs())
 
@@ -340,10 +352,13 @@ class TestGateJudgesTheWorstYear:
         assert tiers["verified"] is False
         assert tiers["worst_rolling_loss"] is None
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_a_short_history_that_already_breaches_names_the_breach(
         self, db_session
     ) -> None:
-        """The short sample's own drawdown is a lower bound that can prove a breach."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        The short sample's own drawdown is a lower bound that can prove a breach."""
         _seed_paths(db_session, _short_crash())
         ctx = _context(db_session, _cs(nu1=0.05, nu2=0.1, nu3=0.2))
 
@@ -354,8 +369,11 @@ class TestGateJudgesTheWorstYear:
         assert "drawdown_nu3" in kinds
         assert "drawdown_unverified" in kinds
 
+    @pytest.mark.criterion("REQ-FUND-002")
     def test_a_zero_loss_tolerance_is_named_at_the_gate(self, db_session) -> None:
-        """Every book fails a zero tolerance, and the verdict says why."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        Every book fails a zero tolerance, and the verdict says why."""
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs(nu1=0.0, nu2=0.0, nu3=0.0))
 
@@ -365,8 +383,11 @@ class TestGateJudgesTheWorstYear:
         (violation,) = verdict["violations"]
         assert violation["type"] == "zero_loss_tolerance"
 
+    @pytest.mark.criterion("REQ-FUND-002")
     def test_the_mandate_message_names_the_zero_tolerance(self, db_session) -> None:
-        """``place_orders`` explains the refusal in the profile's terms."""
+        """Validates fund.agents.toolsets._place_orders_impl.
+
+        ``place_orders`` explains the refusal in the profile's terms."""
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs(nu1=0.0, nu2=0.0, nu3=0.0))
         audit_adviser_choice(db_session, ctx.run_id, _WEIGHTS)

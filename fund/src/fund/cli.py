@@ -63,6 +63,7 @@ from fund.audit import (
 from fund.audit.orders_repository import weights_hash
 from fund.config import settings, silence_http_request_logs
 from fund.database import get_session
+from fund.schemas.candidates import CANDIDATE_IDS
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
 logger = logging.getLogger(__name__)
@@ -599,9 +600,9 @@ def approve(
         None,
         "--candidate",
         help=(
-            "The candidate to place: hrp, mean_risk, min_risk or risk_parity. "
-            "Required to approve a rebalance gate (there is no default); refused "
-            "for a profile gate."
+            f"The candidate to place, one of {', '.join(CANDIDATE_IDS)}. Required "
+            "to approve a rebalance gate (there is no default); refused for a "
+            "profile gate."
         ),
     ),
 ) -> None:

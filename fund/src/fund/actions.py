@@ -338,7 +338,9 @@ def apply_action(
             ``portfolio_id`` for ``profile`` / ``run``); or the approve of a
             rebalance gate names no candidate, an unknown or infeasible one, or one
             the current mandate refuses, the run has no candidate set, or a
-            candidate is named where none belongs. Nothing is written then.
+            candidate is named where none belongs. Nothing is committed: every
+            refusal but the mandate re-check comes before the audit row, and for that
+            one the caller's rollback drops the audit row already appended.
         LookupError: ``run_id`` names no run (propagated from ``resume_run``).
         RuntimeError: ``run`` on a portfolio with no active ``ConstraintSet``
             (propagated from ``run_fund`` — profile it first); or ``approve`` /
@@ -812,18 +814,21 @@ def _apply_edit(
     """Commit adviser-edited weights, then resume the paused run via ``approve``.
 
     The edit never touches the gated tool's args. It resolves ``new_value`` (the
-    ``{ticker: weight}`` the adviser typed) onto the tickers the run's allocator
-    proposed (case/whitespace-insensitive; anything else is refused), validates it
+    ``{ticker: weight}`` the adviser typed) onto the run's tickers, those of every
+    allocator row plus the universe of its newest candidate set (see
+    :func:`_edit_universe`; case/whitespace-insensitive; anything else is refused),
+    validates it
     against the same gate the risk agent's ``risk_check`` applies (long-only /
     fully-invested bounds, the K&E position cap, the ESG and instrument screen; a book
     that misses the budget only by display rounding is nudged onto it first, see
     :func:`_absorb_rounding`), confirms every line can fill, then appends a fresh
     **allocator / optimize_portfolio** decision carrying the edited weights and resumes
-    through the existing approve path.
-    ``_place_orders_impl`` re-reads ``latest_optimizer_weights`` on resume, so that
-    appended row is the single source every downstream record (the paper ticket +
-    ``weights_hash``, ``agent_runs.weights``, and the positions snapshot) derives
-    from — no graph change, no divergence. The audit row is stamped ⚑
+    through the existing approve path, with no candidate id.
+    ``_place_orders_impl`` places ``latest_selected_weights`` (the adviser's choice in
+    force, which an edit newer than the candidate set is), so that appended row is the
+    single source every downstream record (the paper ticket + ``weights_hash``,
+    ``agent_runs.weights``, and the positions snapshot) derives from — no graph
+    change, no divergence. The audit row is stamped ⚑
     ``override_flag`` since the human overrode the optimizer's allocation.
 
     Raises:

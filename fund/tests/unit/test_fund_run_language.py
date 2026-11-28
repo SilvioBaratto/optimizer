@@ -30,12 +30,18 @@ from fund.agents.prompts import (
 from fund.agents.skills import SKILLS_BY_AGENT, skill_paths
 from fund.agents.toolsets import TOOLS_BY_AGENT, RunContext, bind_toolset
 from fund.config import settings
+from fund.tools.eligibility import Eligibility
 
 _RECOMMENDATION = re.compile(
     r"recommend|best|prefer|suggest|optimal|ideal|winner|matching the (client|profile)",
     re.IGNORECASE,
 )
 _RUN_ROLES = ("orchestrator", "economist", "allocator", "risk", "executor")
+# A mandate with standing directives and an eligible universe, so the run instruction
+# carries the directives and eligibility blocks too.
+_DIRECTIVES = ("Keep 5% cash.", "Avoid energy.")
+_ALLOWED = ("AAA", "BBB")
+_BARRED = (("CCC", "delisted"),)
 _NO_CHOICE = "never choose"
 _ADVISER_CHOOSES = "the adviser chooses"
 
@@ -85,6 +91,13 @@ def _fund_run_text() -> dict[str, str]:
             str(PORTFOLIO_ID),
             ASOF,
             constraint_set=make_constraint_set(),
+        ),
+        "run instruction with directives and an eligible universe": _run_instruction(
+            make_mandate().model_copy(update={"remembered_directives": _DIRECTIVES}),
+            str(PORTFOLIO_ID),
+            ASOF,
+            constraint_set=make_constraint_set(),
+            eligible=Eligibility(allowed=_ALLOWED, barred=_BARRED),
         ),
         "respond frame": _RESPOND_FRAME,
         **_bound_tool_docstrings(),

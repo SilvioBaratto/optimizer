@@ -696,7 +696,9 @@ def test_skills_document_each_bound_tool_with_its_real_arguments(db_session) -> 
                 )
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_bound_risk_check_is_pure_and_omits_session(db_session) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     _seed_year_panel(db_session)
     cs = _constraint_set()
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -710,7 +712,9 @@ def test_bound_risk_check_is_pure_and_omits_session(db_session) -> None:
     assert result["data"]["passed"] is True
 
 
-def test_bound_risk_check_judges_the_audited_proposal(db_session) -> None:
+@pytest.mark.criterion("REQ-FUND-051")
+def test_bound_risk_check_judges_a_computed_candidate(db_session) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     _seed_year_panel(db_session)
     cs = _constraint_set()
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -733,8 +737,11 @@ def test_risk_check_and_backtest_take_no_model_supplied_weights(db_session) -> N
     assert "weights" not in _find(risk_tools, "backtest").args
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_risk_check_ignores_a_retyped_weight_vector(db_session) -> None:
-    """The risk officer only sees weights as prose and re-types them; judging that
+    """Validates fund.agents.toolsets._risk_check_impl.
+
+    The risk officer only sees weights as prose and re-types them; judging that
     rounded copy would miss the budget tolerance, so the audited candidate is
     judged."""
     ctx = _make_context(db_session)
@@ -750,7 +757,9 @@ def test_risk_check_ignores_a_retyped_weight_vector(db_session) -> None:
     assert result["data"]["passed"] is True
 
 
-def test_risk_check_follows_the_latest_audited_proposal(db_session) -> None:
+@pytest.mark.criterion("REQ-FUND-051")
+def test_risk_check_follows_the_latest_candidate_set(db_session) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     _seed_year_panel(db_session)
     cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -768,7 +777,9 @@ def test_risk_check_follows_the_latest_audited_proposal(db_session) -> None:
     assert [v["type"] for v in result["data"]["violations"]] == ["max_weight"]
 
 
-def test_risk_check_errs_when_no_proposal_was_audited(db_session) -> None:
+@pytest.mark.criterion("REQ-FUND-051")
+def test_risk_check_errs_when_no_candidate_set_was_computed(db_session) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     ctx = _make_context(db_session)
     risk = _find(bind_toolset("risk", ctx), "risk_check")
 
@@ -778,7 +789,9 @@ def test_risk_check_errs_when_no_proposal_was_audited(db_session) -> None:
     assert "compute_candidates" in result["error"]
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_risk_check_blocks_a_drawdown_past_the_hard_ceiling(db_session) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     _seed_year_panel(db_session)
     cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=1.0)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -793,7 +806,9 @@ def test_risk_check_blocks_a_drawdown_past_the_hard_ceiling(db_session) -> None:
     assert AgentRunRepository(db_session).risk_passed(ctx.run_id, _WEIGHTS) is False
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_risk_check_blocks_a_drawdown_past_the_absolute_stop(db_session) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     _seed_year_panel(db_session)
     cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=0.0003)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -806,7 +821,9 @@ def test_risk_check_blocks_a_drawdown_past_the_absolute_stop(db_session) -> None
     assert [v["type"] for v in result["data"]["violations"]] == ["drawdown_nu3"]
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_risk_check_only_warns_past_the_soft_drawdown_tier(db_session) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     _seed_year_panel(db_session)
     cs = _constraint_set(nu1=0.0001, nu2=0.9, nu3=1.0)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -819,7 +836,9 @@ def test_risk_check_only_warns_past_the_soft_drawdown_tier(db_session) -> None:
     assert [w["type"] for w in result["data"]["warnings"]] == ["drawdown_nu1"]
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_risk_check_passes_a_drawdown_inside_every_tier(db_session) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     _seed_year_panel(db_session)
     cs = _constraint_set(nu1=0.5, nu2=0.6, nu3=0.9)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -832,9 +851,11 @@ def test_risk_check_passes_a_drawdown_inside_every_tier(db_session) -> None:
     assert result["data"]["warnings"] == []
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_risk_check_blocks_an_unverifiable_drawdown(db_session) -> None:
     # No prices seeded: the backtest cannot run, so the ceilings were never compared
     # and the book has not shown it respects them.
+    """Validates fund.agents.toolsets._risk_check_impl."""
     ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
     _audit_candidate(ctx, _WEIGHTS)
     risk = _find(bind_toolset("risk", ctx), "risk_check")
@@ -859,7 +880,9 @@ def test_check_weights_against_mandate_applies_the_drawdown_tiers(db_session) ->
     assert [v["type"] for v in result["data"]["violations"]] == ["drawdown_nu2"]
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_bound_backtest_returns_metrics(db_session) -> None:
+    """Validates fund.agents.toolsets._backtest_impl."""
     _seed_panel(db_session)
     ctx = _make_context(db_session)
     _audit_candidate(ctx, _WEIGHTS)
@@ -871,8 +894,11 @@ def test_bound_backtest_returns_metrics(db_session) -> None:
     assert "annualized_sharpe_ratio" in result["data"]["metrics"]
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_bound_backtest_flags_optimizer_weights_as_in_sample(db_session) -> None:
-    """The candidates are fitted on every bar up to ``asof``, so the walk-forward
+    """Validates fund.agents.toolsets._backtest_impl.
+
+    The candidates are fitted on every bar up to ``asof``, so the walk-forward
     test blocks lie inside the weights' own estimation sample: not out-of-sample."""
     n_days = 130
     _seed_panel(db_session, n_days=n_days)
@@ -902,7 +928,9 @@ def test_bound_backtest_description_does_not_claim_independent_validation(
     assert "in-sample" in backtest.description
 
 
-def test_backtest_errs_when_no_proposal_was_audited(db_session) -> None:
+@pytest.mark.criterion("REQ-FUND-051")
+def test_backtest_errs_when_no_candidate_set_was_computed(db_session) -> None:
+    """Validates fund.agents.toolsets._backtest_impl."""
     ctx = _make_context(db_session)
     backtest = _find(bind_toolset("risk", ctx), "backtest")
 
@@ -912,7 +940,9 @@ def test_backtest_errs_when_no_proposal_was_audited(db_session) -> None:
     assert "compute_candidates" in result["error"]
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_bound_backtest_reports_which_drawdown_tiers_are_breached(db_session) -> None:
+    """Validates fund.agents.toolsets._backtest_impl."""
     _seed_panel(db_session)
     cs = _constraint_set(nu1=0.0001, nu2=0.0002, nu3=0.0003)  # any drawdown breaches
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -928,7 +958,9 @@ def test_bound_backtest_reports_which_drawdown_tiers_are_breached(db_session) ->
     assert (tiers["nu1"], tiers["nu2"], tiers["nu3"]) == (0.0001, 0.0002, 0.0003)
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_bound_backtest_reports_no_breach_inside_every_ceiling(db_session) -> None:
+    """Validates fund.agents.toolsets._backtest_impl."""
     _seed_panel(db_session)
     cs = _constraint_set(nu1=0.9, nu2=0.95, nu3=1.0)
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -940,9 +972,11 @@ def test_bound_backtest_reports_no_breach_inside_every_ceiling(db_session) -> No
     assert result["data"]["drawdown_tiers"]["breached"] == []
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_bound_backtest_judges_drawdown_tiers_over_the_full_history(db_session) -> None:
     # The crash sits inside the first lookback window, which the walk-forward test
     # blocks skip. The tier verdict must still see it: the weights lived through it.
+    """Validates fund.agents.toolsets._backtest_impl."""
     exchange = Exchange(name="EX-AAA")
     db_session.add(exchange)
     db_session.flush()
@@ -982,11 +1016,13 @@ def test_bound_backtest_judges_drawdown_tiers_over_the_full_history(db_session) 
     assert tiers["max_drawdown"] > 0.3
 
 
-def test_bound_backtest_rejects_an_audited_proposal_that_misses_the_budget(
+@pytest.mark.criterion("REQ-FUND-051")
+def test_bound_backtest_rejects_a_candidate_that_misses_the_budget(
     db_session,
 ) -> None:
     # A partially invested proposal would be replayed as idle cash and understate the
     # drawdown the ceilings are compared against.
+    """Validates fund.agents.toolsets._backtest_impl."""
     _seed_panel(db_session)
     ctx = _make_context(db_session, store=_store_with_cs(_constraint_set()))
     _audit_candidate(ctx, {"AAA": 0.4, "BBB": 0.2, "CCC": 0.1})
@@ -998,9 +1034,11 @@ def test_bound_backtest_rejects_an_audited_proposal_that_misses_the_budget(
     assert "budget" in result["error"]
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_bound_backtest_honours_a_non_default_constraint_set_budget(
     db_session,
 ) -> None:
+    """Validates fund.agents.toolsets._backtest_impl."""
     _seed_panel(db_session)
     cs = _constraint_set(bounds=Bounds(budget=0.5))
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -1012,9 +1050,11 @@ def test_bound_backtest_honours_a_non_default_constraint_set_budget(
     assert result["ok"] is True
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_bound_backtest_without_a_constraint_set_has_no_tier_verdict(
     db_session,
 ) -> None:
+    """Validates fund.agents.toolsets._backtest_impl."""
     _seed_panel(db_session)
     ctx = _make_context(db_session, store=None)
     _audit_candidate(ctx, _WEIGHTS)
@@ -1026,7 +1066,9 @@ def test_bound_backtest_without_a_constraint_set_has_no_tier_verdict(
     assert "drawdown_tiers" not in result["data"]
 
 
+@pytest.mark.criterion("REQ-FUND-043")
 def test_bound_tool_degrades_via_envelope_never_raises(db_session) -> None:
+    """Validates fund.agents.toolsets._compute_candidates_impl."""
     ctx = _make_context(db_session)
     candidates = _find(bind_toolset("allocator", ctx), "compute_candidates")
 
@@ -1198,7 +1240,9 @@ def test_candidates_report_cap_infeasible_for_a_too_small_universe(db_session) -
     assert "at least 5" in result["error"]
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_risk_check_flags_a_weight_above_the_position_cap(db_session) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     _seed_year_panel(db_session)
     cs = _constraint_set(universe_filters=UniverseFilters(max_position_cap=0.4))
     ctx = _make_context(db_session, store=_store_with_cs(cs))
@@ -1316,7 +1360,9 @@ def test_candidates_without_store_use_default_constraints(db_session) -> None:
     assert _set_decision(db_session, ctx.run_id).constraint_set is None
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_bound_place_orders_appends_executor_decision(db_session) -> None:
+    """Validates fund.agents.toolsets._place_orders_impl."""
     _seed_panel(db_session)
     ctx = _make_context(db_session)
     # The adviser's choice must exist first: place_orders sources the ticket from
@@ -1434,9 +1480,11 @@ def test_failed_audit_write_in_compute_candidates_leaves_the_shared_session_usab
     _assert_shared_session_usable(private_session, ctx)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_failed_audit_write_in_place_orders_leaves_the_shared_session_usable(
     private_session, monkeypatch
 ) -> None:
+    """Validates fund.agents.toolsets._place_orders_impl."""
     _seed_panel(private_session)
     ctx = _make_context(private_session)
     _audit_choice(ctx, _WEIGHTS)
@@ -1454,7 +1502,9 @@ def test_failed_audit_write_in_place_orders_leaves_the_shared_session_usable(
     _assert_shared_session_usable(private_session, ctx)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
+    """Validates fund.agents.toolsets._place_orders_impl."""
     _seed_panel(db_session)
     ctx = _make_context(db_session)
     # Establish the adviser's choice the ticket hashes on both calls.
@@ -1480,6 +1530,7 @@ def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
 # --- the allocator tools run in the mandate's base currency -------------------
 
 
+@pytest.mark.criterion("REQ-FUND-043")
 @pytest.mark.parametrize(
     ("tool_name", "role", "args"),
     [
@@ -1492,6 +1543,7 @@ def test_place_orders_idempotent_rerun_appends_once(db_session) -> None:
 def test_bound_allocator_tools_forward_the_run_base_currency(
     db_session, monkeypatch: pytest.MonkeyPatch, tool_name: str, role: str, args: dict
 ) -> None:
+    """Validates fund.agents.toolsets.bind_toolset."""
     seen: dict[str, object] = {}
 
     def _spy(*_args: object, **kwargs: object) -> dict[str, object]:
@@ -1564,7 +1616,9 @@ def _energy_exclusion() -> ConstraintSet:
     return _constraint_set(esg=EsgPolicy(exclusions=(GicsSector.ENERGY,)))
 
 
+@pytest.mark.criterion("REQ-FUND-043")
 def test_optimize_refuses_a_universe_holding_an_esg_excluded_name(db_session) -> None:
+    """Validates fund.agents.toolsets._compute_candidates_impl."""
     _seed_panel(db_session)
     _classify(db_session, "AAA", sector="Energy")
     _classify(db_session, "BBB", sector="Technology")
@@ -1613,6 +1667,7 @@ def _allocator_decisions(db_session) -> list:
     )
 
 
+@pytest.mark.criterion("REQ-FUND-043")
 @pytest.mark.parametrize(
     ("tool_name", "arg"),
     [
@@ -1624,6 +1679,7 @@ def _allocator_decisions(db_session) -> list:
 def test_a_model_typed_universe_outside_the_allowlist_is_refused_with_every_reason(
     db_session, tool_name: str, arg: str
 ) -> None:
+    """Validates fund.agents.toolsets._compute_candidates_impl."""
     ctx = _restricted_context(db_session)
     tool = _find(bind_toolset("allocator", ctx), tool_name)
 
@@ -1636,7 +1692,9 @@ def test_a_model_typed_universe_outside_the_allowlist_is_refused_with_every_reas
     assert "AAA" not in result["error"].split(":", 1)[1]
 
 
+@pytest.mark.criterion("REQ-FUND-046")
 def test_a_refused_optimize_writes_no_decision_and_no_universe(db_session) -> None:
+    """Validates fund.agents.toolsets._compute_candidates_impl."""
     ctx = _restricted_context(db_session)
     optimize = _find(bind_toolset("allocator", ctx), "compute_candidates")
 
@@ -1647,7 +1705,9 @@ def test_a_refused_optimize_writes_no_decision_and_no_universe(db_session) -> No
     assert AgentRunRepository(db_session).get_run(ctx.run_id).universe == []
 
 
+@pytest.mark.criterion("REQ-FUND-043")
 def test_a_universe_inside_the_allowlist_optimizes_as_before(db_session) -> None:
+    """Validates fund.agents.toolsets._compute_candidates_impl."""
     ctx = _restricted_context(db_session)
     optimize = _find(bind_toolset("allocator", ctx), "compute_candidates")
 
@@ -1713,9 +1773,11 @@ def test_market_context_tools_stay_unrestricted(db_session) -> None:
     assert result["ok"] is True
 
 
+@pytest.mark.criterion("REQ-FUND-043")
 def test_the_allocator_tools_tell_the_model_about_the_eligible_universe(
     db_session,
 ) -> None:
+    """Validates fund.agents.toolsets.bind_toolset."""
     ctx = _make_context(db_session)
     tools = bind_toolset("allocator", ctx)
 
@@ -1803,9 +1865,11 @@ def test_risk_check_flags_a_non_plain_instrument_for_a_no_complex_client(
     assert violation["asset"] == "AAA"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_place_orders_refuses_weights_that_breach_the_current_mandate(
     db_session,
 ) -> None:
+    """Validates fund.agents.toolsets._place_orders_impl."""
     _classify_all(
         db_session, {"AAA": "Energy", "BBB": "Technology", "CCC": "Utilities"}
     )
@@ -1876,9 +1940,11 @@ def test_risk_check_fails_a_held_name_outside_the_eligible_universe(db_session) 
     assert gate["status"] == "not_run"
 
 
+@pytest.mark.criterion("REQ-FUND-051")
 def test_risk_check_reports_an_unlisted_held_name_as_not_in_the_allowlist(
     db_session,
 ) -> None:
+    """Validates fund.agents.toolsets._risk_check_impl."""
     _seed_year_panel(db_session)
     ctx = _with_eligibility(
         _make_context(db_session, store=_store_with_cs(_constraint_set())),
@@ -1914,9 +1980,11 @@ def test_risk_check_passes_weights_held_inside_the_allowlist(db_session) -> None
     assert result["data"]["passed"] is True
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_place_orders_refuses_an_outside_name_even_behind_a_stale_pass(
     db_session,
 ) -> None:
+    """Validates fund.agents.toolsets._place_orders_impl."""
     _seed_year_panel(db_session)
     store = _store_with_cs(_constraint_set())
     ctx = _make_context(db_session, store=store)
@@ -1943,9 +2011,11 @@ def test_place_orders_refuses_an_outside_name_even_behind_a_stale_pass(
     )
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_place_orders_names_the_eligibility_failure_rather_than_the_risk_gate(
     db_session,
 ) -> None:
+    """Validates fund.agents.toolsets._place_orders_impl."""
     result_check, ctx = _eligible_risk_check(db_session, _WEIGHTS)
     assert result_check["data"]["passed"] is False
     # A choice in force whose newest verdict failed on the ineligible name.
@@ -1965,9 +2035,11 @@ def test_place_orders_names_the_eligibility_failure_rather_than_the_risk_gate(
     assert "risk gate" not in result["error"]
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_place_orders_places_weights_held_inside_the_eligible_universe(
     db_session,
 ) -> None:
+    """Validates fund.agents.toolsets._place_orders_impl."""
     _seed_year_panel(db_session)
     ctx = _with_eligibility(
         _make_context(db_session, store=_store_with_cs(_constraint_set())),
@@ -2029,10 +2101,13 @@ def test_bound_tool_bodies_of_one_run_are_serialised(db_session, monkeypatch) ->
     assert state["peak"] == 1
 
 
+@pytest.mark.criterion("REQ-FUND-046")
 def test_a_failed_tool_call_does_not_poison_the_shared_session(
     db_session, monkeypatch
 ) -> None:
-    """A swallowed flush error must roll back only that call, not leave every later
+    """Validates fund.agents.toolsets._compute_candidates_impl.
+
+    A swallowed flush error must roll back only that call, not leave every later
     tool returning ``PendingRollbackError`` and the run's own rows lost."""
     _seed_panel(db_session)
     ctx = _make_context(db_session)
@@ -2057,10 +2132,13 @@ def test_a_failed_tool_call_does_not_poison_the_shared_session(
     assert AgentRunRepository(db_session).get_run(ctx.run_id) is not None
 
 
+@pytest.mark.criterion("REQ-FUND-046")
 def test_parallel_optimize_calls_each_append_one_distinct_decision(
     db_session, monkeypatch
 ) -> None:
-    """Two optimize calls in one model turn must not collide on decision_index.
+    """Validates fund.agents.toolsets._compute_candidates_impl.
+
+    Two optimize calls in one model turn must not collide on decision_index.
 
     ``append_decision`` derives the next index from a ``count()`` and inserts later.
     The rendezvous below parks each caller between the two until the other arrives,
@@ -2153,7 +2231,9 @@ def test_risk_check_records_no_verdict(db_session, cap: float, passes: bool) -> 
     assert AgentRunRepository(db_session).risk_passed(ctx.run_id, _WEIGHTS) is False
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_place_orders_refuses_after_a_failed_risk_verdict(db_session) -> None:
+    """Validates fund.agents.toolsets._place_orders_impl."""
     _seed_panel(db_session)
     ctx = _make_context(db_session)
     _audit_choice(ctx, _WEIGHTS)
@@ -2171,8 +2251,11 @@ def test_place_orders_refuses_after_a_failed_risk_verdict(db_session) -> None:
     assert _executor_rows(db_session) == []
 
 
-def test_place_orders_refuses_a_proposal_risk_did_not_check(db_session) -> None:
-    """A verdict covers the weights it was computed on: a newer choice that
+@pytest.mark.criterion("REQ-FUND-049")
+def test_place_orders_refuses_a_choice_risk_did_not_check(db_session) -> None:
+    """Validates fund.agents.toolsets._place_orders_impl.
+
+    A verdict covers the weights it was computed on: a newer choice that
     supersedes the checked one needs its own pass."""
     _seed_panel(db_session)
     ctx = _make_context(db_session)
@@ -2287,10 +2370,12 @@ def test_run_context_carries_no_view_or_prior_field() -> None:
     assert not offending, f"RunContext now binds {offending}"
 
 
+@pytest.mark.criterion("REQ-FUND-043")
 def test_allocator_tools_run_on_the_default_prior(db_session, monkeypatch) -> None:
     # Behavioural: whatever the wiring, the configs that actually reach the
     # moment and optimizer builders must be the defaults, so no view-derived
     # prior can have been swapped in.
+    """Validates fund.agents.toolsets._compute_candidates_impl."""
     _seed_panel(db_session)
     moment_cfgs: list[MomentEstimationConfig] = []
     optimizer_cfgs: list[MeanRiskConfig] = []
@@ -2363,9 +2448,11 @@ def test_surface_that_mentions_views_labels_them_advisory(surface: str) -> None:
     assert "advisory" in text, f"{surface} mentions views without saying advisory"
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_views_skill_names_the_tools_it_says_ignore_views() -> None:
     # The skill's claim is only as good as the wiring guards above, so it must
     # name the tools those guards actually cover.
+    """Validates fund.agents.toolsets.TOOLS_BY_AGENT."""
     body = _flat((_VIEWS_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
     for name in ("estimate_moments", "compute_candidates"):
         assert name in TOOLS_BY_AGENT["allocator"]

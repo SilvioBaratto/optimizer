@@ -254,10 +254,13 @@ class TestBoundMomentsToolUsesTheProfile:
 class TestAuditLogsWhatTheSolverRanWith:
     """The allocator decision records the prior and the compounded risk-free rate."""
 
+    @pytest.mark.criterion("REQ-FUND-046")
     def test_the_decision_carries_the_prior_and_the_per_bar_rate(
         self, db_session, monkeypatch, panel
     ) -> None:
-        """The audited config is the applied one, not the pre-tool mapping."""
+        """Validates fund.agents.toolsets._compute_candidates_impl.
+
+        The audited config is the applied one, not the pre-tool mapping."""
         import json
 
         from portopt_db.models import AgentDecision

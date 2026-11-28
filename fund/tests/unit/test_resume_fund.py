@@ -170,7 +170,9 @@ def test_run_fund_honours_explicit_thread_id(db_session) -> None:
 # --- resume_fund approve: fresh agent commits ticket + upserts positions ------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approve_commits_ticket_positions_and_completes(db_session) -> None:
+    """Validates fund.agents.graph.resume_fund."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -206,10 +208,13 @@ def test_resume_fund_approve_commits_ticket_positions_and_completes(db_session) 
     assert executor[0].hitl_decision == {"decision": "approve"}
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approve_sizes_ticket_at_the_stored_mandate_capital(
     db_session,
 ) -> None:
-    """The rebuild-to-resume path re-reads the mandate, so the ticket it commits is
+    """Validates fund.agents.graph.resume_fund.
+
+    The rebuild-to-resume path re-reads the mandate, so the ticket it commits is
     sized at the mandate's capital rather than the tool's default notional."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
@@ -241,10 +246,13 @@ def test_resume_fund_approve_sizes_ticket_at_the_stored_mandate_capital(
     assert order.notional == 250_000.0
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_sizes_the_ticket_from_the_capital_the_run_opened_with(
     db_session,
 ) -> None:
-    """The rebuild-to-resume path prices the ticket at the capital the PM saw."""
+    """Validates fund.agents.graph.resume_fund.
+
+    The rebuild-to-resume path prices the ticket at the capital the PM saw."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -274,10 +282,13 @@ def test_resume_fund_sizes_the_ticket_from_the_capital_the_run_opened_with(
     assert order.notional == pytest.approx(40_000.0)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_prices_the_ticket_at_the_run_capital_after_a_mandate_edit(
     db_session,
 ) -> None:
-    """A mandate edited while the gate is pending must not re-price the ticket."""
+    """Validates fund.agents.graph.resume_fund.
+
+    A mandate edited while the gate is pending must not re-price the ticket."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -311,9 +322,11 @@ def test_resume_fund_prices_the_ticket_at_the_run_capital_after_a_mandate_edit(
     assert order.notional == pytest.approx(40_000.0)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_run_and_resume_build_their_agents_over_the_same_run_scratch(
     db_session, monkeypatch
 ) -> None:
+    """Validates fund.agents.graph.resume_fund."""
     from fund.agents import graph as graph_mod
 
     scratch_owners: list[object] = []
@@ -393,10 +406,13 @@ def _run_to_double_gate(db_session, saver, store, expected) -> FundRun:
     return run
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approve_resolves_a_gate_with_parallel_place_orders(
     db_session,
 ) -> None:
-    """Two gated calls in one PM message are both approved by one adviser approve;
+    """Validates fund.agents.graph.resume_fund.
+
+    Two gated calls in one PM message are both approved by one adviser approve;
     the idempotent ticket is still written once and the run completes."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
@@ -462,7 +478,9 @@ def test_fundrun_resume_respond_resolves_a_gate_with_parallel_place_orders(
 # --- resume_fund guards ------------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_unknown_run_id_raises(db_session) -> None:
+    """Validates fund.agents.graph.resume_fund."""
     with pytest.raises(LookupError):
         resume_fund(
             uuid.uuid4(),
@@ -487,7 +505,9 @@ def test_resume_fund_rejects_unknown_decision(db_session) -> None:
         )
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_requires_active_constraint_set(db_session) -> None:
+    """Validates fund.agents.graph.resume_fund."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -672,7 +692,9 @@ def test_resume_fund_still_rejects_a_gate_built_under_a_superseded_profile(
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approves_when_the_profile_is_unchanged(db_session) -> None:
+    """Validates fund.agents.graph.resume_fund."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -801,7 +823,9 @@ def test_resume_fund_refuses_a_run_that_is_not_at_a_gate(db_session, decision) -
     assert row.status == "pending"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_refuses_a_run_that_is_not_at_a_gate(db_session) -> None:
+    """Validates fund.agents.graph.FundRun.resume."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     run = _run_to_gate(
@@ -863,11 +887,14 @@ def test_resume_fund_refuses_a_run_that_is_already_finalised(
     assert row.status == status
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 @pytest.mark.parametrize("status", _FINALISED_STATUSES)
 def test_fundrun_resume_refuses_a_run_that_is_already_finalised(
     db_session, status
 ) -> None:
-    """The in-process handle has no status guard of its own: it is the claim on the run
+    """Validates fund.agents.graph.FundRun.resume.
+
+    The in-process handle has no status guard of its own: it is the claim on the run
     that keeps a stale handle from re-driving the checkpointed ``place_orders``."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
@@ -889,8 +916,11 @@ def test_fundrun_resume_refuses_a_run_that_is_already_finalised(
     assert row.status == status
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_a_second_approve_of_a_completed_run_is_refused(db_session) -> None:
-    """Without an idempotency key nothing but the run's status stops a second approve
+    """Validates fund.agents.graph.resume_fund.
+
+    Without an idempotency key nothing but the run's status stops a second approve
     (a double click, a second observer) from placing a second ticket."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
@@ -931,7 +961,9 @@ def test_a_second_approve_of_a_completed_run_is_refused(db_session) -> None:
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_refuses_a_second_approve(db_session) -> None:
+    """Validates fund.agents.graph.FundRun.resume."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     run = _run_to_gate(
@@ -951,8 +983,11 @@ def test_fundrun_resume_refuses_a_second_approve(db_session) -> None:
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_stays_refused_after_a_freeze_is_rearmed(db_session) -> None:
-    """A freeze rejects the live gate but leaves its checkpoint standing; once the
+    """Validates fund.agents.graph.resume_fund.
+
+    A freeze rejects the live gate but leaves its checkpoint standing; once the
     adviser re-arms, only the run's rejected status keeps a stale approve from placing
     the order the freeze halted."""
     from fund.actions import apply_action
@@ -1014,10 +1049,13 @@ class _ConcurrentResolutionDuringClosingTurn(ScriptedFundModel):
         return super()._pm_turn(messages)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_does_not_overwrite_a_run_rejected_while_it_was_in_flight(
     db_session,
 ) -> None:
-    """The adviser presses Approve, then Reject (or a freeze halts the fund) while the
+    """Validates fund.agents.graph.resume_fund.
+
+    The adviser presses Approve, then Reject (or a freeze halts the fund) while the
     approve is still resuming the graph. The reject finalises first; the approve must
     then fail rather than stamp the run ``completed`` and rewrite the positions."""
     seed_panel(db_session)
@@ -1052,10 +1090,13 @@ def test_approve_does_not_overwrite_a_run_rejected_while_it_was_in_flight(
     assert _positions_map(db_session) == {}
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_backs_off_when_another_resolver_finalised_the_run_first(
     db_session, monkeypatch
 ) -> None:
-    """The status guard is a plain read, so a reject can commit between it and the
+    """Validates fund.agents.graph.resume_fund.
+
+    The status guard is a plain read, so a reject can commit between it and the
     resume. The loser must not drive the graph at all: that would run
     ``place_orders`` for a run the adviser already rejected."""
     seed_panel(db_session)
@@ -1102,10 +1143,13 @@ def _age_run(db_session, run_id, *, days: int) -> None:
     db_session.flush()
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_refuses_an_approve_once_the_run_outlived_the_approval_window(
     db_session,
 ) -> None:
-    """The ticket fills at the first close after the run's ``asof``, so approving a gate
+    """Validates fund.agents.graph.resume_fund.
+
+    The ticket fills at the first close after the run's ``asof``, so approving a gate
     that has sat for weeks would backdate a fill the adviser chose with the benefit of
     the bars since. Such a run can only be rejected, and re-run on a fresh bar."""
     seed_panel(db_session)
@@ -1161,9 +1205,11 @@ def test_resume_fund_still_rejects_a_run_that_outlived_the_approval_window(
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "rejected"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_refuses_an_approve_once_the_run_outlived_the_approval_window(
     db_session,
 ) -> None:
+    """Validates fund.agents.graph.FundRun.resume."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     run = _run_to_gate(
@@ -1181,10 +1227,13 @@ def test_fundrun_resume_refuses_an_approve_once_the_run_outlived_the_approval_wi
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_refuses_an_approve_older_than_the_portfolio_holdings(
     db_session,
 ) -> None:
-    """Approving an earlier bar's run after a later one completed would replace the
+    """Validates fund.agents.graph.resume_fund.
+
+    Approving an earlier bar's run after a later one completed would replace the
     current holdings snapshot with the older run's weights and ``asof``."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
@@ -1300,7 +1349,9 @@ def test_resume_fund_reject_is_still_allowed_when_frozen(db_session) -> None:
     assert _paper_orders(db_session) == []
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_refuses_approve_when_the_fund_is_frozen(db_session) -> None:
+    """Validates fund.agents.graph.FundRun.resume."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     run = _run_to_gate(
@@ -1363,10 +1414,13 @@ def _assert_still_awaiting_the_next_gate(db_session, run_id) -> None:
     assert db_session.query(PortfolioJournal).all() == []
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
     db_session,
 ) -> None:
-    """Approving ``compute_candidates`` (no candidate set exists yet, so no candidate
+    """Validates fund.agents.graph.resume_fund.
+
+    Approving ``compute_candidates`` (no candidate set exists yet, so no candidate
     is named) lets the PM run on to the ``place_orders`` gate, which pauses the graph
     again; its approve names the candidate. The first approve must not finalise the
     run: that would stamp it completed with no ticket, replace the holdings with an
@@ -1410,9 +1464,11 @@ def test_resume_fund_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
     assert _positions_map(db_session) == held_weights(expected)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_approve_of_an_extra_gate_keeps_the_run_at_the_next_gate(
     db_session,
 ) -> None:
+    """Validates fund.agents.graph.FundRun.resume."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     run = _run_to_extra_gate(db_session, MemorySaver(), _store_with_cs(), expected)
@@ -1458,7 +1514,9 @@ def test_resume_fund_reject_of_an_extra_gate_still_closes_the_run(db_session) ->
 # --- parity: FundRun.resume and resume_fund leave identical state ------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_matches_fundrun_resume(db_session) -> None:
+    """Validates fund.agents.graph.resume_fund."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
 
@@ -1537,8 +1595,11 @@ def _assert_gate_still_open(db_session, saver, run_id) -> None:
     assert [summary.run_id for summary in queued] == [run_id]
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approve_without_a_fill_bar_does_not_finalise(db_session) -> None:
-    """``place_orders`` fails by design when no close follows ``asof``. Approving then
+    """Validates fund.agents.graph.resume_fund.
+
+    ``place_orders`` fails by design when no close follows ``asof``. Approving then
     must surface the failure and leave the run paused at its gate: no ``completed``
     stamp, no positions snapshot, no journal row, and the checkpoint's interrupt intact
     (the gated call never ran) so the approval stays retryable from the TUI queue."""
@@ -1566,10 +1627,13 @@ def test_resume_fund_approve_without_a_fill_bar_does_not_finalise(db_session) ->
     _assert_gate_still_open(db_session, saver, run.run_id)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_approve_without_a_fill_bar_does_not_finalise(
     db_session,
 ) -> None:
-    """The in-process handle refuses the unfillable approve the same way."""
+    """Validates fund.agents.graph.FundRun.resume.
+
+    The in-process handle refuses the unfillable approve the same way."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -1591,8 +1655,11 @@ def test_fundrun_resume_approve_without_a_fill_bar_does_not_finalise(
 # --- a failure after the gate is consumed must not orphan the approval --------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approve_survives_pm_failure_after_the_ticket(db_session) -> None:
-    """The PM's follow-up turn can fail (429) after ``place_orders`` ran. The gate is
+    """Validates fund.agents.graph.resume_fund.
+
+    The PM's follow-up turn can fail (429) after ``place_orders`` ran. The gate is
     consumed and the ticket written, so the approval must still be finalised rather
     than propagate: the caller rolls the session back on an exception, which would
     drop the ticket while the checkpoint keeps the tool step done."""
@@ -1621,10 +1688,13 @@ def test_resume_fund_approve_survives_pm_failure_after_the_ticket(db_session) ->
     assert _positions_map(db_session) == held_weights(expected)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_approve_survives_pm_failure_after_the_ticket(
     db_session,
 ) -> None:
-    """The in-process handle follows the same rule as the rebuild path: a PM turn that
+    """Validates fund.agents.graph.FundRun.resume.
+
+    The in-process handle follows the same rule as the rebuild path: a PM turn that
     fails once ``place_orders`` ran must not undo an approval whose gate is spent."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
@@ -1671,10 +1741,13 @@ def test_resume_fund_reject_survives_pm_failure_after_the_gate(db_session) -> No
     assert _paper_orders(db_session) == []
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_reraises_when_the_gate_was_not_consumed(
     db_session, monkeypatch
 ) -> None:
-    """A failure before the interrupt is consumed leaves the gate pending, so the
+    """Validates fund.agents.graph.resume_fund.
+
+    A failure before the interrupt is consumed leaves the gate pending, so the
     exception propagates and the adviser can simply retry."""
     from fund.agents import graph
 
@@ -1740,10 +1813,13 @@ def _assert_finalised_with_ticket_weights(db_session, run_id, expected) -> None:
     assert _positions_map(db_session) == held_weights(expected)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approve_finalises_with_the_placed_ticket_weights(
     db_session,
 ) -> None:
-    """A post-approval allocator re-run must not change what is finalised: the run's
+    """Validates fund.agents.graph.resume_fund.
+
+    A post-approval allocator re-run must not change what is finalised: the run's
     weights and the positions snapshot are the approved ticket's, not whatever the
     audit trail's latest optimizer decision says afterwards."""
     seed_panel(db_session)
@@ -1767,9 +1843,11 @@ def test_resume_fund_approve_finalises_with_the_placed_ticket_weights(
     _assert_finalised_with_ticket_weights(db_session, run.run_id, expected)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_approve_finalises_with_the_placed_ticket_weights(
     db_session,
 ) -> None:
+    """Validates fund.agents.graph.FundRun.resume."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     run = _run_to_gate(
@@ -1814,10 +1892,13 @@ def _assert_retry_completed_with_ticket(db_session, run_id, expected) -> None:
     assert len(executor) == 1
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_retry_replaces_a_ticket_lost_with_the_rolled_back_session(
     db_session,
 ) -> None:
-    """``place_orders`` writes on the caller's session while the LangGraph saver commits
+    """Validates fund.agents.graph.resume_fund.
+
+    ``place_orders`` writes on the caller's session while the LangGraph saver commits
     the checkpoint on its own connection. When the caller's transaction is lost after
     the approve (a failed finalisation or commit) the ticket is gone but the checkpoint
     has moved past the gate, so the retried approve replays nothing. It must place the
@@ -1857,10 +1938,13 @@ def test_resume_fund_retry_replaces_a_ticket_lost_with_the_rolled_back_session(
     _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_retry_without_a_fill_bar_finalises_a_consumed_gate_incomplete(
     db_session,
 ) -> None:
-    """A consumed gate has left the Decisions queue, so a retry whose own placement
+    """Validates fund.agents.graph.resume_fund.
+
+    A consumed gate has left the Decisions queue, so a retry whose own placement
     fails (the next close is not there yet) cannot be left paused: the run is closed
     ``incomplete`` with nothing written rather than orphaned."""
     seed_panel(db_session)
@@ -1897,9 +1981,11 @@ def test_resume_fund_retry_without_a_fill_bar_finalises_a_consumed_gate_incomple
     assert _positions_map(db_session) == {}
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_retry_replaces_a_ticket_lost_with_the_rolled_back_session(
     db_session,
 ) -> None:
+    """Validates fund.agents.graph.FundRun.resume."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     run = _run_to_gate(
@@ -1918,10 +2004,13 @@ def test_fundrun_resume_retry_replaces_a_ticket_lost_with_the_rolled_back_sessio
     _assert_retry_completed_with_ticket(db_session, run.run_id, expected)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_retry_places_the_ticket_once_the_fill_bar_exists(
     db_session,
 ) -> None:
-    """An approve refused for want of a fill bar leaves the gate open. Once the next
+    """Validates fund.agents.graph.resume_fund.
+
+    An approve refused for want of a fill bar leaves the gate open. Once the next
     close is ingested the same approve must place the ticket through that gate, not
     leave the run paused for good."""
     seed_panel(db_session)
@@ -1980,9 +2069,11 @@ def _assert_positions_trace_the_ticket(db_session) -> None:
         assert position.shares is None
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_resume_fund_approve_links_the_positions_to_the_paper_ticket(
     db_session,
 ) -> None:
+    """Validates fund.agents.graph.resume_fund."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -2004,9 +2095,11 @@ def test_resume_fund_approve_links_the_positions_to_the_paper_ticket(
     _assert_positions_trace_the_ticket(db_session)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_approve_links_the_positions_to_the_paper_ticket(
     db_session,
 ) -> None:
+    """Validates fund.agents.graph.FundRun.resume."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     run = _run_to_gate(
@@ -2666,10 +2759,13 @@ def test_fundrun_resume_approve_refused_by_the_mandate_does_not_complete_the_run
     _assert_nothing_booked(db_session, run.run_id)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_a_placed_ticket_still_completes_the_run_after_the_refusal_guard(
     db_session,
 ) -> None:
-    """Regression guard: an approve whose ticket landed finalises ``completed``."""
+    """Validates fund.agents.graph.resume_fund.
+
+    Regression guard: an approve whose ticket landed finalises ``completed``."""
     seed_panel(db_session)
     expected = expected_weights(db_session)
     saver = MemorySaver()
@@ -2751,10 +2847,13 @@ class _ReoptimizingModel(ScriptedFundModel):
         return super()._allocator_turn(messages)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_approve_finalises_with_weights_reoptimised_after_respond(
     db_session,
 ) -> None:
-    """A respond that makes the PM recompute the candidates on a narrower universe
+    """Validates fund.agents.graph.FundRun.resume.
+
+    A respond that makes the PM recompute the candidates on a narrower universe
     supersedes the set shown at the pause, so the approve places the named candidate
     of the newer set and finalises with its weights, not the stale pre-pause ones."""
     seed_panel(db_session)
@@ -2780,10 +2879,13 @@ def test_fundrun_resume_approve_finalises_with_weights_reoptimised_after_respond
     assert _positions_map(db_session) == held_weights(orders[0].weights)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_fundrun_resume_refuses_a_run_finalised_since_the_gate_opened(
     db_session,
 ) -> None:
-    """An external freeze finalises the row without resolving the checkpoint; the
+    """Validates fund.agents.graph.FundRun.resume.
+
+    An external freeze finalises the row without resolving the checkpoint; the
     in-process handle must not blindly re-drive ``place_orders`` against it."""
     seed_panel(db_session)
     expected = expected_weights(db_session)

@@ -251,10 +251,13 @@ def _model_chunk(message: Any, **state: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------- run_fund
 
 
+@pytest.mark.criterion("REQ-FUND-047")
 def test_run_fund_pauses_at_the_gate_with_the_optimizer_weights(
     monkeypatch, log
 ) -> None:
-    """The weights are read, the freeze is checked, then the run is flipped paused."""
+    """Validates fund.agents.graph.run_fund.
+
+    The weights are read, the freeze is checked, then the run is flipped paused."""
     setup = _patch_round(monkeypatch, log, _Agent({**_gate_chunk(), "messages": []}))
 
     run = _run()
@@ -400,8 +403,11 @@ def _delegation_chunks() -> list[dict[str, Any]]:
     ]
 
 
+@pytest.mark.criterion("REQ-FUND-047")
 def test_stream_fund_pauses_at_the_gate_with_its_why(monkeypatch, log) -> None:
-    """The last event is the paused gate, carrying the payload and its description."""
+    """Validates fund.agents.graph.stream_fund.
+
+    The last event is the paused gate, carrying the payload and its description."""
     _patch_round(
         monkeypatch, log, _Agent(chunks=[*_delegation_chunks(), _gate_chunk()])
     )

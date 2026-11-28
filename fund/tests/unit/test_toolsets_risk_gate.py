@@ -12,6 +12,7 @@ import datetime as dt
 import math
 import uuid
 
+import pytest
 from _fund_fakes import MEAN_RISK, audit_adviser_choice, candidate_set_payload
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models import AgentDecision
@@ -148,8 +149,11 @@ def _executor_rows(db_session) -> list[AgentDecision]:
 class TestUnmeasurableDrawdownBlocks:
     """A drawdown the gate cannot measure is a failed check, not a footnote."""
 
+    @pytest.mark.criterion("REQ-FUND-051")
     def test_a_history_too_short_to_backtest_fails_the_gate(self, db_session) -> None:
-        """With no prices the ceilings were never checked, so the book cannot pass."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        With no prices the ceilings were never checked, so the book cannot pass."""
         ctx = _context(db_session, _store(_constraint_set()))
         _audit_candidate(ctx, _WEIGHTS)
 
@@ -160,8 +164,11 @@ class TestUnmeasurableDrawdownBlocks:
         assert violation["type"] == "drawdown_unverified"
         assert result["data"]["warnings"] == []
 
+    @pytest.mark.criterion("REQ-FUND-051")
     def test_a_young_listing_cannot_wave_a_book_through(self, db_session) -> None:
-        """A holding with a fraction of the history leaves the drawdown unverified."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        A holding with a fraction of the history leaves the drawdown unverified."""
         _seed_panel(db_session, young_days=12)
         ctx = _context(db_session, _store(_constraint_set()))
         _audit_candidate(ctx, _WEIGHTS)
@@ -172,10 +179,13 @@ class TestUnmeasurableDrawdownBlocks:
         kinds = [v["type"] for v in result["data"]["violations"]]
         assert kinds == ["drawdown_unverified"]
 
+    @pytest.mark.criterion("REQ-FUND-049")
     def test_place_orders_refuses_a_book_whose_drawdown_cannot_be_measured(
         self, db_session
     ) -> None:
-        """The refusal reaches the ticket: nothing is placed or audited."""
+        """Validates fund.agents.toolsets._place_orders_impl.
+
+        The refusal reaches the ticket: nothing is placed or audited."""
         _seed_panel(db_session, young_days=12)
         ctx = _context(db_session, _store(_constraint_set()))
         # The adviser's choice carries its passing verdict; the re-check refuses it.
@@ -190,10 +200,13 @@ class TestUnmeasurableDrawdownBlocks:
 class TestReprofileInvalidatesAPassedVerdict:
     """``place_orders`` holds the audited weights to the mandate in force now."""
 
+    @pytest.mark.criterion("REQ-FUND-049")
     def test_a_tighter_drawdown_ceiling_after_the_verdict_stops_the_order(
         self, db_session
     ) -> None:
-        """The verdict passed at nu2=0.6; the client then accepts only a 0.01% loss."""
+        """Validates fund.agents.toolsets._place_orders_impl.
+
+        The verdict passed at nu2=0.6; the client then accepts only a 0.01% loss."""
         _seed_panel(db_session, lead_days=_YEAR_LEAD)
         store = _store(_constraint_set())
         ctx = _context(db_session, store)
@@ -213,8 +226,11 @@ class TestReprofileInvalidatesAPassedVerdict:
         assert "drawdown_nu3" in result["error"]
         assert _executor_rows(db_session) == []
 
+    @pytest.mark.criterion("REQ-FUND-049")
     def test_an_unchanged_mandate_still_places_the_order(self, db_session) -> None:
-        """The re-check must not turn a clean approval into a refusal."""
+        """Validates fund.agents.toolsets._place_orders_impl.
+
+        The re-check must not turn a clean approval into a refusal."""
         _seed_panel(db_session, lead_days=_YEAR_LEAD)
         ctx = _context(db_session, _store(_constraint_set()))
         audit_adviser_choice(db_session, ctx.run_id, _WEIGHTS)

@@ -170,15 +170,20 @@ Behaviour changes to know about:
   metrics, constraint check and breaches, and the `selectable` ids) instead of one
   weight vector and its risk verdict, and a round whose PM reaches the gate with no
   candidate set or no feasible candidate ends `incomplete` (`no_candidate_set` /
-  `no_feasible_candidate`) without opening a gate. Approving a rebalance gate now
-  requires naming one candidate: `fund approve <run_id> --candidate <id>`, the
-  `candidate_id` of `fund.actions.apply_action`, `resume_run`, `resume_fund` and
-  `FundRun.resume`, or the candidate picked in the TUI's Decisions view
-  (`DecisionsView.select_candidate`; the candidate table and confirm follow). There is
-  no default: an approve with no id, an unknown id or an infeasible one is refused with
-  a message naming the choices and writes nothing, so the gate stays open. A valid id is
-  re-checked under the mandate in force at approve time (a refusal again writes
-  nothing); the passing verdict (`source="candidate_selection"`) and the choice (an
+  `no_feasible_candidate`) without opening a gate; so does a re-gate after an
+  approve, and after a respond, that lands on such a gate. Approving the
+  `place_orders` gate now requires naming one candidate: `fund approve <run_id>
+  --candidate <id>`, or the `candidate_id` of `fund.actions.apply_action`,
+  `resume_run`, `resume_fund` and `FundRun.resume`. There is no default: an approve
+  with no id, an unknown id or an infeasible one is refused with a message naming the
+  choices and writes nothing, so the gate stays open. Which rule applies depends on
+  the gate that is pending, not on the stored set: approving a gate a mandate adds
+  ahead of `place_orders` (`compute_candidates`, `risk_check`, `backtest`,
+  `get_portfolio_history`) needs no id, records no choice and commits no weights, and
+  an id named there is refused. A valid id is re-checked under the mandate in force at
+  approve time; that refusal comes after the approve's audit row is appended to the
+  caller's session, so nothing is committed and the caller's rollback drops the row.
+  On success the passing verdict (`source="candidate_selection"`) and the choice (an
   allocator `optimize_portfolio` row with `hitl_decision.decision="select_candidate"`)
   are recorded, the approve's audit row carries `candidate_id`, `weights`,
   `weights_hash` and `candidate_set_hash`, and paper orders derive only from that
@@ -191,9 +196,17 @@ Behaviour changes to know about:
   `place_orders`. `optimize_portfolio` is no longer an agent tool (it leaves
   `fund.tools.__all__`, which gains `compute_candidates`; the function stays in
   `fund.tools.optimize` for the readouts), and `build_gate_weights_middleware` is now
-  `build_gate_candidates_middleware`. **Upgrading**: runs left paused at their gate
-  from before this change have no candidate set and cannot be approved; reject them and
-  run a fresh round. When an approve's transaction is lost after `place_orders` ran (a
+  `build_gate_candidates_middleware`. New public names: the module
+  `fund.agents.graph_candidates`, `AgentRunRepository.adviser_choice_in_force`,
+  `fund.observe.is_profiler_run` and `fund.agents.toolsets.describe_breaches`. The TUI
+  cannot pick a candidate yet in this release (the Decisions view only holds a pick
+  set through `DecisionsView.select_candidate`; the candidate table and its confirm
+  follow), so approving or editing a rebalance gate in the TUI, and approving one
+  through Ask, is refused until that lands: use `fund approve <run_id> --candidate <id>`.
+  **Upgrading**: runs left paused at their gate from before this change have no
+  candidate set and cannot be approved; reject them and run a fresh round. A mandate
+  whose `hitl_gates` names `optimize_portfolio` loses that gate silently, because no
+  agent binds the tool any more: name `compute_candidates` instead. When an approve's transaction is lost after `place_orders` ran (a
   consumed gate), the retry must name the candidate again and the replacement ticket is
   placed from the one it names, which may differ from the first attempt's; the PM's
   transcript still shows the first attempt (REQ-FUND-047, REQ-FUND-048, REQ-FUND-049,

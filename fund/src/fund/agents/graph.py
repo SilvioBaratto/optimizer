@@ -210,10 +210,10 @@ _ECONOMIST_DESCRIPTION = (
 _ALLOCATOR_DESCRIPTION = (
     "Pipeline step 2. Pre-selects the tickers it is handed (all of the eligible "
     "universe when the instruction lists one), estimates moments, and runs "
-    "compute_candidates to produce four candidate portfolios (hrp, mean_risk, "
-    "min_risk, risk_parity) under the resolved constraints; it reports all four "
-    "and never chooses one. The economist's views are advisory context, not an "
-    "optimizer input. Delegate after the economist."
+    "compute_candidates to produce four candidate portfolios, one per method, "
+    "under the resolved constraints; it reports all four and never chooses one. "
+    "The economist's views are advisory context, not an optimizer input. Delegate "
+    "after the economist."
 )
 _RISK_DESCRIPTION = (
     "Pipeline step 3 — the blocking gate. Checks every candidate against the "

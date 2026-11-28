@@ -270,10 +270,13 @@ def _held(weights: dict[str, float]) -> set[str]:
 # --- 1. an allowlist run ------------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_allowlist_run_allocates_only_the_eligible_etfs_and_places_only_them(
     db_session, seeds
 ) -> None:
-    """The allocator lists exactly the three ETFs, optimizes them, risk passes and the
+    """Validates fund.agents.graph.run_fund and resume_fund.
+
+    The allocator lists exactly the three ETFs, optimizes them, risk passes and the
     approved paper ticket holds only allowlisted names; the PM was told the set."""
     seed_panel(db_session)
     _seed_etfs(db_session)
@@ -311,10 +314,13 @@ def test_allowlist_run_allocates_only_the_eligible_etfs_and_places_only_them(
 # --- 2. an out-of-list attempt ------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_optimizing_a_stock_outside_the_allowlist_is_refused_and_the_next_call_succeeds(
     db_session, seeds
 ) -> None:
-    """A stock typed into compute_candidates is refused with its reason and audits
+    """Validates fund.agents.graph.run_fund.
+
+    A stock typed into compute_candidates is refused with its reason and audits
     nothing; the
     allocator's later call over the listed ETFs succeeds."""
     seed_panel(db_session)
@@ -408,10 +414,13 @@ def test_an_adviser_edit_into_a_name_the_mandate_no_longer_lists_is_rejected(
 # --- 4. ESG on single stocks --------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_an_energy_stock_on_the_allowlist_is_barred_everywhere(
     db_session, seeds
 ) -> None:
-    """With an Energy exclusion the allowlisted energy stock is absent from
+    """Validates fund.agents.graph.run_fund.
+
+    With an Energy exclusion the allowlisted energy stock is absent from
     ``list_universe``, named in the PM seed with its reason, refused by the candidates
     tool, and
     never held."""
@@ -500,8 +509,11 @@ def _listed(model: _ScriptedAllocator) -> list[str]:
     return [row["ticker"] for row in rows]
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_an_equity_etf_within_the_tolerance_stays_listed(db_session, seeds) -> None:
-    """3% energy against a 5% tolerance is allowed; the others pass on asset class."""
+    """Validates fund.agents.graph.run_fund.
+
+    3% energy against a 5% tolerance is allowed; the others pass on asset class."""
     model, run = _run_with_equity_etf_snapshot(
         db_session, energy=0.03, constraint_set=_energy_policy(), steps=_FULL_ALLOCATION
     )
@@ -512,10 +524,13 @@ def test_an_equity_etf_within_the_tolerance_stays_listed(db_session, seeds) -> N
     assert proposed and set(proposed) <= set(_ETFS)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_an_equity_etf_over_the_tolerance_is_hidden_named_and_refused(
     db_session, seeds
 ) -> None:
-    """8% energy bars the fund with the dominant sector; the bond and commodity funds
+    """Validates fund.agents.graph.run_fund.
+
+    8% energy bars the fund with the dominant sector; the bond and commodity funds
     are still listed and the allocator is told why the equity fund is gone."""
     model, run = _run_with_equity_etf_snapshot(
         db_session,
@@ -531,10 +546,13 @@ def test_an_equity_etf_over_the_tolerance_is_hidden_named_and_refused(
     assert proposed and set(proposed) <= {"GOVETF.L", "GLDETF.L"}
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_an_equity_etf_with_a_stale_snapshot_is_barred_as_unclassified(
     db_session, seeds
 ) -> None:
-    """A snapshot older than the max age cannot show the fund is clean, so it fails
+    """Validates fund.agents.graph.run_fund.
+
+    A snapshot older than the max age cannot show the fund is clean, so it fails
     closed even though its energy share would have been within the tolerance."""
     stale = settings.esg_sector_weights_max_age_days + 1
     model, run = _run_with_equity_etf_snapshot(
@@ -610,10 +628,13 @@ def test_removing_a_held_ticker_from_the_mandate_before_approval_stops_the_order
 # --- 6. unrestricted regression -------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_an_empty_allowlist_runs_exactly_as_before_the_feature(
     db_session, seeds
 ) -> None:
-    """No allowlist: the seed carries no eligible block and the optimizer's weights
+    """Validates fund.agents.graph.run_fund.
+
+    No allowlist: the seed carries no eligible block and the optimizer's weights
     are the ones the plain scripted run produces."""
     seed_panel(db_session)
     _seed_etfs(db_session)

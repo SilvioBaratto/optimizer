@@ -235,9 +235,11 @@ def test_allocator_prompt_names_its_tools_and_skills():
     assert "optimization-objective-map" in lower
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_prompts_do_not_claim_views_feed_the_optimizer_prior():
     # ``compute_candidates`` takes only the ConstraintSet; no tool builds a
     # Black-Litterman prior from the economist's ViewSet.
+    """Validates fund.agents.prompts."""
     for prompt in (ECONOMIST_SYSTEM_PROMPT, ALLOCATOR_SYSTEM_PROMPT):
         flat = " ".join(prompt.lower().split())
         assert "turn them into a prior" not in flat

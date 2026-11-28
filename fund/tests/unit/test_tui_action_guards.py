@@ -147,9 +147,12 @@ async def _open_ask(app, pilot) -> AskView:
     return app.query_one("#view-ask", AskView)
 
 
+@pytest.mark.criterion("REQ-FUND-047")
 @pytest.mark.asyncio
 async def test_an_ask_approve_shows_the_orders_it_would_execute(env) -> None:
-    """The confirm carries the gate's candidates and their orders, not just a gate
+    """Validates fund.tui._mixins.ask._ask_confirm_prompt.
+
+    The confirm carries the gate's candidates and their orders, not just a gate
     id."""
     app = _shell(env)
     async with app.run_test(size=(120, 40)) as pilot:

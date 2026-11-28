@@ -313,7 +313,9 @@ def test_objective_map_skill_states_what_the_tool_actually_applies():
         assert field in body, f"SKILL.md must name the honoured bound `{field}`"
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_objective_map_procedure_does_not_instruct_knobs_the_tool_ignores():
+    """Validates the optimization-objective-map skill."""
     procedure = _section(_read(_OBJECTIVE_MAP_SKILL, "SKILL.md"), "Procedure").lower()
     for knob in ("robust", "turnover"):
         assert knob not in procedure, (

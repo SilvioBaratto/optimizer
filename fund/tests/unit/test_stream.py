@@ -186,10 +186,13 @@ class _ParallelDelegationFundModel(ScriptedFundModel):
         return super()._pm_turn(messages)
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_stream_fund_attributes_parallel_delegations_to_their_own_subagent(
     stream_env,
 ) -> None:
-    """Two ``task`` calls in one PM turn each report under their own subagent.
+    """Validates fund.agents.graph.stream_fund.
+
+    Two ``task`` calls in one PM turn each report under their own subagent.
 
     The result of a delegation is matched to its call by ``tool_call_id``; a single
     "last delegated subagent" slot would label both reports with the second call's
