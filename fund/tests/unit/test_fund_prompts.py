@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from fund.agents import prompts
 from fund.agents.prompts import (
     ALLOCATOR_SYSTEM_PROMPT,
@@ -159,20 +161,28 @@ def test_pm_round_cap_does_not_promise_a_hitl_checkpoint():
     assert "place_orders" in section  # told not to use it as an escalation
 
 
-def test_pm_prompt_commits_only_after_risk_passed():
-    section = _pm_section("Committing orders is yours, and it is gated")
+@pytest.mark.criterion("REQ-FUND-052")
+def test_pm_prompt_calls_place_orders_only_after_the_risk_gate_reported():
+    """Validates fund.agents.prompts.PM_SYSTEM_PROMPT: the PM calls ``place_orders``
+    once, after the risk gate, so the adviser chooses, and never chooses itself."""
+    section = _pm_section("The adviser chooses at the gate")
 
     assert "only after the risk gate" in section
+    assert "the adviser chooses" in section
+    assert "never choose" in section
 
 
-def test_risk_prompt_says_the_gate_reads_the_audited_weights():
-    # risk_check takes no weights and place_orders refuses an unjudged vector, so
-    # the officer must not be invited to relay a retyped copy of the proposal.
-    lower = RISK_SYSTEM_PROMPT.lower()
+@pytest.mark.criterion("REQ-FUND-052")
+def test_risk_prompt_says_the_check_reads_a_candidate_and_records_nothing():
+    """Validates fund.agents.prompts.RISK_SYSTEM_PROMPT: ``risk_check`` takes a
+    candidate id of the latest set, never weights, and records nothing, so the risk
+    officer cannot relay a retyped vector or clear a ticket by itself."""
+    flat = " ".join(RISK_SYSTEM_PROMPT.lower().split())
 
-    assert "takes no arguments" in lower
-    assert "latest audited" in lower
-    assert "`place_orders` refuses" in lower
+    assert "risk_check(candidate_id)" in flat
+    assert "latest candidate set" in flat
+    assert "takes the id, never weights" in flat
+    assert "records nothing" in flat
 
 
 def test_pm_prompt_explains_how_to_read_an_adviser_directive():
@@ -211,20 +221,25 @@ def test_economist_prompt_describes_only_what_get_prices_returns():
     assert "history" not in bullet
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_allocator_prompt_names_its_tools_and_skills():
+    """Validates fund.agents.prompts.ALLOCATOR_SYSTEM_PROMPT: it names the tools the
+    allocator binds, ``compute_candidates`` instead of the single optimizer."""
     lower = ALLOCATOR_SYSTEM_PROMPT.lower()
-    assert "list_universe" in lower
     assert "list_universe" in lower
     assert "universe_filter" in lower
     assert "estimate_moments" in lower
-    assert "optimize_portfolio" in lower
+    assert "compute_candidates" in lower
+    assert "optimize_portfolio" not in lower
     assert "universe-preselection" in lower
     assert "optimization-objective-map" in lower
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_prompts_do_not_claim_views_feed_the_optimizer_prior():
-    # ``optimize_portfolio`` takes only the ConstraintSet; no tool builds a
+    # ``compute_candidates`` takes only the ConstraintSet; no tool builds a
     # Black-Litterman prior from the economist's ViewSet.
+    """Validates fund.agents.prompts."""
     for prompt in (ECONOMIST_SYSTEM_PROMPT, ALLOCATOR_SYSTEM_PROMPT):
         flat = " ".join(prompt.lower().split())
         assert "turn them into a prior" not in flat

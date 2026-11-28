@@ -81,6 +81,13 @@ def _subagent_call_cap_middleware(max_model_calls: int) -> Any:
     return ModelCallLimitMiddleware(run_limit=max_model_calls, exit_behavior="end")
 
 
+_GENERAL_PURPOSE_DESCRIPTION = (
+    "General-purpose helper for open-ended reading and reasoning over the staged "
+    "theory and skills. It holds no fund tool: it cannot read prices, compute or "
+    "check candidates, or place orders, so never delegate a pipeline step to it."
+)
+
+
 def _general_purpose_subagent(
     config: FundConfig, *, summarization: Sequence[Any] = ()
 ) -> dict[str, Any]:
@@ -88,14 +95,18 @@ def _general_purpose_subagent(
 
     deepagents auto-adds its own ``general-purpose`` subagent to the ``task`` tool
     unless the caller supplies one by that name, and the auto-added spec has no
-    model-call bound. Supplying the stock spec (prompt, description, inherited PM
-    tools and skills) plus the cap keeps the default behaviour while closing that
-    runaway path.
+    model-call bound. Supplying the stock spec (prompt and skills) plus the cap keeps
+    the default behaviour while closing that runaway path. A spec without a
+    ``tools`` key inherits the PM's tools, ``place_orders`` among them, and the gate
+    would then show model-typed args, so it gets an explicit empty list: the helper
+    can read and reason, never call a fund tool.
     """
     from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 
     return {
         **GENERAL_PURPOSE_SUBAGENT,
+        "description": _GENERAL_PURPOSE_DESCRIPTION,
+        "tools": [],
         "skills": skill_sources("orchestrator"),
         "middleware": [
             _subagent_call_cap_middleware(config.max_subagent_model_calls),

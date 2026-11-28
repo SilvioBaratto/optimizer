@@ -5,43 +5,40 @@ Each Phase-3 tool (``fund.tools.*``) is a frozen ``@tool_envelope`` function who
 session — nor pick the decision date, the owning portfolio, or the risk profile.
 So for one run we bind those from a :class:`RunContext` and expose to the model
 **only** the structured inputs it is allowed to choose (a universe, a set of series
-names, a look-back window) — never a weight vector: the weights every tool reads are
-the optimizer's audited output. This mirrors the profiler's ``_make_save_profile``:
-a langchain ``@tool`` closure captures the run context; its args schema carries no
-``Session``.
+names, a look-back window, a candidate id) — never a weight vector: the weights
+every tool reads are the candidates the optimizer computed. This mirrors the
+profiler's ``_make_save_profile``: a langchain ``@tool`` closure captures the run
+context; its args schema carries no ``Session``.
 
 The bound closures also carry the load-bearing invariant into the audit trail:
 
 * the resolved :class:`~fund.schemas.ConstraintSet` is translated into the tools'
-  arg dicts: ``optimize_portfolio`` receives the full mapped ``MeanRiskConfig``
+  arg dicts: ``compute_candidates`` receives the full mapped ``MeanRiskConfig``
   (objective, risk measure, risk aversion, tail beta, regularisation, cardinality)
   with ``max_weights`` tightened to the K&E ``max_position_cap``, and
-  ``risk_check`` receives the same effective bounds. The decision logs the config
-  that was actually applied, and the client's mapped intent stays auditable in the
-  decision's ``constraint_set``;
+  ``risk_check`` receives the same effective bounds; the client's mapped intent
+  stays auditable in the set's ``constraint_set``;
 * the mandate's eligible-universe allowlist (``RunContext.eligible``, resolved once
   per run) binds the model-typed universes: ``universe_filter``, ``estimate_moments``
-  and ``optimize_portfolio`` refuse a ticker outside it, naming each with its
+  and ``compute_candidates`` refuse a ticker outside it, naming each with its
   reason, and ``list_universe`` returns exactly the allowed set;
 * the mandate's ESG sector exclusions and low-K&E instrument restrictions are
   screened in code (:func:`fund.tools.mandate.mandate_breaches`): ``universe_filter``
-  drops offending names, ``optimize_portfolio`` refuses a universe holding one,
-  ``risk_check`` fails a held one, and ``place_orders`` re-checks the audited
-  weights against the *current* mandate before a ticket exists. Screening fails
-  closed on an instrument it cannot classify. ``backtest`` compares the worst loss
-  inside any one-year window with the client's ``nu1/nu2/nu3`` ceilings (a one-year
-  tolerance) and reports the breached tiers, and ``risk_check`` blocks on the same
-  comparison past ``nu2`` / ``nu3`` (``nu1`` only warns), and fails closed when the
-  history is shorter than a year;
-* ``optimize_portfolio`` appends an ``agent_decision`` (allocator: the constraint
-  set + the *effective* optimizer config actually applied + the optimizer's
-  weights); ``risk_check`` appends the risk verdict on those weights; the PM-level
-  ``place_orders`` is refused unless that verdict passed them, and appends the
-  executor's execution decision + HITL outcome;
-* the bound ``compute_candidates`` (built, but assigned to no role yet) refuses a
-  universe exactly as ``optimize_portfolio`` does, judges each of its four
-  candidates with the live check ``risk_check`` applies, and appends one
-  ``agent_decision`` (allocator, ``compute_candidates``) holding the whole set.
+  drops offending names, ``compute_candidates`` refuses a universe holding one,
+  ``risk_check`` fails a held one, and ``place_orders`` re-checks the adviser's
+  chosen weights against the *current* mandate before a ticket exists. Screening
+  fails closed on an instrument it cannot classify. ``backtest`` compares the worst
+  loss inside any one-year window with the client's ``nu1/nu2/nu3`` ceilings (a
+  one-year tolerance) and reports the breached tiers, and ``risk_check`` blocks on
+  the same comparison past ``nu2`` / ``nu3`` (``nu1`` only warns), and fails closed
+  when the history is shorter than a year;
+* ``compute_candidates`` judges each of its four candidates with the live check
+  ``risk_check`` applies and appends one ``agent_decision`` (allocator,
+  ``compute_candidates``) holding the whole set; ``risk_check`` and ``backtest``
+  judge one named candidate of that set and record nothing; the PM-level
+  ``place_orders`` places only the candidate the adviser chose at the gate (see
+  :mod:`fund.agents.graph_candidates`), refused without that choice, and appends the
+  executor's execution decision + HITL outcome. No tool can record a choice.
 
 The whole closure body degrades through :func:`~fund.tools._base.tool_envelope`,
 so a mis-resolved profile or a failed audit write returns ``{ok: false, error}``
@@ -60,7 +57,6 @@ agent-stack runtime (keeping the bare package import agent-stack-free).
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 import hashlib
 import json
@@ -111,7 +107,7 @@ TOOLS_BY_AGENT: dict[str, tuple[str, ...]] = {
         "list_universe",
         "universe_filter",
         "estimate_moments",
-        "optimize_portfolio",
+        "compute_candidates",
     ),
     "risk": ("risk_check", "backtest"),
     "executor": (),
@@ -184,7 +180,7 @@ class RunContext:
     # The moments/backtest lookback — 3y rolling (~756 trading days), a
     # run-config value (never a ``ConstraintSet`` field). Wired into ``backtest``
     # (which accepts a ``window``) and ``get_regime_stats``;
-    # ``estimate_moments`` / ``optimize_portfolio`` take no start bound in the frozen
+    # ``estimate_moments`` / ``compute_candidates`` take no start bound in the frozen
     # Phase-3 backbone, so it is recorded on the run but inert there. Additive
     # default keeps existing callers unchanged.
     lookback_days: int = DEFAULT_LOOKBACK_DAYS
@@ -230,7 +226,7 @@ def _bounds_args(cs: ConstraintSet) -> dict[str, Any]:
 
 
 def _optimizer_constraints(cs: ConstraintSet) -> dict[str, Any]:
-    """The mapped ``MeanRiskConfig`` fields ``optimize_portfolio`` consumes.
+    """The mapped ``MeanRiskConfig`` fields ``compute_candidates`` consumes.
 
     The risk-free rate, which a client quotes annually while the optimiser compares
     it with per-bar returns, travels as ``annual_risk_free_rate``: only the tool knows
@@ -283,12 +279,21 @@ def _mandate_breach_error(
         return None
     return err(
         "universe breaches the client's mandate: "
-        f"{_describe_breaches(breaches)}; remove these names and retry"
+        f"{describe_breaches(breaches)}; remove these names and retry"
     )
 
 
-def _describe_breaches(breaches: list[dict[str, Any]]) -> str:
-    """A one-line, model-readable summary of structured mandate breaches."""
+def describe_breaches(breaches: list[dict[str, Any]]) -> str:
+    """A one-line, model-readable summary of structured mandate breaches.
+
+    Args:
+        breaches: Violation or breach records, each with a ``type`` and optionally
+            the ``asset`` and a ``sector`` / ``instrument_type`` / ``reason``.
+
+    Returns:
+        ``"<asset> (<type>: <detail>)"`` per record, joined by ``"; "``; a record
+        without an asset is a portfolio-level one.
+    """
     parts = []
     for breach in breaches:
         detail = (
@@ -308,68 +313,9 @@ def _describe_barred(barred: Iterable[tuple[str, str]]) -> str:
     return "; ".join(f"{ticker} ({reason})" for ticker, reason in barred)
 
 
-def _effective_optimizer_config(
-    constraints: dict[str, Any] | None, risk_aversion: float, risk_free_rate: float
-) -> dict[str, Any]:
-    """The ``MeanRiskConfig`` ``optimize_portfolio`` ACTUALLY applied. Reuses the
-    tool's own ``_resolve_config`` as the single source of truth, so the audit can
-    never drift from what shaped the weights. ``risk_aversion`` and ``risk_free_rate``
-    are the values the tool reports having run with: it rescales the mapped
-    aversion to the risk measure and compounds the annual risk-free rate to the
-    panel's own bar frequency."""
-    from fund.tools.optimize import _resolve_config
-
-    resolved = dataclasses.replace(
-        _resolve_config(constraints),
-        risk_aversion=risk_aversion,
-        risk_free_rate=risk_free_rate,
-    )
-    return dataclasses.asdict(resolved)
-
-
 # ---------------------------------------------------------------------------
 # Audit — load-bearing facts logged from inside the bound closures.
 # ---------------------------------------------------------------------------
-
-
-def _append_allocator_decision(
-    ctx: RunContext,
-    cs: ConstraintSet | None,
-    optimizer_config: dict[str, Any],
-    weights: dict[str, float],
-    metrics: dict[str, float],
-    *,
-    universe: list[str],
-    missing: list[str],
-    n_observations: int,
-) -> None:
-    """Append the allocator's optimize decision: constraint set + the effective
-    (applied) optimizer config + the optimizer's weights (never model-emitted) and
-    their in-sample metrics + the universe it was given, the tickers it had to drop
-    for lack of prices and the number of return observations it fitted on (the window
-    actually applied)."""
-    from fund.audit import AgentRunRepository
-
-    payload = json.dumps(
-        {
-            "optimizer_config": optimizer_config,
-            "weights": weights,
-            "metrics": metrics,
-            "universe": universe,
-            "missing": missing,
-            "n_observations": n_observations,
-        },
-        sort_keys=True,
-        default=str,
-    )
-    AgentRunRepository(ctx.session).append_decision(
-        ctx.run_id,
-        agent="allocator",
-        step="optimize_portfolio",
-        constraint_set=cs.model_dump(mode="json") if cs is not None else None,
-        llm_response=payload,
-        llm_response_hash=hashlib.sha256(payload.encode("utf-8")).hexdigest(),
-    )
 
 
 def _append_executor_decision(ctx: RunContext, ticket: dict[str, Any]) -> None:
@@ -525,49 +471,6 @@ def _estimate_moments_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
     )
 
 
-@tool_envelope
-@_serialised
-def _optimize_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
-    # Before anything runs: a refused call must reach neither the allocator decision
-    # nor ``set_universe``, which only an ``ok`` result writes.
-    if (bad := _ineligible(ctx, universe)) is not None:
-        return bad
-    cs = _resolve_constraint_set(ctx)
-    if (refused := _mandate_breach_error(ctx, cs, universe)) is not None:
-        return refused
-    constraints = _optimizer_constraints(cs) if cs is not None else None
-    result = _tools.optimize_portfolio(
-        ctx.session,
-        ctx.asof,
-        universe,
-        constraints=constraints,
-        base_currency=ctx.base_currency,
-    )
-    if result.get("ok"):
-        from fund.audit import AgentRunRepository
-
-        _append_allocator_decision(
-            ctx,
-            cs,
-            _effective_optimizer_config(
-                constraints,
-                result["data"]["risk_aversion"],
-                result["data"]["risk_free_rate"],
-            ),
-            result["data"]["weights"],
-            result["data"]["metrics"],
-            universe=list(universe),
-            missing=list(result["data"]["missing"]),
-            n_observations=int(result["data"]["n_observations"]),
-        )
-        # ``assets`` is what the optimiser fitted over; the requested ``universe`` also
-        # holds the tickers it dropped for lack of prices.
-        AgentRunRepository(ctx.session).set_universe(
-            ctx.run_id, result["data"]["assets"]
-        )
-    return result
-
-
 def _current_holdings(ctx: RunContext) -> dict[str, float]:
     """The book's current weights from the positions snapshot, turnover's basis."""
     from fund.audit.positions_repository import PositionRepository
@@ -619,8 +522,6 @@ def _record_candidate_set(
 @tool_envelope
 @_serialised
 def _compute_candidates_impl(ctx: RunContext, universe: list[str]) -> ToolResult:
-    from fund.tools.candidates import compute_candidates
-
     # Before anything runs: a refused call must reach neither the candidate-set
     # decision nor ``set_universe``.
     if (bad := _ineligible(ctx, universe)) is not None:
@@ -628,7 +529,7 @@ def _compute_candidates_impl(ctx: RunContext, universe: list[str]) -> ToolResult
     cs = _resolve_constraint_set(ctx)
     if (refused := _mandate_breach_error(ctx, cs, universe)) is not None:
         return refused
-    result = compute_candidates(
+    result = _tools.compute_candidates(
         ctx.session,
         ctx.asof,
         universe,
@@ -643,29 +544,46 @@ def _compute_candidates_impl(ctx: RunContext, universe: list[str]) -> ToolResult
     return ok(candidate_set.model_dump(mode="json"))
 
 
-def _audited_weights(ctx: RunContext) -> dict[str, float]:
-    """The run's latest audited ``optimize_portfolio`` weights (``{}`` if none).
+def _selected_weights(ctx: RunContext) -> dict[str, float]:
+    """The weights of the adviser's choice in force for the run (``{}`` if none).
 
-    The single vector the risk gate, the backtest and the paper ticket all read, so
-    what is checked is exactly what would be placed — never a copy the model
-    re-typed (rounding breaks the budget tolerance) or a superseded proposal.
+    The only vector the paper ticket is placed from: a candidate the adviser named at
+    the gate, or weights the adviser typed, and only while no newer candidate set
+    supersedes the choice. An agent can neither write nor re-type it.
     """
     from fund.audit import AgentRunRepository
 
-    return AgentRunRepository(ctx.session).latest_optimizer_weights(ctx.run_id)
+    return AgentRunRepository(ctx.session).latest_selected_weights(ctx.run_id)
 
 
-_NO_PROPOSAL = (
-    "no audited optimizer weights for this run; the allocator must run "
-    "optimize_portfolio first"
+_NO_ADVISER_CHOICE = (
+    "no candidate has been chosen by the adviser for this run; the adviser chooses "
+    "one at the place_orders gate"
 )
 
 
-def _risk_gate_summary(ctx: RunContext, weights: dict[str, float]) -> dict[str, Any]:
-    """The risk verdict on ``weights`` in the form the approval gate displays."""
-    from fund.audit import AgentRunRepository
+def _candidate_weights(ctx: RunContext, candidate_id: str) -> dict[str, float]:
+    """``candidate_id``'s weights in the run's latest candidate set (``{}`` if none).
 
-    return AgentRunRepository(ctx.session).risk_gate(ctx.run_id, weights)
+    What the risk tools judge, read from the audited set rather than retyped by the
+    model, so the verdict covers exactly the weights the adviser would be shown.
+    """
+    from fund import observe
+
+    candidate_set = observe.candidate_set(ctx.session, ctx.run_id)
+    candidate = candidate_set.candidate(candidate_id) if candidate_set else None
+    return dict(candidate.weights) if candidate is not None else {}
+
+
+def _no_candidate_weights(candidate_id: str) -> ToolResult:
+    """The refusal for a candidate id with no weights to judge."""
+    from fund.schemas.candidates import CANDIDATE_IDS
+
+    return err(
+        f"no weights for candidate {candidate_id!r} in this run's latest candidate "
+        f"set; name one of {', '.join(CANDIDATE_IDS)} that solved, and if no set "
+        "exists the allocator must run compute_candidates first"
+    )
 
 
 def _check_weights_against_constraint_set(
@@ -740,24 +658,13 @@ def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResul
 
 @tool_envelope
 @_serialised
-def _risk_check_impl(ctx: RunContext) -> ToolResult:
-    from fund.audit import AgentRunRepository
-
-    weights = _audited_weights(ctx)
+def _risk_check_impl(ctx: RunContext, candidate_id: str) -> ToolResult:
+    # Records no verdict: the one ``place_orders`` requires is written when the
+    # adviser names a candidate, so an agent's check can never clear a ticket.
+    weights = _candidate_weights(ctx, candidate_id)
     if not weights:
-        return err(_NO_PROPOSAL)
-    result = _check_weights_impl(ctx, weights)
-    if result.get("ok"):
-        data = result["data"]
-        # Persisted so the approval gate can show the adviser the verdict and
-        # ``place_orders`` can require it.
-        AgentRunRepository(ctx.session).append_risk_verdict(
-            ctx.run_id,
-            weights=weights,
-            passed=data["passed"],
-            violations=data["violations"],
-        )
-    return result
+        return _no_candidate_weights(candidate_id)
+    return _check_weights_impl(ctx, weights)
 
 
 def active_constraint_set(ctx: RunContext) -> ConstraintSet | None:
@@ -792,10 +699,11 @@ def check_weights_against_mandate(
 ) -> ToolResult:
     """The live ``risk_check`` verdict on ``weights``, for callers outside the agent.
 
-    The adviser ``edit`` action validates typed weights with this so a human override
-    is held to the same bounds, position cap and ESG / K&E screen the risk agent's
-    tool applies, not to the bare long-only defaults. The agent's own ``risk_check``
-    takes no weights; it judges the audited proposal through the same verdict.
+    The adviser ``edit`` action validates typed weights with this, and the adviser's
+    choice of a candidate is judged again with it, so a human decision is held to the
+    same bounds, position cap and ESG / K&E screen the risk agent's tool applies, not
+    to the bare long-only defaults. The agent's own ``risk_check`` takes a candidate
+    id, never weights; it judges that candidate through the same verdict.
     """
     return _check_weights_impl(ctx, weights)
 
@@ -807,7 +715,7 @@ def _backtest_weights(
     # Bound the walk-forward training block to the run's 3y rolling lookback
     # (the one frozen tool that accepts a window). A panel shorter than the window
     # falls back to the full sample inside ``backtest``. The weights come from
-    # ``optimize_portfolio``, which fits on every bar up to ``asof``, so each test
+    # ``compute_candidates``, which fits on every bar up to ``asof``, so each test
     # block is inside their estimation sample: ``fit_end`` makes the result report
     # in-sample instead of passing the optimizer's own fit off as validation.
     # Without a stored constraint set the gate's own default applies: fully invested.
@@ -850,57 +758,67 @@ def _backtest_weights(
 
 @tool_envelope
 @_serialised
-def _backtest_impl(ctx: RunContext) -> ToolResult:
-    weights = _audited_weights(ctx)
+def _backtest_impl(ctx: RunContext, candidate_id: str) -> ToolResult:
+    weights = _candidate_weights(ctx, candidate_id)
     if not weights:
-        return err(_NO_PROPOSAL)
+        return _no_candidate_weights(candidate_id)
     return _backtest_weights(ctx, _resolve_constraint_set(ctx), weights)
+
+
+def _outside_eligible_error(
+    ctx: RunContext, weights: dict[str, float]
+) -> ToolResult | None:
+    """An error envelope naming each held ticker outside the eligible universe."""
+    outside = not_eligible_violations(ctx.eligible, weights)
+    if not outside:
+        return None
+    return err(
+        "the chosen weights hold tickers outside the portfolio's eligible universe: "
+        f"{_describe_barred((v['asset'], v['reason']) for v in outside)}; reject the "
+        "run or choose another candidate"
+    )
 
 
 @tool_envelope
 @_serialised
 def _place_orders_impl(ctx: RunContext) -> ToolResult:
-    # Load-bearing invariant: skfolio computes the weights, never the LLM. The paper
-    # ticket is placed from the allocator's audited ``optimize_portfolio`` output,
-    # read back from the run's audit trail (the single source of weights), and the
-    # tool takes no weights so the model has none to disagree with it. No audited
-    # proposal ⇒ empty weights ⇒ the frozen tool returns ``err("no weights to
-    # place")`` (safe no-ticket outcome).
+    # Load-bearing invariant: skfolio computes the weights, never the LLM, and the
+    # adviser chooses which candidate is placed, never an agent. The ticket is placed
+    # only from the adviser's choice read back from the run's audit trail, and the
+    # tool takes no weights, so neither the model nor a gate left without a human
+    # choice (an emptied ``interrupt_on``, say) can place anything.
     from fund.audit import AgentRunRepository
 
-    audited = _audited_weights(ctx)
+    selected = _selected_weights(ctx)
+    if not selected:
+        return err(_NO_ADVISER_CHOICE)
     # Checked first so the refusal names the real cause: a verdict that failed on an
     # ineligible name would otherwise surface as the unexplained "gate has not passed".
-    if outside := not_eligible_violations(ctx.eligible, audited):
+    if (outside := _outside_eligible_error(ctx, selected)) is not None:
+        return outside
+    # The verdict recorded with the adviser's choice; enforced here because prompt
+    # text alone cannot stop a PM that skips the gate.
+    if not AgentRunRepository(ctx.session).risk_passed(ctx.run_id, selected):
         return err(
-            "audited weights hold tickers outside the portfolio's eligible universe: "
-            f"{_describe_barred((v['asset'], v['reason']) for v in outside)}; send "
-            "the proposal back to the allocator"
-        )
-    # The risk gate is blocking, not advisory: it is enforced here because prompt
-    # text alone cannot stop a PM that skips the step or is steered past a failure.
-    if audited and not AgentRunRepository(ctx.session).risk_passed(ctx.run_id, audited):
-        return err(
-            "the risk gate has not passed the latest audited proposal; the risk "
-            "officer must run risk_check on it, and it must pass, before orders "
-            "can be placed"
+            "the risk gate has not passed the adviser's chosen weights; nothing can "
+            "be placed until the choice is checked"
         )
     cs = _resolve_constraint_set(ctx)
-    if cs is not None and audited:
-        # The mandate can change between the audited proposal and the order (a
-        # re-profile), and the verdict is keyed on the weights alone. So the weights
-        # are judged again, in full (bounds, instrument screens and the drawdown
-        # tiers), against the constraint set in force now.
-        recheck = _check_weights_against_constraint_set(ctx, audited)
+    if cs is not None:
+        # The mandate can change between the choice and the order (a re-profile),
+        # and the verdict is keyed on the weights alone. So the weights are judged
+        # again, in full (bounds, instrument screens and the drawdown tiers),
+        # against the constraint set in force now.
+        recheck = _check_weights_against_constraint_set(ctx, selected)
         if not recheck.get("ok"):
             return recheck
         if not recheck["data"]["passed"]:
             return err(
-                "audited weights breach the client's mandate: "
-                f"{_describe_breaches(recheck['data']['violations'])}; send the "
-                "proposal back to the allocator"
+                "the chosen weights breach the client's mandate: "
+                f"{describe_breaches(recheck['data']['violations'])}; reject the "
+                "run or choose another candidate"
             )
-    result = _place_ticket(ctx, audited)
+    result = _place_ticket(ctx, selected)
     data = result.get("data") if result.get("ok") else None
     # Log once, on the real placement; the idempotent HITL re-run does not
     # double-log (mirrors the profiler's save_profile).
@@ -924,13 +842,13 @@ def _place_ticket(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
 
 
 def place_audited_orders(ctx: RunContext) -> ToolResult:
-    """Place the run's paper ticket from its audited weights, outside the graph.
+    """Place the run's paper ticket from the adviser's choice, outside the graph.
 
-    The same placement the gated ``place_orders`` tool performs (risk-gate and mandate
-    checks included), for an approve whose gate call was already consumed by an
-    earlier attempt that did not survive (see ``fund.agents.graph``): idempotent on the
-    ``(portfolio, asof, weights)`` key, so an existing ticket is returned rather than
-    re-placed.
+    The same placement the gated ``place_orders`` tool performs (the adviser's choice
+    required, risk-gate and mandate checks included), for an approve whose gate call
+    was already consumed by an earlier attempt that did not survive (see
+    ``fund.agents.graph``): idempotent on the ``(portfolio, asof, weights)`` key, so
+    an existing ticket is returned rather than re-placed.
     """
     return _place_orders_impl(ctx)
 
@@ -1070,22 +988,6 @@ def _bind_estimate_moments(ctx: RunContext) -> BaseTool:
     return estimate_moments
 
 
-def _bind_optimize(ctx: RunContext) -> BaseTool:
-    from langchain_core.tools import tool
-
-    @tool
-    def optimize_portfolio(universe: list[str]) -> ToolResult:
-        """Compute long-only portfolio weights for ``universe`` as of the run date.
-        skfolio computes the weights from the run's risk profile — you never emit a
-        weight. Fails, naming the offenders, if ``universe`` holds a name the
-        client's mandate forbids, a name outside the portfolio's eligible universe,
-        or is too small for the position cap. Returns the ``{ok, data}`` envelope
-        with ``weights`` and in-sample ``metrics``."""
-        return _optimize_impl(ctx, universe)
-
-    return optimize_portfolio
-
-
 def _bind_compute_candidates(ctx: RunContext) -> BaseTool:
     from langchain_core.tools import tool
 
@@ -1112,19 +1014,21 @@ def _bind_risk_check(ctx: RunContext) -> BaseTool:
     from langchain_core.tools import tool
 
     @tool
-    def risk_check() -> ToolResult:
-        """Validate the allocator's latest audited proposal against the run's risk
-        profile: weight bounds and position cap, ESG sector exclusions and low-K&E
-        instrument restrictions on every held name, and any held name outside the
-        portfolio's eligible universe (a ``not_eligible`` violation with its
-        ``reason``) and the client's loss ceilings, judged on the worst loss inside any
-        one year of history (a loss that cannot be measured, for want of a year of
-        common history, fails the check; a client who tolerates no loss at all is
-        reported as ``zero_loss_tolerance``). Takes no weights: the
-        optimizer's audited vector is checked, so the verdict covers exactly what would
-        be placed. Returns the ``{ok, data}`` envelope with ``passed`` and structured
-        ``violations``."""
-        return _risk_check_impl(ctx)
+    def risk_check(candidate_id: str) -> ToolResult:
+        """Validate one candidate of the allocator's latest candidate set, named by
+        ``candidate_id`` (hrp, mean_risk, min_risk or risk_parity), against the run's
+        risk profile: weight bounds and position cap, ESG sector exclusions and
+        low-K&E instrument restrictions on every held name, and any held name outside
+        the portfolio's eligible universe (a ``not_eligible`` violation with its
+        ``reason``) and the client's loss ceilings, judged on the worst loss inside
+        any one year of history (a loss that cannot be measured, for want of a year
+        of common history, fails the check; a client who tolerates no loss at all is
+        reported as ``zero_loss_tolerance``). Takes no weights: the candidate's
+        audited weights are checked, so the verdict covers exactly what the adviser
+        is shown. It reports a verdict and records none: you never choose a
+        candidate. Returns the ``{ok, data}`` envelope with ``passed`` and
+        structured ``violations``."""
+        return _risk_check_impl(ctx, candidate_id)
 
     return risk_check
 
@@ -1133,18 +1037,19 @@ def _bind_backtest(ctx: RunContext) -> BaseTool:
     from langchain_core.tools import tool
 
     @tool
-    def backtest() -> ToolResult:
-        """Backtest the allocator's latest audited proposal over walk-forward test
-        windows of prices up to the run date. The optimizer fitted these weights on that
-        same sample, so the metrics are in-sample (``out_of_sample`` is false): a
-        consistency check, not independent validation. Takes no weights. Returns the
-        ``{ok, data}`` envelope with ``metrics`` and ``drawdown_tiers``: the client's
-        ``nu1`` (soft warning), ``nu2`` (hard ceiling) and ``nu3`` (absolute stop)
-        loss ceilings, the ``worst_rolling_loss`` they are compared with (the worst
-        loss inside any one year; ``None`` and ``verified`` false when the history is
-        shorter), the full-history ``max_drawdown`` for information, and the
-        ``breached`` tiers."""
-        return _backtest_impl(ctx)
+    def backtest(candidate_id: str) -> ToolResult:
+        """Backtest one candidate of the allocator's latest candidate set, named by
+        ``candidate_id`` (hrp, mean_risk, min_risk or risk_parity), over walk-forward
+        test windows of prices up to the run date. The optimizer fitted these weights
+        on that same sample, so the metrics are in-sample (``out_of_sample`` is
+        false): a consistency check, not independent validation. Takes no weights.
+        Returns the ``{ok, data}`` envelope with ``metrics`` and ``drawdown_tiers``:
+        the client's ``nu1`` (soft warning), ``nu2`` (hard ceiling) and ``nu3``
+        (absolute stop) loss ceilings, the ``worst_rolling_loss`` they are compared
+        with (the worst loss inside any one year; ``None`` and ``verified`` false
+        when the history is shorter), the full-history ``max_drawdown`` for
+        information, and the ``breached`` tiers."""
+        return _backtest_impl(ctx, candidate_id)
 
     return backtest
 
@@ -1154,13 +1059,16 @@ def _bind_place_orders(ctx: RunContext) -> BaseTool:
 
     @tool
     def place_orders() -> ToolResult:
-        """Commit the idempotent **paper** ticket for the allocator's latest audited
-        proposal, filled at the next close after the run date. Takes no weights. This
-        call is what pauses the run for the human adviser's approval, so call it once
-        and do not wait for approval or ask for it in text first; it is refused unless
-        the risk gate has passed that proposal, and refused outright if the proposal
-        holds a name outside the portfolio's eligible universe. Returns the
-        ``{ok, data}`` envelope with the order ticket."""
+        """Show the human adviser every candidate of the run's latest candidate set
+        and place the idempotent **paper** ticket for the one the adviser chooses,
+        filled at the next close after the run date. Takes no weights or other
+        arguments: the gate carries the whole audited set, and the adviser chooses
+        which candidate is placed; you never choose one. This call is what pauses the
+        run for that decision, so call it once and do not ask for it in text first.
+        Nothing is placed without the adviser's choice, and the chosen weights are
+        refused if they hold a name outside the portfolio's eligible universe or
+        breach the current mandate. Returns the ``{ok, data}`` envelope with the
+        order ticket."""
         return _place_orders_impl(ctx)
 
     return place_orders
@@ -1209,18 +1117,70 @@ def _bind_get_portfolio_history(ctx: RunContext) -> BaseTool:
     return get_portfolio_history
 
 
-def build_gate_weights_middleware(ctx: RunContext) -> Any:
-    """Build the PM middleware that pins the ``place_orders`` gate to audited weights.
+_ORDER_TOOL = "place_orders"
+# The fields of each candidate the adviser reviews at the gate; ``settings`` stays in
+# the audited set, where the report reads it.
+_GATE_CANDIDATE_FIELDS = frozenset(
+    {
+        "candidate_id",
+        "label",
+        "feasible",
+        "weights",
+        "metrics",
+        "constraint_check",
+        "breaches",
+    }
+)
 
-    The human-approval interrupt shows the tool call's args. ``place_orders`` places
-    the audited optimizer vector whatever the model typed, so left alone the adviser
-    would approve one set of numbers and execute another. This rewrites the call's
-    args as the model's reply is produced — before the interrupt reads them — to the
-    audited ``weights`` plus the ``risk_gate`` verdict recorded on them, so the adviser
-    sees what will be placed and whether the risk officer cleared it (``place_orders``
-    refuses a proposal that is not cleared, whatever the adviser approves). With no
-    audited proposal the call carries empty ``weights``: nothing will be placed, and
-    ``place_orders`` refuses it.
+
+def _gate_args(ctx: RunContext) -> dict[str, Any]:
+    """The ``place_orders`` args the adviser reviews: the run's whole candidate set.
+
+    Every candidate in id order, never ranked, with the ids the adviser may choose
+    from; ``{"candidates": [], "selectable": []}`` when the run has no set.
+    """
+    from fund import observe
+
+    candidate_set = observe.candidate_set(ctx.session, ctx.run_id)
+    if candidate_set is None:
+        return {"candidates": [], "selectable": []}
+    return {
+        "candidate_set": {
+            "hash": candidate_set.digest(),
+            "asof": candidate_set.asof.isoformat(),
+            "universe": list(candidate_set.universe),
+        },
+        "candidates": [
+            candidate.model_dump(mode="json", include=set(_GATE_CANDIDATE_FIELDS))
+            for candidate in candidate_set.candidates
+        ],
+        "selectable": list(candidate_set.selectable_ids()),
+    }
+
+
+def _pinned_message(ctx: RunContext, message: Any) -> Any:
+    """``message`` with each ``place_orders`` call's args set to the gate payload."""
+    calls = getattr(message, "tool_calls", None) or []
+    if not any(call["name"] == _ORDER_TOOL for call in calls):
+        return message
+    with ctx.lock:
+        args = _gate_args(ctx)
+    pinned = [
+        {**call, "args": args} if call["name"] == _ORDER_TOOL else call
+        for call in calls
+    ]
+    return message.model_copy(update={"tool_calls": pinned})
+
+
+def build_gate_candidates_middleware(ctx: RunContext) -> Any:
+    """Build the PM middleware that pins the ``place_orders`` gate to the candidates.
+
+    The human-approval interrupt shows the tool call's args, and ``place_orders``
+    ignores whatever the model typed: it places only the candidate the adviser names.
+    So the call's args are rewritten as the model's reply is produced, before the
+    interrupt reads them, to the run's audited candidate set (see :func:`_gate_args`),
+    and the adviser chooses from exactly what was computed, never from an allocation
+    the model invented.
 
     The langchain import is lazy so a bare ``import fund.agents.toolsets`` stays
     agent-stack-free.
@@ -1232,37 +1192,15 @@ def build_gate_weights_middleware(ctx: RunContext) -> Any:
         An ``AgentMiddleware`` to add to the PM agent.
     """
     from langchain.agents.middleware import AgentMiddleware, ModelResponse
-    from langchain_core.messages import AIMessage
 
     def pin(response: ModelResponse) -> ModelResponse:
-        pinned = []
-        for message in response.result:
-            if isinstance(message, AIMessage) and any(
-                call["name"] == "place_orders" for call in message.tool_calls
-            ):
-                with ctx.lock:
-                    audited = _audited_weights(ctx)
-                    gate = _risk_gate_summary(ctx, audited) if audited else None
-                # Nothing audited means nothing will be placed; showing the model's
-                # own numbers would present an invented allocation as the proposal.
-                args = (
-                    {"weights": audited, "risk_gate": gate}
-                    if audited
-                    else {"weights": {}}
-                )
-                calls = [
-                    {**call, "args": args} if call["name"] == "place_orders" else call
-                    for call in message.tool_calls
-                ]
-                message = message.model_copy(update={"tool_calls": calls})
-            pinned.append(message)
         return ModelResponse(
-            result=pinned, structured_response=response.structured_response
+            result=[_pinned_message(ctx, message) for message in response.result],
+            structured_response=response.structured_response,
         )
 
-    class GateWeightsMiddleware(AgentMiddleware):
-        """Shows the adviser the weights ``place_orders`` will place and their risk
-        verdict."""
+    class GateCandidatesMiddleware(AgentMiddleware):
+        """Shows the adviser every candidate ``place_orders`` may place."""
 
         def wrap_model_call(self, request: Any, handler: Any) -> Any:
             return pin(handler(request))
@@ -1270,7 +1208,7 @@ def build_gate_weights_middleware(ctx: RunContext) -> Any:
         async def awrap_model_call(self, request: Any, handler: Any) -> Any:
             return pin(await handler(request))
 
-    return GateWeightsMiddleware()
+    return GateCandidatesMiddleware()
 
 
 _BUILDERS: dict[str, Any] = {
@@ -1281,8 +1219,6 @@ _BUILDERS: dict[str, Any] = {
     "list_universe": _bind_list_universe,
     "universe_filter": _bind_universe_filter,
     "estimate_moments": _bind_estimate_moments,
-    "optimize_portfolio": _bind_optimize,
-    # Bound but assigned to no role yet, so no agent can call it.
     "compute_candidates": _bind_compute_candidates,
     "risk_check": _bind_risk_check,
     "backtest": _bind_backtest,
@@ -1313,6 +1249,7 @@ __all__ = [
     "TOOLS_BY_AGENT",
     "RunContext",
     "bind_toolset",
-    "build_gate_weights_middleware",
+    "build_gate_candidates_middleware",
+    "describe_breaches",
     "place_audited_orders",
 ]

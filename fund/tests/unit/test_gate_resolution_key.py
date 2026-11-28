@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from _fund_fakes import ASOF, PORTFOLIO_ID
+from _fund_fakes import ASOF, MEAN_RISK, PORTFOLIO_ID
 from _gate_env import make_gate_env
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from sqlalchemy import insert, select
@@ -65,9 +65,12 @@ def _approve_rows(env):
         return HumanAuditLogRepository(session).list_recent(action="approve")
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 @pytest.mark.asyncio
 async def test_tui_second_approve_resumes_a_run_that_regated(env, regating_run) -> None:
-    """The approve worker resumes the second gate instead of replaying the first."""
+    """Validates fund.tui._mixins.decisions.DecisionsMixin._action_worker.
+
+    The approve worker resumes the second gate instead of replaying the first."""
     app = ShellApp(
         None,
         session_factory=env.get_session,
@@ -77,7 +80,9 @@ async def test_tui_second_approve_resumes_a_run_that_regated(env, regating_run) 
     )
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        worker = app._action_worker(env.run_id, PORTFOLIO_ID, "approve")
+        worker = app._action_worker(
+            env.run_id, PORTFOLIO_ID, "approve", candidate_id=MEAN_RISK
+        )
         await worker.wait()
         await pilot.pause()
         with env.get_session() as session:
@@ -85,7 +90,9 @@ async def test_tui_second_approve_resumes_a_run_that_regated(env, regating_run) 
         assert first_status == "responded", "the first approve must re-gate the run"
 
         _restore_bars(env, regating_run)
-        worker = app._action_worker(env.run_id, PORTFOLIO_ID, "approve")
+        worker = app._action_worker(
+            env.run_id, PORTFOLIO_ID, "approve", candidate_id=MEAN_RISK
+        )
         await worker.wait()
         await pilot.pause()
 
@@ -98,10 +105,13 @@ async def test_tui_second_approve_resumes_a_run_that_regated(env, regating_run) 
     assert len(set(keys)) == 2
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_two_approves_through_apply_action_each_resume_their_own_gate(
     env, regating_run
 ) -> None:
-    """Approve, re-gate, approve: each resolution carries a key for its own gate."""
+    """Validates fund.actions.apply_action.
+
+    Approve, re-gate, approve: each resolution carries a key for its own gate."""
     from fund.actions import resolution_key
 
     with env.get_session() as session:
@@ -114,6 +124,7 @@ def test_two_approves_through_apply_action_each_resume_their_own_gate(
             store=env.store,
             model=env.model_factory(),
             idempotency_key=first_key,
+            candidate_id=MEAN_RISK,
         )
         session.commit()
     _restore_bars(env, regating_run)
@@ -129,6 +140,7 @@ def test_two_approves_through_apply_action_each_resume_their_own_gate(
             store=env.store,
             model=env.model_factory(),
             idempotency_key=second_key,
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -137,8 +149,11 @@ def test_two_approves_through_apply_action_each_resume_their_own_gate(
         assert AgentRunRepository(session).get_run(env.run_id).status == "completed"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_a_repeat_of_the_same_gate_resolution_still_replays(env) -> None:
-    """A double submit once the gate is consumed replays the logged approve."""
+    """Validates fund.actions.apply_action.
+
+    A double submit once the gate is consumed replays the logged approve."""
     from fund.actions import resolution_key
 
     with env.get_session() as session:
@@ -151,6 +166,7 @@ def test_a_repeat_of_the_same_gate_resolution_still_replays(env) -> None:
             store=env.store,
             model=env.model_factory(),
             idempotency_key=key,
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -165,6 +181,7 @@ def test_a_repeat_of_the_same_gate_resolution_still_replays(env) -> None:
             store=env.store,
             model=env.model_factory(),
             idempotency_key=again_key,
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -185,8 +202,11 @@ def test_the_key_is_stable_while_the_gate_stays_pending(env) -> None:
         assert resolution_key(session, env.saver, env.run_id, "reject") != first
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_each_gate_of_one_run_has_its_own_id(env, regating_run) -> None:
-    """The gate id changes when an approve re-gates the run."""
+    """Validates fund.observe.live_gate_id.
+
+    The gate id changes when an approve re-gates the run."""
     with env.get_session() as session:
         run = AgentRunRepository(session).get_run(env.run_id)
         first_gate = observe.live_gate_id(env.saver, run)
@@ -197,6 +217,7 @@ def test_each_gate_of_one_run_has_its_own_id(env, regating_run) -> None:
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
         run = AgentRunRepository(session).get_run(env.run_id)

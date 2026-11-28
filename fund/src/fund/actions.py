@@ -45,6 +45,8 @@ if TYPE_CHECKING:
     from portopt_db.models import HumanAuditLog
     from sqlalchemy.orm import Session
 
+    from fund.agents.graph_candidates import ApprovalChoice
+
 # Each resume-style action maps to the ``resume_run`` verb it drives the paused run
 # with. approve/reject/respond are self-named; killswitch finalises a paused run as a
 # reject but is logged distinctly (its own audit action, no paired undo). ``respond``
@@ -163,6 +165,7 @@ class ActionPayload:
         idempotency_key: Dedup key; a repeated key replays the first result.
         rationale: Free-text reason recorded with the action.
         pm_directive: Adviser text threaded to the PM by ``respond``.
+        candidate_id: The candidate an ``approve`` of a rebalance gate places.
     """
 
     mandate: Any | None
@@ -179,6 +182,7 @@ class ActionPayload:
     idempotency_key: str | None
     rationale: str | None
     pm_directive: str | None
+    candidate_id: str | None
 
 
 @dataclass(frozen=True)
@@ -246,6 +250,7 @@ def apply_action(
     pm_directive: str | None = None,
     scope: str | None = None,
     config: FundConfig = settings,
+    candidate_id: str | None = None,
 ) -> ActionResult:
     """Apply one human action and append its ``human_audit_log`` row.
 
@@ -257,7 +262,9 @@ def apply_action(
     commits: the caller injects ``session`` and owns the transaction (D1).
 
     ``approve`` resumes the paused run via :func:`fund.agents.graph.resume_run`
-    (dispatched by gate); ``reject`` finalises it rejected in the DB alone, so the
+    (dispatched by gate); approving a rebalance gate names the ``candidate_id`` the
+    adviser chose, and a missing, unknown or infeasible id is refused before anything
+    is written. ``reject`` finalises it rejected in the DB alone, so the
     emergency stop needs no model, store or checkpointer (:data:`MODEL_FREE_ACTIONS`).
     ``respond`` threads the adviser's ``pm_directive`` back to the PM at the
     ``place_orders`` gate (the run re-gates as ``responded`` or finalises incomplete)
@@ -316,6 +323,10 @@ def apply_action(
         scope: Autonomy scope for ``freeze`` (``run`` / ``portfolio`` / ``fund``) or
             ``rearm`` (``portfolio`` / ``fund``); ignored by the other actions.
         config: Fund settings threaded to the resumer.
+        candidate_id: The candidate (``hrp``, ``mean_risk``, ``min_risk`` or
+            ``risk_parity``) an ``approve`` of a rebalance gate places; required
+            there unless an adviser edit is in force, and refused on every other
+            action and on a profiler gate.
 
     Returns:
         An :class:`ActionResult` describing the outcome and the audit row id.
@@ -324,7 +335,12 @@ def apply_action(
         ValueError: The action kind is unknown, or a required argument is missing
             (``run_id`` for a resume action; ``pm_directive`` for ``respond``;
             ``mandate`` for ``mandate_edit`` / ``new_portfolio`` / ``run``;
-            ``portfolio_id`` for ``profile`` / ``run``).
+            ``portfolio_id`` for ``profile`` / ``run``); or the approve of a
+            rebalance gate names no candidate, an unknown or infeasible one, or one
+            the current mandate refuses, the run has no candidate set, or a
+            candidate is named where none belongs. Nothing is committed: every
+            refusal but the mandate re-check comes before the audit row, and for that
+            one the caller's rollback drops the audit row already appended.
         LookupError: ``run_id`` names no run (propagated from ``resume_run``).
         RuntimeError: ``run`` on a portfolio with no active ``ConstraintSet``
             (propagated from ``run_fund`` — profile it first); or ``approve`` /
@@ -350,6 +366,7 @@ def apply_action(
             idempotency_key=idempotency_key,
             rationale=rationale,
             pm_directive=pm_directive,
+            candidate_id=candidate_id,
         ),
         deps=ActionDeps(
             session=session,
@@ -397,6 +414,7 @@ def _handle_resume(kind: ActionKind, request: ActionRequest) -> ActionResult:
         model=deps.model,
         fallback=deps.fallback,
         pm_directive=payload.pm_directive,
+        candidate_id=payload.candidate_id,
         actor=payload.actor,
         source=payload.source,
         override_flag=payload.override_flag,
@@ -574,6 +592,7 @@ def _apply_resume(
     model: Any | None,
     fallback: Any | None,
     pm_directive: str | None,
+    candidate_id: str | None,
     actor: str,
     source: str | None,
     override_flag: bool,
@@ -588,15 +607,13 @@ def _apply_resume(
     ``action`` is what gets logged — they coincide for approve/reject/respond but
     diverge for killswitch (logged distinctly, resumed as a reject). ``respond`` threads
     the adviser's ``pm_directive`` (required) back to the PM at the ``place_orders``
-    gate. The agent stack is imported here, never at module scope.
+    gate, and an approve of that gate names the ``candidate_id`` the adviser chose,
+    which is checked against the run's candidate set before the audit row is written.
+    The agent stack is imported here, never at module scope.
     """
-    if run_id is None:
-        raise ValueError(f"{action!r} requires a run_id")
-    if action == "respond" and not pm_directive:
-        raise ValueError("'respond' requires a pm_directive")
-    rid = run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
+    rid = _require_resume_args(action, run_id, pm_directive, candidate_id)
     pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
-    ticketed = _ticketed_weights(session, rid) if decision == "approve" else None
+    ticketed = _ticketed_weights(session, rid, decision, candidate_id, checkpointer)
     # Claim the idempotency key before resuming: the checkpointer commits on its own
     # connection, so once the graph has moved nothing rolls it back, and the audit row's
     # unique key is the only thing that can turn a concurrent duplicate submit away.
@@ -629,6 +646,7 @@ def _apply_resume(
             model=model,
             fallback=fallback,
             pm_directive=pm_directive,
+            candidate_id=candidate_id,
             config=config,
         )
     return ActionResult(
@@ -639,6 +657,31 @@ def _apply_resume(
         message=resume_message(session, rid, action, result),
         detail=result,
     )
+
+
+def _require_resume_args(
+    action: str,
+    run_id: uuid.UUID | str | None,
+    pm_directive: str | None,
+    candidate_id: str | None,
+) -> uuid.UUID:
+    """The run a resume action targets, once its arguments are complete.
+
+    A candidate belongs to an approve alone: naming one on a reject, killswitch or
+    respond would read as a choice the adviser never made.
+
+    Raises:
+        ValueError: ``run_id`` is missing, ``respond`` has no ``pm_directive``, or a
+            ``candidate_id`` is named on anything but an approve.
+    """
+    from fund.agents.graph_candidates import refuse_candidate_outside_approve
+
+    if run_id is None:
+        raise ValueError(f"{action!r} requires a run_id")
+    if action == "respond" and not pm_directive:
+        raise ValueError("'respond' requires a pm_directive")
+    refuse_candidate_outside_approve(action, candidate_id)
+    return run_id if isinstance(run_id, uuid.UUID) else uuid.UUID(str(run_id))
 
 
 def resume_message(
@@ -684,21 +727,72 @@ def resume_message(
     return message
 
 
-def _ticketed_weights(session: Session, run_id: uuid.UUID) -> dict[str, Any] | None:
+def _ticketed_weights(
+    session: Session,
+    run_id: uuid.UUID,
+    decision: str,
+    candidate_id: str | None,
+    checkpointer: Any | None,
+) -> dict[str, Any] | None:
     """The allocation an approve will ticket, in the shape the audit row records.
 
-    The gated ``place_orders`` ignores the PM's own ``weights`` argument and trades the
-    allocator's audited optimizer weights, so those (not what the gate echoed) are what
-    the adviser's approval commits. ``None`` when the run has no allocator proposal,
-    e.g. a profiler gate.
+    The gated ``place_orders`` ignores the PM's own args and places only the
+    candidate the adviser names (or weights the adviser typed in an edit still in
+    force), so that choice is what the approval commits. It is resolved against the
+    gate the run is paused at (read from ``checkpointer``; with none, the order
+    gate's rule applies) and the run's stored candidate set here, before the audit
+    row exists, so a refused id writes nothing.
+
+    Returns:
+        ``{"weights", "weights_hash"}`` plus ``candidate_id`` and
+        ``candidate_set_hash`` for a named candidate; ``None`` for any decision but
+        an approve and when the approve commits no weights (a profiler gate, an
+        unknown run, or a gate other than ``place_orders``).
+
+    Raises:
+        ValueError: A candidate is named on a profiler gate or another gate that
+            shows no candidates, or the approve of the order gate is refused (see
+            :func:`fund.agents.graph_candidates.resolve_approval`).
     """
-    from fund.audit.orders_repository import weights_hash
+    from fund import observe
+    from fund.agents.graph_candidates import (
+        pending_gate_names,
+        refuse_candidate_at_profiler_gate,
+        resolve_approval,
+    )
     from fund.audit.repository import AgentRunRepository
 
-    weights = AgentRunRepository(session).latest_optimizer_weights(run_id)
-    if not weights:
+    run = AgentRunRepository(session).get_run(run_id)
+    if decision != "approve" or run is None:
         return None
-    return {"weights": weights, "weights_hash": weights_hash(weights)}
+    if observe.is_profiler_run(run):
+        refuse_candidate_at_profiler_gate(run_id, candidate_id)
+        return None
+    interrupt = (
+        observe.interrupt_for(checkpointer, run) if checkpointer is not None else None
+    )
+    return _approval_record(
+        resolve_approval(
+            session, run_id, candidate_id, pending=pending_gate_names(interrupt)
+        )
+    )
+
+
+def _approval_record(choice: ApprovalChoice) -> dict[str, Any] | None:
+    """The approve row's ``new_value`` for ``choice``: its weights and their hash,
+    plus the candidate and its set when one was named; ``None`` without weights."""
+    from fund.audit.orders_repository import weights_hash
+
+    if not choice.weights:
+        return None
+    record: dict[str, Any] = {
+        "weights": choice.weights,
+        "weights_hash": weights_hash(choice.weights),
+    }
+    if choice.candidate is not None:
+        record["candidate_id"] = choice.candidate.candidate_id
+        record["candidate_set_hash"] = choice.candidate_set_hash
+    return record
 
 
 def _apply_edit(
@@ -720,18 +814,21 @@ def _apply_edit(
     """Commit adviser-edited weights, then resume the paused run via ``approve``.
 
     The edit never touches the gated tool's args. It resolves ``new_value`` (the
-    ``{ticker: weight}`` the adviser typed) onto the tickers the run's allocator
-    proposed (case/whitespace-insensitive; anything else is refused), validates it
+    ``{ticker: weight}`` the adviser typed) onto the run's tickers, those of every
+    allocator row plus the universe of its newest candidate set (see
+    :func:`_edit_universe`; case/whitespace-insensitive; anything else is refused),
+    validates it
     against the same gate the risk agent's ``risk_check`` applies (long-only /
     fully-invested bounds, the K&E position cap, the ESG and instrument screen; a book
     that misses the budget only by display rounding is nudged onto it first, see
     :func:`_absorb_rounding`), confirms every line can fill, then appends a fresh
     **allocator / optimize_portfolio** decision carrying the edited weights and resumes
-    through the existing approve path.
-    ``_place_orders_impl`` re-reads ``latest_optimizer_weights`` on resume, so that
-    appended row is the single source every downstream record (the paper ticket +
-    ``weights_hash``, ``agent_runs.weights``, and the positions snapshot) derives
-    from — no graph change, no divergence. The audit row is stamped ⚑
+    through the existing approve path, with no candidate id.
+    ``_place_orders_impl`` places ``latest_selected_weights`` (the adviser's choice in
+    force, which an edit newer than the candidate set is), so that appended row is the
+    single source every downstream record (the paper ticket + ``weights_hash``,
+    ``agent_runs.weights``, and the positions snapshot) derives from — no graph
+    change, no divergence. The audit row is stamped ⚑
     ``override_flag`` since the human overrode the optimizer's allocation.
 
     Raises:
@@ -767,15 +864,7 @@ def _apply_edit(
         raise LookupError(f"no agent_run {rid}")
     if run.portfolio_id is None:
         raise ValueError(f"agent_run {rid} has no portfolio_id")
-    # Every allocator row, not just the latest: a prior edit may have dropped a name
-    # the adviser now wants back.
-    universe = {
-        ticker
-        for decision in run.decisions
-        if decision.agent == "allocator" and decision.step == "optimize_portfolio"
-        for ticker in run_repo.decode_weights(decision)
-    }
-    edited = _canonical_weights(new_value, universe)
+    edited = _canonical_weights(new_value, _edit_universe(session, run))
     ctx = RunContext(
         session=session,
         asof=run.asof,
@@ -855,6 +944,28 @@ def _apply_edit(
         message=resume_message(session, rid, "edit", result),
         detail=result,
     )
+
+
+def _edit_universe(session: Session, run: Any) -> set[str]:
+    """The tickers an adviser edit may weight for ``run``.
+
+    Every allocator row, not just the latest, since a prior edit may have dropped a
+    name the adviser now wants back, plus the universe the run's newest candidate set
+    was fitted on, the one the candidates the adviser reviewed hold.
+    """
+    from fund import observe
+    from fund.audit.repository import AgentRunRepository
+
+    repo = AgentRunRepository(session)
+    proposed = {
+        ticker
+        for decision in run.decisions
+        if decision.agent == "allocator" and decision.step == "optimize_portfolio"
+        for ticker in repo.decode_weights(decision)
+    }
+    candidate_set = observe.candidate_set(session, run.id)
+    fitted = set(candidate_set.universe) if candidate_set is not None else set()
+    return proposed | fitted
 
 
 def _absorb_rounding(

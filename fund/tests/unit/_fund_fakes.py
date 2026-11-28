@@ -16,12 +16,14 @@ The scripted pipeline:
   With ``risk_passes=False`` the PM stops after risk (executor un-invoked, no
   order — the blocking gate). With ``overrun=True`` it re-delegates forever, so the
   recursion limit trips (the round-cap path).
-* **allocator** — calls the real bound ``optimize_portfolio(universe)`` once (which
-  computes the load-bearing weights + logs the audit decision), then reports.
-* **risk** — calls the real bound ``risk_check`` once (which records the verdict
-  ``place_orders`` requires), then reports; the PM's ``risk_passes`` flag decides
-  whether the run proceeds past it. With ``risk_checks=False`` it only reports, so
-  no verdict exists — a risk step that was skipped.
+* **allocator** — calls the real bound ``compute_candidates(universe)`` once (which
+  computes the four candidate portfolios + logs the candidate set), then reports.
+* **risk** — calls the real bound ``risk_check(candidate_id)`` once per candidate, in
+  one turn, then reports; the PM's ``risk_passes`` flag decides whether the run
+  proceeds past it. With ``risk_checks=False`` it only reports — a risk step that was
+  skipped. The verdict ``place_orders`` requires is recorded when the adviser names a
+  candidate, so a test approves with ``candidate_id=MEAN_RISK`` (the candidate whose
+  weights :func:`expected_weights` returns by default).
 * **economist / executor** — return a narrative report (no side effects needed).
 
 Not a ``test_*`` module, so pytest does not collect it; the fund-run test file
@@ -48,10 +50,15 @@ from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.pool import SingletonThreadPool
 
 from fund.schemas import ConstraintSet
+from fund.schemas.candidates import CANDIDATE_IDS
 from fund.schemas.constraint_set import EsgPolicy
 from fund.schemas.enums import GicsSector, Horizon, ObjectiveChoice, RiskMeasureChoice
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
-from fund.tools.optimize import optimize_portfolio
+from fund.tools.candidates import compute_candidates
+
+# The candidate the fixture's growth/variance profile maps to the old single optimizer:
+# approving it keeps every pre-candidate expectation (the same weights, ticket, run).
+MEAN_RISK = "mean_risk"
 
 # Distinctive opening-line markers of each role's system prompt (see
 # ``fund.agents.prompts``); matched as substrings so middleware appends do not
@@ -116,15 +123,17 @@ class NoToolsChatModel(BaseChatModel):
 class ScriptedFundModel(BaseChatModel):
     """Role-aware, network-free stand-in for the DeepSeek chat model.
 
-    Configured per run with the allocator's ``universe`` and the optimizer
-    ``weights`` the PM commits (the test computes both from the same deterministic
-    ``optimize_portfolio``, so the ticket, the audit, and the finalised run all
-    agree). ``risk_passes``, ``risk_checks`` and ``overrun`` select the non-happy
-    paths; ``max_orders`` (default 1) lets the PM re-gate — call ``place_orders``
-    again after a respond barge-in or a refused approval — so a re-gating resume can
-    be scripted. ``parallel_orders`` (default 1) makes each ``place_orders`` turn emit
-    that many tool calls in one message, the parallel-tool-calling shape that gives
-    the HITL gate several action requests.
+    Configured per run with the allocator's ``universe`` and the ``weights`` the PM
+    types into its ``place_orders`` call (the gate middleware replaces them with the
+    candidate set, so they never reach a ticket). ``risk_passes``, ``risk_checks``
+    and ``overrun`` select the non-happy paths; ``max_orders`` (default 1) lets the PM
+    re-gate — call ``place_orders`` again after a respond barge-in or a refused
+    approval — so a re-gating resume can be scripted. ``parallel_orders`` (default 1)
+    makes each ``place_orders`` turn emit that many tool calls in one message, the
+    parallel-tool-calling shape that gives the HITL gate several action requests.
+    ``rerun_after_respond`` makes the PM re-delegate allocator, risk and executor
+    once after a respond barge-in before it calls ``place_orders`` again, so the
+    re-gated round carries a newer candidate set.
     """
 
     universe: list[str] = Field(default_factory=list)
@@ -134,6 +143,7 @@ class ScriptedFundModel(BaseChatModel):
     overrun: bool = False
     max_orders: int = 1
     parallel_orders: int = 1
+    rerun_after_respond: bool = False
     generate_calls: int = 0
 
     @property
@@ -181,6 +191,9 @@ class ScriptedFundModel(BaseChatModel):
                 # Blocking gate failed: do not reach the executor or place_orders.
                 return AIMessage(content="Risk gate failed; halting. No order placed.")
             return _task_call("executor", n_task)
+        rerun_index = n_task - _FIRST_ROUND_TASKS
+        if self.rerun_after_respond and n_orders and rerun_index < len(_RERUN_STAGES):
+            return _task_call(_RERUN_STAGES[rerun_index], n_task)
         if n_orders < self.max_orders:
             # Re-gate once per prior place_orders call so a respond barge-in (which
             # threads the gate's result back and lets the PM continue) drives another
@@ -200,28 +213,35 @@ class ScriptedFundModel(BaseChatModel):
         return AIMessage(content="Run complete; paper ticket handled.")
 
     def _allocator_turn(self, messages: list[BaseMessage]) -> AIMessage:
-        # Call the real bound optimizer once (weights + audit), then report.
-        if _count_tool_calls(messages, "optimize_portfolio") == 0:
+        # Call the real bound candidates tool once (weights + audit), then report.
+        if _count_tool_calls(messages, "compute_candidates") == 0:
             return AIMessage(
                 content="",
                 tool_calls=[
                     {
-                        "name": "optimize_portfolio",
+                        "name": "compute_candidates",
                         "args": {"universe": self.universe},
-                        "id": "call_optimize",
+                        "id": "call_compute_candidates",
                     }
                 ],
             )
-        return AIMessage(content="allocator report: candidate weights ready.")
+        return AIMessage(content="allocator report: four candidates computed.")
 
     def _risk_turn(self, messages: list[BaseMessage]) -> AIMessage:
-        # Call the real bound risk gate once (it records the verdict), then report.
+        # Check every candidate once, in one turn, then report.
         if self.risk_checks and _count_tool_calls(messages, "risk_check") == 0:
             return AIMessage(
                 content="",
-                tool_calls=[{"name": "risk_check", "args": {}, "id": "call_risk"}],
+                tool_calls=[
+                    {
+                        "name": "risk_check",
+                        "args": {"candidate_id": candidate_id},
+                        "id": f"call_risk_{candidate_id}",
+                    }
+                    for candidate_id in CANDIDATE_IDS
+                ],
             )
-        return AIMessage(content="risk report: proposal checked.")
+        return AIMessage(content="risk report: every candidate checked.")
 
 
 class PmFailsAfterOrderModel(ScriptedFundModel):
@@ -298,6 +318,12 @@ class BrokenPlaceOrdersFundModel(ScriptedFundModel):
             ],
             response_metadata=dict(self.stop_metadata),
         )
+
+
+# The first round delegates economist, allocator, risk and executor once each; a
+# re-run after a respond repeats the three stages that compute and judge candidates.
+_FIRST_ROUND_TASKS = 4
+_RERUN_STAGES = ("allocator", "risk", "executor")
 
 
 def _task_call(subagent: str, index: int) -> AIMessage:
@@ -459,25 +485,139 @@ def held_weights(weights: dict[str, float]) -> dict[str, float]:
 
 
 def expected_weights(
-    session: Any, constraint_set: ConstraintSet | None = None
+    session: Any,
+    constraint_set: ConstraintSet | None = None,
+    *,
+    candidate_id: str = MEAN_RISK,
 ) -> dict[str, float]:
-    """The optimizer's weights the allocator will produce over the seeded panel.
+    """The weights of the candidate an approve names, over the seeded panel.
 
-    Computed under the same mapped ``ConstraintSet`` (``make_constraint_set()`` unless
-    the run resolves another) so the ticket, the audit trail, and the finalised run
-    must all match these — the load-bearing "skfolio, not the LLM, computes the
-    weights" invariant.
+    Computed by the same deterministic candidates tool the allocator runs, under the
+    same mapped ``ConstraintSet`` (``make_constraint_set()`` unless the run resolves
+    another), so the ticket, the audit trail and the finalised run must all match
+    these — the load-bearing "skfolio, not the LLM, computes the weights" invariant.
+    The default ``mean_risk`` candidate equals the old single optimizer's weights.
     """
     from fund.agents.toolsets import _optimizer_constraints
 
-    result = optimize_portfolio(
+    result = compute_candidates(
         session,
         ASOF,
         UNIVERSE,
         constraints=_optimizer_constraints(constraint_set or make_constraint_set()),
     )
     assert result["ok"] is True
-    return result["data"]["weights"]
+    (candidate,) = (
+        entry
+        for entry in result["data"]["candidates"]
+        if entry["candidate_id"] == candidate_id
+    )
+    return candidate["weights"]
+
+
+# Stand-in measures for a hand-built candidate: valid for the schema, read by no test.
+_PLACEHOLDER_METRICS = {
+    "annualized_volatility": 0.1,
+    "cvar_95": 0.01,
+    "largest_position": 0.5,
+    "n_positions": 2,
+    "turnover": 1.0,
+}
+_PLACEHOLDER_OBSERVATIONS = 100
+_PLACEHOLDER_PERIODS_PER_YEAR = 252
+_NOT_FITTED = {"type": "solver_failed", "reason": "not fitted by this test"}
+
+
+def candidate_set_payload(
+    weights: dict[str, float], *, candidate_id: str = MEAN_RISK, asof: dt.date = ASOF
+) -> dict[str, Any]:
+    """A storable candidate set whose ``candidate_id`` carries exactly ``weights``.
+
+    The other three methods are recorded as failed, so a test pins which weights the
+    risk tools, the gate and an approve read without fitting anything.
+    """
+    from fund.schemas.candidates import CandidateSet
+
+    candidates = [
+        {
+            "candidate_id": cid,
+            "label": cid,
+            "settings": {},
+            "feasible": True,
+            "weights": dict(weights),
+            "metrics": dict(_PLACEHOLDER_METRICS),
+            "constraint_check": {"passed": True},
+        }
+        if cid == candidate_id
+        else {
+            "candidate_id": cid,
+            "label": cid,
+            "settings": {},
+            "feasible": False,
+            "breaches": [_NOT_FITTED],
+        }
+        for cid in CANDIDATE_IDS
+    ]
+    payload = {
+        "asof": asof.isoformat(),
+        "universe": sorted(weights),
+        "n_observations": _PLACEHOLDER_OBSERVATIONS,
+        "periods_per_year": _PLACEHOLDER_PERIODS_PER_YEAR,
+        "candidates": candidates,
+    }
+    return CandidateSet.model_validate(payload).model_dump(mode="json")
+
+
+def audit_candidate_set(
+    session: Any,
+    run_id: uuid.UUID,
+    weights: dict[str, float],
+    *,
+    candidate_id: str = MEAN_RISK,
+) -> None:
+    """Record a candidate set whose ``candidate_id`` carries ``weights``, as the
+    bound candidates tool would."""
+    from fund.audit.repository import AgentRunRepository
+
+    AgentRunRepository(session).append_candidate_set(
+        run_id,
+        constraint_set=None,
+        payload=candidate_set_payload(weights, candidate_id=candidate_id),
+    )
+
+
+def audit_adviser_choice(
+    session: Any,
+    run_id: uuid.UUID,
+    weights: dict[str, float],
+    *,
+    candidate_id: str = MEAN_RISK,
+) -> None:
+    """Record a candidate set and the adviser's passing choice of ``candidate_id``.
+
+    The state an approve leaves before ``place_orders`` runs: the verdict recorded at
+    the choice and the choice itself, so ``place_orders`` may place ``weights``.
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    audit_candidate_set(session, run_id, weights, candidate_id=candidate_id)
+    repo = AgentRunRepository(session)
+    repo.append_risk_verdict(run_id, weights=weights, passed=True, violations=[])
+    payload = candidate_set_payload(weights, candidate_id=candidate_id)
+    repo.append_candidate_selection(
+        run_id,
+        candidate_id=candidate_id,
+        candidate_set_hash=_set_digest(payload),
+        weights=dict(weights),
+        metrics=dict(_PLACEHOLDER_METRICS),
+        settings={},
+    )
+
+
+def _set_digest(payload: dict[str, Any]) -> str:
+    from fund.schemas.candidates import CandidateSet
+
+    return CandidateSet.model_validate(payload).digest()
 
 
 def seed_paused_fund_run(
@@ -490,7 +630,8 @@ def seed_paused_fund_run(
     driven by a :class:`ScriptedFundModel` to the HITL gate. ``session_factory`` opens
     a context-managed session over the test's shared in-memory engine; ``saver`` /
     ``store`` are an in-memory ``MemorySaver`` / ``InMemoryStore`` the caller owns. The
-    returned weights are the optimizer's — the ticket, audit, and finalised run agree.
+    returned weights are the ``mean_risk`` candidate's: approving it with
+    ``candidate_id=MEAN_RISK`` makes the ticket, audit and finalised run agree.
 
     Imports the agent stack lazily so a bare ``import _fund_fakes`` stays light.
     """

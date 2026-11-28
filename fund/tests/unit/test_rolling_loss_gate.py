@@ -12,13 +12,13 @@ shorter than a year, and names a zero loss tolerance instead of reporting an opa
 from __future__ import annotations
 
 import datetime as dt
-import json
 import math
 import uuid
 
 import numpy as np
 import pandas as pd
 import pytest
+from _fund_fakes import MEAN_RISK, audit_adviser_choice, candidate_set_payload
 from langgraph.store.memory import InMemoryStore
 from portopt_db.models.market_data.yfinance_data import PriceHistory
 from portopt_db.models.universe.universe import Exchange, Instrument
@@ -244,7 +244,8 @@ def _cs(**overrides: object) -> ConstraintSet:
 
 
 def _context(db_session, cs: ConstraintSet) -> RunContext:
-    """A run context over a fresh audit run, holding ``cs`` and the proposal."""
+    """A run context over a fresh audit run, holding ``cs`` and a candidate set
+    whose ``mean_risk`` candidate carries the proposal."""
     store = InMemoryStore()
     put_constraint_set(store, cs, store_key=settings.constraint_set_store_key)
     repo = AgentRunRepository(db_session)
@@ -255,11 +256,10 @@ def _context(db_session, cs: ConstraintSet) -> RunContext:
         universe=list(_WEIGHTS),
         optimizer_config={"step": "toolset"},
     )
-    repo.append_decision(
+    repo.append_candidate_set(
         run.id,
-        agent="allocator",
-        step="optimize_portfolio",
-        llm_response=json.dumps({"weights": _WEIGHTS}),
+        constraint_set=None,
+        payload=candidate_set_payload(_WEIGHTS, asof=_ASOF),
     )
     return RunContext(
         session=db_session,
@@ -271,6 +271,10 @@ def _context(db_session, cs: ConstraintSet) -> RunContext:
     )
 
 
+# The risk tools judge one candidate of the latest set, named by id.
+_MEAN_RISK_ARGS = {"candidate_id": MEAN_RISK}
+
+
 def _tool(ctx: RunContext, role: str, name: str):
     """The bound tool ``name`` of ``role``."""
     (match,) = [t for t in bind_toolset(role, ctx) if t.name == name]
@@ -280,15 +284,20 @@ def _tool(ctx: RunContext, role: str, name: str):
 class TestGateJudgesTheWorstYear:
     """The bound ``risk_check`` / ``backtest`` compare the tiers with the worst year."""
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_a_slow_multi_year_bleed_passes_a_one_year_tolerance(
         self, db_session
     ) -> None:
-        """A 38% multi-year drawdown does not breach a 25% one-year ceiling."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        A 38% multi-year drawdown does not breach a 25% one-year ceiling."""
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs())
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
-        tiers = _tool(ctx, "risk", "backtest").invoke({})["data"]["drawdown_tiers"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
+        tiers = _tool(ctx, "risk", "backtest").invoke(_MEAN_RISK_ARGS)["data"][
+            "drawdown_tiers"
+        ]
 
         assert verdict["passed"] is True, verdict
         assert tiers["verified"] is True
@@ -296,33 +305,44 @@ class TestGateJudgesTheWorstYear:
         assert 0.14 < tiers["worst_rolling_loss"] < 0.25
         assert tiers["breached"] == ["nu1"]
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_the_full_sample_drawdown_is_still_reported(self, db_session) -> None:
-        """The multi-year figure stays in the reply, as information."""
+        """Validates fund.agents.toolsets._backtest_impl.
+
+        The multi-year figure stays in the reply, as information."""
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs())
 
-        data = _tool(ctx, "risk", "backtest").invoke({})["data"]
+        data = _tool(ctx, "risk", "backtest").invoke(_MEAN_RISK_ARGS)["data"]
 
         assert data["full_sample_max_drawdown"] > data["worst_rolling_loss"]
         assert data["rolling_loss_window"] == _YEAR
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_a_crash_inside_a_year_still_blocks(self, db_session) -> None:
-        """A 40% fall within one year breaches the 25% ceiling."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        A 40% fall within one year breaches the 25% ceiling."""
         _seed_paths(db_session, _crash(3 * _YEAR, 0.40))
         ctx = _context(db_session, _cs(nu3=0.6))
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
 
         assert verdict["passed"] is False
         assert [v["type"] for v in verdict["violations"]] == ["drawdown_nu2"]
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_a_history_shorter_than_a_year_fails_closed(self, db_session) -> None:
-        """Eighty days cannot show a year's loss, so the ceilings stay unverified."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        Eighty days cannot show a year's loss, so the ceilings stay unverified."""
         _seed_paths(db_session, _bleed(80, 0.15))
         ctx = _context(db_session, _cs())
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
-        tiers = _tool(ctx, "risk", "backtest").invoke({})["data"]["drawdown_tiers"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
+        tiers = _tool(ctx, "risk", "backtest").invoke(_MEAN_RISK_ARGS)["data"][
+            "drawdown_tiers"
+        ]
 
         assert verdict["passed"] is False
         (violation,) = verdict["violations"]
@@ -332,40 +352,50 @@ class TestGateJudgesTheWorstYear:
         assert tiers["verified"] is False
         assert tiers["worst_rolling_loss"] is None
 
+    @pytest.mark.criterion("REQ-FUND-003")
     def test_a_short_history_that_already_breaches_names_the_breach(
         self, db_session
     ) -> None:
-        """The short sample's own drawdown is a lower bound that can prove a breach."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        The short sample's own drawdown is a lower bound that can prove a breach."""
         _seed_paths(db_session, _short_crash())
         ctx = _context(db_session, _cs(nu1=0.05, nu2=0.1, nu3=0.2))
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
 
         kinds = [v["type"] for v in verdict["violations"]]
         assert verdict["passed"] is False
         assert "drawdown_nu3" in kinds
         assert "drawdown_unverified" in kinds
 
+    @pytest.mark.criterion("REQ-FUND-002")
     def test_a_zero_loss_tolerance_is_named_at_the_gate(self, db_session) -> None:
-        """Every book fails a zero tolerance, and the verdict says why."""
+        """Validates fund.agents.toolsets._risk_check_impl.
+
+        Every book fails a zero tolerance, and the verdict says why."""
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs(nu1=0.0, nu2=0.0, nu3=0.0))
 
-        verdict = _tool(ctx, "risk", "risk_check").invoke({})["data"]
+        verdict = _tool(ctx, "risk", "risk_check").invoke(_MEAN_RISK_ARGS)["data"]
 
         assert verdict["passed"] is False
         (violation,) = verdict["violations"]
         assert violation["type"] == "zero_loss_tolerance"
 
+    @pytest.mark.criterion("REQ-FUND-002")
     def test_the_mandate_message_names_the_zero_tolerance(self, db_session) -> None:
-        """``place_orders`` explains the refusal in the profile's terms."""
+        """Validates fund.agents.toolsets._place_orders_impl.
+
+        ``place_orders`` explains the refusal in the profile's terms."""
         _seed_paths(db_session, _bleed(3 * _YEAR, 0.15))
         ctx = _context(db_session, _cs(nu1=0.0, nu2=0.0, nu3=0.0))
-        _tool(ctx, "risk", "risk_check").invoke({})
+        audit_adviser_choice(db_session, ctx.run_id, _WEIGHTS)
 
         result = _tool(ctx, "orchestrator", "place_orders").invoke({})
 
         assert result["ok"] is False
+        assert "zero_loss_tolerance" in result["error"]
 
 
 def _short_crash() -> dict[str, list[float]]:

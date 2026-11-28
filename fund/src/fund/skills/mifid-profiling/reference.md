@@ -65,7 +65,7 @@ The more protective the reaction, the deeper the downside the profile controls.
 The cap is not advisory: it tightens `bounds.max_weights` (the tighter of the two
 wins), so it binds the optimizer and the `risk_check` ceiling alike. A cap of `c`
 needs at least `ceil(1 / c)` priced names; a smaller universe is reported as
-infeasible by `optimize_portfolio` rather than as an opaque solver failure.
+infeasible by `compute_candidates` rather than as an opaque solver failure.
 
 ## Drawdown tiers (`nu1/nu2/nu3`, emitted here, gated by `risk_check`)
 

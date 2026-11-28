@@ -113,8 +113,10 @@ def _patch_round(
     agent: _Agent,
     *,
     frozen: str | None = None,
+    nothing_to_choose: str | None = None,
 ) -> SimpleNamespace:
-    """Replace the setup, the weight read and the freeze lookup with logging fakes."""
+    """Replace the setup, the weight read, the candidate check and the freeze lookup
+    with logging fakes; ``nothing_to_choose`` is the candidate check's answer."""
     setup = graph._FundRunSetup(
         agent=agent,
         thread_config=THREAD,
@@ -136,9 +138,17 @@ def _patch_round(
         log.append(("frozen_scope", session, portfolio_id))
         return frozen
 
+    def gate_without_candidates(
+        session: Any, run_id: uuid.UUID, interrupt: Any
+    ) -> str | None:
+        """Why the gate has nothing for the adviser to choose, if anything."""
+        log.append(("gate_without_candidates", session, run_id))
+        return nothing_to_choose
+
     monkeypatch.setattr(graph, "_prepare_fund_run", lambda *a, **k: setup)
     monkeypatch.setattr(graph, "_optimizer_weights", weights)
     monkeypatch.setattr(graph, "_frozen_scope", frozen_scope)
+    monkeypatch.setattr(graph, "gate_without_candidates", gate_without_candidates)
     return setup
 
 
@@ -192,8 +202,13 @@ def _incomplete(reason: str) -> list[Any]:
     ]
 
 
+# The candidate check that runs once a gate was reached, before the freeze lookup.
+CANDIDATE_CHECK = ("gate_without_candidates", SESSION, RUN)
+
+
 def _halted(scope: str) -> list[Any]:
     return [
+        CANDIDATE_CHECK,
         ("frozen_scope", SESSION, PID),
         (
             "append_decision",
@@ -236,10 +251,13 @@ def _model_chunk(message: Any, **state: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------- run_fund
 
 
+@pytest.mark.criterion("REQ-FUND-047")
 def test_run_fund_pauses_at_the_gate_with_the_optimizer_weights(
     monkeypatch, log
 ) -> None:
-    """The weights are read, the freeze is checked, then the run is flipped paused."""
+    """Validates fund.agents.graph.run_fund.
+
+    The weights are read, the freeze is checked, then the run is flipped paused."""
     setup = _patch_round(monkeypatch, log, _Agent({**_gate_chunk(), "messages": []}))
 
     run = _run()
@@ -247,6 +265,7 @@ def test_run_fund_pauses_at_the_gate_with_the_optimizer_weights(
     assert _summary(run, setup) == (CONSTRAINTS, RUN, PAYLOAD, WEIGHTS, "paused")
     assert log == [
         ("optimizer_weights", SESSION, RUN),
+        CANDIDATE_CHECK,
         ("frozen_scope", SESSION, PID),
         ("mark_paused", RUN),
     ]
@@ -311,6 +330,54 @@ def test_run_fund_reads_the_freeze_of_the_portfolio_given_as_text(
     assert ("frozen_scope", SESSION, PID) in log
 
 
+# Each candidate-check ending: the reason recorded and the text the stream shows.
+NOTHING_TO_CHOOSE = [
+    ("no_candidate_set", "the round reached the gate without a candidate set"),
+    ("no_feasible_candidate", "no candidate met the client's constraints"),
+]
+
+
+@pytest.mark.criterion("REQ-FUND-047")
+@pytest.mark.parametrize(("reason", "text"), NOTHING_TO_CHOOSE)
+def test_run_fund_closes_a_gate_with_nothing_to_choose_incomplete(
+    monkeypatch, log, reason, text
+) -> None:
+    """Validates fund.agents.graph._settle_round: a gate with no candidate set or no
+    feasible candidate is finalised incomplete with its reason before any freeze
+    lookup, and no gate is handed back."""
+    setup = _patch_round(
+        monkeypatch,
+        log,
+        _Agent(_gate_chunk()),
+        frozen="fund",
+        nothing_to_choose=reason,
+    )
+
+    run = _run()
+
+    assert _summary(run, setup) == (CONSTRAINTS, RUN, None, WEIGHTS, "incomplete")
+    assert log == [
+        ("optimizer_weights", SESSION, RUN),
+        CANDIDATE_CHECK,
+        *_incomplete(reason),
+    ]
+
+
+@pytest.mark.criterion("REQ-FUND-047")
+@pytest.mark.parametrize(("reason", "text"), NOTHING_TO_CHOOSE)
+def test_stream_fund_closes_a_gate_with_nothing_to_choose_incomplete(
+    monkeypatch, log, reason, text
+) -> None:
+    """Validates fund.agents.graph.stream_fund and graph_stream._round_end_event: the
+    stream ends on an incomplete event that says why in words, never a paused gate."""
+    _patch_round(
+        monkeypatch, log, _Agent(chunks=[_gate_chunk()]), nothing_to_choose=reason
+    )
+
+    assert _stream() == [_terminal("incomplete", 0, text)]
+    assert log == [CANDIDATE_CHECK, *_incomplete(reason)]
+
+
 def test_run_fund_ends_a_round_past_the_recursion_limit_incomplete(
     monkeypatch, log
 ) -> None:
@@ -336,8 +403,11 @@ def _delegation_chunks() -> list[dict[str, Any]]:
     ]
 
 
+@pytest.mark.criterion("REQ-FUND-047")
 def test_stream_fund_pauses_at_the_gate_with_its_why(monkeypatch, log) -> None:
-    """The last event is the paused gate, carrying the payload and its description."""
+    """Validates fund.agents.graph.stream_fund.
+
+    The last event is the paused gate, carrying the payload and its description."""
     _patch_round(
         monkeypatch, log, _Agent(chunks=[*_delegation_chunks(), _gate_chunk()])
     )
@@ -354,7 +424,11 @@ def test_stream_fund_pauses_at_the_gate_with_its_why(monkeypatch, log) -> None:
         text="report",
     )
     assert events[1:] == [_terminal("paused", 1, "buy AAA", PAYLOAD)]
-    assert log == [("frozen_scope", SESSION, PID), ("mark_paused", RUN)]
+    assert log == [
+        CANDIDATE_CHECK,
+        ("frozen_scope", SESSION, PID),
+        ("mark_paused", RUN),
+    ]
 
 
 def test_stream_fund_gives_a_gate_without_a_description_a_default_why(

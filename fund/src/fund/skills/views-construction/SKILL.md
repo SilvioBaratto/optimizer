@@ -15,7 +15,7 @@ The schema is Black-Litterman-shaped (confidence maps to the view-uncertainty
 matrix Omega), but today the views are advisory.
 
 ## Views are advisory today
-No bound tool accepts views: `estimate_moments` and `optimize_portfolio` take only a
+No bound tool accepts views: `estimate_moments` and `compute_candidates` take only a
 `universe`, so the optimizer runs on its own prior (empirical mean, Ledoit-Wolf
 covariance) and the weights are identical with or without a ViewSet.
 `ViewSet.to_black_litterman_config` is the bridge for a future wiring; no run calls
@@ -33,9 +33,10 @@ confidence). The optimizer computes the weights — never the LLM.
 2. Write each view as relative ("A outperforms B by x") or absolute, with a
    confidence in [0,1] (it would become Omega once wired: higher confidence →
    tighter Omega).
-3. Prefer asset-level views. A factor view references a factor NAME, not an asset
-   name, and would need a factor-model prior that is not built today. When the brief
-   lists an eligible universe, write views only on tickers inside it.
+3. A view is on an asset or on a factor. An asset view names a ticker; a factor view
+   references a factor NAME, not an asset name, and would need a factor-model prior
+   that is not built today, so it stays context for the rationale. When the brief
+   lists an eligible universe, write asset views only on tickers inside it.
 4. Hand the ViewSet to the allocator as context for its rationale and for the
    adviser; the allocator cannot pass it to the optimizer.
 

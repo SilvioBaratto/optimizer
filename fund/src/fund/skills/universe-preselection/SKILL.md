@@ -1,11 +1,11 @@
 ---
 name: universe-preselection
 description: |
-  Scope the DB universe (~8898 names) down to a tractable candidate set: list it with
+  Scope the DB universe (~8898 names) down to a tractable ticker set: list it with
   `list_universe` (or, when the run lists an eligible universe, take that whole set),
-  then prune the candidates with the pre-selection stack (data cleaning,
+  then prune the tickers with the pre-selection stack (data cleaning,
   incomplete-history, zero-variance and correlated-asset drops) before moments and
-  optimization. Use when the allocator must scope a run's universe.
+  the candidate portfolios. Use when the allocator must scope a run's universe.
   Tickers always come from `list_universe` or the task's handoff, never from memory,
   and the skill never emits weights.
 ---
@@ -13,14 +13,15 @@ description: |
 # Universe pre-selection
 
 The allocator's first step: shrink the investable universe to a well-conditioned
-candidate set so the optimizer is stable. The LLM chooses WHICH listed names to carry
-forward; the pipeline prunes them and the optimizer weights them.
+ticker set so the optimizer is stable. The LLM chooses WHICH listed names to carry
+forward; the pipeline prunes them and the optimizer computes the four candidate
+portfolios over them (`compute_candidates`), none of which any agent chooses.
 
 ## When to use
-Start of the allocator step, before moments + optimization.
+Start of the allocator step, before moments + `compute_candidates`.
 
 ## Load-bearing rule
-`universe_filter` picks the surviving names. The LLM only forwards candidates it
+`universe_filter` picks the surviving names. The LLM only forwards tickers it
 took from `list_universe` (which already removes the client's ESG-excluded sectors
 and, when the portfolio has an eligible universe, returns exactly that set) or was
 handed by the task; it never adds, drops or invents a ticker by hand and never
@@ -33,16 +34,16 @@ emits weights. A ticker the database cannot price comes back as `missing`.
    fixed: all of it, with no sector tilt to choose.
 2. Call `list_universe(sector, limit, offset)`. Without an eligible universe it pages
    through the investable names (largest market cap first; `total` is the full
-   count) and you collect the candidates. `sector` takes the ConstraintSet's GICS
+   count) and you collect the tickers. `sector` takes the ConstraintSet's GICS
    names (`information_technology`) or the stored names (`Technology`); an unknown
    name returns an error listing the valid ones, never an empty page. Sector and
    market cap are the latest snapshot, so for a past run date the size ranking is
    today's. With an eligible universe it returns exactly that set, in the mandate's
    order, with `instrument_type` and `asset_class` on every row: take all of it as
-   your candidates and do not sample by sector (an ETF has no sector, so a `sector`
+   your tickers and do not sample by sector (an ETF has no sector, so a `sector`
    filter never returns one). If every listed ticker is barred it returns an error
    naming each with its reason: report it to the PM.
-3. Call `universe_filter(universe)` with the candidates. It returns the survivors in
+3. Call `universe_filter(universe)` with the tickers. It returns the survivors in
    requested order (big frames stay in the tool; only the ticker list returns). Names
    the client's mandate forbids (complex or leveraged products for a restricted client,
    an unclassifiable instrument) come back under `mandate_excluded`: report them to the
@@ -56,7 +57,8 @@ emits weights. A ticker the database cannot price comes back as `missing`.
    `missing` had no instrument row (an unknown or mistyped ticker) or no priced days.
    The tools skip them on their own, so do not edit the list by hand: report the
    `missing` names to the PM and never substitute other tickers.
-5. Hand the survivors + moments to `optimization-objective-map`.
+5. Hand the survivors + moments to `optimization-objective-map`, which runs
+   `compute_candidates` on them.
 
 ## What the filter applies
 Fixed defaults, no thresholds to choose: data validation and outlier treatment,

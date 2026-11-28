@@ -34,6 +34,7 @@ import pytest
 import typer.main
 from _fund_fakes import (
     ASOF,
+    MEAN_RISK,
     PORTFOLIO_ID,
     UNIVERSE,
     FreezeMidRunModel,
@@ -71,6 +72,9 @@ from fund.schemas.enums import GicsSector
 from fund.schemas.mandate import PortfolioMandate, RunTriggers
 
 _ASOF_STR = ASOF.isoformat()
+# A rebalance gate is approved by naming one candidate; the fixture's profile maps
+# the old single optimizer onto ``mean_risk``.
+_CANDIDATE = ("--candidate", MEAN_RISK)
 
 
 # --- fakes for the injected persistence handles -----------------------------
@@ -660,9 +664,11 @@ def test_run_without_mandate_reports_the_error_exactly_once(
 # --- approve / reject -------------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-053")
 def test_approve_finalizes_run(harness, monkeypatch) -> None:
+    """Validates fund.cli.approve."""
     run_id, expected, _res = _seed_and_run(harness, monkeypatch)
-    res = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    res = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
     assert res.exit_code == 0, res.output
     with harness.read() as session:
         row = AgentRunRepository(session).get_run(run_id)
@@ -671,17 +677,20 @@ def test_approve_finalizes_run(harness, monkeypatch) -> None:
     assert harness.pool.closed >= 2  # run + approve each closed the pool
 
 
+@pytest.mark.criterion("REQ-FUND-053")
 def test_approve_without_a_fill_bar_is_refused_and_the_run_stays_paused(
     harness, monkeypatch
 ) -> None:
-    """No close after ``asof`` yet: the approve fails before the graph resumes, so the
+    """Validates fund.cli.approve.
+
+    No close after ``asof`` yet: the approve fails before the graph resumes, so the
     run stays paused at its live gate and the operator can approve again later."""
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
     with harness.read() as session:
         session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()
         session.commit()
 
-    res = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    res = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
 
     assert res.exit_code != 0
     assert "no paper ticket" in res.output
@@ -689,10 +698,13 @@ def test_approve_without_a_fill_bar_is_refused_and_the_run_stays_paused(
         assert AgentRunRepository(session).get_run(run_id).status == "paused"
 
 
+@pytest.mark.criterion("REQ-FUND-053")
 def test_approve_without_a_ticket_says_so_and_exits_nonzero(
     harness, monkeypatch
 ) -> None:
-    """``place_orders`` finding no fill bar finalises the run incomplete with no
+    """Validates fund.cli.approve.
+
+    ``place_orders`` finding no fill bar finalises the run incomplete with no
     ticket: the CLI must not echo a bare "approved" nor exit 0 for it."""
     from fund.agents import graph as graph_mod
 
@@ -702,7 +714,7 @@ def test_approve_without_a_ticket_says_so_and_exits_nonzero(
         session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()
         session.commit()
 
-    res = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    res = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
 
     assert res.exit_code != 0
     assert "no paper ticket" in res.output
@@ -710,8 +722,11 @@ def test_approve_without_a_ticket_says_so_and_exits_nonzero(
         assert AgentRunRepository(session).get_run(run_id).status == "incomplete"
 
 
+@pytest.mark.criterion("REQ-FUND-053")
 def test_approve_surfaces_a_failed_pm_follow_up(harness, monkeypatch) -> None:
-    """A PM turn that dies after the gate was consumed leaves the decision standing
+    """Validates fund.cli.approve.
+
+    A PM turn that dies after the gate was consumed leaves the decision standing
     (exit 0, run completed) but the operator must be told the model did not finish."""
     run_id, expected, _res = _seed_and_run(harness, monkeypatch)
     monkeypatch.setattr(
@@ -720,7 +735,7 @@ def test_approve_surfaces_a_failed_pm_follow_up(harness, monkeypatch) -> None:
         lambda *a, **k: PmFailsAfterOrderModel(universe=UNIVERSE, weights=expected),
     )
 
-    res = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    res = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
 
     assert res.exit_code == 0, res.output
     assert "PM follow-up failed" in res.output
@@ -728,12 +743,15 @@ def test_approve_surfaces_a_failed_pm_follow_up(harness, monkeypatch) -> None:
         assert AgentRunRepository(session).get_run(run_id).status == "completed"
 
 
+@pytest.mark.criterion("REQ-FUND-053")
 @pytest.mark.parametrize("verb", ["approve", "reject"])
 def test_resolving_a_run_appends_a_cli_audit_row(
     harness, monkeypatch, cli_actor, verb
 ) -> None:
+    """Validates fund.cli.approve and fund.cli.reject."""
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
-    res = harness.runner.invoke(cli.app, [verb, str(run_id)])
+    candidate = _CANDIDATE if verb == "approve" else ()
+    res = harness.runner.invoke(cli.app, [verb, str(run_id), *candidate])
     assert res.exit_code == 0, res.output
     (row,) = _audit_rows(harness, verb)
     assert row["run_id"] == run_id
@@ -746,20 +764,25 @@ def test_resolving_a_run_appends_a_cli_audit_row(
         assert row["idempotency_key"] == f"{run_id}:reject"
 
 
+@pytest.mark.criterion("REQ-FUND-053")
 def test_repeated_approve_replays_instead_of_resuming_again(
     harness, monkeypatch
 ) -> None:
+    """Validates fund.cli.approve."""
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
-    first = harness.runner.invoke(cli.app, ["approve", str(run_id)])
-    again = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    first = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
+    again = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
     assert first.exit_code == 0, first.output
     assert again.exit_code == 0, again.output
     assert "already applied" in again.output
     assert len(_audit_rows(harness, "approve")) == 1
 
 
+@pytest.mark.criterion("REQ-FUND-053")
 def test_second_approve_resumes_a_run_that_regated(harness, monkeypatch) -> None:
-    """An approve whose placement is refused re-gates the run; approving that new gate
+    """Validates fund.cli.approve.
+
+    An approve whose placement is refused re-gates the run; approving that new gate
     must resume it, not replay the first approve's audit row."""
     from fund.agents import graph as graph_mod
 
@@ -780,7 +803,7 @@ def test_second_approve_resumes_a_run_that_regated(harness, monkeypatch) -> None
         session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()
         session.commit()
 
-    first = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    first = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
     assert first.exit_code != 0
     assert "no paper ticket" in first.output
     with harness.read() as session:
@@ -788,7 +811,7 @@ def test_second_approve_resumes_a_run_that_regated(harness, monkeypatch) -> None
         session.execute(PriceHistory.__table__.insert(), bars)
         session.commit()
 
-    second = harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    second = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
 
     assert second.exit_code == 0, second.output
     assert "already applied" not in second.output
@@ -798,7 +821,9 @@ def test_second_approve_resumes_a_run_that_regated(harness, monkeypatch) -> None
     assert len(set(keys)) == 2
 
 
+@pytest.mark.criterion("REQ-FUND-053")
 def test_approve_refuses_a_run_older_than_a_completed_one(harness, monkeypatch) -> None:
+    """Validates fund.cli.approve."""
     stale_id, expected, _res = _seed_and_run(harness, monkeypatch)
     with harness.read() as session:
         audit = AgentRunRepository(session)
@@ -815,7 +840,7 @@ def test_approve_refuses_a_run_older_than_a_completed_one(harness, monkeypatch) 
         audit.get_run(newer.id).started_at = datetime(2026, 10, 26, 7, 0)
         session.commit()
 
-    res = harness.runner.invoke(cli.app, ["approve", str(stale_id)])
+    res = harness.runner.invoke(cli.app, ["approve", str(stale_id), *_CANDIDATE])
 
     assert res.exit_code == 1, res.output
     assert "newer" in res.output
@@ -895,9 +920,11 @@ def test_status_labels_responded_run_in_both_views(harness, monkeypatch) -> None
     assert scoped_line.endswith("hitl=True")
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_report_renders_after_approve(harness, monkeypatch) -> None:
+    """Validates fund.cli.report."""
     run_id, expected, _res = _seed_and_run(harness, monkeypatch)
-    harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
     res = harness.runner.invoke(cli.app, ["report", str(run_id)])
     assert res.exit_code == 0, res.output
     assert str(run_id) in res.output
@@ -916,11 +943,16 @@ def _placed_ticket_id(harness):
         return order.id
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_report_shows_the_ticket_the_run_placed_not_the_portfolios_newest(
     harness, monkeypatch
 ) -> None:
+    """Validates fund.cli.report."""
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
-    assert harness.runner.invoke(cli.app, ["approve", str(run_id)]).exit_code == 0
+    assert (
+        harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE]).exit_code
+        == 0
+    )
     placed = _placed_ticket_id(harness)
     with harness.read() as session:
         # A later, unrelated ticket for the same portfolio (another run's approval).
@@ -947,9 +979,14 @@ def test_report_shows_the_ticket_the_run_placed_not_the_portfolios_newest(
     assert "777777" not in res.output
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_report_of_a_rejected_run_shows_no_ticket(harness, monkeypatch) -> None:
+    """Validates fund.cli.report."""
     first, _expected, _res = _seed_and_run(harness, monkeypatch)
-    assert harness.runner.invoke(cli.app, ["approve", str(first)]).exit_code == 0
+    assert (
+        harness.runner.invoke(cli.app, ["approve", str(first), *_CANDIDATE]).exit_code
+        == 0
+    )
     assert _placed_ticket_id(harness)  # the portfolio now has a filled ticket
     again = harness.runner.invoke(
         cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR]
@@ -968,17 +1005,20 @@ def test_report_of_a_rejected_run_shows_no_ticket(harness, monkeypatch) -> None:
     assert "no ticket for this run" in res.output
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_report_metrics_come_from_the_requested_run(harness, monkeypatch) -> None:
-    first, expected, _res = _seed_and_run(harness, monkeypatch)
+    """Validates fund.cli.report with fund.observe.run_metrics: an approved run
+    reports the measures of the candidate the adviser chose for it, and a newer run
+    still awaiting its choice reports none of them."""
+    first, _expected, _res = _seed_and_run(harness, monkeypatch)
+    assert (
+        harness.runner.invoke(cli.app, ["approve", str(first), *_CANDIDATE]).exit_code
+        == 0
+    )
     with harness.read() as session:
-        AgentRunRepository(session).append_decision(
-            first,
-            agent="allocator",
-            step="optimize_portfolio",
-            llm_response=json.dumps({"weights": expected, "metrics": {"sharpe": 1.5}}),
-        )
-        session.commit()
-    assert harness.runner.invoke(cli.app, ["approve", str(first)]).exit_code == 0
+        chosen = observe.candidate_set(session, first).candidate(MEAN_RISK)
+        volatility = chosen.metrics.annualized_volatility
+        session.rollback()
     again = harness.runner.invoke(
         cli.app, ["run", str(PORTFOLIO_ID), "--asof", _ASOF_STR]
     )
@@ -990,11 +1030,10 @@ def test_report_metrics_come_from_the_requested_run(harness, monkeypatch) -> Non
     own = harness.runner.invoke(cli.app, ["report", str(first)])
     other = harness.runner.invoke(cli.app, ["report", str(second_id)])
 
-    assert "sharpe=1.5000" in own.output
-    # The newest run reports the optimizer figures it logged itself, never the first
-    # run's.
-    assert "metrics:" in other.output
-    assert "sharpe=1.5000" not in other.output
+    assert f"annualized_volatility={volatility:.4f}" in own.output
+    # The newer run has no adviser choice yet, so it reports no candidate's figures,
+    # never the first run's.
+    assert "annualized_volatility=" not in other.output
 
 
 def test_report_labels_the_mandate_as_the_current_one(harness, monkeypatch) -> None:
@@ -1005,20 +1044,25 @@ def test_report_labels_the_mandate_as_the_current_one(harness, monkeypatch) -> N
     assert "current mandate:" in res.output
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_report_prints_the_optimizer_metrics_of_the_run(harness, monkeypatch) -> None:
+    """Validates fund.cli.report."""
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
-    harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
 
     res = harness.runner.invoke(cli.app, ["report", str(run_id)])
 
     assert res.exit_code == 0, res.output
     assert "metrics:" in res.output
-    assert "sharpe_ratio=" in res.output
+    # The chosen candidate's neutral measures are the run's metrics.
+    assert "annualized_volatility=" in res.output
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_report_ignores_a_newer_runs_metrics(harness, monkeypatch) -> None:
+    """Validates fund.cli.report."""
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
-    harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
     with harness.read() as session:
         repo = AgentRunRepository(session)
         newer = repo.create_run(
@@ -1405,15 +1449,17 @@ def test_run_builds_the_fallback_model_and_hands_it_to_the_round(
     assert seen["run"] is fallback
 
 
+@pytest.mark.criterion("REQ-FUND-053")
 def test_approve_builds_the_fallback_model_and_hands_it_to_the_resume(
     harness, monkeypatch
 ) -> None:
+    """Validates fund.cli.approve."""
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
     fallback = ScriptedFundModel(universe=UNIVERSE)
     monkeypatch.setattr(cli, "build_fallback", lambda *_a, **_k: fallback)
     seen = _spy_apply_action(monkeypatch)
 
-    harness.runner.invoke(cli.app, ["approve", str(run_id)])
+    harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
 
     assert seen["approve"] is fallback
 

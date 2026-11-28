@@ -23,12 +23,14 @@ from unittest import mock
 import pytest
 from _fund_fakes import (
     ASOF,
+    MEAN_RISK,
     N_DAYS,
     PORTFOLIO_ID,
     START,
     UNIVERSE,
     ScriptedFundModel,
     _count_tool_calls,
+    audit_candidate_set,
     classify_instruments,
     held_weights,
     make_constraint_set,
@@ -79,6 +81,11 @@ from fund.schemas.enums import GicsSector, LossReaction
 
 class _StopRunError(Exception):
     """Raised by a stubbed ``run_fund`` once it has recorded the decision bar."""
+
+
+# A stored candidate's book for runs that never ran the graph: an approve of the
+# order gate still has to name a candidate of a set.
+_BARE_WEIGHTS = {"AAA": 0.5, "BBB": 0.5}
 
 
 @pytest.fixture
@@ -139,8 +146,11 @@ def clean_db():
         engine.dispose()
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_resumes_run_and_logs_audit(paused_env) -> None:
-    """Approve finalises the run completed and appends a provenance-stamped row."""
+    """Validates fund.actions.apply_action.
+
+    Approve finalises the run completed and appends a provenance-stamped row."""
     env = paused_env
     with env.get_session() as session:
         result = apply_action(
@@ -151,6 +161,7 @@ def test_approve_resumes_run_and_logs_audit(paused_env) -> None:
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -200,6 +211,7 @@ def fill_bar_vanishes_after_the_check(monkeypatch):
     monkeypatch.setattr(orders, "fill_shortfalls", lambda *_a, **_k: [])
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 @pytest.mark.parametrize(
     ("action", "error", "message"),
     [
@@ -211,12 +223,14 @@ def fill_bar_vanishes_after_the_check(monkeypatch):
 def test_approve_without_a_fill_bar_is_refused_and_leaves_the_gate_open(
     paused_env, action, error, message
 ) -> None:
-    """No close after ``asof`` yet: the approve is refused before the graph resumes,
+    """Validates fund.actions.apply_action.
+
+    No close after ``asof`` yet: the approve is refused before the graph resumes,
     so the run stays at its live gate and the same action can be retried."""
     env = paused_env
     _drop_bars_after_asof(env)
     edited = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
-    extra = {"new_value": edited} if action == "edit" else {}
+    extra = {"new_value": edited} if action == "edit" else {"candidate_id": MEAN_RISK}
 
     with (
         env.get_session() as session,
@@ -240,17 +254,20 @@ def test_approve_without_a_fill_bar_is_refused_and_leaves_the_gate_open(
         assert session.query(PaperOrder).count() == 0
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 @pytest.mark.parametrize("action", ["approve", "edit"])
 def test_approve_without_a_ticket_does_not_report_plain_success(
     paused_env, action, fill_bar_vanishes_after_the_check
 ) -> None:
-    """A gate resumed while ``place_orders`` finds no fill bar leaves the run
+    """Validates fund.actions.apply_action.
+
+    A gate resumed while ``place_orders`` finds no fill bar leaves the run
     incomplete with no ticket; the status line must say so instead of claiming the
     run was approved, while the human's action is still audited."""
     env = paused_env
     _drop_bars_after_asof(env)
     edited = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
-    extra = {"new_value": edited} if action == "edit" else {}
+    extra = {"new_value": edited} if action == "edit" else {"candidate_id": MEAN_RISK}
 
     with env.get_session() as session:
         result = apply_action(
@@ -274,10 +291,13 @@ def test_approve_without_a_ticket_does_not_report_plain_success(
         assert len(HumanAuditLogRepository(session).list_recent(action=action)) == 1
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_that_regates_on_a_responded_run_is_not_reported_as_plain_success(
     paused_env, fill_bar_vanishes_after_the_check
 ) -> None:
-    """A run an earlier barge-in left ``responded`` whose approve ticketed nothing
+    """Validates fund.actions.apply_action.
+
+    A run an earlier barge-in left ``responded`` whose approve ticketed nothing
     (no fill bar) and re-gated stays ``responded``; the status line must still say no
     paper ticket was placed rather than a bare "approved"."""
     env = paused_env
@@ -308,6 +328,7 @@ def test_approve_that_regates_on_a_responded_run_is_not_reported_as_plain_succes
             checkpointer=env.saver,
             store=env.store,
             model=regating(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -318,11 +339,14 @@ def test_approve_that_regates_on_a_responded_run_is_not_reported_as_plain_succes
     assert "responded" in result.message
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_refused_by_the_mandate_reports_that_nothing_was_booked(
     paused_env,
 ) -> None:
-    """An approve the gated tool refuses (re-profiled mandate) is logged as the human's
-    decision, but the status line and the run must not claim a booked allocation."""
+    """Validates fund.actions.apply_action with
+    fund.agents.graph_candidates.record_candidate_selection: a candidate the
+    re-profiled mandate now refuses is refused before the graph resumes, so after
+    the caller's rollback nothing is booked or logged and the gate stays open."""
     env = paused_env
     with env.get_session() as session:
         classify_instruments(
@@ -336,24 +360,26 @@ def test_approve_refused_by_the_mandate_reports_that_nothing_was_booked(
     )
 
     with env.get_session() as session:
-        result = apply_action(
-            "approve",
-            session=session,
-            run_id=env.run_id,
-            portfolio_id=PORTFOLIO_ID,
-            checkpointer=env.saver,
-            store=env.store,
-            model=env.model_factory(),
-        )
-        session.commit()
+        with pytest.raises(ValueError, match="breaches the current mandate"):
+            apply_action(
+                "approve",
+                session=session,
+                run_id=env.run_id,
+                portfolio_id=PORTFOLIO_ID,
+                checkpointer=env.saver,
+                store=env.store,
+                model=env.model_factory(),
+                candidate_id=MEAN_RISK,
+            )
+        session.rollback()
 
-    assert "no paper ticket" in result.message
-    assert "incomplete" in result.message
     with env.get_session() as session:
-        assert AgentRunRepository(session).get_run(env.run_id).status == "incomplete"
+        row = AgentRunRepository(session).get_run(env.run_id)
+        assert row.status == "paused"
+        assert observe.interrupt_for(env.saver, row) is not None
+        assert HumanAuditLogRepository(session).list_recent(action="approve") == []
         assert session.query(PaperOrder).count() == 0
         assert PositionRepository(session).get_holdings(PORTFOLIO_ID) == []
-        assert len(HumanAuditLogRepository(session).list_recent(action="approve")) == 1
 
 
 def test_reject_resumes_run_and_logs_audit(paused_env) -> None:
@@ -497,8 +523,11 @@ def test_respond_requires_a_pm_directive(paused_env) -> None:
         )
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_portfolio_id_derived_from_run_when_omitted(paused_env) -> None:
-    """Omitting ``portfolio_id`` recovers it from the run for the result + audit row."""
+    """Validates fund.actions.apply_action.
+
+    Omitting ``portfolio_id`` recovers it from the run for the result + audit row."""
     env = paused_env
     with env.get_session() as session:
         result = apply_action(
@@ -508,6 +537,7 @@ def test_portfolio_id_derived_from_run_when_omitted(paused_env) -> None:
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -517,10 +547,13 @@ def test_portfolio_id_derived_from_run_when_omitted(paused_env) -> None:
         assert rows[0].portfolio_id == PORTFOLIO_ID
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_apply_action_does_not_commit_the_caller_owns_the_transaction(
     paused_env,
 ) -> None:
-    """``apply_action`` never commits — the injected session owns the boundary (D1)."""
+    """Validates fund.actions.apply_action.
+
+    ``apply_action`` never commits — the injected session owns the boundary (D1)."""
     env = paused_env
     with env.get_session() as session, mock.patch.object(session, "commit") as spy:
         apply_action(
@@ -530,6 +563,7 @@ def test_apply_action_does_not_commit_the_caller_owns_the_transaction(
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         spy.assert_not_called()
         session.rollback()
@@ -1676,10 +1710,13 @@ def test_freeze_run_scope_rejects_run_without_autonomy_change(paused_env) -> Non
         assert autonomy.portfolio_state(PORTFOLIO_ID).state == "armed"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_is_refused_when_the_fund_froze_after_the_gate_opened(
     paused_env,
 ) -> None:
-    """A gate that reached the queue after the freeze cannot ship a ticket."""
+    """Validates fund.actions.apply_action.
+
+    A gate that reached the queue after the freeze cannot ship a ticket."""
     env = paused_env
     with env.get_session() as session:
         AutonomyRepository(session).set_state(
@@ -1697,6 +1734,7 @@ def test_approve_is_refused_when_the_fund_froze_after_the_gate_opened(
                 checkpointer=env.saver,
                 store=env.store,
                 model=env.model_factory(),
+                candidate_id=MEAN_RISK,
             )
         session.rollback()
 
@@ -1741,8 +1779,11 @@ def test_freeze_does_not_rewrite_a_run_an_approve_completed_first(
         assert state.state == "frozen"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:
-    """A repeated keyed action replays the first outcome without re-resuming the run."""
+    """Validates fund.actions.apply_action.
+
+    A repeated keyed action replays the first outcome without re-resuming the run."""
     env = paused_env
     with env.get_session() as session:
         first = apply_action(
@@ -1754,6 +1795,7 @@ def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:
             store=env.store,
             model=env.model_factory(),
             idempotency_key="run-approve-1",
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -1767,6 +1809,7 @@ def test_apply_action_is_idempotent_on_repeated_key(paused_env) -> None:
             store=env.store,
             model=env.model_factory(),
             idempotency_key="run-approve-1",
+            candidate_id=MEAN_RISK,
         )
         session.commit()
         rows = HumanAuditLogRepository(session).list_recent(action="approve")
@@ -1834,9 +1877,12 @@ def test_run_rejects_the_gate_when_its_scope_froze_mid_round(
     assert "frozen" in result.message
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 @pytest.mark.parametrize("scope", ["portfolio", "fund"])
 def test_approve_refuses_a_run_whose_scope_is_frozen(paused_env, scope) -> None:
-    """An approve must never place orders while its fund or portfolio is FROZEN."""
+    """Validates fund.actions.apply_action.
+
+    An approve must never place orders while its fund or portfolio is FROZEN."""
     env = paused_env
     with env.get_session() as session:
         _freeze_portfolio(session, scope=scope)  # a gate that outlived the freeze
@@ -1852,6 +1898,7 @@ def test_approve_refuses_a_run_whose_scope_is_frozen(paused_env, scope) -> None:
                 checkpointer=env.saver,
                 store=env.store,
                 model=env.model_factory(),
+                candidate_id=MEAN_RISK,
             )
         session.rollback()
 
@@ -1903,17 +1950,20 @@ def _seed_off_universe_instrument(session, ticker: str) -> None:
     session.commit()
 
 
+@pytest.mark.criterion("REQ-FUND-050")
 def test_edit_rejects_an_unknown_ticker_before_writing_anything(paused_env) -> None:
-    """A typo'd ticker sums to 1 and passes the bounds check, so the edit has to be
+    """Validates fund.actions._apply_edit.
+
+    A typo'd ticker sums to 1 and passes the bounds check, so the edit has to be
     refused up front — before it is logged as the run's newest allocation."""
     env = paused_env
     with env.get_session() as session:
         with pytest.raises(ValueError, match="ZZZZ"):
             _edit(env, session, {"AAA": 0.5, "BBB": 0.3, "ZZZZ": 0.2})
         # No rollback: the rejected edit must not have touched the open transaction.
-        assert AgentRunRepository(session).latest_optimizer_weights(
-            env.run_id
-        ) == pytest.approx(env.expected)
+        repo = AgentRunRepository(session)
+        assert repo.latest_optimizer_weights(env.run_id) == {}
+        assert repo.latest_selected_weights(env.run_id) == {}
         assert HumanAuditLogRepository(session).list_recent(action="edit") == []
 
 
@@ -2082,10 +2132,13 @@ def test_edit_still_rejects_a_budget_shortfall_beyond_display_rounding(
 # --- the idempotency key is claimed before the resume's side effects ---------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_concurrent_submit_of_a_keyed_approve_cannot_resume_the_gate_twice(
     tmp_path,
 ) -> None:
-    """The checkpointer commits on its own connection, so only the audit row's unique
+    """Validates fund.actions.apply_action.
+
+    The checkpointer commits on its own connection, so only the audit row's unique
     key can stop a second submit of the same approve from re-driving the gate while
     the first is still inside ``resume_run`` (its audit row not yet committed)."""
     engine = create_engine(
@@ -2102,6 +2155,7 @@ def test_concurrent_submit_of_a_keyed_approve_cannot_resume_the_gate_twice(
             universe=[],
             optimizer_config={"step": "fund"},
         )
+        audit_candidate_set(seed, run.id, _BARE_WEIGHTS)
         seed.commit()
         run_id = run.id
 
@@ -2113,12 +2167,24 @@ def test_concurrent_submit_of_a_keyed_approve_cannot_resume_the_gate_twice(
         if len(resumes) == 1:
             # The loser of the claim is refused while the winner is mid-resume.
             with session_local() as other, contextlib.suppress(DBAPIError):
-                apply_action("approve", session=other, run_id=rid, idempotency_key=key)
+                apply_action(
+                    "approve",
+                    session=other,
+                    run_id=rid,
+                    idempotency_key=key,
+                    candidate_id=MEAN_RISK,
+                )
         return {}
 
     with session_local() as first:
         with mock.patch("fund.agents.graph.resume_run", side_effect=fake_resume):
-            apply_action("approve", session=first, run_id=run_id, idempotency_key=key)
+            apply_action(
+                "approve",
+                session=first,
+                run_id=run_id,
+                idempotency_key=key,
+                candidate_id=MEAN_RISK,
+            )
         first.commit()
 
     assert resumes == ["approve"]
@@ -2128,8 +2194,11 @@ def test_concurrent_submit_of_a_keyed_approve_cannot_resume_the_gate_twice(
     engine.dispose()
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_retry_after_a_rolled_back_approve_places_the_lost_ticket(paused_env) -> None:
-    """If the approve's transaction is lost after the checkpoint advanced, a retry of
+    """Validates fund.actions.apply_action.
+
+    If the approve's transaction is lost after the checkpoint advanced, a retry of
     the same key must not mark the run completed over a ticket that no longer exists:
     it places the ticket again and completes only once one backs the run."""
     env = paused_env
@@ -2145,6 +2214,7 @@ def test_retry_after_a_rolled_back_approve_places_the_lost_ticket(paused_env) ->
             store=env.store,
             model=env.model_factory(),
             idempotency_key=key,
+            candidate_id=MEAN_RISK,
         )
 
     with env.get_session() as session:
@@ -2181,10 +2251,13 @@ class _PostTicketOutageModel(ScriptedFundModel):
         return super()._pm_turn(messages)
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_is_finalised_from_the_ticket_when_the_post_ticket_pm_turn_fails(
     paused_env,
 ) -> None:
-    """The gated ``place_orders`` writes the ticket and consumes the checkpoint's
+    """Validates fund.actions.apply_action.
+
+    The gated ``place_orders`` writes the ticket and consumes the checkpoint's
     interrupt before the PM's follow-up model turn. If that turn raises, the approval
     must still land from the placed ticket — not roll back and strand the run."""
     env = paused_env
@@ -2197,6 +2270,7 @@ def test_approve_is_finalised_from_the_ticket_when_the_post_ticket_pm_turn_fails
             checkpointer=env.saver,
             store=env.store,
             model=_PostTicketOutageModel(universe=UNIVERSE, weights=env.expected),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -2217,10 +2291,12 @@ def test_approve_is_finalised_from_the_ticket_when_the_post_ticket_pm_turn_fails
 # --- an approve is bound to the weights it ticketed --------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_audit_row_records_the_weights_that_were_ticketed(paused_env) -> None:
-    """The gate's own place_orders args are the PM's proposal; the ticket is placed
-    from the audited optimizer weights. The approve row has to name what was traded,
-    or the trail cannot show what the adviser signed off."""
+    """Validates fund.actions._ticketed_weights: the ticket is placed from the
+    candidate the adviser named, so the approve row names it, the set it came from
+    and the weights that were traded, or the trail cannot show what the adviser
+    signed off."""
     env = paused_env
     with env.get_session() as session:
         apply_action(
@@ -2231,6 +2307,7 @@ def test_approve_audit_row_records_the_weights_that_were_ticketed(paused_env) ->
             checkpointer=env.saver,
             store=env.store,
             model=env.model_factory(),
+            candidate_id=MEAN_RISK,
         )
         session.commit()
 
@@ -2238,7 +2315,10 @@ def test_approve_audit_row_records_the_weights_that_were_ticketed(paused_env) ->
         row = HumanAuditLogRepository(session).list_recent(action="approve")[0]
         order = session.query(PaperOrder).one()
         assert row.target == "weights"
+        candidate_set = observe.candidate_set(session, env.run_id)
         assert row.new_value == {
+            "candidate_id": MEAN_RISK,
+            "candidate_set_hash": candidate_set.digest(),
             "weights": pytest.approx(env.expected),
             "weights_hash": order.weights_hash,
         }
@@ -2353,11 +2433,12 @@ def _freeze_scope(env, scope: str) -> None:
         session.commit()
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 @pytest.mark.parametrize(
     ("action", "scope", "extra"),
     [
-        ("approve", "fund", {}),
-        ("approve", "portfolio", {}),
+        ("approve", "fund", {"candidate_id": MEAN_RISK}),
+        ("approve", "portfolio", {"candidate_id": MEAN_RISK}),
         ("respond", "portfolio", {"pm_directive": "Trim AAA first."}),
         ("edit", "fund", {"new_value": {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}}),
     ],
@@ -2365,7 +2446,9 @@ def _freeze_scope(env, scope: str) -> None:
 def test_a_frozen_scope_refuses_to_drive_an_open_gate(
     paused_env, action, scope, extra
 ) -> None:
-    """A freeze only rejects the gates committed when it lands. One opened by a round
+    """Validates fund.actions.apply_action.
+
+    A freeze only rejects the gates committed when it lands. One opened by a round
     that was already running, or any resume racing the freeze, must still be refused:
     approving it would place a ticket under the halt the freeze promised."""
     env = paused_env
@@ -2466,10 +2549,13 @@ def test_a_respond_does_not_revive_a_run_a_freeze_rejected_meanwhile(
         assert AgentRunRepository(session).get_run(env.run_id).status == "rejected"
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_an_approve_does_not_complete_a_run_a_freeze_rejected_meanwhile(
     paused_env,
 ) -> None:
-    """The approve checked the freeze before entering the graph. A freeze that commits
+    """Validates fund.actions.apply_action.
+
+    The approve checked the freeze before entering the graph. A freeze that commits
     ``rejected`` during the PM's post-ticket turn must win: finalising ``completed``
     over it would write positions into a halted fund, so the approval is refused and
     the caller's transaction (carrying the ticket) is rolled back."""
@@ -2489,6 +2575,7 @@ def test_an_approve_does_not_complete_a_run_a_freeze_rejected_meanwhile(
                 checkpointer=env.saver,
                 store=env.store,
                 model=model,
+                candidate_id=MEAN_RISK,
             )
         session.rollback()
 
@@ -2607,7 +2694,9 @@ def test_run_action_hands_the_fallback_model_to_run_fund(db_session) -> None:
     assert seen["fallback"] is _FALLBACK
 
 
+@pytest.mark.criterion("REQ-FUND-049")
 def test_approve_action_hands_the_fallback_model_to_resume_run(db_session) -> None:
+    """Validates fund.actions.apply_action."""
     run = AgentRunRepository(db_session).create_run(
         portfolio_id=PORTFOLIO_ID,
         asof=ASOF,
@@ -2615,6 +2704,7 @@ def test_approve_action_hands_the_fallback_model_to_resume_run(db_session) -> No
         universe=[],
         optimizer_config={"step": "fund"},
     )
+    audit_candidate_set(db_session, run.id, _BARE_WEIGHTS)
     seen: dict[str, object] = {}
 
     def fake_resume(_rid, _decision, **kwargs):
@@ -2622,7 +2712,13 @@ def test_approve_action_hands_the_fallback_model_to_resume_run(db_session) -> No
         return {}
 
     with mock.patch("fund.agents.graph.resume_run", fake_resume):
-        apply_action("approve", session=db_session, run_id=run.id, fallback=_FALLBACK)
+        apply_action(
+            "approve",
+            session=db_session,
+            run_id=run.id,
+            fallback=_FALLBACK,
+            candidate_id=MEAN_RISK,
+        )
 
     assert seen["fallback"] is _FALLBACK
 

@@ -12,7 +12,7 @@ A mandate can carry an allowlist, resolved once per run into the eligible univer
 (`allowed` tickers in mandate order, `barred` ones with a reason such as `delisted`,
 `not_priced`, `no_instrument`, `esg:<sector>`, `esg_unclassified`). With one,
 `list_universe` returns exactly the allowed set (not the market-cap ranking, which
-buries every ETF) and `universe_filter`, `estimate_moments` and `optimize_portfolio`
+buries every ETF) and `universe_filter`, `estimate_moments` and `compute_candidates`
 refuse a ticker outside it. Without one nothing changes.
 
 Under ESG exclusions a stock is judged by its sector and an ETF by look-through of its

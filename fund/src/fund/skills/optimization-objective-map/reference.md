@@ -28,7 +28,8 @@ the profile's objective.
 - Why the cone matters (KKT / duality): `14:154`, `14:206`.
 
 ## Guardrails
-- Applied by `optimize_portfolio`: the ConstraintSet bounds `min_weights`,
+- Applied by `compute_candidates` (the `mean_risk` candidate; the bounds bind all
+  four): the ConstraintSet bounds `min_weights`,
   `max_weights` (tightened by the K&E position cap) and `budget` — long-only
   `w >= 0`, `sum(w) = 1`, no leverage (D17) — plus the mapped objective, risk measure,
   `risk_aversion`, tail betas, L1/L2 regularisation, `cardinality` and the profile's

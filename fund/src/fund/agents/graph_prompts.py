@@ -169,8 +169,9 @@ def _directives_block(
     return (
         "Adviser standing directives (authored by the human adviser and remembered "
         "across rounds; soft guardrails). Pass them on in every delegation brief and "
-        "have risk flag any proposal that breaches one. They never relax the "
-        f"ConstraintSet limits, the risk gate or the adviser approval:\n{bullets}\n\n"
+        "have risk flag any candidate that breaches one. They never relax the "
+        "ConstraintSet limits, the risk gate or the adviser approval, and never "
+        f"select a candidate:\n{bullets}\n\n"
     )
 
 
@@ -273,10 +274,10 @@ def _run_instruction(
     limits = f" {_constraint_digest(constraint_set)}" if constraint_set else ""
     return (
         f"{history}{_directives_block(mandate)}{_eligible_block(eligible)}"
-        f"Produce an allocation for portfolio "
+        f"Compute and present the candidate portfolios for portfolio "
         f"{portfolio_id} as of {asof.isoformat()}. Mandate: capital {mandate.capital} "
         f"{mandate.base_currency}{benchmark}, no-trade band (drift band (L1)) "
         f"{mandate.drift_l1_threshold}, HITL gates {gates}.{limits} Delegate in "
-        f"order economist -> allocator -> risk -> executor, then commit the "
-        f"risk-approved trades through place_orders."
+        f"order economist -> allocator -> risk -> executor, then call place_orders "
+        f"once so the adviser can choose a candidate; never choose one yourself."
     )
