@@ -26,8 +26,10 @@ __all__ = [
 
 
 class ObjectiveChoice(str, Enum):
-    """Investment objective from the optimisation inputs. Maps onto
-    ``ObjectiveFunctionType``."""
+    """Investment objective from the optimisation inputs.
+
+    Maps onto ``ObjectiveFunctionType``.
+    """
 
     PROTECTION = "protection"
     INCOME = "income"

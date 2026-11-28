@@ -456,7 +456,9 @@ def build_constraint_set(
     answers = _with_conservative_placeholders(answers)
     a_tol = _appetite_from_tolerance(answers.objectives)
     a_cap = _appetite_from_capacity(answers.capacity)
-    appetite = min(a_tol, a_cap)  # the lower of tolerance and capacity binds
+    # Neither a high stated tolerance nor a large loss buffer may push the risk taken
+    # above what the other score allows.
+    appetite = min(a_tol, a_cap)
 
     reaction = answers.objectives.loss_reaction
     nu1, nu2, nu3 = _nu_tiers(answers.capacity)
