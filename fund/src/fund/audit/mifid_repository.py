@@ -6,9 +6,9 @@ model/repo split. Sits on ``portopt_db.repository``'s ``RepositoryBase`` and ope
 no session of its own — the caller injects a sync session (D1). No ``commit``: the
 caller owns the transaction boundary.
 
-The suitability profile is **append-only**: :meth:`MifidProfileRepository.add_version`
-never overwrites a prior assessment — it inserts the next ``version`` for the
-portfolio (an amended assessment is a new row). ``version`` is derived from
+The saved inputs are **append-only**: :meth:`MifidProfileRepository.add_version`
+never overwrites a prior version — it inserts the next ``version`` for the
+portfolio (amended inputs are a new row). ``version`` is derived from
 ``max(version) + 1`` scoped to the portfolio; the DB-level
 ``UNIQUE(portfolio_id, version)`` is the backstop should two writers ever race
 (the second insert raises ``IntegrityError``, which the caller's transaction
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 class MifidProfileRepository(RepositoryBase):
-    """Append/read MiFID suitability profiles on an injected sync session."""
+    """Append/read saved optimisation-input profiles on an injected sync session."""
 
     def add_version(
         self,
@@ -60,14 +60,17 @@ class MifidProfileRepository(RepositoryBase):
         """Insert the next version for the portfolio; return the flushed row.
 
         Append-only: the new ``version`` is ``max(version) + 1`` scoped to
-        ``portfolio_id`` (``1`` when the portfolio has no prior profile), so an
-        amended assessment never overwrites the previous one.
+        ``portfolio_id`` (``1`` when the portfolio has no prior profile), so amended
+        inputs never overwrite the previous version.
 
         Args:
-            portfolio_id: The portfolio whose suitability is being assessed.
-            questionnaire: Raw investor questionnaire answers as submitted.
-            constraint_set: Serialised ConstraintSet derived from the assessment.
-            suitability: Suitability classification output from the profiler agent.
+            portfolio_id: The portfolio the inputs belong to.
+            questionnaire: The answers the user entered in the inputs form, as
+                submitted.
+            constraint_set: Serialised ConstraintSet mapped from those answers: the
+                risk limits and constraints the optimizer works within.
+            suitability: The profiler's structured record of the saved inputs, their
+                flags and how they were mapped.
             store_key: LangGraph store key under which the constraint set is cached.
             status: Lifecycle state of this version; defaults to ``"active"``.
 
@@ -97,11 +100,11 @@ class MifidProfileRepository(RepositoryBase):
     def get_active(self, portfolio_id: uuid.UUID) -> MifidProfile | None:
         """Return the newest (highest-``version``) profile for the portfolio.
 
-        Latest-by-version is the active assessment under the append-only model.
+        Latest-by-version is the active profile under the append-only model.
         ``None`` when the portfolio has never been profiled.
 
         Args:
-            portfolio_id: Portfolio whose current suitability profile to retrieve.
+            portfolio_id: Portfolio whose current saved inputs to retrieve.
 
         Returns:
             The highest-version profile row, or ``None`` if none exists.

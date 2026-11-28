@@ -25,9 +25,10 @@ class AuditView(ShellView):
     (:attr:`filter_kind`), ⚑ overrides (:attr:`filter_overrides`), and the
     header-focused portfolio (:attr:`filter_portfolio`). Selecting a row reveals the
     full provenance (prev value, source, idempotency key — immutable); ⚑ override / ⚠
-    suitability rows are flagged in the decision cell. The table shows the newest
-    ``_AUDIT_VIEW_LIMIT`` rows and says so in the filter line when older ones exist;
-    :meth:`export_csv` re-reads and writes the whole filtered timeline to a file.
+    outside-the-risk-limit-band rows are flagged in the decision cell. The table shows
+    the newest ``_AUDIT_VIEW_LIMIT`` rows and says so in the filter line when older
+    ones exist; :meth:`export_csv` re-reads and writes the whole filtered timeline to a
+    file.
 
     Attributes:
         filter_kind: ``None`` (both) / ``"agent"`` / ``"human"`` — the actor filter.

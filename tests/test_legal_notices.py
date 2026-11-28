@@ -27,6 +27,17 @@ _PYPROJECTS = {
 }
 _LICENCE_CLASSIFIER = "License :: Other/Proprietary License"
 
+# Short, stable phrases of the Notices section, each a promise the README must keep.
+_NOTICE_PINS = {
+    "llm provider": "to the LLM provider you configure",
+    "third-party terms": "You, not the project, are the party to their terms",
+    "yahoo acknowledgement": "asks you to acknowledge them",
+    "no affiliation": "not affiliated with, endorsed by or sponsored by Yahoo",
+    "news publishers": "news publishers' own sites",
+    "publisher terms": "each publisher's terms apply to what you fetch",
+    "no hosted service": "No hosted service, no fees",
+}
+
 
 @cache
 def _readme() -> str:
@@ -68,6 +79,31 @@ def test_readme_describes_licence_as_source_available_not_open_source() -> None:
     for heading in ("Notices", "License"):
         assert "source-available" in _section(heading).lower(), heading
     assert not re.search(r"open\s*-?\s*source", _flat(_readme()), re.I)
+
+
+def _missing_pins(notices: str) -> list[str]:
+    """Return the labels of the pinned phrases ``notices`` no longer contains."""
+    return sorted(
+        label for label, phrase in _NOTICE_PINS.items() if phrase not in notices
+    )
+
+
+@pytest.mark.criterion("REQ-OPS-003")
+def test_readme_notices_keep_every_pinned_statement() -> None:
+    """Validates README.md: the notices still say where your data goes, whose terms
+    apply to the data the software fetches, and that there is no hosted service and
+    no fee."""
+    assert _missing_pins(_section("Notices")) == []
+
+
+@pytest.mark.criterion("REQ-OPS-003")
+@pytest.mark.parametrize("label", sorted(_NOTICE_PINS))
+def test_a_notice_deleted_from_a_copy_is_reported(label: str) -> None:
+    """Validates ``_missing_pins`` on a copy of the README notices: deleting one
+    pinned statement reports exactly that statement."""
+    notices = _section("Notices").replace(_NOTICE_PINS[label], "")
+
+    assert _missing_pins(notices) == [label]
 
 
 @pytest.mark.criterion("REQ-OPS-004")

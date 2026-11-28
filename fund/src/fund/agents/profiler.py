@@ -1,11 +1,11 @@
-"""MiFID II suitability profiler — the deterministic answers → knobs mapping.
+"""Optimisation-inputs profiler — the deterministic answers → knobs mapping.
 
-Runtime *step 0*: turn a validated ``MiFIDAnswers`` (the four ESMA pillars) into a
+Runtime *step 0*: turn a validated ``MiFIDAnswers`` (the four input sections) into a
 ``ConstraintSet`` (the risk profile every later agent reads) plus a structured
-``SuitabilityAssessment`` for MiFID record-keeping. This module owns the **pure,
-total, auditable** core — the deterministic mapping, the ESG hard-gate, the K&E
-universe filters, and the inconsistency / anti-overconfidence check, plus the LLM
-profiler agent and always-on HITL persistence.
+``SuitabilityAssessment`` that keeps the inputs and how they were mapped. This module
+owns the **pure, total, auditable** core — the deterministic mapping, the ESG
+hard-gate, the K&E universe filters, and the inconsistency / anti-overconfidence
+check, plus the LLM profiler agent and always-on HITL persistence.
 
 Building a ``ConstraintSet`` pulls in **no** ``optimizer`` symbols — the mapping is
 plain dict/arithmetic; the optimizer only enters when the caller feeds the result
@@ -18,7 +18,7 @@ Correctness-critical (SPEC §8, deep_agent ``01:142`` / ``30:41``):
   lookup maps it **monotonically decreasing** to ``a_gamma`` (low appetite → high
   aversion). A naive ``a_gamma = min(gamma_tol, gamma_cap)`` would be backwards.
 * **tolerance and capacity are scored from disjoint answer fields** and never fused
-  (regulatory double-binding): attitudinal Likert drives tolerance; financial
+  (the lower of the two binds): attitudinal Likert drives tolerance; financial
   loss-capacity / buffer drive capacity.
 
 All maps are **total** plain-dict lookups (an unmapped enum member is a hard
@@ -90,7 +90,7 @@ _LIVE_GATE_STATUSES = ("paused", "responded")
 # The single HITL-gated persistence tool the profiler agent exposes (SPEC §8.5).
 _SAVE_PROFILE_TOOL = "save_profile"
 
-# Named inconsistency-flag vocabulary the suitability check can emit. These are
+# Named inconsistency-flag vocabulary the input consistency check can emit. These are
 # surfaced (never auto-clamped) at the HITL gate (SPEC §8.3).
 FLAG_OBJECTIVE_CAPACITY_MISMATCH = "objective_capacity_mismatch"
 FLAG_OVERCONFIDENCE = "overconfidence"
@@ -205,7 +205,7 @@ def _with_conservative_placeholders(answers: MiFIDAnswers) -> MiFIDAnswers:
     """Replace every field named in ``answers.unanswered`` with its safe value.
 
     Idempotent, and a no-op when nothing is unanswered. ``unanswered`` itself is kept
-    so the suitability record still shows which answers the client never gave.
+    so the saved record still shows which answers were never given.
     """
     updates: dict[str, dict[str, Any]] = {}
     for path in answers.unanswered:
@@ -456,7 +456,9 @@ def build_constraint_set(
     answers = _with_conservative_placeholders(answers)
     a_tol = _appetite_from_tolerance(answers.objectives)
     a_cap = _appetite_from_capacity(answers.capacity)
-    appetite = min(a_tol, a_cap)  # regulatory double-binding on appetite
+    # Neither a high stated tolerance nor a large loss buffer may push the risk taken
+    # above what the other score allows.
+    appetite = min(a_tol, a_cap)
 
     reaction = answers.objectives.loss_reaction
     nu1, nu2, nu3 = _nu_tiers(answers.capacity)
@@ -482,14 +484,13 @@ def build_constraint_set(
 def assess_suitability(
     answers: MiFIDAnswers, constraint_set: ConstraintSet
 ) -> SuitabilityAssessment:
-    """Assemble the structured MiFID suitability record for a mapped profile.
+    """Assemble the structured record of the inputs behind a mapped profile.
 
     Pure and LLM-free: recomputes the two disjoint appetite scores, records the
     binding ``a_gamma`` and its named band, mirrors the ESG block, and runs the
     inconsistency check. ``rationale`` is a deterministic, human-readable trail of
-    how the profile was derived (what MiFID record-keeping retains). The record
-    holds the answers as mapped, i.e. with conservative placeholders in the fields
-    the client left unanswered.
+    how the profile was derived, saved with it. The record holds the answers as
+    mapped, i.e. with conservative placeholders in the fields left unanswered.
     """
     answers = _with_conservative_placeholders(answers)
     a_tol = _appetite_from_tolerance(answers.objectives)
@@ -706,10 +707,10 @@ def _commit_blocked_trail(
     typed: bool,
     reason: str,
 ) -> uuid.UUID:
-    """Persist a suitability breach's audit trail alone, then commit it.
+    """Persist a blocked profile's audit trail alone, then commit it.
 
     Every caller's session scope rolls back on the ``SuitabilityBreachError`` that
-    follows, which would erase the only record of a legally blocked assessment. A
+    follows, which would erase the only record of the blocked profile. A
     commit takes the whole transaction with it though, including whatever the
     caller staged beforehand (the TUI onboarding flushes the portfolio's mandate and
     its audit row first, and a blocked onboarding must leave neither behind). So
@@ -775,8 +776,8 @@ def _interrupt_description(
 ) -> str:
     """The HITL pause message — the band, the flags and the answers behind them.
 
-    The adviser approves what is written to the regulated suitability record, so
-    the interpreted answers and the currency the set is written in (not just the
+    The user approves what is saved as the portfolio's optimisation inputs, so the
+    interpreted answers and the currency the set is written in (not just the
     derived band) must be on the gate.
     """
     flags = ", ".join(suitability.inconsistency_flags) or "none"
@@ -890,7 +891,7 @@ def _persist_profile(
     re-run contract (SPEC D3): a replay of a run that already completed is a true
     no-op — no second version, no double-log. A fresh run for an already-profiled
     portfolio is a re-profile: it appends the next version and re-caches the
-    ``ConstraintSet``, so the amended assessment supersedes the prior one. The Store
+    ``ConstraintSet``, so the amended inputs supersede the prior ones. The Store
     cache is queued behind the session's commit, so a lost transaction never leaves
     a cached profile with no row behind it. Returns the tool-result payload.
     """
@@ -1095,7 +1096,7 @@ def build_profiler_agent(
     The profiler runs under the theory-staged ``virtual_mode`` backend and loads its
     ``mifid-profiling`` skill through it (Risk R1), so the consultation protocol in
     ``PROFILER_SYSTEM_PROMPT`` can reach ``optimizer-theory/`` — the profiler is
-    step 0 and must ground its suitability reasoning in the staged theory, not
+    step 0 and must ground its mapping of the inputs in the staged theory, not
     parametric memory, like every other role. ``run_id`` scopes the agent's writable
     scratch area to its audit run so one portfolio's offloaded transcripts are never
     visible to another run.
@@ -1154,7 +1155,7 @@ def run_profiler(
     one exception: a ``SuitabilityBreachError`` ends the caller's transaction. The
     session is rolled back, discarding anything the caller had staged, and only the
     ``blocked`` run's trail is committed before the error propagates, so the
-    compliance record outlives the caller's own rollback.
+    audit record of the block outlives the caller's own rollback.
     """
     from fund.audit import AgentRunRepository
     from fund.schemas.structured import structured_call

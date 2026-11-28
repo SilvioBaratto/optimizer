@@ -333,7 +333,7 @@ def refuse_candidate_at_profiler_gate(
 ) -> None:
     """Refuse a candidate id on the approve of a profiler gate.
 
-    A profile gate saves a suitability profile and has no candidates, so an id there
+    A profile gate saves optimisation inputs and has no candidates, so an id there
     is a mistaken target, never something to ignore.
 
     Args:

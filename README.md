@@ -3,8 +3,8 @@
 > Portfolio optimization in one **uv workspace**: a composable skfolio /
 > scikit-learn optimization **library**, a scheduled market-data **ingestion
 > daemon** that keeps PostgreSQL fresh, a shared **database layer**, and an agentic
-> **fund** where the optimizer computes candidate portfolios, you choose, and orders
-> are paper tickets only — four packages, one shared virtual environment.
+> **bridge** (`fund`) where the optimizer computes candidate portfolios, you choose,
+> and orders are paper tickets only — four packages, one shared virtual environment.
 
 ![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-orange)
@@ -29,8 +29,10 @@
   run a local model. Do not enter data you are not willing to share.
 - **Third-party data.** Market data comes from third parties (Yahoo Finance through the
   unofficial yfinance library, FRED). You, not the project, are the party to their
-  terms; use is limited to personal, non-commercial research. `portopt setup` shows
-  Yahoo's terms and asks you to acknowledge them (`--accept-yahoo-terms` in a
+  terms; use is limited to personal, non-commercial research. The ingestion's news step
+  also downloads the full text of the articles Yahoo's news feeds link to, from the
+  news publishers' own sites, and each publisher's terms apply to what you fetch.
+  `portopt setup` shows Yahoo's terms and asks you to acknowledge them (`--accept-yahoo-terms` in a
   non-interactive setup), and the ingestion daemon will not start without that
   acknowledgement. The project is not affiliated with, endorsed by or sponsored by
   Yahoo or any data provider. Do not redistribute data this software downloads.
@@ -238,6 +240,9 @@ portopt status    # report Docker + service health (non-zero exit if anything is
 > mounts, but keeps the FRED key the ingestion daemon mounts: the daemon
 > restarts on its own and needs it. Run
 > `portopt stop --all` to stop the daemon too and leave no plaintext on disk.
+> It removes only the files this version renders: if you upgraded, delete by hand
+> any file an earlier version left in `./secrets/` that this version no longer
+> creates (the keys of an integration it no longer has).
 > Both refuse while a `fund run`, `fund approve` or `fund-tui` is running inside
 > the fund container, because stopping it would kill that round mid-flight; add
 > `--force` to stop anyway.
@@ -518,7 +523,7 @@ all four members → the complexity ratchet → shellcheck → pip-audit), `type
 (`--cov=optimizer` ≥ 90%), `ingestion-test` (`--cov=app` ≥ 80%),
 `portopt-db-test` (`--cov=portopt_db` ≥ 90%), `fund-test` (`--cov=fund` ≥
 80%), `postgres-integration` (the Alembic upgrade to head on a real PostgreSQL,
-`alembic check`, a downgrade/upgrade of the five most recent revisions, then the
+`alembic check`, a downgrade/upgrade of the seven most recent revisions, then the
 `integration`-marked tests of `portopt-db` and `fund`), `changelog` (advisory, pull
 requests only: shipped code needs a `CHANGELOG.md` entry), `docker-images` (compose config + build of
 both images, then a boot of both stacks), and `windows-install` (`install.ps1` on a

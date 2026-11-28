@@ -1,12 +1,12 @@
-"""SQLAlchemy model for MiFID II suitability profiles (``mifid_profiles``).
+"""SQLAlchemy model for saved optimisation-input profiles (``mifid_profiles``).
 
-Phase 5 of the ``fund`` bridge: the profiler's *step 0* system of record. A
-client questionnaire is mapped to a persisted ``ConstraintSet`` (the risk
+Phase 5 of the ``fund`` bridge: the profiler's *step 0* store. The user's
+optimisation inputs are mapped to a persisted ``ConstraintSet`` (the risk
 profile every later agent reads) and stored **append-only** with a per-portfolio
-``version`` — an amended assessment never overwrites the prior one, so a
+``version`` — amended inputs never overwrite the prior ones, so a
 ``UNIQUE(portfolio_id, version)`` guards the versioning. Each row keeps the raw
 ``questionnaire`` snapshot, the derived ``constraint_set``, and the structured
-``suitability`` assessment for MiFID record-keeping, plus the ``store_key`` under
+``suitability`` record of how the inputs were mapped, plus the ``store_key`` under
 which the active ``ConstraintSet`` is cached in the LangGraph ``PostgresStore``
 (so a Phase-4 ``ConstraintSetRef`` resolves).
 
@@ -32,19 +32,19 @@ _JSON = JSON().with_variant(JSONB, "postgresql")
 
 
 class MifidProfile(BaseModel):
-    """One MiFID suitability-profile version: questionnaire → ConstraintSet.
+    """One saved version of a portfolio's inputs: questionnaire → ConstraintSet.
 
     Attributes:
         portfolio_id: Portfolio this profile belongs to; bare UUID (no FK) because
             the ``portfolios`` table was removed in the ingestion strip.
         version: 1-based counter per portfolio. Each amendment inserts a new row;
             prior versions are never overwritten.
-        questionnaire: Raw snapshot of the four MiFID pillar responses, retained
-            for regulatory record-keeping.
+        questionnaire: Raw snapshot of the answers to the four input sections,
+            kept so the mapping can be replayed.
         constraint_set: Risk profile derived from the questionnaire; every
             downstream agent reads this to constrain optimization.
-        suitability: Structured per-pillar inputs, flags, and rationale for MiFID
-            record-keeping.
+        suitability: Structured per-section inputs, flags, and the rationale of
+            how they were mapped.
         store_key: Cache key in the LangGraph ``PostgresStore`` under which the
             active ``ConstraintSet`` is stored; lets a ``ConstraintSetRef`` resolve
             without a DB round-trip.
@@ -64,15 +64,15 @@ class MifidProfile(BaseModel):
     # may be standalone, so this is a bare, indexed, non-null UUID.
     portfolio_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     # 1-based version, monotonically incremented per portfolio (append-only): an
-    # amended assessment is a new row, never an overwrite.
+    # amended version is a new row, never an overwrite.
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("1")
     )
-    # Raw questionnaire snapshot (the four MiFID pillars) for record-keeping.
+    # Raw questionnaire snapshot (the four input sections), kept for replay.
     questionnaire: Mapped[dict[str, Any]] = mapped_column(_JSON, nullable=False)
     # Derived ConstraintSet — the risk profile every later agent reads.
     constraint_set: Mapped[dict[str, Any]] = mapped_column(_JSON, nullable=False)
-    # Structured SuitabilityAssessment (per-pillar inputs, flags, rationale).
+    # Structured SuitabilityAssessment (per-section inputs, flags, rationale).
     suitability: Mapped[dict[str, Any]] = mapped_column(_JSON, nullable=False)
     # Store key under which the active ConstraintSet is cached (resolves a
     # Phase-4 ``ConstraintSetRef``).

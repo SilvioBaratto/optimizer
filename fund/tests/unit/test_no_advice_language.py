@@ -7,11 +7,14 @@ manager or an agent that chooses the portfolio, and the person is "you" or "the 
 never "the adviser". Identifiers, stored data and CLI flags keep their names.
 
 The phrase scan reads raw source on purpose (comments, docstrings and CLAUDE.md
-included), so an old phrase cannot survive anywhere. The adviser scan reads only the
-text a person or an agent sees: non-docstring string literals, ``@tool`` docstrings,
-the bound tool descriptions, the skills and the READMEs. The model-facing scan adds the
-schemas the agents are bound to. No exception exists today; when the first genuine
-quotation needs one, it is added with its reason.
+included), so an old phrase cannot survive anywhere; it covers ``portopt_db`` too,
+because the Ask agent answers from that source as well as from ``fund``'s. The adviser
+scan reads only the text a person or an agent sees: non-docstring string literals,
+``@tool`` docstrings, the bound tool descriptions, the skills, the READMEs and the
+``## [Unreleased]`` section of CHANGELOG.md, where the quotations of removed wording are
+listed with their reason. The model-facing scan adds the schemas the agents are bound
+to, and the package scan reads the ``description`` every ``pyproject.toml`` ships as
+its wheel summary.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import tomllib
 from _fund_fakes import ASOF, PORTFOLIO_ID
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
@@ -35,9 +39,12 @@ from fund.config import settings
 
 _REPO = Path(__file__).resolve().parents[3]
 _FUND_SRC = _REPO / "fund" / "src" / "fund"
+_PORTOPT_DB_SRC = _REPO / "packages" / "portopt-db" / "src" / "portopt_db"
 _SKILLS = _FUND_SRC / "skills"
 _READMES = (_REPO / "README.md", _REPO / "fund" / "README.md")
 _CLAUDE_MD = _REPO / "CLAUDE.md"
+_CHANGELOG = _REPO / "CHANGELOG.md"
+_ROOT_PYPROJECT = _REPO / "pyproject.toml"
 
 _OLD_PHRASES = (
     "MiFID suitability questionnaire",
@@ -49,8 +56,51 @@ _OLD_PHRASES = (
     "portfolio manager (PM) and orchestrator of an EU investment fund",
     "where an LLM chooses, the optimizer computes",
     "the LLM chooses, the optimizer computes",
+    "LLM chooses, optimizer computes",
+    "investment-fund bridge",
+    "MiFID II",
+    "ESMA pillar",
+    "MiFID record",
+    "MiFID suitability",
+    "suitability record",
+    "suitability profile",
+    "in the suitability assessment",
+    "record-keeping",
+    "regulatory double-binding",
+    "compliance record",
+    "compliance-safe",
+    "compliance guarantee",
+    "amended assessment",
+    "whose suitability is being assessed",
+    "investor questionnaire",
+    "derived from the assessment",
+    "suitability classification",
+    "the suitability check",
+    "suitability reasoning",
+    "read as full suitability",
+    "suitability breach",
+    "suitability ceiling",
+    "active assessment",
+    "always suitable",
+    "client is suited for",
+    "legally blocked",
+    "suitability block",
+    "suitability rows",
+    "suitability flags",
 )
 _ADVISER = re.compile(r"\badvisers?\b", re.IGNORECASE)
+# A wheel summary is the first line a stranger reads about a package.
+_PACKAGE_FRAMING = re.compile(
+    r"LLM\s+chooses|investment[\s-]+funds?|\badvis\w*|suitability|fund\s+manag\w*",
+    re.IGNORECASE,
+)
+# The changelog entry that removed the wording has to quote it to say what changed.
+_CHANGELOG_QUOTATIONS = {
+    '"the adviser"': "the relabelling entry names the term the user is never called",
+    '"adviser"': "the relabelling entry names the word its guard fails on",
+    "`chosen by the adviser: <id>`": "the `fund report` line the relabelling replaced",
+    "`ADVISER DIRECTIVE`": "the steer heading the relabelling replaced",
+}
 # Word boundaries keep identifiers such as ``mandate_excluded`` and ``MiFIDAnswers``
 # out of the match: only the prose words are the old framing.
 _OLD_TERMS = re.compile(
@@ -115,6 +165,10 @@ def _markdown_sources() -> list[Path]:
     return [*sorted(_SKILLS.rglob("*.md")), *_READMES]
 
 
+def _phrase_python_sources() -> list[Path]:
+    return [*_python_sources(), *sorted(_PORTOPT_DB_SRC.rglob("*.py"))]
+
+
 @functools.cache
 def _phrase_haystacks() -> dict[str, str]:
     # Raw text finds a phrase in a comment or across a wrapped line; the parsed
@@ -128,7 +182,7 @@ def _phrase_haystacks() -> dict[str, str]:
                 ]
             )
         )
-        for path in _python_sources()
+        for path in _phrase_python_sources()
     }
     for path in (*_markdown_sources(), _CLAUDE_MD):
         haystacks[str(path.relative_to(_REPO))] = _normalise(
@@ -199,13 +253,47 @@ def _hits(pattern: re.Pattern[str], texts: dict[str, str]) -> dict[str, list[str
     }
 
 
+def _package_descriptions() -> dict[str, str]:
+    # The workspace members are every package this repository builds a wheel from.
+    root = tomllib.loads(_ROOT_PYPROJECT.read_text(encoding="utf-8"))
+    members = root["tool"]["uv"]["workspace"]["members"]
+    paths = [_ROOT_PYPROJECT, *(_REPO / name / "pyproject.toml" for name in members)]
+    descriptions: dict[str, str] = {}
+    for path in paths:
+        project = tomllib.loads(path.read_text(encoding="utf-8"))["project"]
+        descriptions[str(path.relative_to(_REPO))] = project["description"]
+    return descriptions
+
+
+def _old_phrases_in(texts: dict[str, str]) -> dict[str, list[str]]:
+    found = {
+        source: [phrase for phrase in _OLD_PHRASES if phrase.lower() in text.lower()]
+        for source, text in texts.items()
+    }
+    return {source: phrases for source, phrases in found.items() if phrases}
+
+
+def _unreleased_changelog() -> str:
+    text = _CHANGELOG.read_text(encoding="utf-8")
+    section = re.search(r"^## \[Unreleased\]\s*$(.*?)(?=^## \[)", text, re.M | re.S)
+    assert section, "CHANGELOG.md has no '## [Unreleased]' section"
+    return _normalise(section.group(1))
+
+
+def _without_quotations(text: str) -> str:
+    for quotation in _CHANGELOG_QUOTATIONS:
+        text = text.replace(quotation, "")
+    return text
+
+
 @pytest.mark.criterion("REQ-FUND-052")
 @pytest.mark.parametrize("phrase", _OLD_PHRASES)
 def test_old_user_visible_phrases_are_gone(phrase: str) -> None:
     """Validates the user-visible text of fund (the TUI, the CLI, the agent prompts,
-    the tool and role descriptions, the skills) and README.md, fund/README.md and
-    CLAUDE.md: none keeps a phrase that framed the fund as a suitability service, an
-    investment adviser, a fund manager or an LLM that chooses."""
+    the tool and role descriptions, the skills), the portopt_db source the Ask agent
+    reads, and README.md, fund/README.md and CLAUDE.md: none keeps a phrase that
+    framed the fund as a regulated suitability service, an investment adviser, a fund
+    manager or an LLM that chooses."""
     needle = phrase.lower()
     hits = sorted(
         source for source, text in _phrase_haystacks().items() if needle in text.lower()
@@ -247,3 +335,55 @@ def test_model_facing_schemas_and_tool_descriptions_drop_the_old_framing() -> No
     assert "schema MiFIDAnswers" in schema_texts
 
     assert _hits(_OLD_TERMS, {**_tool_descriptions(), **schema_texts}) == {}
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+def test_package_descriptions_drop_the_old_framing() -> None:
+    """Validates the ``description`` of the root pyproject.toml and of every
+    workspace member's: no wheel summary presents a package as an investment fund, an
+    adviser, a suitability service or an LLM that chooses."""
+    descriptions = _package_descriptions()
+    assert "fund/pyproject.toml" in descriptions
+
+    assert _hits(_PACKAGE_FRAMING, descriptions) == {}
+    assert _old_phrases_in(descriptions) == {}
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "deepagents investment-fund bridge: LLM chooses, optimizer computes",
+        "an LLM  chooses the weights",
+        "an investment fund in a box",
+        "advisory portfolios",
+    ],
+)
+def test_the_package_scan_flags_each_old_summary(summary: str) -> None:
+    """Validates the pattern behind test_package_descriptions_drop_the_old_framing:
+    each old way of summarising the fund package is caught."""
+    assert _hits(_PACKAGE_FRAMING, {"synthetic": summary})
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+def test_unreleased_changelog_never_calls_the_user_an_adviser() -> None:
+    """Validates the ``## [Unreleased]`` section of CHANGELOG.md: outside the listed
+    quotations of removed wording no entry calls the user an adviser, and every
+    listed quotation is still there to need its entry."""
+    section = _unreleased_changelog()
+
+    assert [quote for quote in _CHANGELOG_QUOTATIONS if quote not in section] == []
+    assert all(reason.strip() for reason in _CHANGELOG_QUOTATIONS.values())
+    assert _hits(_ADVISER, {"CHANGELOG.md": _without_quotations(section)}) == {}
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+def test_the_changelog_scan_flags_prose_beside_a_quotation() -> None:
+    """Validates ``_without_quotations`` behind
+    test_unreleased_changelog_never_calls_the_user_an_adviser: removing a quotation
+    leaves the prose around it to be scanned."""
+    entry = 'never "the adviser"; the adviser edit is unchanged'
+
+    assert _hits(_ADVISER, {"entry": _without_quotations(entry)}) == {
+        "entry": ["adviser"]
+    }

@@ -125,11 +125,11 @@ The entries under Security affect privacy or configuration and come first.
   `portopt setup` when neither the stored config nor its own environment acknowledges
   the terms. The CI `docker-images` job sets the variable for its `up --wait` boot. The
   setup wizard's LLM provider prompt now says that the portfolio data you enter
-  (holdings, constraints, questionnaire answers) is sent to the provider you choose,
+  (holdings, constraints, optimisation inputs) is sent to the provider you choose,
   and `fund profile --help` says the answers go to the configured LLM provider
   (REQ-ING-026, REQ-ING-027, REQ-ING-028, REQ-ING-029, REQ-ING-030).
-- **fund**: the building blocks for presenting four neutral candidate portfolios to the
-  adviser, which a rebalance run now uses (see the BREAKING entry under Changed). The
+- **fund**: the building blocks for presenting four neutral candidate portfolios to
+  you, which a rebalance run now uses (see the BREAKING entry under Changed). The
   pure tool `fund.tools.candidates.compute_candidates` fits `hrp`, `mean_risk`,
   `min_risk` and `risk_parity` on one returns panel with the same bounds, position cap,
   budget and moment estimators, always in that alphabetical id order, and reports per
@@ -145,7 +145,7 @@ The entries under Security affect privacy or configuration and come first.
   `latest_candidate_set` (it logs a warning and reads as no set when the stored row is
   corrupt), `append_candidate_selection` and `latest_selected_weights`;
   `fund.audit.repository` gains `current_adviser_choice` and the decision kinds
-  `SELECT_CANDIDATE_DECISION` and `EDIT_DECISION`, which the adviser edit now writes.
+  `SELECT_CANDIDATE_DECISION` and `EDIT_DECISION`, which the weight edit now writes.
   `fund.observe` gains `candidate_set` and `selected_candidate_id`, and the toolset binds
   a `compute_candidates` tool that applies the risk gate's own check to each candidate
   and persists the set as one `allocator` / `compute_candidates` decision.
@@ -170,8 +170,8 @@ The entries under Security affect privacy or configuration and come first.
 
 Behaviour changes to know about:
 
-- **fund (BREAKING)**: a rebalance round no longer produces one proposal for the
-  adviser to approve. The allocator runs `compute_candidates`, which returns four
+- **fund (BREAKING)**: a rebalance round no longer produces one proposal for you
+  to approve. The allocator runs `compute_candidates`, which returns four
   candidate portfolios (`hrp`, `mean_risk`, `min_risk`, `risk_parity`), always listed in
   that id order and never ranked; the agents present and compare them and never choose
   one (their prompts, role descriptions and skills say so, and no longer use
@@ -197,8 +197,8 @@ Behaviour changes to know about:
   allocator `optimize_portfolio` row with `hitl_decision.decision="select_candidate"`)
   are recorded, the approve's audit row carries `candidate_id`, `weights`,
   `weights_hash` and `candidate_set_hash`, and paper orders derive only from that
-  candidate's weights. `place_orders` places nothing without an adviser choice (or an
-  adviser edit) newer than the run's latest candidate set, so an agent can never place
+  candidate's weights. `place_orders` places nothing without the user's choice (or a
+  weight edit) newer than the run's latest candidate set, so an agent can never place
   a candidate; `reject`, `respond` and `edit` work as before, `edit` approves without a
   candidate id, and an id on any other decision or on a profile gate is refused.
   `risk_check` and `backtest` now take a `candidate_id` and record no verdict, and the
@@ -219,12 +219,12 @@ Behaviour changes to know about:
   replacement ticket is placed from the one it names, which may differ from the first
   attempt's; the PM's transcript still shows the first attempt (REQ-FUND-047,
   REQ-FUND-048, REQ-FUND-049, REQ-FUND-050, REQ-FUND-051, REQ-FUND-052).
-- **fund**: the adviser chooses a candidate in `fund-tui` and sees the candidates in
+- **fund**: you choose a candidate in `fund-tui` and see the candidates in
   `fund report`. The Decisions view lists a rebalance gate's four candidates in a table
   (`#decisions-candidates`), in id order and never sorted, each row with the same
   columns (label, feasible or infeasible with its breaches, volatility, CVaR 95%,
   largest position, number of positions, turnover, constraint check, every status a
-  dot and a word). Nothing is selected for the adviser and no row is highlighted until
+  dot and a word). Nothing is selected for you and no row is highlighted until
   the cursor moves into the table. `↵` on a feasible row selects it (an infeasible row
   cannot be selected), and `a` then opens a confirm naming the candidate's id, label,
   weights and measures; only Confirm sends the approve, with that id. `a` without a
@@ -236,22 +236,22 @@ Behaviour changes to know about:
   the selected candidate's weights. Ask now refuses to approve a rebalance gate before
   any confirm and points to Decisions; its agent is told to describe the candidates
   neutrally, in id order, and never to recommend or rank one. `fund report` lists every
-  candidate of the run's set in id order with the same columns, then the candidate the
-  adviser chose once a choice is in force. The Deliberation view reads out the
+  candidate of the run's set in id order with the same columns, then the candidate
+  you chose once a choice is in force. The Deliberation view reads out the
   `compute_candidates` step (every candidate with its measures and weights) and shows
   the mean-risk frontier replay only for a `mean_risk` choice, labelled as such; for
   another candidate or an edit it is hidden, and a replay of a choice uses the
   constraint set its candidate set recorded (a run from before candidates existed is
-  replayed as before, under the replayed row's own constraint set, none for an
-  adviser edit). A gate whose detail or candidate set cannot be read shows a one-line
+  replayed as before, under the replayed row's own constraint set, none for a
+  weight edit). A gate whose detail or candidate set cannot be read shows a one-line
   reason and the error goes to the log. The gate text no longer says an approve
   places the audited proposal (a gate with no candidate set says an approve is
   refused), and `fund.tui.views` no longer exports `_pm_weights_differ` (REQ-FUND-053,
   REQ-FUND-054).
 - **fund**: the interface, the agents' prompts and skills and the docs no longer use
   advisory, suitability or mandate wording, so nothing the fund shows you or tells its
-  agents presents it as an investment adviser, a suitability assessment or a portfolio
-  manager: the optimizer computes candidate portfolios, you choose, and orders are paper
+  agents presents it as investment advice, a suitability assessment or portfolio
+  management: the optimizer computes candidate portfolios, you choose, and orders are paper
   tickets only. The person running the tool is "you" or "the user", never "the adviser"
   or "the client". Visible renames: the onboarding form "MiFID suitability
   questionnaire" is now "Optimisation inputs", and its ESG list is labelled "Sectors to
@@ -287,6 +287,30 @@ Behaviour changes to know about:
   excluded they tell the model to list neither ESG datum as unanswered. A non-empty
   exclusion list the model marks as unstated is still flagged, and excluding every
   sector still blocks the profile (REQ-FUND-055).
+- **fund**: the last regulated-service wording is gone. The `portopt-fund` package
+  summary now reads "Bridge between LLM agents and the optimizer: the optimizer computes
+  candidate portfolios, you choose; paper tickets only". The docstrings and comments the
+  Ask agent reads in `fund` and `portopt_db` no longer describe the profiler, the inputs
+  it saves, the risk gate or the audit trail as a regulated, suitability-assessment or
+  record-keeping service (identifiers, the `mifid_profiles` table and stored data are
+  unchanged), the setup wizard says "optimisation inputs" instead of "questionnaire
+  answers", and the README tagline calls `fund` a bridge.
+  `fund/tests/unit/test_no_advice_language.py` now also scans every package
+  description, the `portopt_db` source and this section of the changelog. Two guards
+  are stricter: `fund/tests/unit/hygiene/test_candidate_selection_writers.py` also
+  limits who records a risk verdict, who writes the weight-edit kind and who writes a
+  raw choice or verdict row (REQ-FUND-051), and the new
+  `tests/test_no_ticker_isin_lookup.py` fails on any `.isin` read that is not a method
+  call, any `get_isin()` call and any `getattr(..., "isin")` in `ingestion/app` or
+  `fund/src`, except an `isin` column read on the instruments model or row it lists, so
+  a Ticker from `yf.Ticker(...)` or from the repo's own factories is caught under any
+  other name (REQ-OPS-005). The README Notices now say that the news step downloads
+  articles from the publishers' sites under their terms, and tests pin the
+  LLM-provider, third-party-terms and no-hosted-service statements. The root and
+  `portopt-db` READMEs give the CI downgrade window as seven revisions, the root README
+  tells upgraders to delete files an earlier version left in `./secrets/`, and the
+  project skills warn that `Ticker.isin` is never called and name the current Alembic
+  head.
 - **ingestion (BREAKING)**: the ingestion daemon (`python -m app.worker`, the
   `scheduler` container) now refuses to start until Yahoo's terms are acknowledged: the
   worker logs why and exits with status 2 before it serves metrics, opens its database
