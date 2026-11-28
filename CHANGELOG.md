@@ -199,18 +199,42 @@ Behaviour changes to know about:
   `build_gate_candidates_middleware`. New public names: the module
   `fund.agents.graph_candidates`, `AgentRunRepository.adviser_choice_in_force`,
   `fund.observe.is_profiler_run` and `fund.agents.toolsets.describe_breaches`. The TUI
-  cannot pick a candidate yet in this release (the Decisions view only holds a pick
-  set through `DecisionsView.select_candidate`; the candidate table and its confirm
-  follow), so approving or editing a rebalance gate in the TUI, and approving one
-  through Ask, is refused until that lands: use `fund approve <run_id> --candidate <id>`.
-  **Upgrading**: runs left paused at their gate from before this change have no
-  candidate set and cannot be approved; reject them and run a fresh round. A mandate
-  whose `hitl_gates` names `optimize_portfolio` loses that gate silently, because no
-  agent binds the tool any more: name `compute_candidates` instead. When an approve's transaction is lost after `place_orders` ran (a
-  consumed gate), the retry must name the candidate again and the replacement ticket is
-  placed from the one it names, which may differ from the first attempt's; the PM's
-  transcript still shows the first attempt (REQ-FUND-047, REQ-FUND-048, REQ-FUND-049,
-  REQ-FUND-050, REQ-FUND-051, REQ-FUND-052).
+  approves a rebalance gate through the Decisions view's candidate table and its
+  confirm, and Ask refuses to (see the next entry). **Upgrading**: runs left paused at
+  their gate from before this change have no candidate set and cannot be approved;
+  reject them and run a fresh round. A mandate whose `hitl_gates` names
+  `optimize_portfolio` loses that gate silently, because no agent binds the tool any
+  more: name `compute_candidates` instead. When an approve's transaction is lost after
+  `place_orders` ran (a consumed gate), the retry must name the candidate again and the
+  replacement ticket is placed from the one it names, which may differ from the first
+  attempt's; the PM's transcript still shows the first attempt (REQ-FUND-047,
+  REQ-FUND-048, REQ-FUND-049, REQ-FUND-050, REQ-FUND-051, REQ-FUND-052).
+- **fund**: the adviser chooses a candidate in `fund-tui` and sees the candidates in
+  `fund report`. The Decisions view lists a rebalance gate's four candidates in a table
+  (`#decisions-candidates`), in id order and never sorted, each row with the same
+  columns (label, feasible or infeasible with its breaches, volatility, CVaR 95%,
+  largest position, number of positions, turnover, constraint check, every status a
+  dot and a word). Nothing is selected for the adviser and no row is highlighted until
+  the cursor moves into the table. `↵` on a feasible row selects it (an infeasible row
+  cannot be selected), and `a` then opens a confirm naming the candidate's id, label,
+  weights and measures; only Confirm sends the approve, with that id. `a` without a
+  selection is refused with a status line, so is an approve of a gate whose stored
+  candidate set differs from the one the gate was opened with, and the selection is
+  cleared whenever the selected run, the gate id or the candidate set changes. At a
+  gate other than `place_orders` (a profile gate, a gate a mandate adds ahead of it)
+  `a` approves at once without a candidate, as before. `e` opens the weight editor on
+  the selected candidate's weights. Ask now refuses to approve a rebalance gate before
+  any confirm and points to Decisions; its agent is told to describe the candidates
+  neutrally, in id order, and never to recommend or rank one. `fund report` lists every
+  candidate of the run's set in id order with the same columns, then the candidate the
+  adviser chose once a choice is in force. The Deliberation view reads out the
+  `compute_candidates` step (every candidate with its measures and weights) and shows
+  the mean-risk frontier replay only for a `mean_risk` choice, labelled as such; for
+  another candidate or an edit it is hidden, and a replay of a choice uses the
+  constraint set its candidate set recorded. The gate text no longer says an approve
+  places the audited proposal (a gate with no candidate set says an approve is
+  refused), and `fund.tui.views` no longer exports `_pm_weights_differ` (REQ-FUND-053,
+  REQ-FUND-054).
 - **ingestion (BREAKING)**: the ingestion daemon (`python -m app.worker`, the
   `scheduler` container) now refuses to start until Yahoo's terms are acknowledged: the
   worker logs why and exits with status 2 before it serves metrics, opens its database

@@ -43,7 +43,7 @@ fund-worker   # daemon         -> fund.worker:main
 unrestricted. `fund.tools.eligibility` resolves it once per run (on run, resume and the
 adviser edit, from the current mandate) into `Eligibility(allowed, barred)` on
 `RunContext.eligible`, and the weighting tools enforce it: `list_universe` returns only
-the allowed set, `universe_filter` / `estimate_moments` / `optimize_portfolio` refuse an
+the allowed set, `universe_filter` / `estimate_moments` / `compute_candidates` refuse an
 outside ticker, `risk_check` records a `not_eligible` violation and `place_orders` and
 the adviser edit refuse it. `get_prices` and `get_regime_stats` stay unrestricted. The
 benchmark is not automatically eligible.
@@ -76,7 +76,9 @@ fund-tui <portfolio-id>  # focus one portfolio
 
 **Eight views** (sidebar order): **Posture** (roster + fund strip + focused detail,
 incl. the real NAV tile) · **Deliberation** (run replay + live stream) · **Decisions**
-(cross-portfolio HITL inbox) · **Mandate** (run-policy + guardrails) · **Audit**
+(cross-portfolio HITL inbox; a rebalance gate lists its four candidates in id order,
+and `a` approves the feasible row the adviser selected behind a confirm naming it) ·
+**Mandate** (run-policy + guardrails) · **Audit**
 (filterable decision timeline, CSV export) · **Performance** (metrics strip + holdings
 table + drill-down, chart-free) · **Ask** (NL Q&A) · **Daily brief** (per-day recap,
 markdown export).
@@ -86,7 +88,9 @@ reads summarized by a **lazily-built** model on a worker thread (no model ⇒ a 
 line, never a crash). An action (decision verbs only — approve / reject / killswitch /
 freeze / re-arm / run / steer) routes through the shared `apply_action` **confirm +
 audit** path; an ambiguous target asks a disambiguation follow-up first — **never silent
-execution, never on a guess**. `e` exports the conversation to markdown.
+execution, never on a guess**. Approving a rebalance gate is refused in Ask, which points
+to Decisions: choosing a candidate happens there. `e` exports the conversation to
+markdown.
 
 **Help** opens on `?` and `F1` (F1 fires even while the Ask input holds focus). Status is
 always **dot + label**, never colour alone.
