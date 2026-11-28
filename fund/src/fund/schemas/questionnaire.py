@@ -30,7 +30,7 @@ Because every datum is required, a client text that never mentions one (a cash
 buffer, say) would otherwise force the extractor to invent it. ``MiFIDAnswers.
 unanswered`` is the escape hatch: the extractor lists the datum it could not ground in
 the text, the profiler turns each entry into an inconsistency flag shown at the HITL
-gate, and the adviser sees that the value was assumed rather than client-provided.
+gate, and the user sees that the value was assumed rather than stated in the text.
 The ESG section is the exception: excluding sectors is optional, so an empty
 exclusion list is a complete answer and no ESG datum is ever listed beside it.
 """
@@ -70,7 +70,7 @@ LikertScore = Annotated[int, Field(ge=1, le=7)]
 
 # Every datum of ``MiFIDAnswers`` as a dotted path. Closed on purpose: a mis-spelled
 # path must fail validation (and trigger the extraction retry) instead of becoming a
-# flag the adviser cannot map back to a field.
+# flag the user cannot map back to a field.
 UnansweredDatum = Literal[
     "base_currency",
     "knowledge.level",
@@ -371,7 +371,7 @@ class SuitabilityAssessment(BaseModel):
 
 # ---------------------------------------------------------------------------
 # The default questionnaire — one entry per pillar sub-datum. Presentation only;
-# the adviser records the typed ``MiFIDAnswers`` the deterministic mapping reads.
+# the user records the typed ``MiFIDAnswers`` the deterministic mapping reads.
 # ---------------------------------------------------------------------------
 QUESTION_BANK: tuple[MiFIDQuestion, ...] = (
     MiFIDQuestion(

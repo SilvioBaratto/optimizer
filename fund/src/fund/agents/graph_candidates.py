@@ -1,10 +1,10 @@
-"""The adviser's choice of one candidate at the rebalance gate.
+"""The user's choice of one candidate at the rebalance gate.
 
 A rebalance round computes four candidate portfolios, the ``place_orders`` gate
-shows all of them, and the adviser approves by naming one. The software never picks
+shows all of them, and the user approves by naming one. The software never picks
 one: there is no default and no automatic choice, and only the named candidate's
-weights reach the paper ticket. The one exception is an adviser edit: weights the
-adviser typed after the set was computed are a choice too, so they approve without
+weights reach the paper ticket. The one exception is a user edit: weights the
+user typed after the set was computed are a choice too, so they approve without
 an id. The rule follows the gate that is pending, not the stored set: an approve of
 any other gate (one a mandate adds ahead of ``place_orders``) shows no candidates, so
 it takes no id and commits no weights.
@@ -12,10 +12,10 @@ it takes no id and commits no weights.
 Every refusal is a ``ValueError`` raised before anything is written, so the caller's
 rollback leaves the gate open for a corrected decision. The choice writers,
 :func:`approve_weights` and :func:`record_candidate_selection`, are reached only by
-the adviser's approve (through :func:`fund.agents.graph.resume_fund` and
+the user's approve (through :func:`fund.agents.graph.resume_fund` and
 :meth:`fund.agents.graph.FundRun.resume`); no agent, tool, scheduler or worker path
 records a choice, which ``test_candidate_selection_writers`` keeps true. The
-read-only checks here also run where a round or an adviser action is settled.
+read-only checks here also run where a round or a user action is settled.
 
 The repositories, the candidate reader and the live check are imported inside the
 functions, so a bare ``import fund.agents.graph_candidates`` stays light.
@@ -52,7 +52,7 @@ __all__ = [
     "resolve_approval",
 ]
 
-# The ``source`` of the risk verdict recorded when the adviser names a candidate: the
+# The ``source`` of the risk verdict recorded when the user names a candidate: the
 # verdict ``place_orders`` requires comes from that fresh check, not from an agent.
 CANDIDATE_SELECTION_SOURCE = "candidate_selection"
 
@@ -73,7 +73,7 @@ class ApprovalChoice:
     Attributes:
         weights: The weights the paper ticket is placed from. Empty for an approve of
             a gate other than ``place_orders``, which only lets the PM continue.
-        candidate: The named candidate, ``None`` when an adviser edit is the choice
+        candidate: The named candidate, ``None`` when a user edit is the choice
             or the gate is not the order gate.
         candidate_set_hash: Digest of the set ``candidate`` was chosen from.
     """
@@ -84,7 +84,7 @@ class ApprovalChoice:
 
 
 def _edit_in_force(session: Session, run_id: uuid.UUID) -> dict[str, float]:
-    """The weights of an adviser edit still in force for the run, else ``{}``."""
+    """The weights of a user edit still in force for the run, else ``{}``."""
     from fund.audit.repository import EDIT_DECISION, AgentRunRepository
 
     repo = AgentRunRepository(session)
@@ -95,7 +95,7 @@ def _edit_in_force(session: Session, run_id: uuid.UUID) -> dict[str, float]:
 
 
 def pending_gate_names(interrupt: dict[str, Any] | None) -> tuple[str, ...]:
-    """The gated tool names a pending HITL payload asks the adviser about.
+    """The gated tool names a pending HITL payload asks the user about.
 
     Args:
         interrupt: The payload a run is paused on (``action_requests``), or ``None``.
@@ -176,18 +176,18 @@ def resolve_approval(
 ) -> ApprovalChoice:
     """Resolve what approving the run's gate with ``candidate_id`` would commit.
 
-    Reads the run's newest candidate set and adviser choice and writes nothing, so a
+    Reads the run's newest candidate set and user choice and writes nothing, so a
     caller can refuse an approve before any audit row exists.
 
     Args:
         session: A sync session; read-only here.
         run_id: The run whose gate is approved.
-        candidate_id: The candidate the adviser named, or ``None``.
+        candidate_id: The candidate the user named, or ``None``.
         pending: The gated tools the thread is paused on (see :func:`is_order_gate`).
 
     Returns:
         For the order gate: the named candidate with its weights and set digest, or
-        the edited weights when ``candidate_id`` is ``None`` and an adviser edit
+        the edited weights when ``candidate_id`` is ``None`` and a user edit
         newer than the set is in force. For any other gate: empty weights.
 
     Raises:
@@ -242,7 +242,7 @@ def record_candidate_selection(ctx: RunContext, candidate_id: str) -> dict[str, 
 
     Args:
         ctx: The resumed run's binding context.
-        candidate_id: The candidate the adviser named.
+        candidate_id: The candidate the user named.
 
     Returns:
         The chosen candidate's weights, the only weights ``place_orders`` will place.
@@ -290,7 +290,7 @@ def approve_weights(
 
     Args:
         ctx: The resumed run's binding context.
-        candidate_id: The candidate the adviser named, or ``None`` (an adviser edit
+        candidate_id: The candidate the user named, or ``None`` (a user edit
             in force, or a gate other than the order gate).
         pending: The gated tools the thread is paused on.
 
@@ -313,7 +313,7 @@ def refuse_candidate_outside_approve(verb: str, candidate_id: str | None) -> Non
     """Refuse a candidate id on any decision but an approve.
 
     Naming a candidate on a reject, killswitch or respond would read as a choice the
-    adviser never made.
+    user never made.
 
     Args:
         verb: The decision or logged action (``reject``, ``respond``, ...).
@@ -355,7 +355,7 @@ def gate_without_candidates(
 ) -> str | None:
     """Why a ``place_orders`` gate must not open for the run, or ``None``.
 
-    A gate with no candidate set, or with no feasible candidate, gives the adviser
+    A gate with no candidate set, or with no feasible candidate, gives the user
     nothing to choose, so the round is closed incomplete instead.
 
     Args:

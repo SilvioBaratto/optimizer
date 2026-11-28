@@ -76,7 +76,7 @@ class PortfolioMandate(BaseModel):
     lies in the open interval ``(0, MAX_DRIFT_L1)`` so the drift trigger can fire;
     ``base_currency`` is an ISO-4217 alpha code. ``hitl_gates`` lists the tool names
     gated behind a human approval and defaults to the single ``place_orders`` gate.
-    ``remembered_directives`` carries free-text co-pilot steers the adviser chose to
+    ``remembered_directives`` carries free-text co-pilot steers the user chose to
     persist across rounds; every run renders them into the PM's instruction, and the
     mandate JSON is their source of truth (no scalar mirror, no migration).
     ``eligible_tickers`` is the hard allowlist of instruments the portfolio may hold:
@@ -126,7 +126,7 @@ class PortfolioMandate(BaseModel):
         """Describe stored values that silently disable part of the mandate.
 
         The clamp is not re-read as a percentage: a stored ``5`` may never have been
-        meant as 5%, and turning on a trigger that has been inert is the adviser's
+        meant as 5%, and turning on a trigger that has been inert is the user's
         decision, not the loader's.
 
         Returns:

@@ -211,10 +211,10 @@ class AutonomyRepository(RepositoryBase):
         return bool(cast("CursorResult[Any]", result).rowcount == 1)
 
     def restore_first_round(self, portfolio_id: uuid.UUID) -> None:
-        """Re-arm a first-round gate that a round consumed without reaching the adviser.
+        """Re-arm a first-round gate that a round consumed without reaching the user.
 
         The gate is one-shot so a portfolio's first rebalance gets every PM gate for
-        maximum oversight. A round that dies before the adviser sees anything has not
+        maximum oversight. A round that dies before the user sees anything has not
         provided that oversight, so its caller hands the gate back. Only call this
         for a round whose own :meth:`consume_first_round` returned ``True``, and, like
         that call, in a session that commits straight away: the spend is already

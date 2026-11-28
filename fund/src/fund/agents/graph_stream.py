@@ -83,7 +83,7 @@ def _round_end_event(
     index: int,
     interrupt_value: dict[str, Any] | None,
 ) -> StreamEvent:
-    """How :func:`stream_fund` tells the adviser the way :func:`_settle_round` ended."""
+    """How :func:`stream_fund` tells the user the way :func:`_settle_round` ended."""
     if end.status == "paused":
         return _terminal_event(
             run_id,

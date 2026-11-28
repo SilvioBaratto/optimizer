@@ -258,7 +258,7 @@ def _settle_regate(
     """Record an approve the PM answered by re-gating, keeping the run at that gate.
 
     A fresh ``place_orders`` gate with no candidate set, or no feasible candidate,
-    gives the adviser nothing to choose, so the run is finalised ``incomplete`` with
+    gives the user nothing to choose, so the run is finalised ``incomplete`` with
     that reason, as a round or a respond ending on such a gate is. Otherwise the run
     stays alive, flipped to ``"responded"`` when ``responded``. No commit.
 
@@ -267,7 +267,7 @@ def _settle_regate(
         run_id: The resumed run.
         result: The resume's graph result, carrying the fresh interrupt.
         step: The gate the recorded decision names.
-        hitl_decision: The adviser's decision as recorded.
+        hitl_decision: The user's decision as recorded.
         responded: Flip a run kept alive to ``"responded"``.
     """
     from fund.agents.graph_candidates import gate_without_candidates
@@ -390,7 +390,7 @@ def _resume_command(
     """Build the HITL ``Command(resume=…)`` for a gate decision.
 
     ``approve`` / ``reject`` carry only the decision type; ``respond`` carries the
-    adviser's free-text ``pm_directive`` as the gated tool's result, threading it back
+    user's free-text ``pm_directive`` as the gated tool's result, threading it back
     to the PM so the gate continues instead of terminating. The middleware always
     delivers a respond as a *successful* ``place_orders`` ``ToolMessage``, which a bare
     sentence would make read like a placed order, so the directive is framed as a
@@ -512,7 +512,7 @@ class _GateResume:
 
     ``regated_from`` names the gate an approve resolved when that gate was not the
     order commit and the PM, running on, stopped at a fresh one: the run is still
-    awaiting an adviser decision. ``None`` for every other outcome.
+    awaiting a user decision. ``None`` for every other outcome.
     """
 
     result: dict[str, Any]
@@ -524,7 +524,7 @@ def _refuse_stale_approval(ctx: Any) -> None:
 
     The paper ticket fills at the first close after the run's ``asof`` whatever the
     date of the approval, so a gate left open past the approval window would let the
-    adviser pick, with the bars since in view, which fills to keep. And a run for an
+    user pick, with the bars since in view, which fills to keep. And a run for an
     earlier bar than the portfolio's current holdings would replace them with weights
     the later round already superseded. Either run can still be rejected.
 
@@ -670,7 +670,7 @@ def _raise_if_profile_superseded(session: Any, run: Any) -> None:
             ``profile_version`` it was opened under.
 
     Raises:
-        RuntimeError: A newer profile version exists; the message tells the adviser
+        RuntimeError: A newer profile version exists; the message tells the user
             to reject the run and start a new round.
     """
     from fund.audit import MifidProfileRepository

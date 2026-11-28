@@ -310,7 +310,7 @@ def build_fund_agent(
 
     The PM runs under ``PM_SYSTEM_PROMPT`` with the orchestrator toolset — the
     single top-level ``place_orders`` tool, gated by ``interrupt_on`` (which
-    requires the ``checkpointer``) so the commit always pauses for the adviser. The
+    requires the ``checkpointer``) so the commit always pauses for the user. The
     gate set is the ``interrupt_on`` override when supplied (the caller folds the
     mandate's ``hitl_gates`` in), else the config default (``place_orders``). It
     delegates through the built-in ``task`` tool to the four subagents in pipeline
@@ -387,7 +387,7 @@ def _effective_gates(config: FundConfig, mandate: PortfolioMandate) -> dict[str,
 # ``run_fund`` + ``FundRun``: the one complete paper-run path.
 #
 # Mirrors ``run_profiler`` / ``ProfilerRun``: resolve the run's inputs, build the
-# PM agent, invoke it so the ``place_orders`` gate pauses for the adviser, and hand
+# PM agent, invoke it so the ``place_orders`` gate pauses for the user, and hand
 # back a ``FundRun`` whose ``.resume(decision)`` either commits the paper ticket
 # (approve) or discards it (reject). The agent stack (deepagents / langgraph) is
 # imported lazily so a bare ``import fund.agents.graph`` stays agent-stack-free.
@@ -396,12 +396,12 @@ def _effective_gates(config: FundConfig, mandate: PortfolioMandate) -> dict[str,
 
 @dataclass(frozen=True)
 class FundRun:
-    """Handle for one fund run paused at the ``place_orders`` adviser gate.
+    """Handle for one fund run paused at the ``place_orders`` confirmation gate.
 
     Mirrors :class:`~fund.agents.profiler.ProfilerRun`. Carries the resolved
     ``constraint_set``, the audited proposal ``weights`` captured before the pause
     (empty for a round that only computed candidates: nothing is chosen until the
-    adviser names one), the ``interrupt`` payload the adviser reviews (the whole
+    user names one), the ``interrupt`` payload the user reviews (the whole
     candidate set), the run ``status``, and enough state to resume.
     ``resume("approve", candidate_id=...)`` commits the paper ticket for the named
     candidate and finalises the run completed, or incomplete when ``place_orders``
@@ -426,10 +426,10 @@ class FundRun:
         pm_directive: str | None = None,
         candidate_id: str | None = None,
     ) -> dict[str, Any]:
-        """Resume the paused agent with an adviser ``decision``.
+        """Resume the paused agent with a user ``decision``.
 
-        ``approve`` must name the ``candidate_id`` the adviser chose (see
-        :func:`_approved_weights`; an adviser edit in force needs none): the choice is
+        ``approve`` must name the ``candidate_id`` the user chose (see
+        :func:`_approved_weights`; a user edit in force needs none): the choice is
         re-checked and recorded, then the gated ``place_orders`` tool runs (the paper
         ticket is written and the executor decision logged inside the closure) and
         the run finalises as completed with the chosen weights — unless
@@ -448,7 +448,7 @@ class FundRun:
         ``portfolio_id`` / ``asof`` (which ``FundRun`` does not carry) are read back
         from its persisted row for the approve/reject path, and the approved weights
         are resolved from the persisted set: the set at the pause may have been
-        superseded by the time the adviser decides (a ``respond`` can make the PM
+        superseded by the time the user decides (a ``respond`` can make the PM
         recompute it), and finalisation must record what ``place_orders`` placed.
         They are resolved *before* the resume, because the gated ``place_orders`` is
         the first thing the resume runs and a PM that re-runs the allocator
@@ -519,16 +519,16 @@ def _approved_weights(
 ) -> dict[str, float]:
     """The weights a gate decision settles on, resolved before the graph resumes.
 
-    An approve of the ``place_orders`` gate commits the candidate the adviser names,
-    re-checked under the current mandate and recorded as the run's choice, or an
-    adviser edit in force; an approve of any other gate commits nothing (see
+    An approve of the ``place_orders`` gate commits the candidate the user names,
+    re-checked under the current mandate and recorded as the run's choice, or a
+    user edit in force; an approve of any other gate commits nothing (see
     :func:`fund.agents.graph_candidates.approve_weights`). Any other decision places
     nothing, so it keeps reading the run's latest proposal.
 
     Args:
         ctx: The resumed run's binding context.
         decision: ``approve``, ``reject`` or ``respond``.
-        candidate_id: The candidate the adviser named, or ``None``.
+        candidate_id: The candidate the user named, or ``None``.
         pending: The gated tools the thread is paused on (empty once consumed).
 
     Returns:
@@ -563,7 +563,7 @@ def _resume_gate(
     The run is claimed first (:meth:`AgentRunRepository.claim_for_resume`): the status
     guard that precedes this is a plain read, so a concurrent reject, freeze or second
     approve may have finalised the run since, and driving the graph then would place
-    orders for a run the adviser already settled. An approve whose gate was already
+    orders for a run the user already settled. An approve whose gate was already
     consumed by an earlier attempt that did not survive (:func:`_gate_consumed`) has
     its ticket placed directly, since the resume can no longer reach ``place_orders``;
     every other decision is the plain :func:`_resume_agent`.
@@ -583,7 +583,7 @@ def _resume_gate(
     # freeze committed since (a round that was mid-flight when the killswitch fired
     # commits its gate afterwards) must be seen here too, and the in-process
     # ``FundRun.resume`` route has no earlier check at all. Reject stays open so the
-    # adviser can still close the gate.
+    # user can still close the gate.
     if decision != "reject":
         _raise_if_frozen(ctx.session, ctx.portfolio_id, doing=f"{decision} a run")
     if decision == "approve":
@@ -868,7 +868,7 @@ def _settle_round(
     or malformed, or a blocking risk verdict left nothing to commit; each is recorded
     as its own reason, distinct from the recursion-limit ``"round_cap"``. A
     ``place_orders`` gate with no candidate set, or no feasible candidate, would give
-    the adviser nothing to choose, so it closes the round the same way
+    the user nothing to choose, so it closes the round the same way
     (``"no_candidate_set"`` / ``"no_feasible_candidate"``). A freeze is looked at
     only once a gate was reached. No commit.
     """
@@ -927,7 +927,7 @@ def run_fund(
     thread_id: str | None = None,
     seed: int | None = None,
 ) -> FundRun:
-    """Run one paper rebalance to the adviser-confirmation gate.
+    """Run one paper rebalance to the user-confirmation gate.
 
     Orchestrates: (1) resolve the portfolio's active ``ConstraintSet`` from the
     Store via a Phase-4 ``ConstraintSetRef`` — **missing raises ``RuntimeError``**,
@@ -966,7 +966,7 @@ def run_fund(
         seed=seed,
     )
 
-    # The place_orders gate pauses the run for the adviser.
+    # The place_orders gate pauses the run for the user.
     try:
         result = setup.agent.invoke(setup.seed_input, config=setup.thread_config)
     except GraphRecursionError:
@@ -1019,7 +1019,7 @@ def stream_fund(
     thread_id: str | None = None,
     seed: int | None = None,
 ) -> Iterator[StreamEvent]:
-    """Stream one paper rebalance to the adviser gate, yielding ordered step events.
+    """Stream one paper rebalance to the confirmation gate, yielding step events.
 
     The live-deliberation counterpart to :func:`run_fund`: it shares
     :func:`_prepare_fund_run`'s setup, then drives the PM agent with
@@ -1185,14 +1185,14 @@ def resume_fund(
     edited since the run opened applies on resume too (a vanished mandate falls back to
     the config default gate), rebuilds the ``RunContext`` + PM agent, resumes, and
     finalises. ``decision`` is ``approve``, ``reject``, or ``respond``.
-    An approve of the order gate names the adviser's ``candidate_id`` (see
+    An approve of the order gate names the user's ``candidate_id`` (see
     :func:`_approved_weights`); a missing, unknown or infeasible id, or one the
     current mandate refuses, raises ``ValueError`` before anything is resumed or
     written, as does an id on any other decision.
     Any other value raises ``ValueError``; ``approve`` / ``respond`` raise
     ``RuntimeError`` while the fund or portfolio is FROZEN, or when the portfolio was
     re-profiled after the run opened (``reject`` always passes). A ``respond`` threads
-    ``pm_directive`` (the adviser's free text) back to the PM via
+    ``pm_directive`` (the user's free text) back to the PM via
     :func:`_finalize_respond`, keeping the run
     alive as ``responded`` if it re-gates; the resume ``thread_config`` keeps the full
     ``recursion_limit`` so a re-gate has headroom. Every write goes through the injected
@@ -1219,7 +1219,7 @@ def resume_fund(
 
     # set_holdings replaces the whole snapshot, so approving a round that started before
     # an already-completed one would silently roll the book back to older weights.
-    # Rejecting a stale run stays allowed: that is how an adviser clears it.
+    # Rejecting a stale run stays allowed: that is how a user clears it.
     if decision == "approve":
         newer = audit.newer_completed_rebalance_run(run)
         if newer is not None:
@@ -1263,7 +1263,7 @@ def resume_fund(
 
     mandate = observe.get_mandate(session, portfolio_id)
     # The allowlist follows the current mandate, unlike the capital recorded at run
-    # open: an adviser who removed a ticker after the proposal must also stop the order.
+    # open: a user who removed a ticker after the proposal must also stop the order.
     from fund.tools.eligibility import resolve_mandate_eligibility
 
     ctx = RunContext(
@@ -1361,7 +1361,7 @@ def resume_run(
     and cannot diverge on which path a given run takes. An unknown ``run_id`` raises
     ``LookupError``; ``decision`` validation is delegated to the chosen resumer.
 
-    ``pm_directive`` carries the adviser's free text for a ``respond`` barge-in; it is
+    ``pm_directive`` carries the user's free text for a ``respond`` barge-in; it is
     threaded only to the ``place_orders`` gate. The profiler gate keeps approve/reject
     (``resume_profiler`` rejects ``respond``), so a respond there raises ``ValueError``.
     ``candidate_id`` names the candidate an approve of the ``place_orders`` gate

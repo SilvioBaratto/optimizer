@@ -18,8 +18,8 @@ weight, a ``mu`` vector, or a covariance matrix. Enforced structurally:
 ``AllocDecision`` carries no weight field, ``place_orders`` places only the
 user's choice, and the gate is idempotent. The economist's qualitative views
 are background context only: no optimizer tool accepts them. The prompts call the
-person running the tool "the user", never an adviser or a client, and describe no
-role as managing or advising anyone.
+person running the tool "the user", with no role title, and describe no role as
+managing or advising anyone.
 """
 
 from __future__ import annotations

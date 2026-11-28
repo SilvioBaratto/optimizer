@@ -205,7 +205,7 @@ def _finalize_failed(
     rolls that transaction back when the error propagates, so it survives only where the
     caller commits, or calls :func:`record_failed_round` after its rollback, which the
     snapshot attached to ``exc`` serves. A first-round gate the round consumed
-    (``first_round``) is handed back in a session of its own, since no adviser reviewed
+    (``first_round``) is handed back in a session of its own, since no user reviewed
     anything and the spend was committed on its own too. The run's checkpoint thread is
     deleted: nothing can resume a failed run. Best effort: a broken session (a failed
     flush awaits a rollback) must not mask the error being propagated. No commit of

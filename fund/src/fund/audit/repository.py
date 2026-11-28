@@ -34,7 +34,7 @@ _T = TypeVar("_T")
 # after the first few.
 _STREAM_BATCH = 20
 
-# Statuses at a live HITL gate: the only runs an adviser decision may resolve. A
+# Statuses at a live HITL gate: the only runs a user decision may resolve. A
 # "pending" row is a run still being driven (or one that crashed before the gate), so
 # it is deliberately absent.
 RESUMABLE_RUN_STATUSES: tuple[str, ...] = ("paused", "responded")
@@ -46,7 +46,7 @@ _ALLOCATOR = "allocator"
 _COMPUTE_CANDIDATES_STEP = "compute_candidates"
 _OPTIMIZE_STEP = "optimize_portfolio"
 # The ``hitl_decision`` kinds a human writes on an allocator ``optimize_portfolio``
-# row: a candidate chosen from the set, or weights the adviser typed. The bound
+# row: a candidate chosen from the set, or weights the user typed. The bound
 # optimizer's own rows carry no ``hitl_decision``.
 SELECT_CANDIDATE_DECISION = "select_candidate"
 EDIT_DECISION = "edit"
@@ -94,7 +94,7 @@ def _newest(decisions: Sequence[AgentDecision], step: str) -> AgentDecision | No
 def current_adviser_choice(
     decisions: Sequence[AgentDecision],
 ) -> AgentDecision | None:
-    """The adviser's choice still in force among one run's ``decisions``, if any.
+    """The user's choice still in force among one run's ``decisions``, if any.
 
     The newest allocator ``optimize_portfolio`` row counts only when a human made it
     (a candidate selection or an edit) and no candidate set was computed after it: a
@@ -105,7 +105,7 @@ def current_adviser_choice(
         decisions: The run's decision rows, in any order.
 
     Returns:
-        That row, or ``None`` when no adviser choice is in force.
+        That row, or ``None`` when no user choice is in force.
     """
     proposal = _newest(decisions, _OPTIMIZE_STEP)
     if proposal is None:
@@ -277,7 +277,7 @@ class AgentRunRepository(RepositoryBase):
         return run
 
     def claim_for_resume(self, run_id: uuid.UUID) -> bool:
-        """Take the run for one adviser decision; ``False`` if it left its live gate.
+        """Take the run for one user decision; ``False`` if it left its live gate.
 
         The compare-and-set a resolver must win before it drives the run's graph
         thread: a conditional UPDATE on the stored status, so a resolver that read
@@ -305,7 +305,7 @@ class AgentRunRepository(RepositoryBase):
         Appends the gate's reject decision (the profiler's ``save_profile`` or the PM's
         ``place_orders``, by the run's recorded step) and finalises the run
         ``rejected`` with no weights. ``via`` names what rejected it when it was not
-        the adviser's own reject (e.g. ``"freeze"``), so the trail can tell the two
+        the user's own reject (e.g. ``"freeze"``), so the trail can tell the two
         apart. The caller guards the run's state; ``None`` if the run is absent.
         """
         run = self.get_run(run_id)
@@ -430,7 +430,7 @@ class AgentRunRepository(RepositoryBase):
         metrics: Mapping[str, Any],
         settings: Mapping[str, Any],
     ) -> AgentDecision:
-        """Record the adviser's choice of one candidate as the run's proposal.
+        """Record the user's choice of one candidate as the run's proposal.
 
         Written as the allocator ``optimize_portfolio`` row the edit path also
         writes, so every reader of a run's proposal (its weights, metrics and
@@ -470,7 +470,7 @@ class AgentRunRepository(RepositoryBase):
         )
 
     def adviser_choice_in_force(self, run_id: uuid.UUID) -> AgentDecision | None:
-        """The row of the adviser's choice still in force for the run, read fresh.
+        """The row of the user's choice still in force for the run, read fresh.
 
         See :func:`current_adviser_choice`. Queried rather than read from a loaded
         run's ``decisions``, which do not see a row appended in the same session
@@ -488,13 +488,13 @@ class AgentRunRepository(RepositoryBase):
         return current_adviser_choice(list(self.session.execute(stmt).scalars()))
 
     def latest_selected_weights(self, run_id: uuid.UUID) -> dict[str, float]:
-        """The weights of the adviser's choice still in force for the run.
+        """The weights of the user's choice still in force for the run.
 
         See :func:`current_adviser_choice`: a candidate selection or an edit counts
         only while no newer candidate set exists, and never an optimizer proposal.
 
         Returns:
-            Ticker to weight, or ``{}`` when no adviser choice is in force.
+            Ticker to weight, or ``{}`` when no user choice is in force.
         """
         return self.decode_weights(self.adviser_choice_in_force(run_id))
 
@@ -529,7 +529,7 @@ class AgentRunRepository(RepositoryBase):
             not_enforced: Saved risk limits the gate cannot enforce yet, so a pass
                 is not read as every limit holding.
             source: What produced the verdict (``"risk_check"`` for the bound tool,
-                ``"adviser_edit"`` for an adviser's weight edit).
+                ``"adviser_edit"`` for a user's weight edit).
 
         Returns:
             The appended ``agent="risk"`` / ``step="risk_check"`` decision.
@@ -680,7 +680,7 @@ class AgentRunRepository(RepositoryBase):
     def mark_responded(self, run_id: uuid.UUID) -> AgentRun | None:
         """Flip the run to ``"responded"`` after a barge-in re-gate; ``None`` if absent.
 
-        Mirrors :meth:`mark_paused`. A ``respond`` decision threads the adviser's
+        Mirrors :meth:`mark_paused`. A ``respond`` decision threads the user's
         directive back to the PM, which may re-gate (call ``place_orders`` again): the
         run then stays alive as ``"responded"`` — distinct from ``"paused"`` so an
         observer tells a plain pause from a barged-in re-gate — and remains in

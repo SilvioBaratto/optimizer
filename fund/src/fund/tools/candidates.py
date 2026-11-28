@@ -2,7 +2,7 @@
 
 The optimizer computes every weight here, never the model, and no method is placed
 above another: ``hrp``, ``mean_risk``, ``min_risk`` and ``risk_parity`` always come
-back in that alphabetical id order, whatever their figures. The human adviser picks
+back in that alphabetical id order, whatever their figures. The user picks
 one later; nothing in this module orders or scores them.
 
 Every method is fitted on one returns panel (``load_returns_panel``, the panel
@@ -414,7 +414,7 @@ def _candidate(
     label = fitter.label(panel.config)
     settings: dict[str, Any] = {}
     # Everything from configuring the method to measuring its weights sits in here:
-    # one method failing must not cost the adviser the other three.
+    # one method failing must not cost the user the other three.
     try:
         config = fitter.configure(panel.returns, panel.config)
         settings = _settings(config, panel.config)
