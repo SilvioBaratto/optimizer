@@ -31,7 +31,7 @@ _MSG_PASSPHRASE_CONFIRM = "Confirm master passphrase:"  # noqa: S105 - UI label
 _MSG_FRED_KEY = "FRED API key (optional — paste it, or press Enter to skip):"
 _MSG_CONFIGURE_LLM = "Configure the fund LLM backend?"
 _MSG_LLM_PROVIDER = (
-    "Portfolio data you enter (holdings, constraints, questionnaire answers) is "
+    "Portfolio data you enter (holdings, constraints, optimisation inputs) is "
     "sent to the provider you choose.\nLLM provider:"
 )
 _MSG_LLM_MODEL = "LLM model id (type - to clear a stored one):"

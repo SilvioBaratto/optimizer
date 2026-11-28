@@ -29,7 +29,7 @@ and repositories from `portopt_db.repositories`; only the `jobs` repository *beh
 in `ingestion/app/repositories/jobs/`.
 
 Live totals: **51 base tables** (49 documented below + `alembic_version` + `apscheduler_jobs`).
-Alembic head `c4d5e6f7a8b9`, 68 migrations. Row counts below are the last verified live snapshot.
+Alembic head `8ed6504aee6a`, 95 migrations. Row counts below are the last verified live snapshot.
 
 - Column-by-column schema → `references/full-schema.md`
 - Live volumes, FRED series, indicator lists → `references/data-inventory.md`
@@ -306,7 +306,7 @@ cd packages/portopt-db && alembic current           # show version
 cd packages/portopt-db && alembic revision --autogenerate -m "add_foo_table"
 ```
 
-- **62 migrations** in `packages/portopt-db/alembic/versions/`; current head **`b6c7d8e9f0a1`**
+- **95 migrations** in `packages/portopt-db/alembic/versions/`; current head **`8ed6504aee6a`**
 - Alembic `env.py` reads `DATABASE_URL` env (fallback ini) and `from portopt_db.models import Base`
 - **`d1e2f3a4b5c6` is destructive and one-way** — its `downgrade()` raises rather than recreate the
   17 dropped non-ingestion tables. To go back, restore a pre-upgrade dump
@@ -408,7 +408,7 @@ Repositories: packages/portopt-db/src/portopt_db/repositories/{macro,market_data
 Jobs repo:    ingestion/app/repositories/jobs/  (behavior only; model in portopt_db.models.jobs)
 Engine:       packages/portopt-db/src/portopt_db/engine.py (DatabaseManager, DbConfig-injected)
 Config:       packages/portopt-db/src/portopt_db/config.py (DbConfig); ingestion/app/database.py (singleton), ingestion/app/config.py (Settings)
-Migrations:   packages/portopt-db/alembic/versions/ (62 files, head b6c7d8e9f0a1)
+Migrations:   packages/portopt-db/alembic/versions/ (95 files, head 8ed6504aee6a)
 Alembic env:  packages/portopt-db/alembic/env.py
 Writers:      ingestion/app/services/{market_data,macro,universe}/  ← the only code that writes
 Docker:       docker-compose.yml (db on 54320, scheduler on 9000)

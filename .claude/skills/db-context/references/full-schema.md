@@ -5,7 +5,7 @@ domain. Live row counts are from the last snapshot. Nullable `no` = `NOT NULL`.
 
 Connection: `postgresql://postgres:postgres@localhost:54320/optimizer_db`
 Models: `packages/portopt-db/src/portopt_db/models/{jobs,macro,market_data,universe}/`
-Alembic head: `b6c7d8e9f0a1` (62 migrations, single tree at `packages/portopt-db/alembic/`)
+Alembic head: `8ed6504aee6a` (95 migrations, single tree at `packages/portopt-db/alembic/`)
 
 ---
 
@@ -994,7 +994,7 @@ they are managed by external tooling.
 
 ### alembic_version
 Single-row table owned by Alembic; holds the current migration revision. Current head:
-`b6c7d8e9f0a1`. Column: `version_num` (character varying, PK).
+`8ed6504aee6a`. Column: `version_num` (character varying, PK).
 
 ### apscheduler_jobs
 Owned by APScheduler's `SQLAlchemyJobStore` (in-process scheduler in `app/worker.py`);

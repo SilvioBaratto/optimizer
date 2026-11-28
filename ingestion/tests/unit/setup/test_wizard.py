@@ -1746,7 +1746,7 @@ def test_noninteractive_fred_flag_is_stripped(
 
 
 _LLM_DATA_NOTICE = (
-    "Portfolio data you enter (holdings, constraints, questionnaire answers) is "
+    "Portfolio data you enter (holdings, constraints, optimisation inputs) is "
     "sent to the provider you choose."
 )
 
