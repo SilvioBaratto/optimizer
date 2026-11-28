@@ -41,15 +41,27 @@ echo "==> [fund] Database ready."
 
 # Public schema is owned by the single portopt-db Alembic tree (same as the
 # ingestion image). fund reads/writes portfolio_mandates, agent_runs, fund_jobs,
-# the MiFID tables — all in `public`. Idempotent (`upgrade head` is a no-op when
-# already at head), so bringing up `db + fund` alone (the `optimizer` launcher's
-# path) is self-sufficient without the scheduler container.
+# the MiFID tables — all in `public`. Bringing up `db + fund` alone (the
+# `optimizer` launcher's path) is self-sufficient without the scheduler container:
+# an empty database is migrated here, and one already at head is left as it is.
+#
+# Some revisions delete data, so a database that holds data and has pending
+# revisions is not migrated: the check exits 3 with the reason, and `portopt
+# migrate` backs it up first. PORTOPT_AUTO_MIGRATE=true makes the check pass
+# without looking.
 #
 # The dedicated `langgraph` schema is created out-of-band by the worker itself
 # (fund.audit.persistence.setup_langgraph → CREATE SCHEMA IF NOT EXISTS), so it is
 # NOT handled here.
-echo "==> [fund] Running Alembic migrations (portopt-db, the single migration owner)..."
+echo "==> [fund] Checking for pending migrations (portopt-db, the single migration owner)..."
 cd "${MIGRATIONS_DIR:-/app/packages/portopt-db}"
+check=0
+run python -m portopt_db.migration_state || check=$?
+if [ "$check" -ne 0 ]; then
+    exit "$check"
+fi
+
+echo "==> [fund] Running Alembic migrations..."
 run alembic upgrade head
 cd - >/dev/null
 echo "==> [fund] Migrations complete."

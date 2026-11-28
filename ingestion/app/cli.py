@@ -42,6 +42,7 @@ import logging
 import os
 from collections.abc import Callable
 from enum import Enum
+from pathlib import Path
 from typing import NoReturn
 
 import typer
@@ -770,6 +771,51 @@ def stop(
         typer.echo("stack stopped; rendered secrets removed.")
     else:
         typer.echo("fund stopped (ingestion daemon still running).")
+
+
+@app.command()
+def migrate(
+    backup_dir: Path | None = typer.Option(
+        None,
+        "--backup-dir",
+        file_okay=False,
+        help=(
+            "Where the dump goes (default: the backup_dir key of config.toml, else "
+            "~/.portopt/backups). Never inside the checkout."
+        ),
+    ),
+    no_backup: bool = typer.Option(
+        False,
+        "--no-backup",
+        help="Migrate without a backup. Revisions that delete data cannot be undone; "
+        "needs --yes.",
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", help="Do not ask before stopping the daemons and migrating."
+    ),
+) -> None:
+    """Back up the database (verified pg_dump), then apply pending migrations.
+
+    An empty or current database is left alone. Exits 1 when it refuses or fails;
+    the database is then unchanged.
+    """
+    logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
+    install_secret_redaction()
+    from app.setup import migration
+    from app.setup.docker_bootstrap import DockerError
+    from app.setup.prompts import PromptError, make_prompter
+
+    options = migration.MigrateOptions(
+        backup_dir=backup_dir, no_backup=no_backup, assume_yes=yes
+    )
+    try:
+        migration.run_migrate(
+            options,
+            confirm=lambda message: make_prompter().confirm(message, default=False),
+        )
+    except (migration.MigrateError, DockerError, PromptError) as exc:
+        typer.echo(f"Migrate failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()

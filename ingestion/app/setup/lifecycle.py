@@ -12,14 +12,18 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+
+from portopt_db.migration_state import MigrationStateError
 
 from app.setup import (
     compose_env,
     compose_secrets,
     config_file,
     docker_bootstrap,
+    host_database,
     llm_backend,
     path_install,
     secret_store,
@@ -76,7 +80,8 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     Raises:
         LifecycleError: No passphrase was given, or neither config.toml nor the
             environment acknowledges Yahoo's terms (checked before Docker is
-            touched or a secret decrypted).
+            touched or a secret decrypted), or migrations are pending on a database
+            that holds data (checked before any app container is touched).
     """
     if not passphrase:
         raise LifecycleError(secret_store.MASTER_PHRASE_REQUIRED_MESSAGE)
@@ -87,6 +92,7 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     # directory with live keys.
     repo = docker_bootstrap.compose_dir()
     secrets = secret_store.load_secrets(passphrase)
+    _refuse_pending_migrations(repo)
     secrets_dir = repo / compose_secrets.DEFAULT_SECRETS_DIR
     rotated = compose_secrets.changed_names(secrets, secrets_dir=secrets_dir)
     compose_secrets.render(secrets, secrets_dir=secrets_dir)
@@ -104,19 +110,7 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     # never passes its healthcheck and `up --wait` would block on it. Images build on
     # first run; `up --wait` blocks on each service's healthcheck.
     fund_enabled = llm_backend.is_configured(config, secrets)
-    # `up` recreates a service only when its compose config changes, and a
-    # rewritten secret file is not one. Daemons read their keys once at startup,
-    # so a rotated key would reach only new processes (the TUI, `fund run`) while
-    # the scheduled jobs kept failing on the old one. A `restart` keeps the
-    # container's old env_file values, so a fund about to be left off is not
-    # restarted.
-    if rotated:
-        stale = compose_secrets.services_mounting(rotated)
-        stale &= docker_bootstrap.running_services(repo=repo)
-        if not fund_enabled:
-            stale.discard("fund")
-        if stale:
-            docker_bootstrap.restart_services(sorted(stale), repo=repo)
+    _restart_rotated(rotated, repo=repo, fund_enabled=fund_enabled)
     docker_bootstrap.build_and_up(
         profiles=("fund", "ingestion") if fund_enabled else ("ingestion",),
         force_build=rebuild,
@@ -126,6 +120,62 @@ def run_start(passphrase: str, *, rebuild: bool = False) -> None:
     if not fund_enabled:
         print(FUND_SKIPPED_NOTICE)
         _stop_leftover_fund(repo)
+
+
+def _refuse_pending_migrations(repo: Path) -> None:
+    """Stop a start whose containers would meet pending revisions over data.
+
+    The containers refuse such a database too (exit 3), but under
+    ``restart: unless-stopped`` they would then retry once a minute and ``up
+    --wait`` would fail with Docker's text, so the start asks first. The db service
+    comes up for the check, as ``up`` would bring it anyway. A state the host cannot
+    read is only a warning: the containers' own check still guards the data.
+
+    Args:
+        repo: The checkout whose tree the next build ships.
+
+    Raises:
+        LifecycleError: Revisions are pending on a database that holds data and
+            ``PORTOPT_AUTO_MIGRATE`` is not on; the message names ``portopt
+            migrate``.
+    """
+    docker_bootstrap.bring_up_db(repo=repo)
+    try:
+        refusal = host_database.pending_refusal(
+            host_database.db_package_dir(repo), environ=os.environ
+        )
+    except MigrationStateError as exc:
+        print(
+            f"warning: could not check the database for pending migrations ({exc}); "
+            "the scheduler and fund containers check it again when they start."
+        )
+        return
+    if refusal:
+        raise LifecycleError(refusal)
+
+
+def _restart_rotated(rotated: Sequence[str], *, repo: Path, fund_enabled: bool) -> None:
+    """Restart the running services that mount a secret rotated since the last render.
+
+    ``up`` recreates a service only when its compose config changes, and a
+    rewritten secret file is not one. Daemons read their keys once at startup, so a
+    rotated key would reach only new processes (the TUI, ``fund run``) while the
+    scheduled jobs kept failing on the old one. A ``restart`` keeps the container's
+    old env_file values, so a fund about to be left off is not restarted.
+
+    Args:
+        rotated: Names of the secrets whose value changed.
+        repo: The checkout whose compose project to act on.
+        fund_enabled: Whether this start brings the fund engine up.
+    """
+    if not rotated:
+        return
+    stale = compose_secrets.services_mounting(rotated)
+    stale &= docker_bootstrap.running_services(repo=repo)
+    if not fund_enabled:
+        stale.discard("fund")
+    if stale:
+        docker_bootstrap.restart_services(sorted(stale), repo=repo)
 
 
 def _load_config_requiring_terms() -> dict[str, Any]:

@@ -126,8 +126,9 @@ def test_example_database_url_matches_the_code_default(template: Path) -> None:
 
 # Settings fields that are labels or developer toggles, not operator knobs.
 _NOT_KNOBS = {"project_name", "version", "debug"}
-# Read with os.getenv rather than through Settings.
-_EXTRA_KNOBS = {"PORTOPT_SECRETS_DIR": "/run/secrets"}
+# Read with os.getenv rather than through Settings (the auto-migrate opt-out by
+# portopt_db.migration_state, in the entrypoint and on the host).
+_EXTRA_KNOBS = {"PORTOPT_SECRETS_DIR": "/run/secrets", "PORTOPT_AUTO_MIGRATE": "false"}
 # Knobs whose names and defaults are documented in the files mapped to them until
 # the owner, who alone edits the env templates, lists them in the template. The
 # checks below fail once the template names one, so an entry cannot outlive its

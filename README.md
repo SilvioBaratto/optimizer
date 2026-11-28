@@ -227,6 +227,7 @@ portopt start     # decrypt secrets → render as compose secrets → docker com
 portopt stop      # stop the fund engine + delete its plaintext LLM keys (daemon + db keep running)
 portopt stop --all  # stop the whole stack + delete every rendered plaintext secret
 portopt status    # report Docker + service health (non-zero exit if anything is down)
+portopt migrate   # back up the database (verified pg_dump), then apply pending migrations; asks first (--yes, --backup-dir, --no-backup)
 ```
 
 > `portopt start` brings up the fund engine only when an LLM backend is configured
@@ -246,6 +247,27 @@ portopt status    # report Docker + service health (non-zero exit if anything is
 > Both refuse while a `fund run`, `fund approve` or `fund-tui` is running inside
 > the fund container, because stopping it would kill that round mid-flight; add
 > `--force` to stop anyway.
+
+**Upgrading.** After you pull a new version, `portopt start` checks the database
+before it rebuilds or starts anything. If the new code brings migrations the
+database has not run yet and the database already holds data, the start stops and
+says which revision the database is at and how far behind it is, because some
+migrations delete data (see "Destructive migrations" in
+[`packages/portopt-db/README.md`](packages/portopt-db/README.md)). Run
+`portopt migrate`. It lists the revisions and asks, stops the scheduler and fund,
+writes a `pg_dump` of the whole database to
+`~/.portopt/backups/optimizer_db-<YYYYmmdd>-<HHMMSS>-pre-migrate.dump`, checks that the
+dump lists every table and reads back in full, and only then applies the
+migrations. The backup folder is private (mode `0700`) and outside the checkout;
+`--backup-dir` or a `backup_dir` key in `~/.portopt/config.toml` picks another, and
+old dumps are never deleted. Then run `portopt start` again. `portopt setup` does not
+migrate such a database either. The scheduler and fund containers refuse it on their
+own as well (exit status 3), so a plain `docker compose up` stops there too (`--wait`
+fails at once, and `docker compose logs scheduler` shows the reason): Docker retries
+them about once a minute, and they start once the database is at head. A
+fresh install is still migrated on its first start. For an unattended setup,
+`PORTOPT_AUTO_MIGRATE=true` (in the shell or the root `.env`) restores migrating on
+every start, without a backup.
 
 **First run.** Setup seeds no data, so a fresh database has an empty `instruments`
 table. The first `daily_pipeline` (07:00, or run it straight away with
@@ -350,7 +372,7 @@ Full CLI surface (`portopt <command>` or `python -m app.cli <command>`):
 `market-structure`, `calendars`, `market-summary`, `options`, `add-instrument`
 (validates one Yahoo ticker, stores 5y of prices; `--pin` keeps it through the
 weekly universe build), `daily-events` (`--backfill START:END` rebuilds a date
-range), plus the lifecycle commands `setup`, `start`, `stop`, `status`.
+range), plus the lifecycle commands `setup`, `start`, `stop`, `status`, `migrate`.
 
 ### The fund component (`fund`)
 

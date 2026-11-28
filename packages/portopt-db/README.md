@@ -16,7 +16,9 @@ consumer may rely on is the surface it imports: the models, the repositories, `R
 protocols and the frozen dataclasses they return) and `portopt_db.resilience` (the `CircuitBreaker` protocol, `DbCircuitBreaker`,
 `BreakerConfig`, `DatabaseUnavailableError`, `BreakerState`, `ProbeTicket`,
 `is_connectivity_failure`, the breaker defaults, the validator and the environment parsers
-`parse_failure_threshold` and `parse_reset_timeout`). A change to that surface, or to a table a consumer reads, goes in
+`parse_failure_threshold` and `parse_reset_timeout`) and `portopt_db.migration_state` (whether
+a database is empty, at the migration head or behind it, which the container entrypoints and
+`portopt start` / `portopt migrate` ask before migrating). A change to that surface, or to a table a consumer reads, goes in
 `CHANGELOG.md`, and the consumer's tests change in the same pull request.
 
 ## Migrations
@@ -92,18 +94,31 @@ what each deletes, why, and the backup step.
 
 Both deletions have the same reason. The integrations whose data they remove were taken
 out of this public repository because their terms conflict with an open repository, so
-their stored data is intentionally not kept, and neither revision archives it first. Both
-run automatically: the scheduler and fund containers upgrade the database to the head
-revision when they start, so pulling a version that contains one and restarting the stack
-applies it.
+their stored data is intentionally not kept, and neither revision archives it first. Neither
+runs on its own against a database that holds data: before the upgrade, the scheduler and
+fund entrypoints ask `python -m portopt_db.migration_state`, which exits 3 when revisions
+are pending over data, and the container then stops without migrating. `portopt start`
+asks the same before it touches a container, and `portopt setup` does not migrate such a
+database either. Only an empty database (a fresh install) or one already at head is
+migrated on start, unless `PORTOPT_AUTO_MIGRATE=true` restores migrating on every start.
 
 | Revision | What `upgrade()` deletes | What `downgrade()` restores |
 | --- | --- | --- |
 | `2266e24c509f` (`drop_trading_212_columns`) | The data in `exchanges.t212_id`, `instruments.t212_ticker` and `instruments.is_t212_tradeable`: the removed broker's exchange ids, ticker mapping and tradability flag. | The three columns, nullable and empty. |
 | `8ed6504aee6a` (`drop_macro_scraper_tables`) | The six tables `economic_indicators`, `economic_indicator_observations`, `trading_economics_indicators`, `trading_economics_observations`, `bond_yields` and `bond_yield_observations`, with all their rows: the stored macro-indicator forecasts and bond-yield history of the two removed scrapers. | The six tables, empty, with their columns, constraints and indexes. |
 
-Backup step: before you pull the version and restart the stack, take a dump of the live
-database. The containers migrate on start, so there is no later moment to do it:
+Backup step: when a start stops on pending migrations, run `portopt migrate` from the
+checkout. It lists the pending revisions and asks, stops the scheduler and fund, takes a
+`pg_dump --format=custom` of the whole database with the db container's own client
+tools, and accepts it only once `pg_restore --list` shows the data of every table and a
+full `pg_restore` read succeeds. Only then does it upgrade the database to head; if the
+dump or its check fails, nothing is migrated. The dump is written to
+`~/.portopt/backups/optimizer_db-<YYYYmmdd>-<HHMMSS>-pre-migrate.dump` (a folder created
+with mode `0700`, outside the checkout because a checkout may be synced between machines);
+`--backup-dir` or a `backup_dir` key in `~/.portopt/config.toml` chooses another folder.
+Old dumps are never deleted. `--no-backup --yes` migrates without one.
+
+For a database outside the compose stack, take the dump yourself before you migrate:
 
 ```bash
 pg_dump --format=custom --file=optimizer-before-migration.dump "$DATABASE_URL"
