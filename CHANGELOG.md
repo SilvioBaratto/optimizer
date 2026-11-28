@@ -326,6 +326,10 @@ Behaviour changes to know about:
   `portopt setup --non-interactive` for a first install must add
   `--accept-yahoo-terms`. Manual one-shot commands (`python -m app.cli daily`,
   `docker compose exec scheduler python -m app.cli ...`) are unaffected.
+- **ingestion**: the root `.env.example` now lists `YAHOO_TERMS_ACKNOWLEDGED` (commented
+  out, `false`), with the note that a plain `docker compose up` reads it from the root
+  `.env`; before, only `ingestion/.env.example` and `docker-compose.yml` named it
+  (REQ-ING-028).
 - **ingestion**: the universe builder left the `trading212` package it was named after when
   Trading 212 sourced the universe. `UniverseBuilder`, `UniverseBuilderConfig`,
   `classify_instrument`, the asset-class enums, the protocols and the ETF filters now import
@@ -589,6 +593,11 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   rows are not restored. The deliberate data loss is a recorded deviation from the
   reversible-migration rule, with the reason and the backup step, under "Destructive
   migrations" in `packages/portopt-db/README.md`.
+- **fund**: `Eligibility.notes`. The field carried the caveat a removed broker overlay
+  raised about a resolution, and nothing sets it any more. The run seed no longer renders
+  a `Note: ...` sentence after the eligible-universe block; no seed changes, because the
+  sentence only appeared when a note was set. `Eligibility(...)` no longer accepts a
+  `notes=` argument (REQ-FUND-005, REQ-FUND-052).
 
 ### Removed (BREAKING — ingestion CLI, scheduler and settings)
 

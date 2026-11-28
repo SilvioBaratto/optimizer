@@ -100,6 +100,16 @@ _LEAD_DAYS = 400
 # The run instruction's opening words, the anchor the seed-layout tests order against.
 _SEED_OPENING = "Compute and present the candidate portfolios"
 
+# What the run seed gains for an allowlist of two tickers and two barred names.
+_ELIGIBLE_BLOCK_WITH_BARRED = (
+    "Eligible universe (resolved by the system from the portfolio's settings and "
+    "enforced by the tools): the portfolio may hold only the tickers below. "
+    "list_universe returns the full set, in this order, and the allocator tools "
+    "refuse any other ticker, so pass this to the allocator and have it take its "
+    "candidates from list_universe. Allowed: VWCE.DE, IGLO.L. Barred and "
+    "unavailable: OIL.S (esg:energy), OLD.X (delisted).\n\n"
+)
+
 
 def _seed_panel(db_session) -> None:
     """Seed an ``_N_DAYS`` x 3 close panel extending past ``_ASOF``."""
@@ -884,15 +894,20 @@ class TestEligibleBlock:
         assert "more" not in seed
 
     @pytest.mark.criterion("REQ-FUND-052")
-    def test_a_note_is_stated_after_the_allowlist(self) -> None:
-        """Validates fund.agents.graph_prompts._run_instruction."""
-        eligible = Eligibility(allowed=("VWCE.DE",), barred=(), notes=("be careful",))
+    def test_an_allowlist_adds_exactly_this_block_to_the_seed(self) -> None:
+        """Validates fund.agents.graph_prompts._run_instruction.
+
+        The PM acts on this text, so its bytes are pinned: a change to the wording
+        or to the order of the parts has to be made on purpose."""
+        eligible = Eligibility(
+            allowed=("VWCE.DE", "IGLO.L"),
+            barred=(("OIL.S", "esg:energy"), ("OLD.X", "delisted")),
+        )
+        bare = _run_instruction(_mandate(), str(_PORTFOLIO_ID), _ASOF)
 
         seed = self._seed(eligible)
 
-        assert "Note: be careful." in seed
-        assert seed.index("VWCE.DE") < seed.index("Note: be careful.")
-        assert seed.index("Note: be careful.") < seed.index(_SEED_OPENING)
+        assert seed.replace(_ELIGIBLE_BLOCK_WITH_BARRED, "", 1) == bare
 
 
 def test_run_fund_seed_exposes_mandate_and_constraint_limits(db_session) -> None:

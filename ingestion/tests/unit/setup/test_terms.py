@@ -19,6 +19,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from dotenv import dotenv_values
 from pydantic import ValidationError
 
 from app import worker
@@ -268,6 +269,25 @@ def test_compose_passes_the_acknowledgement_to_the_scheduler(
 
     assert given == "true"
     assert _parsed_flag(unset, monkeypatch) is False
+
+
+@pytest.mark.criterion("REQ-ING-028")
+def test_root_env_template_documents_the_acknowledgement_unset() -> None:
+    """Validates .env.example: a plain compose up finds the variable, still unset.
+
+    Compose reads the acknowledgement from the root ``.env``, which is a copy of
+    this template, so the template must name it. It stays a comment: copying the
+    template verbatim must not acknowledge Yahoo's terms on the operator's behalf.
+    """
+    template = _REPO_ROOT / ".env.example"
+    documented = re.search(
+        rf"^#\s*{terms.ACKNOWLEDGEMENT_ENV_VAR}=false$",
+        template.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+
+    assert documented
+    assert terms.ACKNOWLEDGEMENT_ENV_VAR not in dotenv_values(template)
 
 
 @pytest.mark.criterion("REQ-ING-027")

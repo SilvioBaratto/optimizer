@@ -17,6 +17,7 @@ agree. Pins, over a seeded SQLite catalogue:
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 
 import pytest
@@ -253,6 +254,17 @@ class TestEligibility:
 
     def test_offenders_is_empty_when_every_ticker_is_allowed(self) -> None:
         assert self._eligibility().offenders(["B", "A"]) == {}
+
+    @pytest.mark.criterion("REQ-FUND-005")
+    def test_it_holds_the_two_lists_and_nothing_else(self) -> None:
+        """Validates fund.tools.eligibility.Eligibility.
+
+        The resolver's answer has no side channel for caveats: whatever the PM seed
+        says about the universe is rendered from ``allowed`` and ``barred`` alone."""
+        assert [field.name for field in dataclasses.fields(Eligibility)] == [
+            "allowed",
+            "barred",
+        ]
 
     def test_it_is_frozen_and_hashable(self) -> None:
         eligibility = self._eligibility()
