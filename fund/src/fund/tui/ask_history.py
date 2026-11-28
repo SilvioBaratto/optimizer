@@ -72,7 +72,7 @@ class AskHistory:
         a        poisoned or runaway answer must not be able to live on there.
 
         Args:
-            speaker: ``you`` for the adviser, ``ask`` for the answer.
+            speaker: ``you`` for the user, ``ask`` for the answer.
             text: The message; markdown and brackets are kept untouched.
         """
         self._store.put(

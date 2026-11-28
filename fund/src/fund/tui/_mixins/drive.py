@@ -120,7 +120,7 @@ class DriveMixin(ShellHost):
     def action_run_portfolio(self, asof: dt.date | None = None) -> None:
         """Drive one paper rebalance for the focused portfolio (the ``u`` binding).
 
-        Routes on the active view: from **Deliberation** the adviser watches the
+        Routes on the active view: from **Deliberation** the user watches the
         agents think, so ``u`` launches the **live-streamed** run (``_stream_worker``);
         from **Posture** it keeps the existing **blocking** run (``_run_worker``). The
         ``u`` key leaves the bar unset so the run resolves the newest fillable one;
@@ -475,7 +475,7 @@ class DriveMixin(ShellHost):
         The live counterpart to :meth:`_run_worker`: it drives ``stream_fund`` and
         marshals each ordered ``StreamEvent`` onto the Deliberation view with
         ``call_from_thread`` (``start_live`` on the first, ``ingest_event`` per step).
-        A ``paused`` gate leaves the timeline standing — the adviser just watched it
+        A ``paused`` gate leaves the timeline standing — the user just watched it
         build and acts on it in Decisions — while a no-ticket / error end falls back to
         the replay transcript. Like the blocking run it appends the human ``run`` audit
         row in the round's own transaction. ``view`` is resolved by the caller on the
@@ -602,7 +602,7 @@ class DriveMixin(ShellHost):
         directive: str,
         remember: bool,
     ) -> None:
-        """Thread the adviser's directive to the PM at the gate (``respond``).
+        """Thread the user's directive to the PM at the gate (``respond``).
 
         Dispatches ``respond`` through ``apply_action`` for the paused run: the PM
         incorporates ``directive`` and re-gates ``responded`` (still awaiting approval),
@@ -715,11 +715,11 @@ _OPTIMIZE_STEP = "optimize_portfolio"
 def _recorded_constraint_set(decisions: Sequence[Any], upto: int | None = None) -> Any:
     """The constraint set a replay of the allocator row at ``upto`` runs under.
 
-    In a run with candidates the adviser's choice and edit rows record none, so the
+    In a run with candidates the user's choice and edit rows record none, so the
     newest ``compute_candidates`` row at or before the replayed one supplies the set
     its candidates were fitted under; a set recorded after it never applies. A run
     from before candidates existed reads as it always did: the replayed
-    ``optimize_portfolio`` row's own constraint set, none for an adviser edit.
+    ``optimize_portfolio`` row's own constraint set, none for a user edit.
 
     Args:
         decisions: The run's decisions in ``decision_index`` order.
@@ -755,7 +755,7 @@ def _initial_mandate(portfolio_id: uuid.UUID, submission: OnboardingSubmission) 
     """Build a new portfolio's initial run-policy mandate from the onboarding form.
 
     Capital + base currency come from the questionnaire; the drift trigger and L1
-    threshold take conservative defaults the adviser can tune later in Mandate.
+    threshold take conservative defaults the user can tune later in Mandate.
     Raises ``pydantic.ValidationError`` on an out-of-contract value (e.g. a
     non-positive capital), which the caller surfaces as a status line.
     """

@@ -115,7 +115,7 @@ class DailyBriefView(ShellView):
         """Assemble the recap off the loop: it fits a regression and reads a checkpoint.
 
         The painted result is dropped when the portfolio or the viewed day changed
-        while the read was in flight, so a slow poll never clobbers a day the adviser
+        while the read was in flight, so a slow poll never clobbers a day the user
         stepped to meanwhile.
         """
         self._drop_day_pinned_for_another()

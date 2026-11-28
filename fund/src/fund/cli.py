@@ -221,7 +221,7 @@ def _build_mandate(
         else (existing.hitl_gates if existing else ("place_orders",))
     )
     triggers = existing.triggers if existing else RunTriggers(cron=True, drift=True)
-    # The adviser saves these from the TUI and no CLI flag can express them, so a
+    # The user saves these from the TUI and no CLI flag can express them, so a
     # rebuild that omitted them would silently erase the persisted source of truth.
     directives = existing.remembered_directives if existing else ()
     if clear_eligible:
@@ -670,7 +670,7 @@ def _run_ticket(session: Any, run: AgentRun) -> PaperOrder | None:
 
 
 def _report_metric_lines(run: AgentRun) -> list[str]:
-    """The ``metrics:`` line of the run's own adviser choice, or nothing."""
+    """The ``metrics:`` line of the run's own user choice, or nothing."""
     metrics = observe.run_metrics(run)
     if not metrics:
         return []
@@ -689,11 +689,11 @@ _NO_VALUE = "—"
 
 
 def _report_candidate_lines(session: Any, run: AgentRun) -> list[str]:
-    """The run's candidate set as report lines, then the adviser's choice.
+    """The run's candidate set as report lines, then the user's choice.
 
     One row per candidate in the id order the set holds, never re-sorted, each with
     the same columns: id, label, feasibility or its breaches, the five neutral
-    measures and the constraint check. The choice line follows only once the adviser
+    measures and the constraint check. The choice line follows only once the user
     has chosen; nothing is listed for a run without a set (a profile run).
 
     Args:
@@ -748,7 +748,7 @@ def _check_verdict(check: ConstraintCheck | None) -> str:
 
 
 def _adviser_choice(run: AgentRun) -> str | None:
-    """The candidate the adviser chose, ``edited weights`` for an edit, or ``None``."""
+    """The candidate the user chose, ``edited weights`` for an edit, or ``None``."""
     from fund.audit.repository import EDIT_DECISION, current_adviser_choice
 
     choice = current_adviser_choice(list(run.decisions))

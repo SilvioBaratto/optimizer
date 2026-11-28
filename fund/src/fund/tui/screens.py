@@ -74,7 +74,7 @@ def _parse_weights(
     """Parse a ``"ticker:weight, …"`` edit string into a weights mapping.
 
     Args:
-        raw: Comma-separated ``ticker:weight`` pairs the adviser typed.
+        raw: Comma-separated ``ticker:weight`` pairs the user typed.
         allowed: The tickers an edit may name (the gate's proposed names). When
             given, each typed ticker is resolved to its canonical spelling (exact
             match first, then case-insensitive) and anything outside the set is
@@ -253,7 +253,7 @@ class ScopePickScreen(ModalScreen["str | None"]):
 class RationaleConfirmScreen(ModalScreen["str | None"]):
     """A confirm that is gated on a non-empty rationale (the fund-re-arm ceremony).
 
-    Confirm stays disabled until the adviser types a rationale; confirming dismisses
+    Confirm stays disabled until the user types a rationale; confirming dismisses
     the (stripped) rationale, which the caller records on the audit row. Cancel /
     ``escape`` / an empty confirm dismiss ``None``.
 

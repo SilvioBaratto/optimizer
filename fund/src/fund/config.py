@@ -167,7 +167,7 @@ class FundConfig:
     # 08:00 NAV mark, not on top of the refetch that is still rewriting history.
     fund_rebalance_cron: str = "0 12 * * sat"
     fund_drift_interval_seconds: int = 900
-    # After a rebalance the adviser rejected (or that ended without an order), the
+    # After a rebalance the user rejected (or that ended without an order), the
     # drift monitor leaves the portfolio alone this long instead of re-driving a
     # full LLM round on every tick. The weekly sweep is unaffected.
     fund_drift_cooldown_seconds: int = 86400

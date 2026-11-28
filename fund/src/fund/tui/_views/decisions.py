@@ -84,7 +84,7 @@ class DecisionsView(ShellView):
     gate slips regardless of the header focus — into a queue table; selecting a row
     reveals the full gate context (gate name, portfolio, its candidates) and a "why"
     line. A rebalance gate also lists its candidates in a table of their own, in id
-    order and never sorted; the adviser selects one row (``↵``) and ``a`` approves
+    order and never sorted; the user selects one row (``↵``) and ``a`` approves
     it behind a confirm naming it. Nothing is selected for them, and an infeasible
     row cannot be selected. At any other gate ``a`` approves at once, without a
     candidate. ``r`` rejects, ``k`` killswitches (finalise rejected, no undo) behind
@@ -104,10 +104,10 @@ class DecisionsView(ShellView):
             the run has since moved on.
         rendered_gate_name: The gated tool the gate on screen decides.
         rendered_set_hash: The digest of the candidate set the table shows.
-        selected_candidate_id: The candidate the adviser selected for the gate on
+        selected_candidate_id: The candidate the user selected for the gate on
             screen; ``None`` until they select one. It is cleared when the selected
             run, the gate id or the candidate set changes, so a selection never
-            carries over to candidates the adviser did not see.
+            carries over to candidates the user did not see.
     """
 
     # View-scoped so ``e``/``s`` mean edit/steer only while Decisions holds focus; the
@@ -158,7 +158,7 @@ class DecisionsView(ShellView):
             classes="decisions-gate",
             markup=False,
         )
-        # No cursor until the adviser moves into the table, so no candidate sits
+        # No cursor until the user moves into the table, so no candidate sits
         # highlighted by default.
         yield DataTable(
             id=_CANDIDATES_TABLE,
@@ -284,7 +284,7 @@ class DecisionsView(ShellView):
             self.select_run(uuid.UUID(key))
 
     def on_descendant_focus(self, event: events.DescendantFocus) -> None:
-        """Show the candidate cursor only while the adviser is in that table."""
+        """Show the candidate cursor only while the user is in that table."""
         if event.widget.id == _CANDIDATES_TABLE and isinstance(event.widget, DataTable):
             event.widget.show_cursor = True
 
@@ -321,7 +321,7 @@ class DecisionsView(ShellView):
         """Read the selected gate, degrading a failure to a one-line notice.
 
         A driver error's text carries the statement and its bound parameters over
-        several lines, so the adviser sees one ``Type: message`` line and the log
+        several lines, so the user sees one ``Type: message`` line and the log
         gets the full error, once per distinct reason.
         """
         try:
@@ -490,7 +490,7 @@ def _format_decision_gate(interrupt: dict[str, Any] | None, run: Any) -> str:
     """Render ``run``'s pending gate: header, the "why", and what it would place.
 
     A rebalance gate lists every candidate its payload carries, in id order (see
-    :func:`_format_candidates`); which one is placed is the adviser's choice alone.
+    :func:`_format_candidates`); which one is placed is the user's choice alone.
     A ``place_orders`` gate without a candidate set (one left paused from before
     candidates existed) is shown as one an approve refuses. No weight vector the PM
     typed into the tool call is ever shown, since ``place_orders`` ignores it.
@@ -524,7 +524,7 @@ def _format_candidates(candidates: Any) -> list[str]:
     """Render the candidate set a rebalance gate carries: id order, never ranked.
 
     Each candidate is shown with its label, whether it is feasible and the weights
-    approving it would place; which one is placed is the adviser's choice alone.
+    approving it would place; which one is placed is the user's choice alone.
     """
     entries = [entry for entry in candidates or [] if isinstance(entry, dict)]
     if not entries:

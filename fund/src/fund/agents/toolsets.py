@@ -25,7 +25,7 @@ The bound closures also carry the load-bearing invariant into the audit trail:
 * the mandate's ESG sector exclusions and low-K&E instrument restrictions are
   screened in code (:func:`fund.tools.mandate.mandate_breaches`): ``universe_filter``
   drops offending names, ``compute_candidates`` refuses a universe holding one,
-  ``risk_check`` fails a held one, and ``place_orders`` re-checks the adviser's
+  ``risk_check`` fails a held one, and ``place_orders`` re-checks the user's
   chosen weights against the *current* mandate before a ticket exists. Screening
   fails closed on an instrument it cannot classify. ``backtest`` compares the worst
   loss inside any one-year window with the client's ``nu1/nu2/nu3`` ceilings (a
@@ -36,7 +36,7 @@ The bound closures also carry the load-bearing invariant into the audit trail:
   ``risk_check`` applies and appends one ``agent_decision`` (allocator,
   ``compute_candidates``) holding the whole set; ``risk_check`` and ``backtest``
   judge one named candidate of that set and record nothing; the PM-level
-  ``place_orders`` places only the candidate the adviser chose at the gate (see
+  ``place_orders`` places only the candidate the user chose at the gate (see
   :mod:`fund.agents.graph_candidates`), refused without that choice, and appends the
   executor's execution decision + HITL outcome. No tool can record a choice.
 
@@ -163,10 +163,10 @@ class RunContext:
     deriving returns, so they optimise over the series the NAV tracker marks
     (``None`` keeps listing currency — only sound for a single-currency universe).
     ``notional`` is the paper book the target weights scale — the mandate's capital —
-    so a ticket is sized at what the adviser configured; ``None`` leaves
+    so a ticket is sized at what the user configured; ``None`` leaves
     ``place_orders`` on its own default. ``eligible`` is the portfolio's resolved
     allowlist, bound from the *current* mandate at every construction (run, resume
-    and the adviser edit) and never chosen by the model; ``None`` means the mandate
+    and the user edit) and never chosen by the model; ``None`` means the mandate
     sets no allowlist, so no tool restricts tickers. ``venue`` is where
     ``place_orders`` places the ticket; ``None`` keeps the paper venue.
     """
@@ -320,7 +320,7 @@ def _describe_barred(barred: Iterable[tuple[str, str]]) -> str:
 
 def _append_executor_decision(ctx: RunContext, ticket: dict[str, Any]) -> None:
     """Append the executor's execution decision + HITL outcome (the order ran, so
-    the adviser approved)."""
+    the user approved)."""
     from fund.audit import AgentRunRepository
 
     payload = json.dumps(
@@ -545,10 +545,10 @@ def _compute_candidates_impl(ctx: RunContext, universe: list[str]) -> ToolResult
 
 
 def _selected_weights(ctx: RunContext) -> dict[str, float]:
-    """The weights of the adviser's choice in force for the run (``{}`` if none).
+    """The weights of the user's choice in force for the run (``{}`` if none).
 
-    The only vector the paper ticket is placed from: a candidate the adviser named at
-    the gate, or weights the adviser typed, and only while no newer candidate set
+    The only vector the paper ticket is placed from: a candidate the user named at
+    the gate, or weights the user typed, and only while no newer candidate set
     supersedes the choice. An agent can neither write nor re-type it.
     """
     from fund.audit import AgentRunRepository
@@ -566,7 +566,7 @@ def _candidate_weights(ctx: RunContext, candidate_id: str) -> dict[str, float]:
     """``candidate_id``'s weights in the run's latest candidate set (``{}`` if none).
 
     What the risk tools judge, read from the audited set rather than retyped by the
-    model, so the verdict covers exactly the weights the adviser would be shown.
+    model, so the verdict covers exactly the weights the user would be shown.
     """
     from fund import observe
 
@@ -660,7 +660,7 @@ def _check_weights_impl(ctx: RunContext, weights: dict[str, float]) -> ToolResul
 @_serialised
 def _risk_check_impl(ctx: RunContext, candidate_id: str) -> ToolResult:
     # Records no verdict: the one ``place_orders`` requires is written when the
-    # adviser names a candidate, so an agent's check can never clear a ticket.
+    # user names a candidate, so an agent's check can never clear a ticket.
     weights = _candidate_weights(ctx, candidate_id)
     if not weights:
         return _no_candidate_weights(candidate_id)
@@ -670,7 +670,7 @@ def _risk_check_impl(ctx: RunContext, candidate_id: str) -> ToolResult:
 def active_constraint_set(ctx: RunContext) -> ConstraintSet | None:
     """The run's active ``ConstraintSet``, for a caller outside the agent loop.
 
-    The adviser ``edit`` resolves the allowlist under the same set the live tools
+    The user ``edit`` resolves the allowlist under the same set the live tools
     read, so an ESG exclusion bars the same names in both.
 
     Returns:
@@ -699,7 +699,7 @@ def check_weights_against_mandate(
 ) -> ToolResult:
     """The live ``risk_check`` verdict on ``weights``, for callers outside the agent.
 
-    The adviser ``edit`` action validates typed weights with this, and the adviser's
+    The user ``edit`` action validates typed weights with this, and the user's
     choice of a candidate is judged again with it, so a human decision is held to the
     same bounds, position cap and ESG / K&E screen the risk agent's tool applies, not
     to the bare long-only defaults. The agent's own ``risk_check`` takes a candidate
@@ -783,8 +783,8 @@ def _outside_eligible_error(
 @_serialised
 def _place_orders_impl(ctx: RunContext) -> ToolResult:
     # Load-bearing invariant: skfolio computes the weights, never the LLM, and the
-    # adviser chooses which candidate is placed, never an agent. The ticket is placed
-    # only from the adviser's choice read back from the run's audit trail, and the
+    # user chooses which candidate is placed, never an agent. The ticket is placed
+    # only from the user's choice read back from the run's audit trail, and the
     # tool takes no weights, so neither the model nor a gate left without a human
     # choice (an emptied ``interrupt_on``, say) can place anything.
     from fund.audit import AgentRunRepository
@@ -796,7 +796,7 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
     # ineligible name would otherwise surface as the unexplained "gate has not passed".
     if (outside := _outside_eligible_error(ctx, selected)) is not None:
         return outside
-    # The verdict recorded with the adviser's choice; enforced here because prompt
+    # The verdict recorded with the user's choice; enforced here because prompt
     # text alone cannot stop a PM that skips the gate.
     if not AgentRunRepository(ctx.session).risk_passed(ctx.run_id, selected):
         return err(
@@ -842,9 +842,9 @@ def _place_ticket(ctx: RunContext, weights: dict[str, float]) -> ToolResult:
 
 
 def place_audited_orders(ctx: RunContext) -> ToolResult:
-    """Place the run's paper ticket from the adviser's choice, outside the graph.
+    """Place the run's paper ticket from the user's choice, outside the graph.
 
-    The same placement the gated ``place_orders`` tool performs (the adviser's choice
+    The same placement the gated ``place_orders`` tool performs (the user's choice
     required, risk-gate and mandate checks included), for an approve whose gate call
     was already consumed by an earlier attempt that did not survive (see
     ``fund.agents.graph``): idempotent on the ``(portfolio, asof, weights)`` key, so
@@ -1118,7 +1118,7 @@ def _bind_get_portfolio_history(ctx: RunContext) -> BaseTool:
 
 
 _ORDER_TOOL = "place_orders"
-# The fields of each candidate the adviser reviews at the gate; ``settings`` stays in
+# The fields of each candidate the user reviews at the gate; ``settings`` stays in
 # the audited set, where the report reads it.
 _GATE_CANDIDATE_FIELDS = frozenset(
     {
@@ -1134,9 +1134,9 @@ _GATE_CANDIDATE_FIELDS = frozenset(
 
 
 def _gate_args(ctx: RunContext) -> dict[str, Any]:
-    """The ``place_orders`` args the adviser reviews: the run's whole candidate set.
+    """The ``place_orders`` args the user reviews: the run's whole candidate set.
 
-    Every candidate in id order, never ranked, with the ids the adviser may choose
+    Every candidate in id order, never ranked, with the ids the user may choose
     from; ``{"candidates": [], "selectable": []}`` when the run has no set.
     """
     from fund import observe
@@ -1176,10 +1176,10 @@ def build_gate_candidates_middleware(ctx: RunContext) -> Any:
     """Build the PM middleware that pins the ``place_orders`` gate to the candidates.
 
     The human-approval interrupt shows the tool call's args, and ``place_orders``
-    ignores whatever the model typed: it places only the candidate the adviser names.
+    ignores whatever the model typed: it places only the candidate the user names.
     So the call's args are rewritten as the model's reply is produced, before the
     interrupt reads them, to the run's audited candidate set (see :func:`_gate_args`),
-    and the adviser chooses from exactly what was computed, never from an allocation
+    and the user chooses from exactly what was computed, never from an allocation
     the model invented.
 
     The langchain import is lazy so a bare ``import fund.agents.toolsets`` stays
@@ -1200,7 +1200,7 @@ def build_gate_candidates_middleware(ctx: RunContext) -> Any:
         )
 
     class GateCandidatesMiddleware(AgentMiddleware):
-        """Shows the adviser every candidate ``place_orders`` may place."""
+        """Shows the user every candidate ``place_orders`` may place."""
 
         def wrap_model_call(self, request: Any, handler: Any) -> Any:
             return pin(handler(request))

@@ -482,7 +482,7 @@ def interrupt_for(saver: Any, run: Any) -> dict[str, Any] | None:
     :func:`pending_hitl` cross-checks) is a ``list[Interrupt]``; its first element's
     ``.value`` is the dict the gated tool raised — carrying ``action_requests`` (each
     gated call's name and args; for ``place_orders`` the run's candidate set, from
-    which the adviser chooses the one to place) and ``review_configs``. The
+    which the user chooses the one to place) and ``review_configs``. The
     HITL-queue panel renders that dict when a paused run is selected. Returns
     ``None`` when the thread carries no live interrupt.
 
@@ -586,7 +586,7 @@ def mandate_warnings(session: Any, portfolio_id: uuid.UUID) -> list[str]:
 
     A legacy percent-style drift threshold is clamped on load and so leaves the drift
     trigger inert (see ``PortfolioMandate.stored_value_warnings``); the Posture view
-    shows the sentence so an adviser can fix it.
+    shows the sentence so a user can fix it.
 
     Args:
         session: A read-only session.
@@ -1409,7 +1409,7 @@ def run_metrics(run: Any) -> dict[str, float]:
     The one reader of a run's persisted metrics: :attr:`PortfolioState.metrics` and
     ``fund report`` both use it, so neither borrows another run's numbers. A run with
     no metrics block yields ``{}`` (metrics are never fabricated). The newest proposal
-    is authoritative even when it carries no metrics (an adviser edit does not), so an
+    is authoritative even when it carries no metrics (a user edit does not), so an
     older proposal's figures never describe the edited weights.
 
     Args:
@@ -1461,14 +1461,14 @@ def candidate_set(session: Any, run_id: uuid.UUID) -> CandidateSet | None:
 
 
 def selected_candidate_id(run: Any) -> str | None:
-    """The candidate the adviser chose for ``run``, while that choice is in force.
+    """The candidate the user chose for ``run``, while that choice is in force.
 
     Args:
         run: An ``AgentRun`` row with its ``decisions`` loaded; read-only.
 
     Returns:
         The chosen id, or ``None`` when no choice is in force (none was made, a newer
-        candidate set superseded it, or the adviser typed the weights instead).
+        candidate set superseded it, or the user typed the weights instead).
     """
     from fund.audit.repository import current_adviser_choice
 

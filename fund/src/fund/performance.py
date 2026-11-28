@@ -376,7 +376,7 @@ def resolve_benchmark(session: Any, benchmark: str) -> str | None:
 
     Args:
         session: Open SQLAlchemy session.
-        benchmark: The ticker as the adviser typed it.
+        benchmark: The ticker as the user typed it.
 
     Returns:
         The ticker as stored, or ``None`` when no instrument with price history

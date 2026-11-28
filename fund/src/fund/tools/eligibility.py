@@ -105,7 +105,7 @@ class Eligibility:
             held, in mandate order. Reasons are stable strings: ``no_instrument``,
             ``delisted``, ``not_priced``, ``esg:<gics sector>``,
             ``esg_unclassified``.
-        notes: Caveats the system raises about this resolution for the adviser and
+        notes: Caveats the system raises about this resolution for the user and
             the PM seed.
     """
 

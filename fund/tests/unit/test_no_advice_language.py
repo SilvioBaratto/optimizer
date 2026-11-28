@@ -14,15 +14,19 @@ scan reads only the text a person or an agent sees: non-docstring string literal
 ``## [Unreleased]`` section of CHANGELOG.md, where the quotations of removed wording are
 listed with their reason. The model-facing scan adds the schemas the agents are bound
 to, and the package scan reads the ``description`` every ``pyproject.toml`` ships as
-its wheel summary.
+its wheel summary. A further scan reads the developer prose of ``fund`` and
+``portopt_db`` (comments and docstrings), which the Ask agent stages as ``/code`` and
+quotes to the user, so the word cannot return there either.
 """
 
 from __future__ import annotations
 
 import ast
 import functools
+import io
 import json
 import re
+import tokenize
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -89,6 +93,12 @@ _OLD_PHRASES = (
     "suitability flags",
 )
 _ADVISER = re.compile(r"\badvisers?\b", re.IGNORECASE)
+# Identifiers keep the old name (``adviser_edit``, ``current_adviser_choice``), so an
+# underscore or a digit next to the word makes it part of a name, not prose; a quote
+# or an apostrophe does not, so ``adviser's`` is still the word.
+_ADVISER_PROSE = re.compile(
+    r"(?<![A-Za-z0-9_])advis(?:er|ers|or|ors)(?![A-Za-z0-9_])", re.IGNORECASE
+)
 # A wheel summary is the first line a stranger reads about a package.
 _PACKAGE_FRAMING = re.compile(
     r"LLM\s+chooses|investment[\s-]+funds?|\badvis\w*|suitability|fund\s+manag\w*",
@@ -189,6 +199,43 @@ def _phrase_haystacks() -> dict[str, str]:
             path.read_text(encoding="utf-8")
         )
     return haystacks
+
+
+def _developer_prose(source: str) -> list[tuple[str, int, str]]:
+    """Return ``(kind, first line, text)`` for each comment and docstring."""
+    prose = [
+        ("comment", token.start[0], token.string)
+        for token in tokenize.generate_tokens(io.StringIO(source).readline)
+        if token.type == tokenize.COMMENT
+    ]
+    owners = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, owners) or not node.body:
+            continue
+        first = node.body[0]
+        text = first.value if isinstance(first, ast.Expr) else None
+        if isinstance(text, ast.Constant) and isinstance(text.value, str):
+            prose.append(("docstring", text.lineno, text.value))
+    return prose
+
+
+def _adviser_prose_hits(
+    prose: list[tuple[str, int, str]], label: str
+) -> dict[str, str]:
+    hits: dict[str, str] = {}
+    for kind, line, text in prose:
+        for match in _ADVISER_PROSE.finditer(text):
+            at = line + text.count("\n", 0, match.start())
+            hits[f"{label}:{at}"] = f"{kind}: {match.group(0)}"
+    return hits
+
+
+@functools.cache
+def _developer_prose_index() -> dict[str, list[tuple[str, int, str]]]:
+    return {
+        str(path.relative_to(_REPO)): _developer_prose(path.read_text(encoding="utf-8"))
+        for path in _phrase_python_sources()
+    }
 
 
 def _tool_descriptions() -> dict[str, str]:
@@ -387,3 +434,100 @@ def test_the_changelog_scan_flags_prose_beside_a_quotation() -> None:
     assert _hits(_ADVISER, {"entry": _without_quotations(entry)}) == {
         "entry": ["adviser"]
     }
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+def test_developer_prose_never_calls_the_user_an_adviser() -> None:
+    """Validates every comment and docstring under fund/src/fund and
+    packages/portopt-db/src/portopt_db, the source the Ask agent stages as ``/code``
+    and quotes to the user: none says adviser or advisor, in any number or
+    possessive. Identifiers that keep the old name are not prose and are not read."""
+    index = _developer_prose_index()
+    kinds = {kind for prose in index.values() for kind, *_ in prose}
+    # A scan that read nothing, or only one kind of prose, would pass for nothing.
+    assert len(index) >= 100
+    assert kinds == {"comment", "docstring"}
+
+    hits = {
+        key: found
+        for path, prose in index.items()
+        for key, found in _adviser_prose_hits(prose, path).items()
+    }
+
+    assert hits == {}
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+def test_the_developer_prose_scan_reads_comments_and_docstrings_only() -> None:
+    """Validates ``_adviser_prose_hits`` behind
+    test_developer_prose_never_calls_the_user_an_adviser: a comment and a docstring
+    that say adviser are found at the line that says it, and identifiers that keep
+    the old name are not."""
+    source = (
+        '"""Module for adviser_edit."""\n'
+        "\n"
+        "\n"
+        "def adviser_edit() -> None:\n"
+        '    """Shown to the adviser."""\n'
+        "    current_adviser_choice = _NO_ADVISER_CHOICE  # adviser_edit stays\n"
+        "    # the adviser approves\n"
+        "\n"
+        "\n"
+        "def gate() -> None:\n"
+        '    """Pause the run.\n'
+        "\n"
+        "    The adviser's choice stays in force.\n"
+        '    """\n'
+    )
+
+    hits = _adviser_prose_hits(_developer_prose(source), "synthetic")
+
+    assert hits == {
+        "synthetic:5": "docstring: adviser",
+        "synthetic:7": "comment: adviser",
+        "synthetic:13": "docstring: adviser",
+    }
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "the adviser approves",
+        "The Adviser approves",
+        "the adviser's choice",
+        "both advisers agree",
+        "the advisers' vote",
+        "an advisor",
+        "the advisor's note",
+        "advisors",
+        "the adviser-confirmation gate",
+        "``adviser``",
+        "ADVISER DIRECTIVE",
+    ],
+)
+def test_the_developer_prose_pattern_flags_each_spelling(prose: str) -> None:
+    """Validates ``_ADVISER_PROSE``: the singular, plural and possessive of both
+    spellings are caught, whatever the case or the punctuation beside them."""
+    assert _ADVISER_PROSE.search(prose)
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.parametrize(
+    "name",
+    [
+        "adviser_edit",
+        "current_adviser_choice",
+        "adviser_choice_in_force",
+        "_NO_ADVISER_CHOICE",
+        "AdviserChoice",
+        "adviser2",
+        "advisory",
+    ],
+)
+def test_the_developer_prose_pattern_leaves_identifiers_and_other_words(
+    name: str,
+) -> None:
+    """Validates ``_ADVISER_PROSE``: an identifier that keeps the old name, and a
+    different word that shares its stem, are not flagged."""
+    assert _ADVISER_PROSE.search(name) is None

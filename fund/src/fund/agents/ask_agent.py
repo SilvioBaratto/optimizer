@@ -19,7 +19,7 @@ Three things keep it contained:
 The conversation is one LangGraph thread per scope (a portfolio, or the whole fund) in
 the shared checkpointer. deepagents compacts it automatically as it grows and offloads
 the evicted history to a file in the scope's scratch directory; :func:`clear_ask_state`
-removes the thread and that directory together. The exact transcript the adviser reads
+removes the thread and that directory together. The exact transcript the user reads
 is kept separately (:mod:`fund.tui.ask_history`).
 
 ``deepagents`` and ``langgraph`` are imported inside the functions that need them, so
@@ -685,7 +685,7 @@ def make_mandate_tool(ctx: AskToolContext) -> BaseTool:
 
 
 def make_pending_gates_tool(ctx: AskToolContext) -> BaseTool:
-    """The ``pending_gates`` tool: the gates waiting on the adviser.
+    """The ``pending_gates`` tool: the gates waiting on the user.
 
     Args:
         ctx: What the fund-data tools share.
@@ -1045,7 +1045,7 @@ def run_ask_turn(
     Args:
         agent: The agent from :func:`build_ask_agent`.
         scope: The conversation scope the question belongs to.
-        question: The adviser's question, as typed.
+        question: The user's question, as typed.
         on_step: Called with a short phrase before each tool runs.
         max_steps: The most model rounds the turn may use.
         timeout_seconds: Wall-clock limit; checked between steps, since a call already

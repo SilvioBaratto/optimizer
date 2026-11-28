@@ -1,6 +1,6 @@
 """The run instruction a PM round starts from, each block fitted to a budget.
 
-The history digest, the adviser's directives, the eligible universe and the
+The history digest, the user's directives, the eligible universe and the
 constraint digest are trimmed to fixed character budgets before they are joined
 into the instruction :func:`fund.agents.graph.run_fund` sends.
 """
@@ -144,7 +144,7 @@ _DIRECTIVE_MAX_CHARS = 300
 def _directives_block(
     mandate: PortfolioMandate, *, budget: int = _DIRECTIVES_BUDGET
 ) -> str:
-    """Render the adviser's remembered directives, or ``""`` when there are none.
+    """Render the user's remembered directives, or ``""`` when there are none.
 
     Each directive is collapsed onto a single bullet line so free text cannot pose
     as a separate instruction to the PM, capped to ``_DIRECTIVE_MAX_CHARS``, and the
@@ -261,7 +261,7 @@ def _run_instruction(
     When ``history_summary`` is non-empty it is prepended as a context block so
     the PM sees the portfolio's recent allocation/trades and the latest market
     digest before deciding; an empty summary (first run) yields the bare seed.
-    The mandate's ``remembered_directives`` follow as one bullet each: the adviser
+    The mandate's ``remembered_directives`` follow as one bullet each: the user
     saved them to steer every later round, including unattended scheduled ones. The
     mandate line carries the drift band and HITL gates, and a given ``constraint_set``
     adds its limits digest, so the PM can pass real numbers to the subagents rather

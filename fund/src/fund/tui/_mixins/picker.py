@@ -57,7 +57,7 @@ class PickerMixin(ShellHost):
         """Replace the picker's options with ``ids`` and re-select the focus, silently.
 
         ``set_options`` resets the selection to blank; with the message prevented that
-        reset (and the re-selection) is never read as an adviser pick.
+        reset (and the re-selection) is never read as a user pick.
         """
         self._portfolio_ids = ids
         select = self.query_one("#hdr-portfolio", Select)
@@ -87,7 +87,7 @@ class PickerMixin(ShellHost):
 
         Fund scope wins: a FROZEN fund reads frozen regardless of the focused
         portfolio's own row. A read error reads ``? UNKNOWN`` — never the permissive
-        ``● ARMED``, which would tell the adviser a frozen fund had resumed. Portfolios
+        ``● ARMED``, which would tell the user a frozen fund had resumed. Portfolios
         frozen *other than* the focused one are counted after the glyph (``· ❄ 1 other
         frozen``), since a freeze from the fund-wide Decisions queue can land on a
         portfolio the header is not focused on and would otherwise show nowhere.
@@ -122,7 +122,7 @@ class PickerMixin(ShellHost):
         A streaming round latches ``▶ LIVE`` (poll-stable). Otherwise: fund-wide (no
         focus) or no runs read as ``idle`` and a read error as ``? unknown``; a
         ``paused`` or ``responded`` (barge-in re-gate) latest run is ``awaiting`` the
-        adviser, ``pending``/``running`` is live, everything else (completed /
+        user, ``pending``/``running`` is live, everything else (completed /
         rejected) is idle.
         """
         if self._streaming:

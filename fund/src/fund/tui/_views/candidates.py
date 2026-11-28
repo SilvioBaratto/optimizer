@@ -1,9 +1,9 @@
 """Plain-text cells and prompts for a rebalance gate's candidate portfolios.
 
 The Decisions view lists every candidate a ``place_orders`` gate carries in one table
-and the adviser chooses one. Every row gets the same columns, in the id order the set
+and the user chooses one. Every row gets the same columns, in the id order the set
 arrives in; nothing here sorts, scores or marks a candidate, and the only selection is
-the one the adviser makes. A status is a dot and a word, never a colour alone.
+the one the user makes. A status is a dot and a word, never a colour alone.
 
 Candidates arrive as the JSON dump of :class:`fund.schemas.candidates.Candidate`, so
 this module needs only the standard library and keeps the view import-light.
@@ -61,7 +61,7 @@ _FAILED = "○ failed"
 
 
 def gate_names(interrupt: Mapping[str, Any] | None) -> tuple[str, ...]:
-    """Return the gated tool names a pending HITL payload asks the adviser about.
+    """Return the gated tool names a pending HITL payload asks the user about.
 
     The same reading as ``fund.agents.graph_candidates.pending_gate_names``, kept
     here so the view never imports the agent package (and the optimizer behind it)
@@ -126,7 +126,7 @@ def find_candidate(
 
 
 def is_selectable(candidate: Mapping[str, Any]) -> bool:
-    """Return whether the adviser may choose ``candidate`` (it is feasible)."""
+    """Return whether the user may choose ``candidate`` (it is feasible)."""
     return bool(candidate.get("feasible"))
 
 
@@ -166,7 +166,7 @@ def pick_line(
     """Return the line under the table that says what ``a`` would approve.
 
     Args:
-        candidate: The candidate the adviser selected, or ``None``.
+        candidate: The candidate the user selected, or ``None``.
         has_candidates: Whether the gate shows any candidate at all.
         blocked: Why an approve is refused whatever is selected, or ``None``.
 
@@ -192,7 +192,7 @@ def refused_pick_line(candidate_id: str, candidate: Mapping[str, Any] | None) ->
     """Return why ``candidate_id`` cannot be selected.
 
     Args:
-        candidate_id: The id the adviser tried to select.
+        candidate_id: The id the user tried to select.
         candidate: That candidate, or ``None`` when the gate shows no such id.
 
     Returns:
@@ -210,11 +210,11 @@ def approve_prompt(target: str, candidate: Mapping[str, Any]) -> str:
     """Return the confirm text for approving ``target`` with ``candidate``.
 
     Names the candidate's id and label, every weight the paper orders are placed
-    from, and its measures, so the adviser confirms exactly what executes.
+    from, and its measures, so the user confirms exactly what executes.
 
     Args:
         target: How the gate is named (its run id and portfolio).
-        candidate: The candidate the adviser selected.
+        candidate: The candidate the user selected.
 
     Returns:
         The prompt shown above Confirm | Cancel.

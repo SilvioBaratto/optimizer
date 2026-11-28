@@ -61,7 +61,7 @@ class StreamEvent:
     Attributes:
         kind: ``"step"`` for a pipeline step, or a terminal marker that
             ``stream_fund`` yields last, at most once per stream — ``"paused"`` (the
-            ``place_orders`` gate is live and awaiting the adviser) or
+            ``place_orders`` gate is live and awaiting the user) or
             ``"incomplete"`` (no gate opened: the pipeline ended with no ticket, or
             autonomy froze mid-round and the run was rejected).
         run_id: The streamed run.

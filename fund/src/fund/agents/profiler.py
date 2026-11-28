@@ -97,23 +97,23 @@ FLAG_OVERCONFIDENCE = "overconfidence"
 FLAG_REACTION_TOLERANCE_MISMATCH = "reaction_tolerance_mismatch"
 # Prefix of one flag per datum the client text never stated (``<prefix>:<datum>``).
 FLAG_UNANSWERED_INPUT = "unanswered_input"
-# An ESG preference no GICS sector expresses (``no tobacco``): shown to the adviser,
+# An ESG preference no GICS sector expresses (``no tobacco``): shown to the user,
 # never enforced, so the gate must not let it pass as honoured.
 FLAG_UNENFORCED_ESG_PREFERENCE = "unenforced_esg_preference"
 
 
 class SuitabilityBreachError(ValueError):
-    """A HARD MiFID breach that cannot proceed to a portfolio (SPEC §8.3).
+    """A hard limit conflict that cannot proceed to a portfolio (SPEC §8.3).
 
     Distinct from a soft ``inconsistency_flags`` entry (flagged and surfaced at the
-    HITL gate): a breach hard-blocks outright. Raised when the ESG pillar excludes
-    every GICS sector, leaving no investable universe. Subclasses ``ValueError`` so
-    a caller may catch it broadly or specifically.
+    HITL gate): a hard conflict stops the run outright. Raised when the ESG pillar
+    excludes every GICS sector, leaving no investable universe. Subclasses
+    ``ValueError`` so a caller may catch it broadly or specifically.
 
     Attributes:
         run_id: The ``agent_run`` that :func:`run_profiler` finalised ``blocked`` for
-            this breach, so a caller can anchor an audit trail to it; ``None`` for a
-            breach raised outside a profiler run.
+            this conflict, so a caller can anchor an audit trail to it; ``None`` for a
+            conflict raised outside a profiler run.
     """
 
     run_id: uuid.UUID | None = None
@@ -363,7 +363,7 @@ def _inconsistency_flags(
 
     Pure over the already-scored appetites plus the raw objective / reaction
     answers. Each rule is independent and additive; the flags are surfaced to the
-    adviser at the HITL gate — the binding ``a_gamma`` is left untouched.
+    user at the HITL gate — the binding ``a_gamma`` is left untouched.
 
     ``answers`` carry conservative placeholders in the fields the client left
     unanswered. Those placeholders drive the band but are not statements, so a rule
@@ -539,7 +539,7 @@ def run_mapping(
 # ``structured_call`` helper) and *decides* to persist; the deterministic mapping
 # above computes every knob. Persistence is a single ``save_profile`` tool gated
 # behind ``interrupt_on`` + a checkpointer, so the profiler *always* pauses for
-# adviser sign-off before writing. Heavy deps (deepagents / langchain / langgraph
+# user sign-off before writing. Heavy deps (deepagents / langchain / langgraph
 # / the audit repos) are imported lazily so the pure mapping above stays cheap to
 # import (test_profiler_mapping imports it without the agent stack).
 # ---------------------------------------------------------------------------
@@ -647,7 +647,7 @@ def _typed_answers(questionnaire: Any) -> MiFIDAnswers | None:
 
 
 def _answers_summary(answers: MiFIDAnswers) -> str:
-    """One-line rendering of all four pillars for the adviser at the HITL gate."""
+    """One-line rendering of all four pillars for the user at the HITL gate."""
     exclusions = ", ".join(s.value for s in answers.esg.exclusions) or "none"
     if answers.esg.exclusions:
         share = answers.esg.look_through_tolerance * 100
@@ -762,7 +762,7 @@ def _persist_instruction(portfolio_id: str) -> str:
 def _currency_summary(base_currency: str, answers: MiFIDAnswers) -> str:
     """The reporting currency the profile will be written with.
 
-    It is the effective ``ConstraintSet`` currency, which an adviser override can
+    It is the effective ``ConstraintSet`` currency, which a user override can
     make differ from the extracted answer; the gate names both so neither is
     approved unseen.
     """
@@ -804,11 +804,11 @@ def _extract_interrupt(result: Any) -> dict[str, Any] | None:
 
 @dataclass(frozen=True)
 class ProfilerRun:
-    """Handle for one profiling run paused at the adviser-confirmation gate.
+    """Handle for one profiling run paused at the user-confirmation gate.
 
     Carries the interpreted ``answers``, the deterministically-mapped
     ``constraint_set`` + ``suitability`` (with any ``inconsistency_flags``), the
-    ``interrupt`` payload the adviser reviews, and enough state to resume:
+    ``interrupt`` payload the user reviews, and enough state to resume:
     ``resume("approve")`` persists, ``resume("reject")`` persists nothing. ``status``
     is ``"paused"`` at the gate, or ``"incomplete"`` when the agent never called
     ``save_profile`` — then there is no gate to resume and the run is already
@@ -826,7 +826,7 @@ class ProfilerRun:
     status: str = "paused"
 
     def resume(self, decision: str) -> dict[str, Any]:
-        """Resume the paused agent with an adviser ``decision`` (approve / reject).
+        """Resume the paused agent with a user ``decision`` (approve / reject).
 
         ``approve`` runs the gated ``save_profile`` tool (the write happens inside
         it). Any other decision writes nothing but records the HITL choice in the
@@ -834,7 +834,7 @@ class ProfilerRun:
         its gate (already decided, frozen, or never gated) raises ``ValueError``.
 
         Args:
-            decision: The adviser's choice; ``"approve"`` persists, anything else
+            decision: The user's choice; ``"approve"`` persists, anything else
                 rejects.
 
         Returns:
@@ -950,7 +950,7 @@ def _profiler_run_config(base_currency: str | None) -> dict[str, Any]:
     ``step`` lets the resume dispatcher tell a profiler run from a fund run. The
     ``base_currency`` override is recorded because the mapping is re-derived at
     approval time in a fresh process, which must reproduce the ConstraintSet the
-    adviser reviewed rather than fall back to the extracted currency.
+    user reviewed rather than fall back to the extracted currency.
     """
     config: dict[str, Any] = {"step": "profiler"}
     if base_currency is not None:
@@ -973,7 +973,7 @@ def _make_save_profile(
 
     The write is driven entirely by the captured, deterministically-mapped values
     (see :func:`_persist_profile`) — the tool takes no argument, so no knob (and no
-    malformed argument that would fail validation after the adviser has approved)
+    malformed argument that would fail validation after the user has approved)
     can enter through a tool call (the load-bearing rule).
     """
     from langchain_core.tools import tool
@@ -1004,10 +1004,10 @@ def _make_save_profile(
 
 
 def _require_live_gate(run: Any, run_id: uuid.UUID) -> None:
-    """Refuse to resume a profiler run that is not awaiting an adviser decision.
+    """Refuse to resume a profiler run that is not awaiting a user decision.
 
     A freeze rejects live gates at the DB without resolving the checkpoint, so the
-    graph's interrupt still stands for a run the adviser halted; a blind
+    graph's interrupt still stands for a run the user halted; a blind
     ``Command(resume=...)`` would write the profile for it (or, on a finished
     thread, silently do nothing yet report success). Only a run flipped to
     ``paused``/``responded`` at its gate is resumable.
@@ -1024,7 +1024,7 @@ def _require_profile_saved(audit: Any, run_id: uuid.UUID) -> None:
 
     The approve decision resumes the graph, but the tool call it releases can still
     fail before writing (a malformed call is returned to the model as an error
-    message, not raised). Without this check the caller would report the adviser's
+    message, not raised). Without this check the caller would report the user's
     approval as applied while the run sits at ``paused`` with no profile written.
     """
     run = audit.get_run(run_id)
@@ -1043,7 +1043,7 @@ def _resume_at_gate(
     audit: Any,
     run_id: uuid.UUID,
 ) -> dict[str, Any]:
-    """Resume the paused agent with the adviser's ``decision``.
+    """Resume the paused agent with the user's ``decision``.
 
     ``save_profile`` writes inside the graph and the model then takes one more turn
     to close the conversation. If that turn fails, the exception unwinds to a caller
@@ -1135,7 +1135,7 @@ def run_profiler(
     asof: dt.date | None = None,
     thread_id: str | None = None,
 ) -> ProfilerRun:
-    """Run the MiFID profiler to the adviser-confirmation gate (runtime step 0).
+    """Run the MiFID profiler to the user-confirmation gate (runtime step 0).
 
     Orchestrates: (1) obtain a typed ``MiFIDAnswers`` — a ``questionnaire`` that
     already is one (an instance, or its JSON as the TUI form hands it over) is used
@@ -1198,7 +1198,7 @@ def run_profiler(
             answers, portfolio_id=pid_str, base_currency=base_currency
         )
     except SuitabilityBreachError as exc:
-        # HARD MiFID breach: a terminal business outcome, not an infra error. The
+        # Hard limit conflict: a terminal business outcome, not an infra error. The
         # blocked run is finalised (no 'pending' orphan, mirroring run_fund's
         # early-exit) and kept past the caller's rollback; the caller still sees
         # the exception.
@@ -1423,7 +1423,7 @@ def resume_profiler(
         if finalised is None or finalised.status != "completed":
             # The checkpoint is already past the tool — an earlier approve whose DB
             # writes were rolled back — so the resume above was a no-op. Re-apply
-            # what the adviser approved instead of reporting a success that wrote
+            # what the user approved instead of reporting a success that wrote
             # nothing. Keyed on the run, not on a missing profile: a re-profile also
             # starts from an existing row, so the row alone cannot say whether this
             # run's approval landed.

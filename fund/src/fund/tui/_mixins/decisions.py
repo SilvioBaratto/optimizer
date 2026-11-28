@@ -37,7 +37,7 @@ class DecisionsMixin(ShellHost):
     def action_decide_approve(self) -> None:
         """Approve the selected Decisions gate (the ``a`` binding).
 
-        A rebalance gate is approved with the candidate the adviser selected, behind
+        A rebalance gate is approved with the candidate the user selected, behind
         a confirm naming it; any other gate is approved at once.
         """
         self._decide("approve")
@@ -58,7 +58,7 @@ class DecisionsMixin(ShellHost):
         if view is None or view.selected_run_id is None:
             return
         # Reject and a non-rebalance approve act at once with no confirm, so the
-        # adviser must have the gate on screen: a failed gate render fails closed
+        # user must have the gate on screen: a failed gate render fails closed
         # rather than releasing a gate they could not read.
         if view.gate_unavailable:
             self._set_status(
@@ -82,7 +82,7 @@ class DecisionsMixin(ShellHost):
         Refused with a status line unless a feasible candidate of the set the gate
         was opened on is selected. Otherwise a confirm names the candidate's id,
         label, weights and measures, and only an explicit Confirm sends the approve,
-        carrying that id; nothing is chosen for the adviser. The approve is not sent
+        carrying that id; nothing is chosen for the user. The approve is not sent
         if the gate or the selection changed while the confirm was open.
         """
         refusal = view.approve_refusal()
@@ -219,7 +219,7 @@ class DecisionsMixin(ShellHost):
         Returns ``None`` with a status message when Decisions is not active, nothing is
         selected (``no_selection_hint``), or the cursor has moved off the selected gate.
         Selection only follows Enter or a click, so acting then would resolve a gate
-        other than the one the adviser is looking at — they must press Enter on it
+        other than the one the user is looking at — they must press Enter on it
         first. These actions release orders or kill a run, hence the explicit guard.
         """
         view = self._active_decisions_view()
@@ -240,7 +240,7 @@ class DecisionsMixin(ShellHost):
 
         View-scoped to Decisions (``DecisionsView.BINDINGS``) so it does not collide
         with the global Audit export ``e``. Opens the editor on the weights of the
-        candidate row the adviser selected, and on Commit threads the edit through
+        candidate row the user selected, and on Commit threads the edit through
         ``apply_action("edit")``. A no-op with a hint off Decisions, without a
         selected paused gate, or on a rebalance gate with no candidate selected.
         """
@@ -299,7 +299,7 @@ class DecisionsMixin(ShellHost):
         Needs a pending gate (its ``place_orders`` interrupt). The seed is the picked
         candidate's audited weights at full precision, or for a run with no candidate
         set the latest audited proposal, never the PM's own ``place_orders`` args,
-        which that tool ignores. Nothing is picked for the adviser: with no candidate
+        which that tool ignores. Nothing is picked for the user: with no candidate
         picked on a candidate gate the editor stays closed. The run repo is imported
         from its submodule (never the ``fund.audit`` root, which pulls the langgraph
         bootstrap) so this stays agent-stack-light.
@@ -335,10 +335,10 @@ class DecisionsMixin(ShellHost):
     ) -> None:
         """Resolve a gate through the unified action path — off the event loop.
 
-        ``shown_gate`` is the id of the gate the adviser was looking at; the decision
+        ``shown_gate`` is the id of the gate the user was looking at; the decision
         is refused when the run is parked at another one (see
         :func:`fund.actions.resolution_key`). ``candidate_id`` is the candidate the
-        adviser picked, which an approve of a rebalance gate requires.
+        user picked, which an approve of a rebalance gate requires.
 
         The model is built lazily (a missing key surfaces as a status line, not a
         crash) and only for decisions that drive the graph: reject / killswitch settle
@@ -406,7 +406,7 @@ class DecisionsMixin(ShellHost):
         weights: dict[str, float],
         shown_gate: str | None = None,
     ) -> None:
-        """Commit adviser-edited weights through the unified path — off the event loop.
+        """Commit user-edited weights through the unified path — off the event loop.
 
         ``shown_gate`` is the gate the editor was opened on; the edit is refused when
         the run has since moved to another one.
@@ -457,7 +457,7 @@ class DecisionsMixin(ShellHost):
         and every live run in scope is rejected (DB-level). A ``fund`` freeze ignores
         ``portfolio_id`` (the single fund row). Any failure surfaces as a status line.
 
-        Deliberately outside :func:`_single_flight`: the freeze is the adviser's
+        Deliberately outside :func:`_single_flight`: the freeze is the user's
         emergency stop, so it is never refused behind an in-flight approve / edit /
         steer — a graph resume that hangs would otherwise leave every freeze refused
         until the TUI restarts. It is safe to run alongside one because a freeze never

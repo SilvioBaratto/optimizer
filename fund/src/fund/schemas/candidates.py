@@ -1,9 +1,9 @@
-"""The candidate portfolios a run computes for the adviser to choose from.
+"""The candidate portfolios a run computes for the user to choose from.
 
 A run fits four methods over one returns panel and one set of shared constraints:
 ``hrp``, ``mean_risk``, ``min_risk`` and ``risk_parity``. They are always listed in
 that alphabetical id order, which says nothing about how good a candidate is, and the
-human adviser, never the model, picks one. A candidate reports only neutral measures
+user, never the model, picks one. A candidate reports only neutral measures
 (volatility, CVaR, its largest position, how many names it holds, the turnover from
 current holdings) and the constraint check on its weights; mean return and Sharpe
 ratio are deliberately absent.
@@ -94,10 +94,10 @@ class Candidate(BaseModel):
             ``compute_candidates`` tool checks the shared floor, cap and budget
             only; the bound agent tool replaces that with the risk gate's live
             check (ESG and K&E screens, eligible universe, loss ceilings), and only
-            a set that has been through it says whether the adviser may choose a
+            a set that has been through it says whether the user may choose a
             candidate.
         weights: Ticker to weight; empty when the method produced no weights, kept
-            when it solved but breached so the adviser can see why.
+            when it solved but breached so the user can see why.
         metrics: The neutral measures, absent when there are no weights.
         constraint_check: The verdict on ``weights`` (bounds only, or the live
             check; see ``feasible``), absent when there are none.
@@ -164,7 +164,7 @@ class CandidateSet(BaseModel):
         return self
 
     def selectable_ids(self) -> tuple[CandidateId, ...]:
-        """Return the ids the adviser may choose, in :data:`CANDIDATE_IDS` order."""
+        """Return the ids the user may choose, in :data:`CANDIDATE_IDS` order."""
         return tuple(
             candidate.candidate_id
             for candidate in self.candidates

@@ -2,7 +2,7 @@
 
 Re-exports the four typed I/O schemas (``PortfolioMandate``, ``ConstraintSet``,
 ``ViewSet``, ``AllocDecision``) with their nested models, the candidate set the
-adviser chooses from (``CandidateSet`` and its parts), the shared MiFID-facing
+user chooses from (``CandidateSet`` and its parts), the shared MiFID-facing
 enums, and the model-agnostic ``structured_call`` helper (with
 ``StructuredOutputError`` / the ``SupportsStructuredOutput`` protocol). Import
 from ``fund.schemas`` rather than the individual modules.

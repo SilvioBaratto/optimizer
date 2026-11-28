@@ -1,4 +1,4 @@
-"""Barge-in overlay — the adviser's free-text directive to the PM mid-deliberation.
+"""Barge-in overlay — the user's free-text directive to the PM mid-deliberation.
 
 Textual + stdlib only at import time, so ``import fund.tui.barge_in`` drags in neither
 ``deepagents`` nor ``langgraph`` (the import-light guard in ``test_tui.py``); the agent
@@ -25,7 +25,7 @@ class BargeInResult:
     """One submitted barge-in directive and whether to remember it.
 
     Attributes:
-        text: The adviser's free-text directive, threaded to the PM at the gate.
+        text: The user's free-text directive, threaded to the PM at the gate.
         remember: When ``True``, persist as a soft guardrail
             (``PortfolioMandate.remembered_directives``, stated in the PM seed of every
             later round); when ``False``, a one-shot directive that seeds only the
@@ -39,7 +39,7 @@ class BargeInResult:
 class BargeInScreen(ModalScreen["BargeInResult | None"]):
     """A modal collecting a PM directive, with a one-shot / remember toggle.
 
-    Pushed when the adviser barges into a live round: it shows where the stream paused,
+    Pushed when the user barges into a live round: it shows where the stream paused,
     takes a directive, and — on Send (or ``↵``) with non-empty text — dismisses a
     :class:`BargeInResult`. Cancel, ``escape``, or an empty Send dismiss ``None`` (a
     caller no-op that resumes the stream unchanged).

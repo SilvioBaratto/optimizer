@@ -1,6 +1,6 @@
 """Where the TUI writes exports that hold client data.
 
-Audit CSVs, Ask logs and daily briefs carry capital, mandates and adviser free text,
+Audit CSVs, Ask logs and daily briefs carry capital, mandates and user free text,
 so they go to one dedicated directory instead of the working directory: that is the
 container's writable layer (lost on recreate) or, on a host run, the repo root where
 a stray ``git add -A`` would publish them. Stdlib only, so the TUI import stays light.

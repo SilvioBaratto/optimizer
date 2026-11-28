@@ -81,7 +81,7 @@ class MandateMixin(ShellHost):
 
         ``prev_value`` is the mandate the edit was built from; the save is refused when
         the stored mandate has moved since (a remembered directive, the CLI), so a
-        stale view never overwrites a change the adviser has not seen. A save already in
+        stale view never overwrites a change the user has not seen. A save already in
         flight refuses this one rather than racing it.
         """
         from fund.actions import apply_action
@@ -117,7 +117,7 @@ class MandateMixin(ShellHost):
         """On the main thread once a mandate save committed: release its edit guard.
 
         The Mandate view is looked up whether or not it is the active pane — the
-        adviser may have switched away while the worker ran, and the guard would
+        user may have switched away while the worker ran, and the guard would
         otherwise keep the saved fields frozen on return. A save for a portfolio that
         is no longer focused has nothing to release: the focus change already reset it.
         """
