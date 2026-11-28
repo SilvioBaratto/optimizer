@@ -30,6 +30,7 @@ from _fund_fakes import (
     UNIVERSE,
     ScriptedFundModel,
     _count_tool_calls,
+    audit_candidate_set,
     classify_instruments,
     held_weights,
     make_constraint_set,
@@ -80,6 +81,11 @@ from fund.schemas.enums import GicsSector, LossReaction
 
 class _StopRunError(Exception):
     """Raised by a stubbed ``run_fund`` once it has recorded the decision bar."""
+
+
+# A stored candidate's book for runs that never ran the graph: an approve of the
+# order gate still has to name a candidate of a set.
+_BARE_WEIGHTS = {"AAA": 0.5, "BBB": 0.5}
 
 
 @pytest.fixture
@@ -2116,6 +2122,7 @@ def test_concurrent_submit_of_a_keyed_approve_cannot_resume_the_gate_twice(
             universe=[],
             optimizer_config={"step": "fund"},
         )
+        audit_candidate_set(seed, run.id, _BARE_WEIGHTS)
         seed.commit()
         run_id = run.id
 
@@ -2127,12 +2134,24 @@ def test_concurrent_submit_of_a_keyed_approve_cannot_resume_the_gate_twice(
         if len(resumes) == 1:
             # The loser of the claim is refused while the winner is mid-resume.
             with session_local() as other, contextlib.suppress(DBAPIError):
-                apply_action("approve", session=other, run_id=rid, idempotency_key=key)
+                apply_action(
+                    "approve",
+                    session=other,
+                    run_id=rid,
+                    idempotency_key=key,
+                    candidate_id=MEAN_RISK,
+                )
         return {}
 
     with session_local() as first:
         with mock.patch("fund.agents.graph.resume_run", side_effect=fake_resume):
-            apply_action("approve", session=first, run_id=run_id, idempotency_key=key)
+            apply_action(
+                "approve",
+                session=first,
+                run_id=run_id,
+                idempotency_key=key,
+                candidate_id=MEAN_RISK,
+            )
         first.commit()
 
     assert resumes == ["approve"]
@@ -2638,6 +2657,7 @@ def test_approve_action_hands_the_fallback_model_to_resume_run(db_session) -> No
         universe=[],
         optimizer_config={"step": "fund"},
     )
+    audit_candidate_set(db_session, run.id, _BARE_WEIGHTS)
     seen: dict[str, object] = {}
 
     def fake_resume(_rid, _decision, **kwargs):
@@ -2645,7 +2665,13 @@ def test_approve_action_hands_the_fallback_model_to_resume_run(db_session) -> No
         return {}
 
     with mock.patch("fund.agents.graph.resume_run", fake_resume):
-        apply_action("approve", session=db_session, run_id=run.id, fallback=_FALLBACK)
+        apply_action(
+            "approve",
+            session=db_session,
+            run_id=run.id,
+            fallback=_FALLBACK,
+            candidate_id=MEAN_RISK,
+        )
 
     assert seen["fallback"] is _FALLBACK
 

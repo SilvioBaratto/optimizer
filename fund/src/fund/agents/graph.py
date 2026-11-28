@@ -465,7 +465,8 @@ class FundRun:
         _require_resumable(run)
         if run.portfolio_id is None:
             raise ValueError(f"agent_run {self.run_id} has no portfolio_id")
-        approved_weights = _approved_weights(self.ctx, decision, candidate_id)
+        pending = _pending_gate_names(self.agent, self.thread_config)
+        approved_weights = _approved_weights(self.ctx, decision, candidate_id, pending)
         regated_from: str | None = None
         try:
             resumed = _resume_gate(
@@ -479,11 +480,10 @@ class FundRun:
             result = resumed.result
             regated_from = resumed.regated_from
         except Exception as exc:
-            # Same rule as ``resume_fund``: the checkpointer commits on its own
-            # connection, so a failure of the PM's follow-up turn after the gate was
-            # consumed would leave the checkpoint past the tool step while the caller
-            # rolls the ticket back. A gate still pending means nothing moved and the
-            # failure is safely retryable.
+            # Same rule as ``resume_fund``: a failure after the gate was consumed
+            # leaves the checkpoint past the tool step while the caller rolls the
+            # ticket back. A gate still pending means nothing moved and the failure
+            # is safely retryable.
             if _pending_gate_names(self.agent, self.thread_config):
                 raise
             _log.warning(
@@ -514,12 +514,13 @@ class FundRun:
 
 
 def _approved_weights(
-    ctx: Any, decision: str, candidate_id: str | None
+    ctx: Any, decision: str, candidate_id: str | None, pending: Sequence[str]
 ) -> dict[str, float]:
     """The weights a gate decision settles on, resolved before the graph resumes.
 
-    An approve commits the candidate the adviser names, re-checked under the current
-    mandate and recorded as the run's choice, or an adviser edit in force (see
+    An approve of the ``place_orders`` gate commits the candidate the adviser names,
+    re-checked under the current mandate and recorded as the run's choice, or an
+    adviser edit in force; an approve of any other gate commits nothing (see
     :func:`fund.agents.graph_candidates.approve_weights`). Any other decision places
     nothing, so it keeps reading the run's latest proposal.
 
@@ -527,13 +528,14 @@ def _approved_weights(
         ctx: The resumed run's binding context.
         decision: ``approve``, ``reject`` or ``respond``.
         candidate_id: The candidate the adviser named, or ``None``.
+        pending: The gated tools the thread is paused on (empty once consumed).
 
     Returns:
         The weights the decision settles on.
 
     Raises:
-        ValueError: A candidate is named on anything but an approve, or the approve
-            is refused; nothing was written.
+        ValueError: A candidate is named on anything but an approve of the order
+            gate, or the approve is refused; nothing was written.
     """
     from fund.agents.graph_candidates import (
         approve_weights,
@@ -543,7 +545,7 @@ def _approved_weights(
     refuse_candidate_outside_approve(decision, candidate_id)
     if decision != "approve":
         return _optimizer_weights(ctx.session, ctx.run_id)
-    return approve_weights(ctx, candidate_id)
+    return approve_weights(ctx, candidate_id, pending=pending)
 
 
 def _resume_gate(
@@ -1289,10 +1291,10 @@ def resume_fund(
         "configurable": {"thread_id": resolved_thread_id},
         "recursion_limit": config.recursion_limit,
     }
-    # Resolved before the resume: the gated ``place_orders`` runs first and places
-    # these weights, while a PM that re-runs the allocator afterwards supersedes the
-    # choice the ticket was placed with.
-    approved_weights = _approved_weights(ctx, decision, candidate_id)
+    # Resolved before the resume, which runs the gated ``place_orders`` first; a later
+    # allocator re-run supersedes the choice the ticket was placed with.
+    pending = _pending_gate_names(agent, thread_config)
+    approved_weights = _approved_weights(ctx, decision, candidate_id, pending)
     regated_from: str | None = None
     try:
         resumed = _resume_gate(

@@ -682,3 +682,268 @@ def test_allocator_binds_compute_candidates_not_optimize_portfolio(
     assert "optimize_portfolio" not in allocator
     for tool in bind_toolset("risk", ctx):
         assert set(tool.args) == {"candidate_id"}
+
+
+# --- the candidate rule follows the gate that is pending ---------------------------
+
+# Gates a mandate can add ahead of ``place_orders``: none of them shows candidates.
+_ALLOCATOR_GATE = "compute_candidates"
+_RISK_GATE = "risk_check"
+_NON_ORDER_GATES = (_ALLOCATOR_GATE, _RISK_GATE, "backtest", "get_portfolio_history")
+_ORDER_GATE = "place_orders"
+_REGATING_ORDERS = 2
+
+
+def _run_to_mandate_gate(
+    db_session, saver: MemorySaver, store: InMemoryStore, gate: str, **kwargs: Any
+) -> FundRun:
+    """A second round whose persisted mandate adds ``gate`` ahead of the order gate.
+
+    The first round's forced gate set is spent, so the mandate's own gates apply and
+    the PM pauses at ``gate`` before ``place_orders``.
+    """
+    from fund.audit import MandateRepository
+    from fund.audit.autonomy_repository import AutonomyRepository
+
+    seed_panel(db_session)
+    AutonomyRepository(db_session).consume_first_round(PORTFOLIO_ID)
+    mandate = make_mandate().model_copy(update={"hitl_gates": (gate, _ORDER_GATE)})
+    MandateRepository(db_session).upsert(mandate)
+    run = run_fund(
+        _model(**kwargs),
+        mandate,
+        portfolio_id=PORTFOLIO_ID,
+        asof=ASOF,
+        session=db_session,
+        checkpointer=saver,
+        store=store,
+    )
+    assert {request["name"] for request in run.interrupt["action_requests"]} == {gate}
+    return run
+
+
+def _pending(saver: MemorySaver, db_session, run_id) -> set[str]:
+    run = AgentRunRepository(db_session).get_run(run_id)
+    interrupt = observe.interrupt_for(saver, run) or {}
+    return {request["name"] for request in interrupt.get("action_requests") or []}
+
+
+def _choices_and_selection_verdicts(db_session, run_id) -> list[Any]:
+    """Every adviser choice and choice-time verdict recorded for the run."""
+    return [
+        decision
+        for decision in _decisions(db_session, run_id)
+        if (decision.hitl_decision or {}).get("decision") == "select_candidate"
+        or "candidate_selection" in (decision.llm_response or "")
+    ]
+
+
+def _drop_bars_after_asof(db_session) -> None:
+    from portopt_db.models.market_data.yfinance_data import PriceHistory
+
+    db_session.query(PriceHistory).filter(PriceHistory.date > ASOF).delete()
+    db_session.flush()
+
+
+@pytest.mark.criterion("REQ-FUND-047")
+@pytest.mark.parametrize(
+    ("scenario", "reason"),
+    [("tool_fails", "no_candidate_set"), ("none_feasible", "no_feasible_candidate")],
+)
+def test_a_regate_after_an_approved_extra_gate_with_nothing_to_choose_ends_incomplete(
+    db_session, monkeypatch: pytest.MonkeyPatch, scenario: str, reason: str
+) -> None:
+    """Validates fund.agents.graph_hitl._settle_hitl: when the approved
+    ``compute_candidates`` gate yields no set (the tool fails) or no feasible
+    candidate and the PM still calls ``place_orders``, the re-gate is closed
+    incomplete with the reason instead of staying open, so nothing can approve it."""
+    saver, store = MemorySaver(), _store_with_cs()
+    run = _run_to_mandate_gate(db_session, saver, store, _ALLOCATOR_GATE)
+    if scenario == "tool_fails":
+        monkeypatch.setattr(
+            fund_tools,
+            "compute_candidates",
+            lambda *_a, **_k: {"ok": False, "error": "solver unavailable"},
+        )
+    else:
+        _mark_infeasible(monkeypatch, *CANDIDATE_IDS)
+
+    _approve(db_session, saver, store, run.run_id)
+
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "incomplete"
+    assert {"decision": "incomplete", "reason": reason} in [
+        decision.hitl_decision for decision in _decisions(db_session, run.run_id)
+    ]
+    assert db_session.query(PaperOrder).count() == 0
+    with pytest.raises(ValueError):
+        _approve(db_session, saver, store, run.run_id)
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "incomplete"
+
+
+@pytest.mark.criterion("REQ-FUND-047")
+def test_a_regate_after_a_refused_placement_with_nothing_feasible_ends_incomplete(
+    db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Validates fund.agents.graph_hitl._settle_hitl: an approve whose ticket could not
+    be placed (no fill bar) while the PM recomputes an all-infeasible set and re-gates
+    closes the run incomplete rather than leaving that set at an open gate."""
+    from fund.agents import graph as graph_mod
+
+    saver, store = MemorySaver(), _store_with_cs()
+    run = _paused_run(db_session, saver, store)
+    monkeypatch.setattr(graph_mod, "_require_fill_bars", lambda *_a, **_k: None)
+    _drop_bars_after_asof(db_session)
+    _mark_infeasible(monkeypatch, *CANDIDATE_IDS)
+
+    _resume(
+        db_session,
+        saver,
+        store,
+        run.run_id,
+        "approve",
+        candidate_id=MEAN_RISK,
+        model_kwargs={"rerun_after_respond": True, "max_orders": _REGATING_ORDERS},
+    )
+
+    row = AgentRunRepository(db_session).get_run(run.run_id)
+    assert row.status == "incomplete"
+    assert {"decision": "incomplete", "reason": "no_feasible_candidate"} in [
+        decision.hitl_decision for decision in _decisions(db_session, run.run_id)
+    ]
+    assert db_session.query(PaperOrder).count() == 0
+
+
+@pytest.mark.criterion("REQ-FUND-051")
+@pytest.mark.parametrize("gate", [_ALLOCATOR_GATE, _RISK_GATE])
+def test_approving_a_gate_ahead_of_the_order_gate_records_no_choice(
+    db_session, gate: str
+) -> None:
+    """Validates fund.actions._ticketed_weights and
+    fund.agents.graph_candidates.approve_weights: approving a mandate gate that shows
+    no candidates (before the set exists, or after it) needs no id, records no
+    choice, verdict or weights, places nothing, and the run goes on to the order gate,
+    where the adviser chooses."""
+    saver, store = MemorySaver(), _store_with_cs()
+    run = _run_to_mandate_gate(db_session, saver, store, gate)
+
+    _approve(db_session, saver, store, run.run_id)
+
+    assert _choices_and_selection_verdicts(db_session, run.run_id) == []
+    (audit,) = _audit_rows(db_session, run.run_id)
+    assert audit.target is None
+    assert audit.new_value is None
+    assert db_session.query(PaperOrder).count() == 0
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"
+    assert _pending(saver, db_session, run.run_id) == {_ORDER_GATE}
+
+    _approve(db_session, saver, store, run.run_id, candidate_id=MEAN_RISK)
+    chosen = _candidate(db_session, run.run_id, MEAN_RISK)
+    assert _only_order(db_session).weights == chosen.weights
+
+
+@pytest.mark.criterion("REQ-FUND-048")
+@pytest.mark.parametrize("gate", _NON_ORDER_GATES)
+def test_a_candidate_id_at_a_gate_that_shows_no_candidates_is_refused(
+    db_session, monkeypatch: pytest.MonkeyPatch, gate: str
+) -> None:
+    """Validates fund.actions._ticketed_weights and fund.agents.graph._approved_weights:
+    naming a candidate while a gate other than ``place_orders`` is pending is refused,
+    through the actions layer and the rebuild path alike, and writes nothing, even
+    when an older candidate set exists."""
+    from fund.agents import graph as graph_mod
+
+    saver, store = MemorySaver(), _store_with_cs()
+    run = _paused_run(db_session, saver, store)
+    monkeypatch.setattr(
+        observe, "interrupt_for", lambda *_a: {"action_requests": [{"name": gate}]}
+    )
+    monkeypatch.setattr(graph_mod, "_pending_gate_names", lambda *_a: (gate,))
+    before = _snapshot(db_session, run.run_id)
+
+    with pytest.raises(ValueError, match=f"{gate} gate"):
+        _approve(db_session, saver, store, run.run_id, candidate_id=MEAN_RISK)
+    with pytest.raises(ValueError, match=f"{gate} gate"):
+        _resume(db_session, saver, store, run.run_id, "approve", candidate_id=MEAN_RISK)
+
+    assert _snapshot(db_session, run.run_id) == before
+
+
+@pytest.mark.criterion("REQ-FUND-048")
+@pytest.mark.parametrize("gate", _NON_ORDER_GATES)
+def test_approving_a_gate_that_shows_no_candidates_commits_no_weights(
+    db_session, monkeypatch: pytest.MonkeyPatch, gate: str
+) -> None:
+    """Validates fund.actions._ticketed_weights: an approve without an id while a gate
+    other than ``place_orders`` is pending records an approve row carrying no weights
+    and no candidate, and hands the resume no choice to place."""
+    saver, store = MemorySaver(), _store_with_cs()
+    run = _paused_run(db_session, saver, store)
+    monkeypatch.setattr(
+        observe, "interrupt_for", lambda *_a: {"action_requests": [{"name": gate}]}
+    )
+    resumed: dict[str, Any] = {}
+
+    def fake_resume(_rid, _decision, **kwargs):
+        resumed.update(kwargs)
+        return {}
+
+    monkeypatch.setattr("fund.agents.graph.resume_run", fake_resume)
+
+    _approve(db_session, saver, store, run.run_id)
+
+    (audit,) = _audit_rows(db_session, run.run_id)
+    assert (audit.target, audit.new_value) == (None, None)
+    assert resumed["candidate_id"] is None
+    assert _choices_and_selection_verdicts(db_session, run.run_id) == []
+
+
+@pytest.mark.criterion("REQ-FUND-050")
+def test_a_respond_then_a_compute_candidates_gate_needs_no_choice_with_an_old_set(
+    db_session,
+) -> None:
+    """Validates fund.agents.graph_candidates.approve_weights through
+    fund.agents.graph.resume_fund: after a respond the PM recomputes the candidates
+    behind a mandate gate on ``compute_candidates``; the old set still exists, yet
+    approving that gate needs no id and records no choice, and the order gate that
+    follows places the candidate named there from the newer set."""
+    saver, store = MemorySaver(), _store_with_cs()
+    run = _run_to_mandate_gate(
+        db_session,
+        saver,
+        store,
+        _ALLOCATOR_GATE,
+        rerun_after_respond=True,
+        max_orders=_REGATING_ORDERS,
+    )
+    regating = {"rerun_after_respond": True, "max_orders": _REGATING_ORDERS}
+    _resume(db_session, saver, store, run.run_id, "approve", model_kwargs=regating)
+    assert _pending(saver, db_session, run.run_id) == {_ORDER_GATE}
+    _resume(
+        db_session,
+        saver,
+        store,
+        run.run_id,
+        "respond",
+        pm_directive=_DIRECTIVE,
+        model_kwargs=regating,
+    )
+    assert _pending(saver, db_session, run.run_id) == {_ALLOCATOR_GATE}
+    assert observe.candidate_set(db_session, run.run_id) is not None
+
+    _resume(db_session, saver, store, run.run_id, "approve", model_kwargs=regating)
+
+    assert _choices_and_selection_verdicts(db_session, run.run_id) == []
+    assert _pending(saver, db_session, run.run_id) == {_ORDER_GATE}
+    _resume(
+        db_session,
+        saver,
+        store,
+        run.run_id,
+        "approve",
+        candidate_id=MEAN_RISK,
+        model_kwargs=regating,
+    )
+    chosen = _candidate(db_session, run.run_id, MEAN_RISK)
+    assert _only_order(db_session).weights == chosen.weights
+    assert AgentRunRepository(db_session).get_run(run.run_id).status == "completed"

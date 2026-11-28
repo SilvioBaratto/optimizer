@@ -196,14 +196,14 @@ def _settle_hitl(
     whatever weights existed before the allocator ran, and strand the real gate behind
     the finalised-run guard. A reject always closes the run, whatever the PM does
     afterwards, so the freeze-a-run killswitch (a reject) cannot be outlived by a
-    re-gating PM. No commit.
+    re-gating PM. Either way a fresh ``place_orders`` gate with nothing to choose is
+    closed instead (see :func:`_settle_regate`). No commit.
     """
     if regated_from is not None and decision == "approve":
-        from fund.audit import AgentRunRepository
-
-        AgentRunRepository(session).append_decision(
+        _settle_regate(
+            session,
             run_id,
-            agent="orchestrator",
+            result,
             step=regated_from,
             hitl_decision={"decision": decision, "regated": True},
         )
@@ -231,19 +231,57 @@ def _settle_hitl(
         )
         return
 
+    if _extract_interrupt(result) is None:
+        from fund.audit import AgentRunRepository
+
+        _finalize_incomplete(AgentRunRepository(session), run_id, "place_orders_failed")
+        return
+    _settle_regate(
+        session,
+        run_id,
+        result,
+        step="place_orders",
+        hitl_decision={"decision": "approve", "reason": "place_orders_failed"},
+        responded=True,
+    )
+
+
+def _settle_regate(
+    session: Any,
+    run_id: uuid.UUID,
+    result: Any,
+    *,
+    step: str,
+    hitl_decision: dict[str, Any],
+    responded: bool = False,
+) -> None:
+    """Record an approve the PM answered by re-gating, keeping the run at that gate.
+
+    A fresh ``place_orders`` gate with no candidate set, or no feasible candidate,
+    gives the adviser nothing to choose, so the run is finalised ``incomplete`` with
+    that reason, as a round or a respond ending on such a gate is. Otherwise the run
+    stays alive, flipped to ``"responded"`` when ``responded``. No commit.
+
+    Args:
+        session: A sync session; written to, not committed.
+        run_id: The resumed run.
+        result: The resume's graph result, carrying the fresh interrupt.
+        step: The gate the recorded decision names.
+        hitl_decision: The adviser's decision as recorded.
+        responded: Flip a run kept alive to ``"responded"``.
+    """
+    from fund.agents.graph_candidates import gate_without_candidates
     from fund.audit import AgentRunRepository
 
     audit = AgentRunRepository(session)
-    if _extract_interrupt(result) is None:
-        _finalize_incomplete(audit, run_id, "place_orders_failed")
-        return
     audit.append_decision(
-        run_id,
-        agent="orchestrator",
-        step="place_orders",
-        hitl_decision={"decision": "approve", "reason": "place_orders_failed"},
+        run_id, agent="orchestrator", step=step, hitl_decision=hitl_decision
     )
-    audit.mark_responded(run_id)
+    reason = gate_without_candidates(session, run_id, _extract_interrupt(result))
+    if reason is not None:
+        _finalize_incomplete(audit, run_id, reason)
+    elif responded:
+        audit.mark_responded(run_id)
 
 
 _FINALISED_STATUSES = ("completed", "rejected", "incomplete", "blocked", "failed")

@@ -45,6 +45,8 @@ if TYPE_CHECKING:
     from portopt_db.models import HumanAuditLog
     from sqlalchemy.orm import Session
 
+    from fund.agents.graph_candidates import ApprovalChoice
+
 # Each resume-style action maps to the ``resume_run`` verb it drives the paused run
 # with. approve/reject/respond are self-named; killswitch finalises a paused run as a
 # reject but is logged distinctly (its own audit action, no paired undo). ``respond``
@@ -609,9 +611,7 @@ def _apply_resume(
     """
     rid = _require_resume_args(action, run_id, pm_directive, candidate_id)
     pid = portfolio_id if portfolio_id is not None else _portfolio_of(session, rid)
-    ticketed = (
-        _ticketed_weights(session, rid, candidate_id) if decision == "approve" else None
-    )
+    ticketed = _ticketed_weights(session, rid, decision, candidate_id, checkpointer)
     # Claim the idempotency key before resuming: the checkpointer commits on its own
     # connection, so once the graph has moved nothing rolls it back, and the audit row's
     # unique key is the only thing that can turn a concurrent duplicate submit away.
@@ -726,52 +726,71 @@ def resume_message(
 
 
 def _ticketed_weights(
-    session: Session, run_id: uuid.UUID, candidate_id: str | None
+    session: Session,
+    run_id: uuid.UUID,
+    decision: str,
+    candidate_id: str | None,
+    checkpointer: Any | None,
 ) -> dict[str, Any] | None:
     """The allocation an approve will ticket, in the shape the audit row records.
 
     The gated ``place_orders`` ignores the PM's own args and places only the
     candidate the adviser names (or weights the adviser typed in an edit still in
     force), so that choice is what the approval commits. It is resolved against the
-    run's stored candidate set here, before the audit row exists, so a refused id
-    writes nothing.
+    gate the run is paused at (read from ``checkpointer``; with none, the order
+    gate's rule applies) and the run's stored candidate set here, before the audit
+    row exists, so a refused id writes nothing.
 
     Returns:
         ``{"weights", "weights_hash"}`` plus ``candidate_id`` and
-        ``candidate_set_hash`` for a named candidate; ``None`` when the approve
-        commits no weights (a profiler gate, an unknown run, or a gate reached
-        before any candidate set).
+        ``candidate_set_hash`` for a named candidate; ``None`` for any decision but
+        an approve and when the approve commits no weights (a profiler gate, an
+        unknown run, or a gate other than ``place_orders``).
 
     Raises:
-        ValueError: A candidate is named on a profiler gate, or the approve of a
-            rebalance gate is refused (see
+        ValueError: A candidate is named on a profiler gate or another gate that
+            shows no candidates, or the approve of the order gate is refused (see
             :func:`fund.agents.graph_candidates.resolve_approval`).
     """
     from fund import observe
     from fund.agents.graph_candidates import (
+        pending_gate_names,
         refuse_candidate_at_profiler_gate,
         resolve_approval,
     )
-    from fund.audit.orders_repository import weights_hash
     from fund.audit.repository import AgentRunRepository
 
     run = AgentRunRepository(session).get_run(run_id)
-    if run is None:
+    if decision != "approve" or run is None:
         return None
     if observe.is_profiler_run(run):
         refuse_candidate_at_profiler_gate(run_id, candidate_id)
         return None
-    choice = resolve_approval(session, run_id, candidate_id)
+    interrupt = (
+        observe.interrupt_for(checkpointer, run) if checkpointer is not None else None
+    )
+    return _approval_record(
+        resolve_approval(
+            session, run_id, candidate_id, pending=pending_gate_names(interrupt)
+        )
+    )
+
+
+def _approval_record(choice: ApprovalChoice) -> dict[str, Any] | None:
+    """The approve row's ``new_value`` for ``choice``: its weights and their hash,
+    plus the candidate and its set when one was named; ``None`` without weights."""
+    from fund.audit.orders_repository import weights_hash
+
     if not choice.weights:
         return None
-    ticketed: dict[str, Any] = {
+    record: dict[str, Any] = {
         "weights": choice.weights,
         "weights_hash": weights_hash(choice.weights),
     }
     if choice.candidate is not None:
-        ticketed["candidate_id"] = choice.candidate.candidate_id
-        ticketed["candidate_set_hash"] = choice.candidate_set_hash
-    return ticketed
+        record["candidate_id"] = choice.candidate.candidate_id
+        record["candidate_set_hash"] = choice.candidate_set_hash
+    return record
 
 
 def _apply_edit(

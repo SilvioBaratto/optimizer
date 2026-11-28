@@ -5,13 +5,17 @@ shows all of them, and the adviser approves by naming one. The software never pi
 one: there is no default and no automatic choice, and only the named candidate's
 weights reach the paper ticket. The one exception is an adviser edit: weights the
 adviser typed after the set was computed are a choice too, so they approve without
-an id.
+an id. The rule follows the gate that is pending, not the stored set: an approve of
+any other gate (one a mandate adds ahead of ``place_orders``) shows no candidates, so
+it takes no id and commits no weights.
 
 Every refusal is a ``ValueError`` raised before anything is written, so the caller's
-rollback leaves the gate open for a corrected decision. Only the adviser's approve
-reaches :func:`approve_weights` (through :func:`fund.agents.graph.resume_fund` and
+rollback leaves the gate open for a corrected decision. The choice writers,
+:func:`approve_weights` and :func:`record_candidate_selection`, are reached only by
+the adviser's approve (through :func:`fund.agents.graph.resume_fund` and
 :meth:`fund.agents.graph.FundRun.resume`); no agent, tool, scheduler or worker path
-calls into this module, which ``test_candidate_selection_writers`` keeps true.
+records a choice, which ``test_candidate_selection_writers`` keeps true. The
+read-only checks here also run where a round or an adviser action is settled.
 
 The repositories, the candidate reader and the live check are imported inside the
 functions, so a bare ``import fund.agents.graph_candidates`` stays light.
@@ -26,6 +30,7 @@ from fund.schemas.candidates import CANDIDATE_IDS
 
 if TYPE_CHECKING:
     import uuid
+    from collections.abc import Sequence
 
     from sqlalchemy.orm import Session
 
@@ -39,6 +44,8 @@ __all__ = [
     "ApprovalChoice",
     "approve_weights",
     "gate_without_candidates",
+    "is_order_gate",
+    "pending_gate_names",
     "record_candidate_selection",
     "refuse_candidate_at_profiler_gate",
     "refuse_candidate_outside_approve",
@@ -64,11 +71,10 @@ class ApprovalChoice:
     """What an approve of a run's gate commits, before anything is written.
 
     Attributes:
-        weights: The weights the paper ticket is placed from. Empty when the run has
-            computed nothing to approve yet: a gate the mandate added before the
-            allocator ran, which an approve only lets the PM continue past.
+        weights: The weights the paper ticket is placed from. Empty for an approve of
+            a gate other than ``place_orders``, which only lets the PM continue.
         candidate: The named candidate, ``None`` when an adviser edit is the choice
-            or nothing was computed yet.
+            or the gate is not the order gate.
         candidate_set_hash: Digest of the set ``candidate`` was chosen from.
     """
 
@@ -88,22 +94,46 @@ def _edit_in_force(session: Session, run_id: uuid.UUID) -> dict[str, float]:
     return repo.decode_weights(choice)
 
 
-def _without_a_set(
-    session: Session, run_id: uuid.UUID, candidate_id: str | None
-) -> ApprovalChoice:
-    """The approve of a run that has no candidate set.
+def pending_gate_names(interrupt: dict[str, Any] | None) -> tuple[str, ...]:
+    """The gated tool names a pending HITL payload asks the adviser about.
 
-    A run that already proposed weights reached its gate before candidates existed,
-    and so did any run whose candidate is named: neither can be approved. A run that
-    computed nothing yet is at a gate the mandate added before the allocator, which
-    commits no weights.
+    Args:
+        interrupt: The payload a run is paused on (``action_requests``), or ``None``.
+
+    Returns:
+        The names in request order; empty when nothing is pending.
     """
-    from fund.audit.repository import AgentRunRepository
+    requests = (interrupt or {}).get("action_requests") or []
+    return tuple(
+        str(request.get("name")) for request in requests if isinstance(request, dict)
+    )
 
-    proposed = AgentRunRepository(session).latest_optimizer_weights(run_id)
-    if candidate_id is None and not proposed:
-        return ApprovalChoice(weights={})
-    raise ValueError(_NO_SET.format(run_id=run_id))
+
+def is_order_gate(pending: Sequence[str]) -> bool:
+    """Whether an approve with ``pending`` gates is the approve of ``place_orders``.
+
+    A thread paused at nothing readable has had its gate consumed (or cannot be read),
+    which only the order gate's retry reaches, so it is held to the order gate's rule
+    and fails closed.
+
+    Args:
+        pending: The gated tools the thread is paused on.
+
+    Returns:
+        ``True`` when ``place_orders`` is pending or nothing is.
+    """
+    return not pending or _ORDER_GATE in pending
+
+
+def _refuse_candidate_off_the_order_gate(
+    run_id: uuid.UUID, pending: Sequence[str], candidate_id: str | None
+) -> None:
+    """Refuse a candidate id on the approve of a gate that shows no candidates."""
+    if candidate_id is not None:
+        raise ValueError(
+            f"agent_run {run_id} is at the {', '.join(pending)} gate, which shows no "
+            "candidates; approve it without a candidate id"
+        )
 
 
 def _named_candidate(
@@ -138,7 +168,11 @@ def _named_candidate(
 
 
 def resolve_approval(
-    session: Session, run_id: uuid.UUID, candidate_id: str | None
+    session: Session,
+    run_id: uuid.UUID,
+    candidate_id: str | None,
+    *,
+    pending: Sequence[str],
 ) -> ApprovalChoice:
     """Resolve what approving the run's gate with ``candidate_id`` would commit.
 
@@ -149,23 +183,28 @@ def resolve_approval(
         session: A sync session; read-only here.
         run_id: The run whose gate is approved.
         candidate_id: The candidate the adviser named, or ``None``.
+        pending: The gated tools the thread is paused on (see :func:`is_order_gate`).
 
     Returns:
-        The named candidate with its weights and set digest; the edited weights when
-        ``candidate_id`` is ``None`` and an adviser edit newer than the set is in
-        force; or empty weights when the run has computed nothing to approve yet.
+        For the order gate: the named candidate with its weights and set digest, or
+        the edited weights when ``candidate_id`` is ``None`` and an adviser edit
+        newer than the set is in force. For any other gate: empty weights.
 
     Raises:
-        ValueError: The run has no candidate set to choose from, nothing in it is
-            feasible, no id was named, or the id is unknown or infeasible.
+        ValueError: At the order gate, the run has no candidate set, nothing in it is
+            feasible, no id was named, or the id is unknown or infeasible; at any
+            other gate, an id was named.
     """
     from fund import observe
 
+    if not is_order_gate(pending):
+        _refuse_candidate_off_the_order_gate(run_id, pending, candidate_id)
+        return ApprovalChoice(weights={})
     if candidate_id is None and (edited := _edit_in_force(session, run_id)):
         return ApprovalChoice(weights=edited)
     candidate_set = observe.candidate_set(session, run_id)
     if candidate_set is None:
-        return _without_a_set(session, run_id, candidate_id)
+        raise ValueError(_NO_SET.format(run_id=run_id))
     candidate = _named_candidate(candidate_set, run_id, candidate_id)
     return ApprovalChoice(
         weights=dict(candidate.weights),
@@ -241,24 +280,32 @@ def record_candidate_selection(ctx: RunContext, candidate_id: str) -> dict[str, 
     return weights
 
 
-def approve_weights(ctx: RunContext, candidate_id: str | None) -> dict[str, float]:
+def approve_weights(
+    ctx: RunContext, candidate_id: str | None, *, pending: Sequence[str]
+) -> dict[str, float]:
     """The weights an approve of the run's gate commits, recording a named choice.
+
+    Only an approve of the ``place_orders`` gate names and records a candidate; any
+    other gate shows no candidates, so it records nothing and commits no weights.
 
     Args:
         ctx: The resumed run's binding context.
         candidate_id: The candidate the adviser named, or ``None`` (an adviser edit
-            in force, or a gate reached before any candidate set).
+            in force, or a gate other than the order gate).
+        pending: The gated tools the thread is paused on.
 
     Returns:
         The weights the approve places: the named candidate's, the edited ones, or
-        ``{}`` when nothing was computed yet.
+        ``{}`` for a gate other than the order gate.
 
     Raises:
         ValueError: The approve is refused (see :func:`resolve_approval` and
             :func:`record_candidate_selection`); nothing was written.
     """
-    if candidate_id is None:
-        return resolve_approval(ctx.session, ctx.run_id, None).weights
+    if candidate_id is None or not is_order_gate(pending):
+        return resolve_approval(
+            ctx.session, ctx.run_id, candidate_id, pending=pending
+        ).weights
     return record_candidate_selection(ctx, candidate_id)
 
 
@@ -322,11 +369,7 @@ def gate_without_candidates(
     """
     from fund import observe
 
-    requests = (interrupt or {}).get("action_requests") or []
-    if not any(
-        isinstance(request, dict) and request.get("name") == _ORDER_GATE
-        for request in requests
-    ):
+    if _ORDER_GATE not in pending_gate_names(interrupt):
         return None
     candidate_set = observe.candidate_set(session, run_id)
     if candidate_set is None:
