@@ -1845,14 +1845,15 @@ def test_format_decision_gate_does_not_repeat_the_candidates_in_the_why() -> Non
     assert "  hrp · HRP · feasible" in text
 
 
+@pytest.mark.criterion("REQ-FUND-047")
 @pytest.mark.asyncio
-async def test_decisions_gate_shows_audited_weights_when_pm_args_diverge(
+async def test_decisions_gate_shows_the_candidates_not_the_pm_args(
     tui_env,
 ) -> None:
-    # The PM proposes {CCC: 1.0}; the allocator's audited vector (what place_orders
-    # actually executes) is tui_env.expected. The adviser must approve the latter. The
-    # gate middleware already pins the interrupt's args to it, so no mismatch remains
-    # to flag (the flag itself is covered on the formatter).
+    """Validates fund.tui._views.decisions._format_decision_gate: a PM that types
+    {CCC: 1.0} into place_orders changes nothing on screen; the gate shows the
+    candidates the allocator computed (the gate middleware pins the call's args to
+    them), here the mean_risk one with tui_env.expected's weights."""
     run_id = _seed_gate(tui_env, _PID_B, {"CCC": 1.0})
     app = _make_shell(tui_env)
     async with app.run_test(size=_SIZE) as pilot:
@@ -1915,6 +1916,51 @@ async def test_decisions_gate_render_error_does_not_empty_the_queue(
         assert view.query_one("#decisions-table", DataTable).row_count == 1
         assert view.selected_run_id == tui_env.run_id
         assert "unavailable" in view.gate_text
+
+
+# A driver error's text: the statement and bound parameters on lines of their own.
+_SQL_ERROR_TEXT = (
+    "(psycopg2.OperationalError) server closed the connection unexpectedly\n"
+    "[SQL: SELECT agent_decisions.llm_response FROM agent_decisions]\n"
+    "[parameters: {'run_id_1': 'f47ac10b'}]"
+)
+
+
+@pytest.mark.criterion("REQ-FUND-054")
+@pytest.mark.asyncio
+async def test_a_failing_candidate_set_read_shows_one_line_and_logs_once(
+    tui_env, monkeypatch, caplog
+) -> None:
+    """Validates fund.tui._views.decisions.DecisionsView._read: a gate whose
+    candidate set cannot be read shows a one-line notice without the statement or
+    its parameters, and the failure is logged once however often the poll repeats."""
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(_SQL_ERROR_TEXT)
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        monkeypatch.setattr(observe, "candidate_set", _boom)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="fund.tui.views"):
+            view.refresh_view()
+            view.refresh_view()
+            await pilot.pause()
+        shown = view.gate_text
+        unavailable = view.gate_unavailable
+    records = [r for r in caplog.records if "gate read failed" in r.getMessage()]
+    assert unavailable
+    assert shown == (
+        "(gate unavailable: RuntimeError: (psycopg2.OperationalError) server closed "
+        "the connection unexpectedly)"
+    )
+    assert "[SQL:" not in shown
+    assert "parameters" not in shown
+    assert len(records) == 1
+    assert records[0].exc_info is not None
 
 
 async def _assert_gate_actions_refused_while_unavailable(app, pilot) -> None:
@@ -2405,13 +2451,15 @@ async def test_infeasible_candidate_row_cannot_be_approved(
 
 @pytest.mark.criterion("REQ-FUND-054")
 @pytest.mark.asyncio
-@pytest.mark.parametrize("move", ["gate", "candidate_set"])
+@pytest.mark.parametrize("move", ["gate", "candidate_set", "run"])
 async def test_candidate_selection_clears_when_the_gate_moves(
     tui_env, monkeypatch, move
 ) -> None:
     """Validates fund.tui._views.decisions.DecisionsView: a repaint of the same gate
-    keeps the selection, and a new gate id or a new candidate set clears it, so a
-    selection never carries over to candidates the adviser did not see."""
+    keeps the selection, and a new gate id, a new candidate set or another selected
+    run clears it, so a selection never carries over to candidates the adviser did
+    not see."""
+    other_run = _seed_gate(tui_env, _PID_B, tui_env.expected) if move == "run" else None
     app = _make_shell(tui_env)
     async with app.run_test(size=_SIZE) as pilot:
         view = await _open_decisions(app, pilot)
@@ -2424,10 +2472,15 @@ async def test_candidate_selection_clears_when_the_gate_moves(
 
         if move == "gate":
             monkeypatch.setattr(observe, "live_gate_id", lambda *_a, **_k: "later")
-        else:
+        elif move == "candidate_set":
             with tui_env.get_session() as session:
                 audit_candidate_set(session, tui_env.run_id, {"AAA": 0.5, "CCC": 0.5})
                 session.commit()
+        else:
+            assert other_run is not None
+            view.select_run(other_run)
+            await pilot.pause()
+            view.select_run(tui_env.run_id)
         view.refresh_view()
         await pilot.pause()
 
@@ -2487,6 +2540,54 @@ async def test_edit_seeds_from_the_selected_candidate(tui_env) -> None:
         seeded = _parse_weights(app.screen.query_one("#edit-weights", Input).value)
     assert seeded.keys() == expected.keys()
     assert all(abs(seeded[k] - expected[k]) <= 1e-9 for k in expected)
+
+
+@pytest.mark.criterion("REQ-FUND-054")
+@pytest.mark.asyncio
+async def test_edit_without_a_selected_candidate_is_refused(tui_env) -> None:
+    """Validates fund.tui._mixins.decisions.DecisionsMixin.action_edit_decision: on
+    a rebalance gate with no candidate selected ``e`` opens no editor and says to
+    select a row first; nothing is seeded for the adviser."""
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        app.action_edit_decision()
+        await pilot.pause()
+        assert not isinstance(app.screen, OrderEditScreen)
+        assert app.last_worker is None
+        assert "select a candidate row first" in app.last_status
+
+
+@pytest.mark.criterion("REQ-FUND-054")
+@pytest.mark.asyncio
+async def test_an_approve_is_not_sent_when_the_gate_moves_while_the_confirm_is_open(
+    tui_env, monkeypatch
+) -> None:
+    """Validates fund.tui._mixins.decisions.DecisionsMixin._approve_candidate: a
+    confirm accepted after the gate on screen moved sends nothing, since the adviser
+    confirmed a gate that is no longer the one shown."""
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        view.select_run(tui_env.run_id)
+        await pilot.pause()
+        assert view.select_candidate(MEAN_RISK)
+        app.action_decide_approve()
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+
+        monkeypatch.setattr(observe, "live_gate_id", lambda *_a, **_k: "later")
+        view.refresh_view()  # what a poll tick does behind the open confirm
+        app.screen.query_one("#confirm-yes", Button).press()
+        await pilot.pause()
+
+        assert app.last_worker is None
+        assert "the gate changed while the confirm was open" in app.last_status
+    with tui_env.get_session() as session:
+        assert AgentRunRepository(session).get_run(tui_env.run_id).status == "paused"
+    assert _approve_audit_rows(tui_env) == []
 
 
 @pytest.mark.criterion("REQ-FUND-054")
@@ -4597,7 +4698,9 @@ async def test_deliberation_shows_the_candidates_of_the_compute_candidates_step(
 def test_a_replayed_choice_reads_the_constraint_set_of_its_candidate_set() -> None:
     """Validates fund.tui._mixins.drive._recorded_constraint_set: the adviser's
     choice records no constraint set, so its replay uses the one the candidate set it
-    was chosen from recorded, and never one recorded after it."""
+    was chosen from recorded, and never one recorded after it. A run from before
+    candidates existed keeps the replayed row's own constraint set, none for an
+    adviser edit, as it read before candidates."""
     from fund.tui._mixins.drive import _recorded_constraint_set
 
     def decision(index: int, step: str, constraint_set=None) -> SimpleNamespace:
@@ -4620,6 +4723,15 @@ def test_a_replayed_choice_reads_the_constraint_set_of_its_candidate_set() -> No
     assert _recorded_constraint_set(decisions, 3) == second
     assert _recorded_constraint_set(decisions) == second
     assert _recorded_constraint_set(decisions[1:2], 1) is None
+
+    # A proposal, then an adviser edit of it, which records no constraint set.
+    pre_candidate = [
+        decision(0, "optimize_portfolio", first),
+        decision(1, "optimize_portfolio"),
+    ]
+    assert _recorded_constraint_set(pre_candidate, 0) == first
+    assert _recorded_constraint_set(pre_candidate, 1) is None
+    assert _recorded_constraint_set(pre_candidate) is None
 
 
 @pytest.mark.asyncio
@@ -9758,6 +9870,51 @@ async def test_ask_approve_of_a_gate_ahead_of_the_order_gate_still_confirms(
     assert f"gate #{str(run_id)[:8]}" in prompt
     assert "risk_check" in prompt
     assert seen == [("approve", None)]
+
+
+@pytest.mark.criterion("REQ-FUND-054")
+@pytest.mark.asyncio
+async def test_an_ask_approve_of_a_mandate_gate_whose_text_cannot_be_read_is_refused(
+    tui_env, monkeypatch
+) -> None:
+    """Validates fund.tui._mixins.ask.AskMixin._ask_approve_confirm: a gate other
+    than place_orders whose pending call reads fine but whose text cannot be read
+    gets no confirm, like Decisions refuses a gate it could not render."""
+
+    def unreadable(*_args, **_kwargs):
+        raise RuntimeError("checkpointer pool timeout")
+
+    _seed_mandate_gate(tui_env, _PID_A, "risk_check")
+    monkeypatch.setattr(tui_app, "_gate_text", unreadable)
+    app = _make_shell(tui_env, portfolio_id=_PID_A)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert app.last_worker is None
+        assert "cannot approve: gate details unavailable" in app.last_status
+
+
+@pytest.mark.criterion("REQ-FUND-054")
+@pytest.mark.asyncio
+async def test_an_ask_approve_of_a_gate_that_moves_while_it_is_read_is_refused(
+    tui_env, monkeypatch
+) -> None:
+    """Validates fund.tui._mixins.ask.AskMixin._ask_approve_confirm: when the run's
+    gate id differs between the first and the last read, no confirm is built from
+    two gates."""
+    _seed_mandate_gate(tui_env, _PID_A, "risk_check")
+    app = _make_shell(tui_env, portfolio_id=_PID_A)
+    gate_ids = iter(["the mandate gate", "the order gate"])
+    monkeypatch.setattr(app, "_shown_gate_id", lambda _run_id: next(gate_ids))
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_ask(app, pilot)
+        view.submit_turn("approve the gate")
+        await pilot.pause()
+        assert not isinstance(app.screen, ConfirmScreen)
+        assert app.last_worker is None
+        assert "cannot approve" in app.last_status
 
 
 @pytest.mark.criterion("REQ-FUND-054")

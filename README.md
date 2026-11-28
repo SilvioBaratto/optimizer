@@ -379,8 +379,9 @@ Two more entry points ship with it:
   at fresh closes.
 - **`fund-tui`** — a Textual oversight cockpit with eight views (Posture,
   Deliberation, Decisions, Mandate, Audit, Performance, Ask, Daily brief). Every
-  action it takes (approve, reject, freeze, mandate edits) goes through a confirm
-  and lands in the audit log; **Ask** answers questions about the fund in plain
+  action it takes (approve, reject, freeze, mandate edits) lands in the audit log;
+  approving a rebalance gate's candidate, a killswitch, a re-arm and every action
+  typed in Ask ask for a confirm first. **Ask** answers questions about the fund in plain
   language by reading its data, docs and source (read-only), keeps a saved
   conversation per portfolio, and `/clear` deletes it. Press `?` for the key map.
 

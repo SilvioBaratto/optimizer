@@ -29,9 +29,10 @@ The modal screens live in :mod:`fund.tui.screens` and the shell's sections in
 :mod:`fund.tui._mixins`. This module holds ``ShellApp``'s state, layout and
 navigation, and re-exports the names those modules define so imports from
 ``fund.tui.app`` resolve. Patching ``fund.tui.app.<name>`` reaches only code
-defined here, such as ``_gate_text`` as read by ``ShellApp._ask_approve_gate``; a
-test that patches a name used by a screen or a mixin must patch the module that
-defines that code.
+defined here, such as ``_gate_text`` as read by ``ShellApp._ask_approve_gate`` (the
+text an Ask approve of a gate other than ``place_orders`` confirms); a test that
+patches a name used by a screen or a mixin, such as the pending-gate read behind
+Ask's rebalance refusal, must patch the module that defines that code.
 """
 
 from __future__ import annotations
@@ -623,14 +624,15 @@ class ShellApp(
         self._set_status(f"exported brief to {written}")
 
     # Defined here rather than on ``AskMixin``: it reads ``_gate_text`` from this
-    # module, the name the tests replace on ``fund.tui.app``.
+    # module, so replacing that name on ``fund.tui.app`` makes the text unreadable.
     def _ask_approve_gate(self, run_id: uuid.UUID) -> str | None:
         """The gate text an Ask approve shows, or ``None`` when it cannot be read.
 
-        Decisions refuses an approve whose gate has not rendered, so the orders are
-        always on screen before they execute; Ask must hold itself to the same rule
-        instead of confirming a bare gate id. Read on the event loop over a short
-        session, like the target resolution that precedes it.
+        Decisions refuses an approve whose gate has not rendered, so the adviser has
+        always seen the gate they resolve; Ask holds itself to the same rule instead
+        of confirming a bare gate id. Only gates other than ``place_orders`` get here,
+        since Ask refuses a rebalance approve outright. Read on the event loop over a
+        short session, like the target resolution that precedes it.
         """
         try:
             with self._session_factory() as session:

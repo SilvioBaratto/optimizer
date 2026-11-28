@@ -15,6 +15,7 @@ from textual.widgets import ContentSwitcher, Static
 from fund import observe
 from fund.tui._mixins.flight import _ROUND_BUSY, _round_flight, _single_flight
 from fund.tui._mixins.host import ShellHost
+from fund.tui._views.candidates import CANDIDATES_STEP
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen, describe_error
 from fund.tui.views import DeliberationView, ShellView
@@ -708,31 +709,37 @@ class DriveMixin(ShellHost):
         self._after_action(message)
 
 
-# The allocator steps that record the client's constraint set with their output.
-_CONSTRAINED_STEPS = frozenset({"compute_candidates", "optimize_portfolio"})
+_OPTIMIZE_STEP = "optimize_portfolio"
 
 
 def _recorded_constraint_set(decisions: Sequence[Any], upto: int | None = None) -> Any:
-    """The constraint set of the newest allocator step at or before ``upto``.
+    """The constraint set a replay of the allocator row at ``upto`` runs under.
 
-    The adviser's choice and edit rows record none: the candidate set they were
-    made against carries it on its ``compute_candidates`` row, so a replay of a
-    choice reads it there. A step recorded after ``upto`` never applies to it.
+    In a run with candidates the adviser's choice and edit rows record none, so the
+    newest ``compute_candidates`` row at or before the replayed one supplies the set
+    its candidates were fitted under; a set recorded after it never applies. A run
+    from before candidates existed reads as it always did: the replayed
+    ``optimize_portfolio`` row's own constraint set, none for an adviser edit.
 
     Args:
         decisions: The run's decisions in ``decision_index`` order.
-        upto: The replayed decision's index, or ``None`` for the newest.
+        upto: The replayed row's index, or ``None`` for the newest
+            ``optimize_portfolio`` row.
 
     Returns:
-        The recorded ``ConstraintSet`` dump, or ``None`` when no step recorded one.
+        The recorded ``ConstraintSet`` dump, or ``None``.
     """
-    for decision in reversed(decisions):
-        if upto is not None and decision.decision_index > upto:
-            continue
-        recorded = decision.agent == "allocator" and decision.step in _CONSTRAINED_STEPS
-        if recorded and decision.constraint_set:
-            return decision.constraint_set
-    return None
+    allocator = [
+        decision
+        for decision in decisions
+        if decision.agent == "allocator"
+        and (upto is None or decision.decision_index <= upto)
+    ]
+    sets = [decision for decision in allocator if decision.step == CANDIDATES_STEP]
+    if sets:
+        return sets[-1].constraint_set
+    replayed = [decision for decision in allocator if decision.step == _OPTIMIZE_STEP]
+    return replayed[-1].constraint_set if replayed else None
 
 
 def _recorded_train_size(optimizer_config: dict[str, Any] | None) -> int | None:

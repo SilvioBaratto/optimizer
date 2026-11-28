@@ -15,7 +15,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from fund.tui._views.candidates import candidate_row, measures_line
+from fund.tui._views.candidates import (
+    CANDIDATES_STEP,
+    candidate_row,
+    measures_line,
+)
 
 if TYPE_CHECKING:
     # Annotation-only: these recompute dataclasses live in ``fund.readouts_compute``,
@@ -29,7 +33,6 @@ if TYPE_CHECKING:
 # step that records the candidate set gets a read-out of its own.
 _ALLOCATOR_AGENT = "allocator"
 _RISK_AGENT = "risk"
-_CANDIDATES_STEP = "compute_candidates"
 _CANDIDATES_HEADING = "candidates (listed by id; the adviser chooses)"
 
 # The frontier replay re-solves the mean-risk problem, which only this candidate is.
@@ -101,7 +104,7 @@ def render_readout(
         The rendered sub-panels joined by newlines, or ``None`` when the step has no
         structured read-out — the caller then falls back to the raw JSON dump.
     """
-    if agent == _ALLOCATOR_AGENT and step == _CANDIDATES_STEP:
+    if agent == _ALLOCATOR_AGENT and step == CANDIDATES_STEP:
         return "\n".join(_candidates_block(payload or {}))
     if agent == _ALLOCATOR_AGENT and (payload or compute is not None):
         safe = payload or {}

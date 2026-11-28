@@ -38,8 +38,9 @@ _QUEUE_TABLE = "decisions-table"
 _CANDIDATES_TABLE = "decisions-candidates"
 
 _KEY_HINT = (
-    "↵ select gate · tab candidates, ↵ select one · a approve (confirm) · "
-    "r reject · k killswitch · e edit weights · s steer PM"
+    "↵ select gate · tab candidates, ↵ select one · a approve (a rebalance gate "
+    "confirms the selected candidate) · r reject · k killswitch · e edit weights · "
+    "s steer PM"
 )
 _STALE_SET = (
     "cannot approve: the gate was opened on another candidate set than the run's "
@@ -305,19 +306,29 @@ class DecisionsView(ShellView):
         try:
             with self.read_session() as session:
                 rows = observe.pending_hitl(session, saver, None)
-                detail = _GateDetail()
-                if self.selected_run_id is not None and any(
-                    row.run_id == self.selected_run_id for row in rows
-                ):
-                    try:
-                        detail = _read_gate(session, saver, self.selected_run_id)
-                    except Exception as exc:  # one bad gate must not hide the queue
-                        detail = _GateDetail(
-                            text=f"(gate unavailable: {exc})", unavailable=True
-                        )
-                return rows, detail
+                selected = self.selected_run_id
+                if selected is None or all(row.run_id != selected for row in rows):
+                    return rows, _GateDetail()
+                return rows, self._read_selected_gate(session, saver, selected)
         except Exception:  # keep the poll loop alive on any read error
             return None
+
+    def _read_selected_gate(
+        self, session: Any, saver: Any, run_id: uuid.UUID
+    ) -> _GateDetail:
+        """Read the selected gate, degrading a failure to a one-line notice.
+
+        A driver error's text carries the statement and its bound parameters over
+        several lines, so the adviser sees one ``Type: message`` line and the log
+        gets the full error, once per distinct reason.
+        """
+        try:
+            detail = _read_gate(session, saver, run_id)
+        except Exception as exc:  # one bad gate must not hide the queue
+            reason = self._read_failed("gate", exc)
+            return _GateDetail(text=f"(gate unavailable: {reason})", unavailable=True)
+        self._read_recovered("gate")
+        return detail
 
     def _paint_read_error(self) -> None:
         """Flag a failed read next to the count, leaving queue + selection as-is."""

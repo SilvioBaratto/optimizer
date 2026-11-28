@@ -231,7 +231,10 @@ Behaviour changes to know about:
   `compute_candidates` step (every candidate with its measures and weights) and shows
   the mean-risk frontier replay only for a `mean_risk` choice, labelled as such; for
   another candidate or an edit it is hidden, and a replay of a choice uses the
-  constraint set its candidate set recorded. The gate text no longer says an approve
+  constraint set its candidate set recorded (a run from before candidates existed is
+  replayed as before, under the replayed row's own constraint set, none for an
+  adviser edit). A gate whose detail or candidate set cannot be read shows a one-line
+  reason and the error goes to the log. The gate text no longer says an approve
   places the audited proposal (a gate with no candidate set says an approve is
   refused), and `fund.tui.views` no longer exports `_pm_weights_differ` (REQ-FUND-053,
   REQ-FUND-054).

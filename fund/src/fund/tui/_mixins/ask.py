@@ -180,17 +180,22 @@ class AskMixin(ShellHost):
     ) -> tuple[str, str | None] | None:
         """The approve confirm's text and the id of the gate it shows.
 
+        The gate id is read first and again last: the pending call and the text are
+        read separately, and a run that moved to another gate in between (a mandate
+        gate giving way to ``place_orders``, say) must not get a confirm built from
+        two gates.
+
         Returns ``None`` once the approve has been refused on the Ask log (a
-        rebalance gate, or a gate that cannot be read), so no confirm opens.
+        rebalance gate, a gate that cannot be read, or one that moved while it was
+        read), so no confirm opens.
         """
+        shown_gate = self._shown_gate_id(run_id)
         refusal = self._ask_approve_refusal(run_id)
         if refusal is not None:
             self._ask_refuse(view, refusal)
             return None
-        # The id first, then the text it labels (see decisions._read_gate).
-        shown_gate = self._shown_gate_id(run_id)
         gate = self._ask_approve_gate(run_id)
-        if gate is None:
+        if gate is None or self._shown_gate_id(run_id) != shown_gate:
             self._ask_refuse(view, _GATE_UNREADABLE)
             return None
         return f"{prompt}\n\n{gate}", shown_gate

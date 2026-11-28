@@ -1298,9 +1298,11 @@ def test_report_text_has_no_recommendation_language(harness, monkeypatch) -> Non
     ranks or recommends a candidate."""
     run_id, _expected, _res = _seed_and_run(harness, monkeypatch)
     paused = harness.runner.invoke(cli.app, ["report", str(run_id)])
-    harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
+    approve = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
+    assert approve.exit_code == 0, approve.output
     approved = harness.runner.invoke(cli.app, ["report", str(run_id)])
 
+    assert f"chosen by the adviser: {MEAN_RISK}" in approved.output
     for output in (paused.output, approved.output):
         assert _REPORT_CANDIDATES_HEADING in output
         assert _RECOMMENDATION.search(output) is None, _RECOMMENDATION.search(output)
