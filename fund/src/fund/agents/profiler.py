@@ -90,7 +90,7 @@ _LIVE_GATE_STATUSES = ("paused", "responded")
 # The single HITL-gated persistence tool the profiler agent exposes (SPEC §8.5).
 _SAVE_PROFILE_TOOL = "save_profile"
 
-# Named inconsistency-flag vocabulary the suitability check can emit. These are
+# Named inconsistency-flag vocabulary the input consistency check can emit. These are
 # surfaced (never auto-clamped) at the HITL gate (SPEC §8.3).
 FLAG_OBJECTIVE_CAPACITY_MISMATCH = "objective_capacity_mismatch"
 FLAG_OVERCONFIDENCE = "overconfidence"
@@ -707,10 +707,10 @@ def _commit_blocked_trail(
     typed: bool,
     reason: str,
 ) -> uuid.UUID:
-    """Persist a suitability breach's audit trail alone, then commit it.
+    """Persist a blocked profile's audit trail alone, then commit it.
 
     Every caller's session scope rolls back on the ``SuitabilityBreachError`` that
-    follows, which would erase the only record of a legally blocked assessment. A
+    follows, which would erase the only record of the blocked profile. A
     commit takes the whole transaction with it though, including whatever the
     caller staged beforehand (the TUI onboarding flushes the portfolio's mandate and
     its audit row first, and a blocked onboarding must leave neither behind). So
@@ -891,7 +891,7 @@ def _persist_profile(
     re-run contract (SPEC D3): a replay of a run that already completed is a true
     no-op — no second version, no double-log. A fresh run for an already-profiled
     portfolio is a re-profile: it appends the next version and re-caches the
-    ``ConstraintSet``, so the amended assessment supersedes the prior one. The Store
+    ``ConstraintSet``, so the amended inputs supersede the prior ones. The Store
     cache is queued behind the session's commit, so a lost transaction never leaves
     a cached profile with no row behind it. Returns the tool-result payload.
     """
@@ -1096,7 +1096,7 @@ def build_profiler_agent(
     The profiler runs under the theory-staged ``virtual_mode`` backend and loads its
     ``mifid-profiling`` skill through it (Risk R1), so the consultation protocol in
     ``PROFILER_SYSTEM_PROMPT`` can reach ``optimizer-theory/`` — the profiler is
-    step 0 and must ground its suitability reasoning in the staged theory, not
+    step 0 and must ground its mapping of the inputs in the staged theory, not
     parametric memory, like every other role. ``run_id`` scopes the agent's writable
     scratch area to its audit run so one portfolio's offloaded transcripts are never
     visible to another run.

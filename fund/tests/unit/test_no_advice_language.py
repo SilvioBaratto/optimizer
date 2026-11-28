@@ -70,6 +70,23 @@ _OLD_PHRASES = (
     "compliance record",
     "compliance-safe",
     "compliance guarantee",
+    "amended assessment",
+    "whose suitability is being assessed",
+    "investor questionnaire",
+    "derived from the assessment",
+    "suitability classification",
+    "the suitability check",
+    "suitability reasoning",
+    "read as full suitability",
+    "suitability breach",
+    "suitability ceiling",
+    "active assessment",
+    "always suitable",
+    "client is suited for",
+    "legally blocked",
+    "suitability block",
+    "suitability rows",
+    "suitability flags",
 )
 _ADVISER = re.compile(r"\badvisers?\b", re.IGNORECASE)
 # A wheel summary is the first line a stranger reads about a package.

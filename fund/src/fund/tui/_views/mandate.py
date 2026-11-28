@@ -115,8 +115,8 @@ class MandateView(ShellView):
 
     Attributes:
         mandate: The focused portfolio's current run-policy, or ``None``.
-        suitability_band: The active assessment's ``RiskToleranceBand`` value (the
-            ceiling), or ``None`` when the portfolio has no profile yet.
+        suitability_band: The ``RiskToleranceBand`` value of the active saved inputs
+            (the ceiling), or ``None`` when the portfolio has no profile yet.
         currency_locked: ``True`` once the portfolio has NAV history, positions or
             paper orders; the base currency is then read-only (none of them stores a
             currency).

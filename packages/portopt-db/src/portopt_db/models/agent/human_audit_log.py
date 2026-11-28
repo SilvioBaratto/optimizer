@@ -47,7 +47,7 @@ _JSON = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgres
 
 
 class HumanAuditLog(BaseModel):
-    """One human action: actor/action + provenance + override/suitability flags."""
+    """One human action: actor/action + provenance + the override and band flags."""
 
     __tablename__ = "human_audit_log"
     __table_args__ = (

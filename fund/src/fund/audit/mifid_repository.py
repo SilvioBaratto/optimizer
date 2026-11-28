@@ -60,14 +60,17 @@ class MifidProfileRepository(RepositoryBase):
         """Insert the next version for the portfolio; return the flushed row.
 
         Append-only: the new ``version`` is ``max(version) + 1`` scoped to
-        ``portfolio_id`` (``1`` when the portfolio has no prior profile), so an
-        amended assessment never overwrites the previous one.
+        ``portfolio_id`` (``1`` when the portfolio has no prior profile), so amended
+        inputs never overwrite the previous version.
 
         Args:
-            portfolio_id: The portfolio whose suitability is being assessed.
-            questionnaire: Raw investor questionnaire answers as submitted.
-            constraint_set: Serialised ConstraintSet derived from the assessment.
-            suitability: Suitability classification output from the profiler agent.
+            portfolio_id: The portfolio the inputs belong to.
+            questionnaire: The answers the user entered in the inputs form, as
+                submitted.
+            constraint_set: Serialised ConstraintSet mapped from those answers: the
+                risk limits and constraints the optimizer works within.
+            suitability: The profiler's structured record of the saved inputs, their
+                flags and how they were mapped.
             store_key: LangGraph store key under which the constraint set is cached.
             status: Lifecycle state of this version; defaults to ``"active"``.
 

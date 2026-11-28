@@ -526,8 +526,8 @@ class AgentRunRepository(RepositoryBase):
                 verdict is bound to exactly these weights.
             passed: Whether the gate passed them.
             violations: The structured breach records (empty when ``passed``).
-            not_enforced: Suitability inputs the gate cannot enforce yet, so a pass
-                is not read as full suitability.
+            not_enforced: Saved risk limits the gate cannot enforce yet, so a pass
+                is not read as every limit holding.
             source: What produced the verdict (``"risk_check"`` for the bound tool,
                 ``"adviser_edit"`` for an adviser's weight edit).
 

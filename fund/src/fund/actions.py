@@ -101,7 +101,7 @@ class ActionResult:
         message: A one-line summary for the status bar.
         detail: The underlying driver's return value (e.g. ``resume_run``'s result;
             ``{"status": ...}`` for ``run``), a ``{"blocked": True, "reason": ...}``
-            marker for a ``profile`` stopped by a suitability breach,
+            marker for a ``profile`` its inputs blocked (``SuitabilityBreachError``),
             ``{"warnings": [...]}`` for a mandate saved with a benchmark that cannot
             be priced, or ``None`` when the action produces none.
     """
@@ -1767,7 +1767,7 @@ def _apply_profile(
     later (through ``apply_action("approve", ...)``) persists the profile and caches
     the active set. The agent stack is imported here, never at module scope.
 
-    A hard suitability breach (ESG exclusions covering every sector) does not raise:
+    Inputs that block the profile (ESG exclusions covering every sector) do not raise:
     the blocked run is audited and returned as an :class:`ActionResult` whose
     ``detail`` is ``{"blocked": True, "reason": ...}``.
 
@@ -1964,8 +1964,8 @@ def _apply_run(
 
 
 # RiskToleranceBand ordered least→most risk-tolerant. The active SuitabilityAssessment's
-# band is the ceiling the client is suited for; a guardrail edit to a *riskier* band is
-# the override we flag (de-risking below the ceiling is always suitable).
+# band is the ceiling the saved inputs set; an edit to a *riskier* band is the override
+# we flag (moving below the ceiling only takes less risk, so it is never flagged).
 _BAND_RANK = {
     "defensive": 0,
     "conservative": 1,
@@ -1976,11 +1976,12 @@ _BAND_RANK = {
 
 
 def is_within_suitability_band(proposed_band: str, suitability_band: str) -> bool:
-    """Whether a proposed risk band stays within the suitability ceiling.
+    """Whether a proposed risk band stays within the risk-limit ceiling.
 
     Args:
         proposed_band: The edited ``RiskToleranceBand`` value.
-        suitability_band: The active assessment's ``RiskToleranceBand`` value (ceiling).
+        suitability_band: The ``RiskToleranceBand`` value of the active saved inputs
+            (the ceiling).
 
     Returns:
         ``True`` when ``proposed_band`` is no riskier than ``suitability_band``. An

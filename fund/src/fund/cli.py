@@ -442,7 +442,7 @@ def profile(
     finally:
         persistence.pool.close()
     typer.echo(result.message)
-    # A suitability block is committed as a recorded outcome, but nothing is awaiting
+    # A blocked profile is committed as a recorded outcome, but nothing is awaiting
     # approval, so a script must not read the exit as a successful profile.
     _exit(not (result.detail or {}).get("blocked"))
 
