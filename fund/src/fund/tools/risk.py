@@ -221,7 +221,7 @@ def _check_drawdown(
                 "value": observed,
                 "limit": 0.0,
                 "reason": (
-                    "the client's one-year loss tolerance is 0, so no invested book "
+                    "the user's one-year loss tolerance is 0, so no invested book "
                     "can meet the drawdown ceilings; revisit capacity.max_1yr_loss_pct"
                 ),
             }

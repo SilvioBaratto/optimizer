@@ -167,10 +167,10 @@ def _directives_block(
         return ""
     bullets = "\n".join(f"- {text}" for text in reversed(kept))
     return (
-        "Adviser standing directives (authored by the human adviser and remembered "
-        "across rounds; soft guardrails). Pass them on in every delegation brief and "
+        "The user's standing directives (saved instructions the user wrote, kept "
+        "across rounds; soft limits). Pass them on in every delegation brief and "
         "have risk flag any candidate that breaches one. They never relax the "
-        "ConstraintSet limits, the risk gate or the adviser approval, and never "
+        "ConstraintSet limits, the risk gate or the user's approval, and never "
         f"select a candidate:\n{bullets}\n\n"
     )
 
@@ -198,21 +198,21 @@ def _eligible_block(eligible: Eligibility | None) -> str:
     )
     if eligible.allowed:
         intro = (
-            "Eligible universe (resolved by the system from the client's mandate and "
-            "enforced by the tools): the portfolio may hold only the tickers below. "
-            "list_universe returns the full set, in this order, and the allocator "
-            "tools refuse any other ticker, so pass this to the allocator and have it "
-            "take its candidates from list_universe."
+            "Eligible universe (resolved by the system from the portfolio's settings "
+            "and enforced by the tools): the portfolio may hold only the tickers "
+            "below. list_universe returns the full set, in this order, and the "
+            "allocator tools refuse any other ticker, so pass this to the allocator "
+            "and have it take its candidates from list_universe."
         )
         allowed = _fit_entries(
             "Allowed: ", list(eligible.allowed), _ELIGIBLE_ALLOWED_BUDGET
         )
     else:
         intro = (
-            "Eligible universe: the client's mandate lists tickers, but no eligible "
-            "ticker can be held on this date, so list_universe will report an error "
-            "and there is nothing to allocate. Tell the adviser instead of proposing "
-            "names outside the list."
+            "Eligible universe: the portfolio's settings list tickers, but no "
+            "eligible ticker can be held on this date, so list_universe will report "
+            "an error and there is nothing to allocate. Tell the user instead of "
+            "proposing names outside the list."
         )
         allowed = ""
     parts = (intro, allowed, barred, notes)
@@ -275,9 +275,9 @@ def _run_instruction(
     return (
         f"{history}{_directives_block(mandate)}{_eligible_block(eligible)}"
         f"Compute and present the candidate portfolios for portfolio "
-        f"{portfolio_id} as of {asof.isoformat()}. Mandate: capital {mandate.capital} "
+        f"{portfolio_id} as of {asof.isoformat()}. Settings: capital {mandate.capital} "
         f"{mandate.base_currency}{benchmark}, no-trade band (drift band (L1)) "
         f"{mandate.drift_l1_threshold}, HITL gates {gates}.{limits} Delegate in "
         f"order economist -> allocator -> risk -> executor, then call place_orders "
-        f"once so the adviser can choose a candidate; never choose one yourself."
+        f"once so the user can choose a candidate; never choose one yourself."
     )

@@ -14,8 +14,8 @@ These tests assert the prompt contract:
 * each prompt names its own tools/skills;
 * the **PM** names the fixed delegation order, the **blocking** risk gate, and the
   **round cap** (→ finalised incomplete with no ticket and no escalation tool);
-* the **risk** officer reports pass/fail with explicit violations and hard-blocks a
-  MiFID/ESG/validation breach;
+* the **risk** checker reports pass/fail with explicit violations and hard-blocks a
+  risk-limit/ESG/validation breach;
 * the **executor** treats ``place_orders`` as paper-only, next-close, idempotent,
   HITL-gated, and never fabricates weights;
 * ``__all__`` exports all six prompts.
@@ -164,11 +164,11 @@ def test_pm_round_cap_does_not_promise_a_hitl_checkpoint():
 @pytest.mark.criterion("REQ-FUND-052")
 def test_pm_prompt_calls_place_orders_only_after_the_risk_gate_reported():
     """Validates fund.agents.prompts.PM_SYSTEM_PROMPT: the PM calls ``place_orders``
-    once, after the risk gate, so the adviser chooses, and never chooses itself."""
-    section = _pm_section("The adviser chooses at the gate")
+    once, after the risk gate, so the user chooses, and never chooses itself."""
+    section = _pm_section("The user chooses at the gate")
 
     assert "only after the risk gate" in section
-    assert "the adviser chooses" in section
+    assert "the user chooses" in section
     assert "never choose" in section
 
 
@@ -185,11 +185,14 @@ def test_risk_prompt_says_the_check_reads_a_candidate_and_records_nothing():
     assert "records nothing" in flat
 
 
-def test_pm_prompt_explains_how_to_read_an_adviser_directive():
+@pytest.mark.criterion("REQ-FUND-052")
+def test_pm_prompt_explains_how_to_read_a_user_directive():
     # A ``respond`` barge-in reaches the PM as the ``place_orders`` tool result; the
     # prompt must say that is a steer, not a placed order, and what to do with it.
+    """Validates fund.agents.prompts.PM_SYSTEM_PROMPT: a ``USER DIRECTIVE`` result
+    means ``place_orders`` was not executed, and the PM gates again."""
     lower = " ".join(PM_SYSTEM_PROMPT.lower().replace("`", "").split())
-    assert "adviser directive" in lower
+    assert "user directive" in lower
     assert "not executed" in lower
     assert "place_orders again" in lower
     assert "never reply that an order was placed" in lower
@@ -256,10 +259,15 @@ def test_risk_prompt_reports_pass_fail_with_explicit_violations():
     assert "risk-limits-check" in lower
 
 
-def test_risk_prompt_hard_blocks_mifid_esg_validation_breach():
+@pytest.mark.criterion("REQ-FUND-052")
+def test_risk_prompt_hard_blocks_a_risk_limit_esg_or_validation_breach():
+    """Validates fund.agents.prompts.RISK_SYSTEM_PROMPT: a breach of the user's risk
+    limits, an ESG exclusion or a validation failure is a hard block, named without
+    the suitability framing."""
     lower = RISK_SYSTEM_PROMPT.lower()
     assert "hard" in lower and "block" in lower
-    assert "mifid" in lower
+    assert "risk limits" in lower
+    assert "mifid" not in lower
     assert "esg" in lower
     assert "validation" in lower
 

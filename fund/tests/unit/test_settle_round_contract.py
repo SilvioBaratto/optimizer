@@ -47,13 +47,13 @@ UNGATED = [
         SimpleNamespace(response_metadata={"stop_reason": "max_tokens"}),
         False,
         "output_truncated",
-        "the model's output limit cut off the PM's order call",
+        "the model's output limit cut off the order call",
     ),
     (
         SimpleNamespace(invalid_tool_calls=[{"name": "place_orders"}]),
         False,
         "invalid_tool_call",
-        "the PM's order call was malformed",
+        "the orchestrator's order call was malformed",
     ),
     (SimpleNamespace(), False, "no_order", "pipeline ended before the gate"),
 ]
@@ -333,7 +333,7 @@ def test_run_fund_reads_the_freeze_of_the_portfolio_given_as_text(
 # Each candidate-check ending: the reason recorded and the text the stream shows.
 NOTHING_TO_CHOOSE = [
     ("no_candidate_set", "the round reached the gate without a candidate set"),
-    ("no_feasible_candidate", "no candidate met the client's constraints"),
+    ("no_feasible_candidate", "no candidate met your constraints"),
 ]
 
 
@@ -480,7 +480,7 @@ def test_stream_fund_judges_the_reason_by_the_last_pm_message(monkeypatch, log) 
 
     events = _stream()
 
-    assert events[-1].text == "the model's output limit cut off the PM's order call"
+    assert events[-1].text == "the model's output limit cut off the order call"
     assert log == _incomplete("output_truncated")
 
 

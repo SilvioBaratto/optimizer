@@ -94,11 +94,11 @@ class DriveMixin(ShellHost):
         active and a portfolio is focused.
         """
         if not self._posture_active():
-            self._set_status("open Posture to profile a portfolio")
+            self._set_status("open Posture to enter a portfolio's inputs")
             return
         pid = self._portfolio_id
         if pid is None:
-            self._set_status("focus a portfolio to profile")
+            self._set_status("focus a portfolio to enter its inputs")
             return
         if self._round_in_flight():
             self._set_status(_ROUND_BUSY)
@@ -106,7 +106,7 @@ class DriveMixin(ShellHost):
 
         def _submitted(submission: OnboardingSubmission | None) -> None:
             if submission is None:
-                self._set_status("profiling cancelled")
+                self._set_status("inputs cancelled")
                 return
             self.last_worker = self._onboard_worker(
                 pid,
@@ -445,7 +445,7 @@ class DriveMixin(ShellHost):
                 mandate = observe.get_mandate(session, portfolio_id)
                 if mandate is None:
                     self.call_from_thread(
-                        self._set_status, "no mandate — onboard the portfolio first"
+                        self._set_status, "no settings — onboard the portfolio first"
                     )
                     return
                 result = apply_action(
@@ -502,7 +502,7 @@ class DriveMixin(ShellHost):
                 mandate = observe.get_mandate(session, portfolio_id)
                 if mandate is None:
                     self.call_from_thread(
-                        self._set_status, "no mandate — onboard the portfolio first"
+                        self._set_status, "no settings — onboard the portfolio first"
                     )
                     return
                 for event in stream_fund(
@@ -590,7 +590,7 @@ class DriveMixin(ShellHost):
 
     @work(thread=True, group="action")
     @_single_flight(
-        "steering the PM",
+        "steering the run",
         refused=lambda self, run_id, portfolio_id, directive, remember: (
             f"steer not sent: {directive}"
         ),
@@ -644,7 +644,7 @@ class DriveMixin(ShellHost):
                 self._remember_directive(portfolio_id, directive)
             except Exception as exc:  # the directive stands for this round regardless
                 logger.warning("remembering a directive failed", exc_info=True)
-                message += f" (directive not saved to the mandate: {exc})"
+                message += f" (instruction not saved to the settings: {exc})"
         self.call_from_thread(self._after_action, message)
 
     def _remember_directive(self, portfolio_id: uuid.UUID, directive: str) -> None:

@@ -278,7 +278,7 @@ def _mandate_breach_error(
     if not breaches:
         return None
     return err(
-        "universe breaches the client's mandate: "
+        "universe breaches the user's constraints: "
         f"{describe_breaches(breaches)}; remove these names and retry"
     )
 
@@ -557,8 +557,8 @@ def _selected_weights(ctx: RunContext) -> dict[str, float]:
 
 
 _NO_ADVISER_CHOICE = (
-    "no candidate has been chosen by the adviser for this run; the adviser chooses "
-    "one at the place_orders gate"
+    "no candidate has been chosen for this run; the user chooses one at the "
+    "place_orders gate"
 )
 
 
@@ -800,8 +800,8 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
     # text alone cannot stop a PM that skips the gate.
     if not AgentRunRepository(ctx.session).risk_passed(ctx.run_id, selected):
         return err(
-            "the risk gate has not passed the adviser's chosen weights; nothing can "
-            "be placed until the choice is checked"
+            "the risk gate has not passed the chosen weights; nothing can be "
+            "placed until the choice is checked"
         )
     cs = _resolve_constraint_set(ctx)
     if cs is not None:
@@ -814,7 +814,7 @@ def _place_orders_impl(ctx: RunContext) -> ToolResult:
             return recheck
         if not recheck["data"]["passed"]:
             return err(
-                "the chosen weights breach the client's mandate: "
+                "the chosen weights breach the user's constraints: "
                 f"{describe_breaches(recheck['data']['violations'])}; reject the "
                 "run or choose another candidate"
             )
@@ -931,13 +931,13 @@ def _bind_list_universe(ctx: RunContext) -> BaseTool:
     ) -> ToolResult:
         """List one page of the investable universe, largest market cap first, as
         ``{ticker, name, sector, market_cap, instrument_type, asset_class}`` rows
-        (``instrument_type`` tells an ETF from a stock). Names in the client's
+        (``instrument_type`` tells an ETF from a stock). Names in the user's
         ESG-excluded sectors are already removed (a complex or leveraged product is
         dropped later, by ``universe_filter``). Which names are listed is judged on
         the run date, but ``sector`` and ``market_cap`` are the latest snapshot, so
         for a past run date the size ranking is today's, not that date's. When the
         portfolio has an eligible universe, this returns exactly that set, in the
-        mandate's order, instead of the market-cap ranking: take all of it as your
+        settings' order, instead of the market-cap ranking: take all of it as your
         candidates (an ETF has no sector, so a ``sector`` filter never returns one).
         Page with ``offset`` / ``limit`` (at most 500); ``total`` counts the whole
         list. Narrow with ``sector``: one of Basic Materials, Communication Services,
@@ -961,14 +961,14 @@ def _bind_universe_filter(ctx: RunContext) -> BaseTool:
     @tool
     def universe_filter(universe: list[str]) -> ToolResult:
         """Prune ``universe`` (tickers taken from ``list_universe``) with the
-        pre-selection stack, dropping any name the client's mandate forbids
-        (ESG-excluded sector, complex or leveraged product for a restricted client,
-        or an unclassifiable instrument) and any name whose own price history is under
-        half the panel's median (``dropped_for_history``). Fails, naming each
-        offender and why, if the portfolio has an eligible universe and ``universe``
-        holds a name outside it. Returns the ``{ok, data}`` envelope with the
-        surviving tickers, in requested order, and ``mandate_excluded`` naming each
-        dropped ticker and why."""
+        pre-selection stack, dropping any name the user's constraints forbid
+        (ESG-excluded sector, complex or leveraged product under a knowledge
+        restriction, or an unclassifiable instrument) and any name whose own price
+        history is under half the panel's median (``dropped_for_history``). Fails,
+        naming each offender and why, if the portfolio has an eligible universe and
+        ``universe`` holds a name outside it. Returns the ``{ok, data}`` envelope
+        with the surviving tickers, in requested order, and ``mandate_excluded``
+        naming each dropped ticker and why."""
         return _universe_filter_impl(ctx, universe)
 
     return universe_filter
@@ -996,12 +996,12 @@ def _bind_compute_candidates(ctx: RunContext) -> BaseTool:
         """Compute four candidate portfolios for ``universe`` as of the run date:
         hrp, mean_risk, min_risk and risk_parity, always in that alphabetical order,
         which says nothing about them. skfolio computes every weight from the run's
-        risk profile; you never emit a weight and never choose a candidate, the
-        adviser does. Each candidate reports its annualised volatility, CVaR 95%,
+        risk limits; you never emit a weight and never choose a candidate, the
+        user does. Each candidate reports its annualised volatility, CVaR 95%,
         largest position, number of positions, turnover from current holdings and
         the constraint check; one that failed or breached a constraint is listed
         with ``feasible`` false and its breaches. Fails, naming the offenders, if
-        ``universe`` holds a name the client's mandate forbids or a name outside the
+        ``universe`` holds a name the user's constraints forbid or a name outside the
         portfolio's eligible universe; fails too if it is too small for the position
         cap, has no priced name, or has too little common price history. Returns the
         ``{ok, data}`` envelope with the candidate set."""
@@ -1017,14 +1017,14 @@ def _bind_risk_check(ctx: RunContext) -> BaseTool:
     def risk_check(candidate_id: str) -> ToolResult:
         """Validate one candidate of the allocator's latest candidate set, named by
         ``candidate_id`` (hrp, mean_risk, min_risk or risk_parity), against the run's
-        risk profile: weight bounds and position cap, ESG sector exclusions and
+        risk limits: weight bounds and position cap, ESG sector exclusions and
         low-K&E instrument restrictions on every held name, and any held name outside
         the portfolio's eligible universe (a ``not_eligible`` violation with its
-        ``reason``) and the client's loss ceilings, judged on the worst loss inside
+        ``reason``) and the user's loss ceilings, judged on the worst loss inside
         any one year of history (a loss that cannot be measured, for want of a year
-        of common history, fails the check; a client who tolerates no loss at all is
+        of common history, fails the check; a user who tolerates no loss at all is
         reported as ``zero_loss_tolerance``). Takes no weights: the candidate's
-        audited weights are checked, so the verdict covers exactly what the adviser
+        audited weights are checked, so the verdict covers exactly what the user
         is shown. It reports a verdict and records none: you never choose a
         candidate. Returns the ``{ok, data}`` envelope with ``passed`` and
         structured ``violations``."""
@@ -1044,7 +1044,7 @@ def _bind_backtest(ctx: RunContext) -> BaseTool:
         on that same sample, so the metrics are in-sample (``out_of_sample`` is
         false): a consistency check, not independent validation. Takes no weights.
         Returns the ``{ok, data}`` envelope with ``metrics`` and ``drawdown_tiers``:
-        the client's ``nu1`` (soft warning), ``nu2`` (hard ceiling) and ``nu3``
+        the user's ``nu1`` (soft warning), ``nu2`` (hard ceiling) and ``nu3``
         (absolute stop) loss ceilings, the ``worst_rolling_loss`` they are compared
         with (the worst loss inside any one year; ``None`` and ``verified`` false
         when the history is shorter), the full-history ``max_drawdown`` for
@@ -1059,16 +1059,16 @@ def _bind_place_orders(ctx: RunContext) -> BaseTool:
 
     @tool
     def place_orders() -> ToolResult:
-        """Show the human adviser every candidate of the run's latest candidate set
-        and place the idempotent **paper** ticket for the one the adviser chooses,
-        filled at the next close after the run date. Takes no weights or other
-        arguments: the gate carries the whole audited set, and the adviser chooses
-        which candidate is placed; you never choose one. This call is what pauses the
-        run for that decision, so call it once and do not ask for it in text first.
-        Nothing is placed without the adviser's choice, and the chosen weights are
-        refused if they hold a name outside the portfolio's eligible universe or
-        breach the current mandate. Returns the ``{ok, data}`` envelope with the
-        order ticket."""
+        """Show the user every candidate of the run's latest candidate set and
+        place the idempotent **paper** ticket for the one the user chooses, filled
+        at the next close after the run date; nothing is sent to a broker. Takes no
+        weights or other arguments: the gate carries the whole audited set, and the
+        user chooses which candidate is placed; you never choose one. This call is
+        what pauses the run for that decision, so call it once and do not ask for it
+        in text first. Nothing is placed without the user's choice, and the chosen
+        weights are refused if they hold a name outside the portfolio's eligible
+        universe or breach the current constraints. Returns the ``{ok, data}``
+        envelope with the order ticket."""
         return _place_orders_impl(ctx)
 
     return place_orders

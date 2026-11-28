@@ -360,7 +360,7 @@ def test_approve_refused_by_the_mandate_reports_that_nothing_was_booked(
     )
 
     with env.get_session() as session:
-        with pytest.raises(ValueError, match="breaches the current mandate"):
+        with pytest.raises(ValueError, match="breaches the current constraints"):
             apply_action(
                 "approve",
                 session=session,

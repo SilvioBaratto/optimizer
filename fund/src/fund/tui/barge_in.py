@@ -69,8 +69,8 @@ class BargeInScreen(ModalScreen["BargeInResult | None"]):
         """Yield the paused-at context, the directive input, the remember toggle, and actions."""  # noqa: E501
         with Vertical(classes="bargein-dialog"):
             yield Static(f"⏸ paused at {self._paused_at}", classes="bargein-where")
-            yield Input(placeholder="directive to the PM…", id="bargein-text")
-            yield Checkbox("remember (soft guardrail)", id="bargein-remember")
+            yield Input(placeholder="directive for this run…", id="bargein-text")
+            yield Checkbox("save as an instruction (soft limit)", id="bargein-remember")
             with Horizontal(classes="bargein-actions"):
                 yield Button("Send", variant="primary", id="bargein-send")
                 yield Button("Cancel", id="bargein-cancel")

@@ -1,4 +1,8 @@
-"""The Mandate view: the run policy, guardrails and directives an adviser edits."""
+"""The Constraints view: the run settings, risk limits and saved instructions you edit.
+
+Its view key stays ``mandate`` (the stored record is a ``PortfolioMandate``); only the
+labels a person reads say constraints, inputs and saved instructions.
+"""
 
 from __future__ import annotations
 
@@ -83,26 +87,26 @@ _SAVED_FIELDS: tuple[tuple[str, str], ...] = (
 
 
 class MandateView(ShellView):
-    """Per-portfolio policy editor: run-policy (persisted) + guardrails (audit-only).
+    """Per-portfolio settings editor: run settings (persisted) + risk limits (audit).
 
-    RUN POLICY mirrors the editable ``PortfolioMandate`` fields (capital, base currency,
+    RUN SETTINGS mirrors the editable ``PortfolioMandate`` fields (capital, currency,
     drift threshold, benchmark, eligible tickers); saving upserts through the unified
     action path (``mandate_edit``), which also warns about an unpriced eligible ticker.
-    GUARDRAILS are read from the active MiFID profile — the
-    suitability ``band`` is the ceiling, and proposing a *riskier* band logs a
+    RISK LIMITS are read from the active inputs (the ``mifid_profiles`` row) — its
+    ``band`` is the ceiling, and proposing a *riskier* band logs a
     ``guardrail_override`` flagged ⚠ (audit-only this phase; enforcement is
     ``03-copilot``). The HITL gates mirror what a run actually pauses at: the config
     baseline always gates ``place_orders`` (a mandate can only widen it), so that box
     shows as always on (editable only when the config does not gate it), and
-    ``save_profile`` is the profiler's always-on gate, an indicator only. Remembered
-    directives render in a removable list (``x`` drops the highlighted one). Both fold
-    back into the mandate on save.
+    ``save_profile`` is the profiler's always-on gate, an indicator only. Saved
+    instructions (``remembered_directives``) render in a removable list (``x`` drops
+    the highlighted one). Both fold back into the mandate on save.
 
     Reads through the context seam (``observe.get_mandate`` +
     ``MifidProfileRepository.get_active`` over a short read session); the writes go
     through ``fund.actions`` on a worker thread dispatched by the App.
 
-    The poll repaints the editor every tick, but an editable widget the adviser has
+    The poll repaints the editor every tick, but an editable widget the user has
     changed since its last paint keeps that unsaved value: the save and override
     actions read the live widgets, so a repaint would silently revert them to the
     persisted values. A field is released as soon as it matches the persisted value
@@ -122,7 +126,7 @@ class MandateView(ShellView):
 
     # View-scoped so ``x`` removes a directive only while Mandate holds focus.
     BINDINGS: ClassVar[list[BindingType]] = [
-        ("x", "remove_directive", "Remove directive")
+        ("x", "remove_directive", "Remove instruction")
     ]
 
     # The directives list, not the first input: an Input would swallow the advertised
@@ -142,14 +146,14 @@ class MandateView(ShellView):
         self._painted_pid: uuid.UUID | None = None
 
     def compose(self) -> ComposeResult:
-        """Yield the title, the run-policy | guardrails split, and the key hint."""
+        """Yield the title, the run-settings | risk-limits split, and the key hint."""
         yield Label(self.view_title, classes="view-title")
         yield Label(
             "(no portfolio focused)", id="mandate-subtitle", classes="view-subtitle"
         )
         with Horizontal(classes="mandate-body"):
             with Vertical(classes="mandate-policy"):
-                yield Label("RUN POLICY", classes="mandate-section")
+                yield Label("RUN SETTINGS", classes="mandate-section")
                 yield Input(placeholder="capital", id="mandate-capital")
                 yield Input(placeholder="base currency", id="mandate-base-currency")
                 yield Input(placeholder="drift L1 threshold (0-2)", id="mandate-drift")
@@ -162,11 +166,9 @@ class MandateView(ShellView):
                     "", id="mandate-triggers", classes="mandate-readonly", markup=False
                 )
             with Vertical(classes="mandate-guardrails"):
-                yield Label(
-                    "GUARDRAILS (from MiFID profile)", classes="mandate-section"
-                )
+                yield Label("RISK LIMITS (from your inputs)", classes="mandate-section")
                 yield Static(
-                    "(no profile)", id="mandate-suitability", classes="mandate-readonly"
+                    "(no inputs)", id="mandate-suitability", classes="mandate-readonly"
                 )
                 yield Select(
                     [(band, band) for band in _RISK_BANDS],
@@ -177,15 +179,15 @@ class MandateView(ShellView):
                 yield Label("HITL GATES", classes="mandate-section")
                 yield Checkbox("Before execution", id="gate-place-orders")
                 yield Checkbox(
-                    "Save profile (always on)",
+                    "Save inputs (always on)",
                     value=True,
                     disabled=True,
                     id="gate-save-profile",
                 )
-                yield Label("REMEMBERED DIRECTIVES", classes="mandate-section")
+                yield Label("SAVED INSTRUCTIONS", classes="mandate-section")
                 yield ListView(id="mandate-directives", classes="mandate-directives")
         yield Static(
-            "ctrl+s save · o override guardrail · x remove directive · "
+            "ctrl+s save · o override risk limit · x remove instruction · "
             "eligible tickers: blank = unrestricted",
             id="mandate-hint",
             classes="mandate-hint",
@@ -359,7 +361,7 @@ class MandateView(ShellView):
     def _read_guardrails(
         self, session: Session, pid: uuid.UUID
     ) -> tuple[str | None, str]:
-        """The active suitability band + a caps summary, read lazily off the profile.
+        """The active risk-limit band + a caps summary, read lazily off the inputs.
 
         Imports the repo from its submodule, keeping ``fund.tui.views`` free of the
         ``fund.audit`` package at import time.
@@ -440,7 +442,7 @@ class MandateView(ShellView):
                 field.value = text
         base_currency.disabled = self.currency_locked
         if mandate is None:
-            triggers.update("(no mandate — profile the portfolio first)")
+            triggers.update("(no settings — enter your inputs first)")
             return
         triggers.update(
             f"triggers cron {_tick(mandate.triggers.cron)} "
@@ -453,10 +455,10 @@ class MandateView(ShellView):
         select = self.query_one("#mandate-band", Select)
         caps_widget = self.query_one("#mandate-caps", Static)
         if band is None:
-            suitability.update("(no profile — p to profile)")
+            suitability.update("(no inputs — p to enter them)")
             caps_widget.update("")
             return
-        suitability.update(f"suitability band {band} (ceiling)")
+        suitability.update(f"risk-limit band {band} (ceiling)")
         if band in _RISK_BANDS and self._take_persisted(
             "band", self.proposed_band(), band
         ):

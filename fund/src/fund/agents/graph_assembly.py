@@ -157,8 +157,8 @@ def _pm_round_cap_middleware(max_pm_rounds: int) -> Any:
                     "messages": [
                         AIMessage(
                             content=(
-                                f"PM delegation round cap ({self._cap}) reached; "
-                                "halting without a paper ticket."
+                                f"Orchestrator delegation round cap ({self._cap}) "
+                                "reached; halting without a paper ticket."
                             )
                         )
                     ],

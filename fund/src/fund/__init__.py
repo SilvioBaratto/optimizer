@@ -1,6 +1,7 @@
-"""portopt-fund: the deepagents investment-fund bridge.
+"""portopt-fund: the deepagents bridge between LLM agents and the optimizer.
 
-LLM chooses (structured inputs + enums), the optimizer computes (weights). This
+The agents prepare structured inputs and enums, the optimizer computes the candidate
+portfolios (weights), and the user chooses one; orders are paper tickets only. This
 package is the ONLY workspace member that imports both ``optimizer`` and
 ``portopt_db`` — it is the bridge. ``deepagents``/``langgraph`` live here and
 nowhere else; the ingestion daemon and the DB layer stay clean, guarded by

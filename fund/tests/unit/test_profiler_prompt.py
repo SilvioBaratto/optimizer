@@ -2,8 +2,9 @@
 
 Tests assert:
 
-* ``PROFILER_SYSTEM_PROMPT`` imports (no heavy deps), is English, walks the four
-  ESMA pillars, and states the load-bearing boundary — the LLM interprets answers
+* ``PROFILER_SYSTEM_PROMPT`` imports (no heavy deps), is English, records the user's
+  optimisation inputs over the four input sections without any suitability or
+  advice framing, and states the load-bearing boundary — the LLM interprets answers
   into typed inputs and **never** invents optimizer knobs.
 * ``skills/mifid-profiling/SKILL.md`` has valid YAML frontmatter (``name`` +
   a specific ``description``) and a body that routes to the deterministic mapping.
@@ -17,6 +18,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
 import yaml
 
 from fund.agents.prompts import PROFILER_SYSTEM_PROMPT
@@ -38,16 +40,25 @@ def _frontmatter(text: str) -> dict[str, object]:
 # --- system prompt ----------------------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_profiler_prompt_is_english_and_substantial():
+    """Validates fund.agents.prompts.PROFILER_SYSTEM_PROMPT: it records the user's
+    optimisation inputs and frames nothing as a suitability assessment or advice."""
     assert isinstance(PROFILER_SYSTEM_PROMPT, str)
     assert len(PROFILER_SYSTEM_PROMPT) > 200
-    lower = PROFILER_SYSTEM_PROMPT.lower()
-    assert "mifid" in lower
-    assert "esma" in lower
+    lower = " ".join(PROFILER_SYSTEM_PROMPT.lower().split())
+    assert "optimisation inputs" in lower
+    assert "give no advice" in lower
+    for framing in ("esma", "suitability", "mifid ii", "adviser", "client"):
+        assert framing not in lower, framing
 
 
-def test_profiler_prompt_walks_the_four_esma_pillars():
+@pytest.mark.criterion("REQ-FUND-052")
+def test_profiler_prompt_covers_the_four_input_sections():
+    """Validates fund.agents.prompts.PROFILER_SYSTEM_PROMPT: its four input sections
+    are knowledge, loss capacity, objectives and ESG."""
     lower = PROFILER_SYSTEM_PROMPT.lower()
+    assert "four input sections" in lower
     assert "knowledge" in lower  # + experience
     assert "capacity" in lower  # financial situation / loss capacity
     assert "objectives" in lower  # incl. horizon + risk tolerance
@@ -75,7 +86,10 @@ def test_profiler_prompt_asks_for_the_fund_look_through_tolerance():
 # --- skill: frontmatter + body ----------------------------------------------
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_skill_md_has_valid_frontmatter():
+    """Validates skills/mifid-profiling/SKILL.md: the folder name stays, and the
+    description speaks of optimisation inputs, not suitability profiling."""
     text = (_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     fm = _frontmatter(text)
 
@@ -83,13 +97,17 @@ def test_skill_md_has_valid_frontmatter():
     description = fm.get("description")
     assert isinstance(description, str)
     assert len(description) > 40  # specific, not a one-word stub
-    assert "mifid" in description.lower()
+    assert "optimisation inputs" in description.lower()
+    assert "suitability" not in description.lower()
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_skill_md_body_routes_to_the_deterministic_mapping():
+    """Validates skills/mifid-profiling/SKILL.md: the body walks the four input
+    sections into ``build_constraint_set`` and points to the theory."""
     text = (_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").lower()
     assert "build_constraint_set" in text
-    assert "pillar" in text
+    assert "four input sections" in text
     # Points to the theory, never copies it.
     assert "deep_agent" in text
 

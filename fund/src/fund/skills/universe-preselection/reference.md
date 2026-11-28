@@ -8,15 +8,15 @@ list. The run date, the ConstraintSet and every threshold come from the run, not
 the LLM.
 
 ## Eligible universe
-A mandate can carry an allowlist, resolved once per run into the eligible universe
-(`allowed` tickers in mandate order, `barred` ones with a reason such as `delisted`,
+A portfolio's settings can carry an allowlist, resolved once per run into the eligible
+universe (`allowed` tickers in the settings' order, `barred` ones with a reason such as `delisted`,
 `not_priced`, `no_instrument`, `esg:<sector>`, `esg_unclassified`). With one,
 `list_universe` returns exactly the allowed set (not the market-cap ranking, which
 buries every ETF) and `universe_filter`, `estimate_moments` and `compute_candidates`
 refuse a ticker outside it. Without one nothing changes.
 
 Under ESG exclusions a stock is judged by its sector and an ETF by look-through of its
-latest sector snapshot against the client's fund tolerance. Commodity and government or
+latest sector snapshot against the user's fund tolerance. Commodity and government or
 inflation-linked bond funds pass; any other fund with a stale, partial or missing
 snapshot is barred `esg_unclassified`, which is why many corporate and aggregate bond
 ETFs are absent from the list.
@@ -33,9 +33,9 @@ library but are off in the bound tool.
 | Short history | assets under half the panel's median history (at least 20 returns) are dropped and listed as `dropped_for_history`; the rest start on the first day they all share | - |
 | Incomplete history | assets that stopped quoting (trailing gaps) are dropped | - |
 
-## Mandate screen (applied by the bound tool)
-After the stages above, `universe_filter` removes names that breach the client's
-ConstraintSet: ESG-excluded GICS sectors, and for a low-knowledge client the K&E
+## Constraints screen (applied by the bound tool)
+After the stages above, `universe_filter` removes names that breach the user's
+ConstraintSet: ESG-excluded GICS sectors, and under low stated knowledge the K&E
 no-complex / no-leverage instrument restrictions. An instrument whose sector cannot
 be classified fails closed. Removed names are returned as `mandate_excluded`.
 

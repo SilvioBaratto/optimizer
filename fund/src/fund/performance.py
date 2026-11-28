@@ -563,8 +563,9 @@ def _require_fx_coverage(
     if not (foreign & available):
         raise FxCoverageError(
             f"no FX rates for base {base_major!r} covering {sorted(foreign)}; the "
-            "ingestion FX feed populates EUR base only, so a non-EUR mandate cannot "
-            "be marked. Run the FX feed for this base or set the mandate to EUR."
+            "ingestion FX feed populates EUR base only, so a portfolio with a non-EUR "
+            "base currency cannot be marked. Run the FX feed for this base or set the "
+            "portfolio's base currency to EUR."
         )
 
 

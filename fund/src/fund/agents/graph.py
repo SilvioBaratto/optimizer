@@ -212,18 +212,19 @@ _ALLOCATOR_DESCRIPTION = (
     "universe when the instruction lists one), estimates moments, and runs "
     "compute_candidates to produce four candidate portfolios, one per method, "
     "under the resolved constraints; it reports all four and never chooses one. "
-    "The economist's views are advisory context, not an optimizer input. Delegate "
-    "after the economist."
+    "The economist's views are background context, not an optimizer input. "
+    "Delegate after the economist."
 )
 _RISK_DESCRIPTION = (
-    "Pipeline step 3 — the blocking gate. Checks every candidate against the "
-    "MiFID/ESG/validation limits and reports pass or fail per candidate; it never "
-    "chooses one, and nothing proceeds to the executor while no candidate passes."
+    "Pipeline step 3 — the blocking gate. Checks every candidate against the risk "
+    "limits, the ESG exclusions and validation and reports pass or fail per "
+    "candidate; it never chooses one, and nothing proceeds to the executor while no "
+    "candidate passes."
 )
 _EXECUTOR_DESCRIPTION = (
     "Pipeline step 4. Describes the paper trades each feasible candidate would need "
-    "from the current holdings, for the adviser to compare. Delegate only once risk "
-    "has reported."
+    "from the current holdings, as scenario orders for the user to compare. "
+    "Delegate only once risk has reported."
 )
 
 
@@ -723,8 +724,8 @@ def _prepare_fund_run(
     )
     if constraint_set is None:
         raise RuntimeError(
-            f"No active ConstraintSet for portfolio {pid_str}; run the profiler "
-            f"first to establish a risk profile."
+            f"No active ConstraintSet for portfolio {pid_str}; enter its "
+            f"optimisation inputs first (fund profile) to set its risk limits."
         )
 
     # 31 bits: ``agent_runs.seed`` is a signed 32-bit INTEGER on PostgreSQL, so a full
@@ -1105,7 +1106,7 @@ def stream_fund(
                                 agent="orchestrator",
                                 step="place_orders",
                                 status=StepStatus.LIVE,
-                                text="presenting the candidates to the adviser",
+                                text="presenting the candidates to you",
                             )
                             index += 1
                 elif node == "tools" and getattr(message, "name", None) == "task":
@@ -1251,8 +1252,8 @@ def resume_fund(
         )
     if constraint_set is None:
         raise RuntimeError(
-            f"No active ConstraintSet for portfolio {pid_str}; run the profiler "
-            f"first to establish a risk profile."
+            f"No active ConstraintSet for portfolio {pid_str}; enter its "
+            f"optimisation inputs first (fund profile) to set its risk limits."
         )
 
     # Re-read the mandate so a gate set edited since the run opened takes effect on

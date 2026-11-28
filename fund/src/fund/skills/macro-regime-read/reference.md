@@ -25,7 +25,7 @@ unobservable (see SKILL.md, step 4) — chosen from the statistics below, not vi
 
 ## Regime → cross-section / views
 Regimes inform momentum/value tilts and the economist's qualitative views. Those
-views are advisory (no bound tool passes them to the optimizer), so the
+views are background context (no bound tool passes them to the optimizer), so the
 Black-Litterman references below are theory only:
 `26:20` (market states & momentum), `26:104` (shared regime engine across allocation
 and selection), `21:154` (four interpretable regimes), `21:172` (nowcasting the

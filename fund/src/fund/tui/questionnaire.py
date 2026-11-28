@@ -1,7 +1,9 @@
-"""In-TUI MiFID questionnaire — collects a typed ``MiFIDAnswers`` for onboarding.
+"""In-TUI optimisation-inputs form — collects a typed ``MiFIDAnswers`` for onboarding.
 
 A modal the shell pushes from Posture's ``n`` (new portfolio) / ``p`` (profile)
-bindings. It renders the ESMA pillars as a small form and, on submit, builds a
+bindings, titled "Optimisation inputs": the inputs only set the limits the optimizer
+works within, so the form never presents itself as a suitability assessment. It
+renders the four input sections as a small form and, on submit, builds a
 validated :class:`~fund.schemas.questionnaire.MiFIDAnswers` plus the initial capital
 for a new portfolio's mandate (:class:`OnboardingSubmission`).
 
@@ -85,9 +87,8 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
         )
 
         with Vertical(classes="q-dialog"):
-            yield Label("MiFID suitability questionnaire", classes="q-title")
-            # Only the fields scroll; the error line and buttons sit outside the
-            # scroll area so a short terminal can never push them out of reach.
+            yield Label("Optimisation inputs", classes="q-title")
+            # Only fields scroll: a short terminal can't push the buttons away.
             with VerticalScroll(classes="q-form"):
                 if self._ask_capital:
                     yield Input(placeholder="capital (e.g. 100000)", id="q-capital")
@@ -119,6 +120,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
                     id="q-loss-reaction",
                     prompt="reaction to a severe loss",
                 )
+                yield Label("Sectors to exclude (optional)", id="q-esg-label")
                 yield SelectionList[str](
                     *((sector.value, sector.value) for sector in GicsSector), id="q-esg"
                 )

@@ -7,11 +7,11 @@ with the TUI: it drives ``run_fund`` / ``run_profiler`` / ``resume_run`` and app
 the ``human_audit_log`` row), and the ``fund.audit`` repositories. The seven commands
 span one cycle::
 
-    mandate set|show   persist / display the per-portfolio mandate (no model)
-    profile            drive the MiFID profiler to its approval gate
+    mandate set|show   save / display a portfolio's settings (no model)
+    profile            record your optimisation inputs up to their approval gate
     run                drive a paper rebalance to the place_orders gate, detach
     approve | reject   resume a paused run — profiler save_profile or rebalance
-                       place_orders gate (persist the profile / ticket, or discard)
+                       place_orders gate (save the inputs / ticket, or discard)
     status             runs + statuses + awaiting-HITL flag (no model)
     report             tabular audit of one run (no model)
 
@@ -73,7 +73,8 @@ app = typer.Typer(
     help="Manual fund operating cycle (headless human driver).",
 )
 mandate_app = typer.Typer(
-    add_completion=False, help="Per-portfolio mandate management."
+    add_completion=False,
+    help="Per-portfolio settings: capital, currency, drift band, gates, eligibility.",
 )
 app.add_typer(mandate_app, name="mandate")
 
@@ -202,7 +203,7 @@ def _build_mandate(
     elif existing is not None:
         capital_val = existing.capital
     else:
-        _fail("--capital is required (no mandate persisted for this portfolio)")
+        _fail("--capital is required (no settings saved for this portfolio)")
     currency = base_currency or (existing.base_currency if existing else "EUR")
     drift_val = (
         drift
@@ -273,15 +274,15 @@ def _save_mandate(
 def mandate_set(
     portfolio_id: str = typer.Argument(..., help="Portfolio UUID."),
     capital: float | None = typer.Option(
-        None, "--capital", help="Positive notional; required for a new mandate."
+        None, "--capital", help="Positive notional; required for a new portfolio."
     ),
     base_currency: str | None = typer.Option(
-        None, "--base-currency", help="ISO-4217 code; default EUR for a new mandate."
+        None, "--base-currency", help="ISO-4217 code; default EUR for a new portfolio."
     ),
     drift: float | None = typer.Option(
         None,
         "--drift",
-        help="L1 drift threshold in (0, 2), 0.05 = 5%; default 0.1 for a new mandate.",
+        help="L1 drift threshold in (0, 2), 0.05 = 5%; default 0.1 when new.",
     ),
     benchmark: str | None = typer.Option(
         None, "--benchmark", help="Tracking benchmark."
@@ -292,10 +293,10 @@ def mandate_set(
         False, "--clear-eligible", help="Remove the allowlist (unrestricted)."
     ),
 ) -> None:
-    """Upsert the per-portfolio mandate (one row per portfolio).
+    """Save a portfolio's settings (one row per portfolio).
 
-    Only the flags given are changed on an existing mandate; everything else
-    (triggers, gates, benchmark, remembered directives, eligible tickers) is carried
+    Only the flags given are changed on existing settings; everything else
+    (triggers, gates, benchmark, saved instructions, eligible tickers) is carried
     over. ``--eligible`` (repeatable) replaces the allowlist of instruments the
     portfolio may hold; ``--clear-eligible`` empties it, meaning unrestricted.
     """
@@ -322,7 +323,7 @@ def mandate_set(
             session.commit()
     except ValueError as exc:  # e.g. the base currency is locked by ledger history
         _fail(str(exc))
-    typer.echo(f"mandate saved for portfolio {pid}")
+    typer.echo(f"settings saved for portfolio {pid}")
     _echo_warnings(saved)
     _exit(True)
 
@@ -331,14 +332,14 @@ def mandate_set(
 def mandate_show(
     portfolio_id: str = typer.Argument(..., help="Portfolio UUID."),
 ) -> None:
-    """Display the stored mandate for a portfolio."""
+    """Display a portfolio's saved settings."""
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
     with get_session() as session:
         mandate = observe.get_mandate(session, pid)
         session.rollback()
     if mandate is None:
-        _fail(f"no mandate for portfolio {pid}")
+        _fail(f"no settings for portfolio {pid}")
     typer.echo(
         "\n".join(
             [
@@ -392,7 +393,7 @@ def profile(
         None,
         "--answers",
         help=(
-            "Free-text MiFID questionnaire answers (read by the LLM), or a "
+            "Your optimisation inputs as free text (read by the LLM), or a "
             "MiFIDAnswers JSON used verbatim with no LLM extraction. Visible in "
             "shell history and the process list; prefer --answers-file."
         ),
@@ -405,7 +406,7 @@ def profile(
     base_currency: str | None = typer.Option(None, "--base-currency"),
     asof: str | None = typer.Option(None, "--asof", help="ISO date; default today."),
 ) -> None:
-    """Drive the MiFID profiler to its adviser-approval gate, then detach.
+    """Record your optimisation inputs up to their approval gate, then detach.
 
     The answers are sent to the configured LLM provider.
     """
@@ -461,8 +462,9 @@ def run(
     benchmark: str | None = typer.Option(None, "--benchmark"),
     interrupt_on: list[str] | None = _INTERRUPT_ON,
 ) -> None:
-    """Resolve the mandate (flags override/upsert), drive one paper rebalance to
-    the ``place_orders`` gate, print the run id, and detach."""
+    """Resolve the portfolio's settings (flags override and save them), compute the
+    candidate portfolios up to the ``place_orders`` gate, print the run id, and
+    detach. Orders are paper tickets only; nothing is sent to a broker."""
     _boot()
     pid = _uuid(portfolio_id, label="portfolio id")
     run_asof = _parse_date(asof)
@@ -482,7 +484,7 @@ def run(
             existing = observe.get_mandate(session, pid)
             if existing is None and capital is None:
                 _fail(
-                    f"no mandate for portfolio {pid}; run 'mandate set' first "
+                    f"no settings for portfolio {pid}; run 'fund mandate set' first "
                     f"or pass --capital"
                 )
             paused = AgentRunRepository(session).list_paused_runs(pid)
@@ -601,15 +603,15 @@ def approve(
         "--candidate",
         help=(
             f"The candidate to place, one of {', '.join(CANDIDATE_IDS)}. Required "
-            "to approve a rebalance gate (there is no default); refused for a "
-            "profile gate."
+            "to approve a rebalance gate (there is no default); refused for an "
+            "inputs (profile) gate."
         ),
     ),
 ) -> None:
     """Approve a paused run: place the named candidate's paper ticket and finalise it.
 
-    A rebalance gate shows four candidates and the adviser names the one placed
-    with ``--candidate``; a profile gate is approved without one.
+    A rebalance gate shows four candidate portfolios and you name the one placed
+    with ``--candidate``; an inputs (profile) gate is approved without one.
     """
     _resume(run_id, "approve", candidate_id=candidate)
 
@@ -704,11 +706,11 @@ def _report_candidate_lines(session: Any, run: AgentRun) -> list[str]:
     candidate_set = observe.candidate_set(session, run.id)
     if candidate_set is None:
         return []
-    lines = ["candidates (listed by id; the adviser chooses):"]
+    lines = ["candidates (listed by id; you choose):"]
     lines.extend(_candidate_line(candidate) for candidate in candidate_set.candidates)
     choice = _adviser_choice(run)
     if choice is not None:
-        lines.append(f"chosen by the adviser: {choice}")
+        lines.append(f"chosen by you: {choice}")
     return lines
 
 
@@ -760,10 +762,10 @@ def _adviser_choice(run: AgentRun) -> str | None:
 
 @app.command()
 def report(run_id: str = typer.Argument(..., help="Run UUID.")) -> None:
-    """Tabular audit of one run: mandate, weights, candidates, ticket, decisions.
+    """Tabular audit of one run: settings, weights, candidates, ticket, decisions.
 
-    The candidates are listed by id with neutral measures, followed by the one the
-    adviser chose once a choice exists.
+    The candidates are listed by id with neutral measures, followed by the one you
+    chose once a choice exists.
     """
     _boot()
     rid = _uuid(run_id, label="run id")
@@ -785,7 +787,7 @@ def report(run_id: str = typer.Argument(..., help="Run UUID.")) -> None:
             if mandate is not None:
                 # Runs do not snapshot their mandate, so only the live one can be shown.
                 lines.append(
-                    f"current mandate: capital={mandate.capital} "
+                    f"current settings: capital={mandate.capital} "
                     f"{mandate.base_currency} drift={mandate.drift_l1_threshold}"
                 )
             lines.extend(_report_metric_lines(run))
@@ -818,7 +820,7 @@ def nav_mark(
         help="Re-mark every portfolio from its first fill, overwriting stored NAV.",
     ),
 ) -> None:
-    """Mark every active mandate's NAV into ``nav_history`` now (no model).
+    """Mark every active portfolio's NAV into ``nav_history`` now (no model).
 
     The daily scheduler step, run by hand. ``--rebuild`` re-emits the whole series
     rather than the recent window: use it once when the NAV construction changes, so

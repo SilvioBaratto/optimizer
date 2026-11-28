@@ -120,7 +120,7 @@ class KnowledgeAnswers(BaseModel):
     level: KnowledgeLevel = Field(
         description=(
             "Investing knowledge & experience — exactly one of: none, basic, "
-            "informed, advanced. This is NOT the client's risk tolerance."
+            "informed, advanced. This is NOT the user's risk tolerance."
         ),
     )
 
@@ -207,17 +207,17 @@ class EsgAnswers(BaseModel):
 
     exclusions: tuple[GicsSector, ...] = Field(
         description=(
-            "GICS sectors the client refuses to hold on ESG grounds (a subset of "
-            "the 11 sectors). Always present: an empty list when the client names "
-            "none."
+            "GICS sectors the user wants excluded on ESG grounds (a subset of "
+            "the 11 sectors). Optional in substance: always present, as an empty "
+            "list when the user names none."
         ),
     )
     other_preferences: tuple[str, ...] = Field(
         default=(),
         description=(
-            "ESG preferences the client stated that are NOT a GICS sector (e.g. "
+            "ESG preferences the user stated that are NOT a GICS sector (e.g. "
             "'no tobacco', 'no weapons'), verbatim. Never map one onto an arbitrary "
-            "sector; they are surfaced to the adviser, not enforced."
+            "sector; they are shown to the user, not enforced."
         ),
     )
     look_through_tolerance: float = Field(
@@ -227,7 +227,7 @@ class EsgAnswers(BaseModel):
         description=(
             "Largest share of a FUND's weight allowed in an excluded sector, as a "
             "FRACTION in [0, 1] (0.05 means 5%). 0 means none at all. Set it only "
-            "from a figure the client stated; otherwise leave 0 and list "
+            "from a figure the user stated; otherwise leave 0 and list "
             "'esg.look_through_tolerance' in unanswered."
         ),
     )
@@ -251,7 +251,7 @@ class MiFIDAnswers(BaseModel):
     base_currency: str = Field(
         pattern=r"^[A-Z]{3}$",
         description=(
-            "Client reporting currency as an ISO-4217 alpha code, e.g. EUR, USD."
+            "The user's reporting currency as an ISO-4217 alpha code, e.g. EUR, USD."
         ),
     )
     knowledge: KnowledgeAnswers
@@ -261,8 +261,8 @@ class MiFIDAnswers(BaseModel):
     unanswered: tuple[UnansweredDatum, ...] = Field(
         default=(),
         description=(
-            "Dotted paths of every datum the client did NOT state (e.g. "
-            "'capacity.buffer_months'). Empty when the client answered everything."
+            "Dotted paths of every datum the user did NOT state (e.g. "
+            "'capacity.buffer_months'). Empty when the user answered everything."
         ),
     )
 

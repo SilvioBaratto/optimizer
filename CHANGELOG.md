@@ -238,6 +238,36 @@ Behaviour changes to know about:
   places the audited proposal (a gate with no candidate set says an approve is
   refused), and `fund.tui.views` no longer exports `_pm_weights_differ` (REQ-FUND-053,
   REQ-FUND-054).
+- **fund**: the interface, the agents' prompts and skills and the docs no longer use
+  advisory, suitability or mandate wording, so nothing the fund shows you or tells its
+  agents presents it as an investment adviser, a suitability assessment or a portfolio
+  manager: the optimizer computes candidate portfolios, you choose, and orders are paper
+  tickets only. The person running the tool is "you" or "the user", never "the adviser"
+  or "the client". Visible renames: the onboarding form "MiFID suitability
+  questionnaire" is now "Optimisation inputs", and its ESG list is labelled "Sectors to
+  exclude (optional)" (none ticked is valid); the TUI view "Mandate" is now
+  "Constraints" (rail `Co`), with the sections RUN SETTINGS, RISK LIMITS (from your
+  inputs), HITL GATES and SAVED INSTRUCTIONS, the gate box "Save inputs (always on)"
+  and the keys "save constraints", "override risk limit", "remove instruction" and
+  "steer the run"; an out-of-band override reads "⚠ outside the risk-limit band";
+  `fund report` prints `candidates (listed by id; you choose):`, `chosen by you: <id>`
+  (was `chosen by the adviser: <id>`) and `current settings:` (was `current
+  mandate:`); `fund mandate set` prints `settings saved for portfolio <id>`, and
+  `fund mandate show` and `fund run` say `no settings for portfolio <id>`; the profile
+  gate reads "Save the optimisation inputs for portfolio <id> … Approve to save these
+  inputs, or reject to discard them."; `place_orders` without a choice is refused with
+  "no candidate has been chosen for this run; the user chooses one at the place_orders
+  gate". A steer answered at the gate now reaches the orchestrator opening with
+  `USER DIRECTIVE` (was `ADVISER DIRECTIVE`), and the run instruction labels the
+  portfolio line `Settings:` (was `Mandate:`). The orchestrator, economist, allocator,
+  risk and executor prompts describe roles that compute, check and present scenarios
+  (the economist's views are "background context", no longer "advisory"), and the
+  profiler prompt records inputs instead of conducting a MiFID suitability assessment;
+  the numerics, the tools, the procedure and the rule that no agent chooses a candidate
+  are unchanged. Identifiers, stored data, JSON keys, enum values, the skill folder
+  `mifid-profiling` and the CLI commands and flags (`fund mandate set`, `fund profile`,
+  `--candidate`) are unchanged. `fund/tests/unit/test_no_advice_language.py` fails on
+  the old phrases and on "adviser" in any user-visible string (REQ-FUND-052).
 - **ingestion (BREAKING)**: the ingestion daemon (`python -m app.worker`, the
   `scheduler` container) now refuses to start until Yahoo's terms are acknowledged: the
   worker logs why and exits with status 2 before it serves metrics, opens its database

@@ -64,11 +64,11 @@ MEAN_RISK = "mean_risk"
 # ``fund.agents.prompts``); matched as substrings so middleware appends do not
 # break detection.
 _ROLE_MARKERS: tuple[tuple[str, str], ...] = (
-    ("portfolio manager (PM)", "pm"),
-    ("fund's economist", "economist"),
-    ("fund's allocator", "allocator"),
-    ("fund's risk officer", "risk"),
-    ("fund's executor", "executor"),
+    ("orchestrator of a paper rebalance run", "pm"),
+    ("run's economist", "economist"),
+    ("run's allocator", "allocator"),
+    ("run's risk checker", "risk"),
+    ("run's executor", "executor"),
 )
 
 

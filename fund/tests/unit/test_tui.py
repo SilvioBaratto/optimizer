@@ -1175,7 +1175,7 @@ async def test_decisions_approve_survives_pm_failure_after_the_ticket(tui_env) -
         await pilot.pause()
         assert "action failed" not in app.last_status
         assert "approved" in app.last_status
-        assert "PM follow-up failed" in app.last_status
+        assert "orchestrator follow-up failed" in app.last_status
     with tui_env.get_session() as session:
         run = AgentRunRepository(session).get_run(tui_env.run_id)
         assert run.status == "completed"
@@ -2268,7 +2268,7 @@ def test_gate_text_lists_every_candidate_in_id_order_not_the_pm_args(tui_env) ->
         candidate_set = observe.candidate_set(session, tui_env.run_id)
 
     assert text is not None
-    assert "candidates (listed by id; the adviser picks one to approve):" in text
+    assert "candidates (listed by id; you pick one to approve):" in text
     positions = [text.index(f"  {cid} · ") for cid in CANDIDATE_IDS]
     assert positions == sorted(positions)
     mean_risk = candidate_set.candidate(MEAN_RISK)
@@ -2712,6 +2712,31 @@ async def test_mandate_renders_run_policy_and_guardrails(shell_env) -> None:
         assert "ESG exclude" in caps
 
 
+@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.asyncio
+async def test_constraints_view_labels_settings_limits_and_saved_instructions(
+    shell_env,
+) -> None:
+    """Validates fund.tui._views.mandate.MandateView: the view keyed ``mandate`` is
+    titled "Constraints", its sections read as settings, risk limits and saved
+    instructions, and the band line names a risk-limit band, not a suitability one."""
+    _seed_mandate_and_profile(shell_env)
+    app = _make_shell(shell_env, portfolio_id=PORTFOLIO_ID)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_mandate(app, pilot)
+        sections = [_rendered(label) for label in view.query(".mandate-section")]
+        band = _rendered(view.query_one("#mandate-suitability", Static))
+
+    assert view.view_title == "Constraints"
+    assert sections == [
+        "RUN SETTINGS",
+        "RISK LIMITS (from your inputs)",
+        "HITL GATES",
+        "SAVED INSTRUCTIONS",
+    ]
+    assert band == "risk-limit band balanced (ceiling)"
+
+
 def test_format_caps_labels_each_drawdown_tier_and_keeps_precision() -> None:
     from fund.tui.views import _format_caps
 
@@ -2748,7 +2773,7 @@ async def test_mandate_save_run_policy_persists_and_logs(shell_env) -> None:
         assert worker is not None
         await worker.wait()
         await pilot.pause()
-        assert "mandate updated" in app.last_status
+        assert "settings updated" in app.last_status
     with shell_env.get_session() as session:
         reloaded = observe.get_mandate(session, PORTFOLIO_ID)
         assert reloaded.drift_l1_threshold == 0.25  # upsert persisted the edit
@@ -2768,7 +2793,7 @@ async def test_mandate_save_rejects_an_unbreachable_drift_threshold(shell_env) -
         view.query_one("#mandate-drift", Input).value = "5"
         app.action_save_mandate()
         await pilot.pause()
-        assert "invalid mandate" in app.last_status
+        assert "invalid settings" in app.last_status
     with shell_env.get_session() as session:
         assert observe.get_mandate(session, PORTFOLIO_ID).drift_l1_threshold == 0.1
         assert HumanAuditLogRepository(session).list_recent(action="mandate_edit") == []
@@ -2787,7 +2812,7 @@ async def test_mandate_invalid_capital_reports_on_status_line_without_crashing(
         view.query_one("#mandate-capital", Input).value = "-5"
         app.action_save_mandate()
         await pilot.pause()
-        assert app.last_status.startswith("invalid mandate")
+        assert app.last_status.startswith("invalid settings")
         shown = str(app.query_one("#status-bar", Static).render())
         assert shown == app.last_status  # the status line renders as plain text
         assert "capital" in shown  # the shared per-field summary names the field
@@ -2862,7 +2887,7 @@ async def test_mandate_actions_inert_without_a_mandate(shell_env) -> None:
         app.action_override_guardrail()
         await pilot.pause()
         assert app.last_worker is None
-        assert "suitability band" in app.last_status
+        assert "risk-limit band" in app.last_status
 
 
 # --- Mandate gate checkboxes + remembered-directives list (T10) --------------
@@ -2887,7 +2912,7 @@ async def test_mandate_gate_checkbox_toggles_hitl_gates(shell_env) -> None:
         assert worker is not None
         await worker.wait()
         await pilot.pause()
-        assert "mandate updated" in app.last_status
+        assert "settings updated" in app.last_status
     with shell_env.get_session() as session:
         reloaded = observe.get_mandate(session, PORTFOLIO_ID)
         assert reloaded.hitl_gates == ()  # the toggle persisted into the mandate
@@ -3298,7 +3323,7 @@ async def test_mandate_eligible_entry_over_the_width_limit_saves_nothing(
         app.action_save_mandate()
         await pilot.pause()
 
-        assert app.last_status.startswith("invalid mandate")
+        assert app.last_status.startswith("invalid settings")
         assert "eligible_tickers" in app.last_status
 
     assert _stored_allowlist(shell_env) == ("AAA",)
@@ -3540,7 +3565,7 @@ async def test_posture_empty_portfolio_shows_profile_hint(shell_env) -> None:
         view = await _open_posture(app, pilot)
         assert view.query_one("#posture-roster", DataTable).row_count == 1
         assert "no runs yet" in view.detail_text
-        assert "p profile to start" in view.detail_text
+        assert "p inputs to start" in view.detail_text
 
 
 @pytest.mark.asyncio
@@ -3761,6 +3786,26 @@ async def _exclude(screen, pilot, *sectors: str) -> None:
     for sector in sectors:
         esg.select(sector)
     await pilot.pause()
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.asyncio
+async def test_questionnaire_is_titled_optimisation_inputs_with_optional_sectors(
+    shell_env,
+) -> None:
+    """Validates fund.tui.questionnaire.QuestionnaireScreen.compose: the form is
+    titled "Optimisation inputs", the ESG list carries an explicit optional label,
+    and a form with no sector ticked still validates with nothing excluded."""
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        screen = await _open_filled_questionnaire(app, pilot)
+        title = _rendered(screen.query_one(".q-title", Label))
+        esg_label = _rendered(screen.query_one("#q-esg-label", Label))
+        answers = screen.build_submission().answers
+
+    assert title == "Optimisation inputs"
+    assert esg_label == "Sectors to exclude (optional)"
+    assert answers.esg.exclusions == ()
 
 
 @pytest.mark.asyncio
@@ -4731,7 +4776,7 @@ async def test_deliberation_shows_the_candidates_of_the_compute_candidates_step(
         view.select_step(position)
         await pilot.pause()
         detail = view.detail_text
-    assert "candidates (listed by id; the adviser chooses)" in detail
+    assert "candidates (listed by id; you choose)" in detail
     positions = [detail.index(f"  {cid} · ") for cid in CANDIDATE_IDS]
     assert positions == sorted(positions)
     for candidate in candidate_set.candidates:
@@ -10515,7 +10560,7 @@ async def test_audit_detail_renders_bracketed_text_literally(shell_env) -> None:
 async def test_status_bar_renders_bracketed_error_text_literally(shell_env) -> None:
     """Exception text (pydantic's ``[type=..., input_value=...]``) is not markup."""
     app = _make_shell(shell_env)
-    message = "invalid mandate: [type=greater_than, input_value=-1, input_type=int]"
+    message = "invalid settings: [type=greater_than, input_value=-1, input_type=int]"
     async with app.run_test(size=_SIZE) as pilot:
         await pilot.pause()
         app._set_status(message)
@@ -11005,7 +11050,7 @@ async def test_status_bar_shows_a_validation_error_verbatim(shell_env) -> None:
         view.query_one("#mandate-capital", Input).value = "-5"
         app.action_save_mandate()
         await pilot.pause()
-        assert app.last_status.startswith("invalid mandate:")
+        assert app.last_status.startswith("invalid settings:")
         assert "capital" in app.last_status
         shown = app.query_one("#status-bar", Static).visual.plain
         assert shown == app.last_status
@@ -11375,7 +11420,7 @@ async def test_mandate_rejects_a_drift_threshold_above_the_l1_bound(
         app.action_save_mandate()
         await pilot.pause()
         assert app.last_worker is None
-        assert "invalid mandate" in app.last_status
+        assert "invalid settings" in app.last_status
     with shell_env.get_session() as session:
         assert observe.get_mandate(session, PORTFOLIO_ID).drift_l1_threshold == 0.1
 
@@ -11976,7 +12021,7 @@ async def test_mandate_save_with_invalid_edit_reports_status_without_crashing(
         await pilot.pause()
         assert app.is_running
         assert app.last_worker is None
-        assert app.last_status.startswith("invalid mandate")
+        assert app.last_status.startswith("invalid settings")
         assert "base_currency" in str(app.query_one("#status-bar", Static).render())
 
 

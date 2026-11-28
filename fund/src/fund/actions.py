@@ -161,7 +161,7 @@ class ActionPayload:
         actor: Who acted.
         source: Provenance recorded on the audit row.
         override_flag: A guardrail edited past its MiFID band.
-        suitability_flag: Outside the suitability band.
+        suitability_flag: Outside the risk-limit band.
         idempotency_key: Dedup key; a repeated key replays the first result.
         rationale: Free-text reason recorded with the action.
         pm_directive: Adviser text threaded to the PM by ``respond``.
@@ -280,7 +280,7 @@ def apply_action(
     requires a non-empty ``rationale``.
     ``mandate_edit`` upserts the run-policy mandate (persisted);
     ``guardrail_override`` is **audit-only** — it records a guardrail touch and, when
-    the caller marks it past the MiFID suitability band, stamps the ⚑/⚠ flags. Each logs
+    the caller marks it past the risk-limit band, stamps the ⚑/⚠ flags. Each logs
     the human decision with run/portfolio provenance; a resume action recovers
     ``portfolio_id`` from its run when omitted. The keywords are grouped into an
     :class:`ActionRequest` for the handler :data:`ACTION_HANDLERS` holds for the
@@ -313,7 +313,7 @@ def apply_action(
         actor: Who acted; defaults to ``"human"``.
         source: Provenance recorded on the audit row.
         override_flag: ⚑ a guardrail edited past its MiFID band.
-        suitability_flag: ⚠ outside the suitability band.
+        suitability_flag: ⚠ outside the risk-limit band.
         idempotency_key: Dedup key; a repeated key returns the first audit row. For a
             gate resolution build it with :func:`resolution_key` so it names the gate,
             not just the run.
@@ -719,11 +719,12 @@ def resume_message(
             # The PM answered without re-gating, so the run was finalised: "responded"
             # alone would send the adviser to wait for a gate that never appears.
             message = (
-                f"run {run_id} incomplete (the PM did not re-gate after the response)"
+                f"run {run_id} incomplete (the orchestrator did not re-gate after the "
+                "response)"
             )
     error = (result or {}).get("resume_error")
     if error:
-        message += f" (PM follow-up failed: {error})"
+        message += f" (orchestrator follow-up failed: {error})"
     return message
 
 
@@ -1642,7 +1643,7 @@ def _apply_mandate_edit(
         run_id=None,
         portfolio_id=pid,
         audit_id=row.id,
-        message=_with_warnings(f"mandate updated for {pid}", warnings),
+        message=_with_warnings(f"settings updated for {pid}", warnings),
         detail={"warnings": warnings} if warnings else None,
     )
 
@@ -1663,7 +1664,7 @@ def _apply_guardrail_override(
 ) -> ActionResult:
     """Log a guardrail touch — **audit-only** this phase (no enforcement, no persist).
 
-    The caller decides whether the proposed value sits past the MiFID suitability band
+    The caller decides whether the proposed value sits past the risk-limit band
     (see :func:`is_within_suitability_band`) and passes the ⚑/⚠ flags; this just records
     the prev/new value on an immutable row. Live enforcement is ``03-copilot``.
     """
@@ -1688,7 +1689,7 @@ def _apply_guardrail_override(
         run_id=None,
         portfolio_id=portfolio_id,
         audit_id=row.id,
-        message=f"guardrail {target} logged{flagged}",
+        message=f"risk-limit override {target} logged{flagged}",
     )
 
 
@@ -1815,13 +1816,13 @@ def _apply_profile(
             run_id=exc.run_id,
             portfolio_id=portfolio_id,
             audit_id=row.id,
-            message=f"profile blocked by a suitability breach: {exc}",
+            message=f"inputs blocked: {exc}",
             detail={"blocked": True, "reason": str(exc)},
         )
     if run.interrupt is None:
         raise RuntimeError(
-            f"profiler run {run.run_id} ended without reaching the approval gate; "
-            "no profile was saved and there is nothing to approve"
+            f"inputs run {run.run_id} ended without reaching the approval gate; "
+            "no inputs were saved and there is nothing to approve"
         )
     row = _append_audit(
         session,
@@ -1841,7 +1842,7 @@ def _apply_profile(
         run_id=run.run_id,
         portfolio_id=portfolio_id,
         audit_id=row.id,
-        message=f"profiler run {run.run_id} awaiting approval",
+        message=f"inputs run {run.run_id} awaiting approval",
     )
 
 

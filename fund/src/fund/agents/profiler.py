@@ -567,7 +567,7 @@ def _hash(payload: str) -> str:
 # system message — the single reliable lever that made ``deepseek-flash`` emit a
 # valid ``MiFIDAnswers`` from free text.
 _EXTRACTION_SYSTEM_PROMPT = (
-    "You extract a MiFIDAnswers object from the client's free-text answers. Use "
+    "You extract a MiFIDAnswers object from the user's free-text answers. Use "
     "ONLY the schema's fields and exactly these enum values:\n"
     "- knowledge.level: none | basic | informed | advanced "
     "(knowledge/experience, NOT risk tolerance)\n"
@@ -580,26 +580,26 @@ _EXTRACTION_SYSTEM_PROMPT = (
     "- capacity.max_1yr_loss_pct: a fraction in [0, 1] (e.g. 40% -> 0.4)\n"
     "- capacity.buffer_months: months of expenses (>= 0)\n"
     "- esg: always include this object; esg.exclusions is a subset of the 11 GICS "
-    "sectors, or [] when the client names none. Only a sector the client named, "
+    "sectors, or [] when the user names none. Only a sector the user named, "
     "or one that matches their wording exactly\n"
     "- esg.other_preferences: any stated ESG preference that is not a sector "
     "(e.g. 'no tobacco', 'no weapons'), verbatim, or []. Never turn one into a "
     "sector\n"
     "- esg.look_through_tolerance: the largest share of a FUND that may sit in an "
-    "excluded sector, as a fraction in [0, 1] (5% -> 0.05); 0 when the client "
-    "allows none. Set it only if the client states a figure\n"
+    "excluded sector, as a fraction in [0, 1] (5% -> 0.05); 0 when the user "
+    "allows none. Set it only if the user states a figure\n"
     "- base_currency: an ISO-4217 alpha code (e.g. EUR)\n"
-    "- unanswered: the dotted path of every datum the client did NOT state (e.g. "
+    "- unanswered: the dotted path of every datum the user did NOT state (e.g. "
     "'capacity.buffer_months', 'objectives.likert_items'); [] when everything was "
     "stated. A required field must still hold a value, so give each unstated datum "
     "its most conservative value (knowledge.level none, max_1yr_loss_pct 0, "
     "buffer_months 0, likert_items [1], goal protection, horizon short, "
     "loss_reaction sell_all, esg.exclusions [], esg.look_through_tolerance 0) and "
-    "list its path here. When esg.exclusions is non-empty and the client gave no "
+    "list its path here. When esg.exclusions is non-empty and the user gave no "
     "figure for esg.look_through_tolerance, set it to 0 and list "
     "'esg.look_through_tolerance' in unanswered; with no exclusions it needs no "
     "entry.\n"
-    "Take every other value from the client's statements and never guess an "
+    "Take every other value from the user's statements and never guess an "
     "unstated one from context; do not invent fields."
 )
 
@@ -745,11 +745,11 @@ def _commit_blocked_trail(
 def _persist_instruction(portfolio_id: str) -> str:
     """The human turn that drives the agent to call ``save_profile`` once."""
     return (
-        f"The suitability assessment for portfolio {portfolio_id} is complete and "
+        f"The optimisation inputs for portfolio {portfolio_id} are recorded and "
         f"validated. Call the save_profile tool now; it takes no arguments, the "
         f"portfolio is already bound to this run. "
         f"save_profile is gated: calling it writes nothing immediately — it pauses "
-        f"the run for the adviser to approve or reject before any write. Calling it "
+        f"the run for the user to approve or reject before any write. Calling it "
         f"is how you reach that review gate, so you must call it now. Do not reply "
         f"with prose and do not withhold the call pending approval."
     )
@@ -778,12 +778,12 @@ def _interrupt_description(
     """
     flags = ", ".join(suitability.inconsistency_flags) or "none"
     return (
-        f"Persist MiFID suitability profile for portfolio {portfolio_id}. "
+        f"Save the optimisation inputs for portfolio {portfolio_id}. "
         f"Risk band {suitability.band.value}; a_gamma {suitability.a_gamma:g}; "
         f"inconsistency flags: {flags}. "
         f"{_answers_summary(suitability.answers)} "
         f"{_currency_summary(base_currency, suitability.answers)}. "
-        f"Approve to write the profile, or reject to discard."
+        f"Approve to save these inputs, or reject to discard them."
     )
 
 
@@ -978,9 +978,9 @@ def _make_save_profile(
 
     @tool
     def save_profile() -> str:
-        """Submit the validated MiFID profile for adviser sign-off. Takes no
-        arguments; call it once, as soon as the assessment is complete: the call
-        pauses the run and nothing is written until the adviser approves, which
+        """Submit the validated optimisation inputs for the user's review. Takes
+        no arguments; call it once, as soon as the inputs are recorded: the call
+        pauses the run and nothing is written until the user approves, which
         then appends the ``mifid_profiles`` row and caches the active
         ``ConstraintSet`` in the Store."""
         return json.dumps(

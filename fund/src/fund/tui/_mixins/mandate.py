@@ -29,15 +29,15 @@ class MandateMixin(ShellHost):
         """
         view = self._active_mandate_view()
         if view is not None and view.mandate is None and view.read_error:
-            self._set_status(f"mandate unreadable: {view.read_error}")
+            self._set_status(f"settings unreadable: {view.read_error}")
             return
         if view is None or view.mandate is None:
-            self._set_status("focus a portfolio with a mandate first")
+            self._set_status("focus a portfolio with saved settings first")
             return
         try:
             proposed = view.proposed_mandate()
         except Exception as exc:  # pydantic ValidationError on an out-of-contract edit
-            self._set_status(f"invalid mandate: {describe_error(exc)}")
+            self._set_status(f"invalid settings: {describe_error(exc)}")
             return
         prev_value = view.mandate.model_dump(mode="json")
         self.last_worker = self._mandate_worker(
@@ -48,12 +48,12 @@ class MandateMixin(ShellHost):
         """Log a guardrail override from the Mandate view (``o``), ⚠ if out of band.
 
         A no-op with a status hint unless the Mandate view is active, a target band is
-        picked, and the portfolio has an active suitability band to check against. The
+        picked, and the portfolio has an active risk-limit band to check against. The
         band check + audit write happen on a worker thread (audit-only this phase).
         """
         view = self._active_mandate_view()
         if view is None or view.suitability_band is None:
-            self._set_status("no active suitability band to check against")
+            self._set_status("no active risk-limit band to check against")
             return
         proposed = view.proposed_band()
         if proposed is None:
@@ -89,7 +89,7 @@ class MandateMixin(ShellHost):
         if not self._mandate_lock.acquire(blocking=False):
             self.call_from_thread(
                 self._set_status,
-                "a mandate save is already in progress - wait for it to finish",
+                "a settings save is already in progress - wait for it to finish",
             )
             return
         try:

@@ -509,7 +509,7 @@ def test_orchestration_round_cap_promises_no_hitl_checkpoint():
 @pytest.mark.criterion("REQ-FUND-052")
 def test_orchestration_forbids_place_orders_before_the_risk_gate_reports():
     """Validates the fund-orchestration skill: the PM calls ``place_orders`` only once
-    the risk gate has reported on the latest candidate set, as the adviser's decision
+    the risk gate has reported on the latest candidate set, as the user's decision
     point, never to choose a candidate itself."""
     body = " ".join(_read("fund-orchestration", "SKILL.md").split())
 
@@ -517,7 +517,7 @@ def test_orchestration_forbids_place_orders_before_the_risk_gate_reports():
         "Never call `place_orders` until the risk gate has reported on the latest "
         "candidate set" in body
     )
-    assert "the adviser chooses" in body
+    assert "the user chooses" in body
 
 
 # --- risk gate: skills must match the tools' real (weight-free) signatures ----
@@ -527,11 +527,11 @@ def test_orchestration_forbids_place_orders_before_the_risk_gate_reports():
 def test_orchestration_requires_a_fresh_risk_pass_after_each_allocator_run():
     """Validates the fund-orchestration skill: a new allocator run replaces the
     candidate set under review, so risk is delegated to again, and ``place_orders``
-    places nothing without the adviser's choice."""
+    places nothing without the user's choice."""
     body = " ".join(_read("fund-orchestration", "SKILL.md").split())
 
     assert "delegate to risk again" in body
-    assert "places nothing without the adviser's choice" in body
+    assert "places nothing without the user's choice" in body
     assert "whose newest recorded risk verdict is missing or failed" in body
 
 
@@ -666,13 +666,17 @@ def test_fund_orchestration_relays_the_eligible_universe_block():
     assert "eligible universe" in reference
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_economist_skills_let_proxies_and_views_follow_the_eligible_universe():
+    """Validates the macro-regime-read and views-construction skills: proxies need
+    not be eligible, views stay inside the eligible universe and are labelled
+    background context, no longer "advisory"."""
     macro = _flat_lower(_read("macro-regime-read", "SKILL.md"))
     views = _flat_lower(_read("views-construction", "SKILL.md"))
 
     assert "need not be eligible" in macro
     assert "eligible universe" in views
-    assert "advisory" in views
+    assert "background context" in views
 
 
 def test_risk_limits_skill_lists_the_eligibility_violation():
@@ -681,11 +685,14 @@ def test_risk_limits_skill_lists_the_eligibility_violation():
     assert "not_eligible" in skill
 
 
-def test_fund_orchestration_skill_documents_the_adviser_directive():
+@pytest.mark.criterion("REQ-FUND-052")
+def test_fund_orchestration_skill_documents_the_user_directive():
+    """Validates the fund-orchestration skill: a ``USER DIRECTIVE`` result means
+    ``place_orders`` was not executed, and the orchestrator gates again."""
     body = " ".join(
         _read("fund-orchestration", "SKILL.md").lower().replace("`", "").split()
     )
-    assert "adviser directive" in body
+    assert "user directive" in body
     assert "not executed" in body
     assert "place_orders again" in body
 

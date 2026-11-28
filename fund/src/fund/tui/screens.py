@@ -319,8 +319,8 @@ class RationaleConfirmScreen(ModalScreen["str | None"]):
 _HELP_TEXT = """\
 GLOBAL
   a approve   r reject   k killswitch   K re-arm
-  ctrl+s save mandate    o override guardrail
-  n new portfolio   p profile   u run now   b barge in
+  ctrl+s save constraints    o override risk limit
+  n new portfolio   p inputs   u run now   b barge in
   t audit actor   f audit overrides   g audit this-pf   e export (Audit)
   tab / shift+tab move focus: header, sidebar, view
   ? / F1 help   q quit
@@ -329,8 +329,8 @@ VIEW-SCOPED
   Posture       d daily brief
   Deliberation  f follow live   x expand read-out
   Decisions     ↵ select gate / candidate (a then confirms it)
-                e edit weights   s steer PM
-  Mandate       x remove directive
+                e edit weights   s steer the run
+  Constraints   x remove instruction
   Performance   ↵ drill into a holding
   Ask           ↵ ask   /clear delete history   shift+tab log, then e export
   Daily brief   ← / → day   ↵ deliberation   e export   esc sidebar"""

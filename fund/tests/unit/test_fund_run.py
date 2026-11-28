@@ -645,7 +645,7 @@ class TestRunInstruction:
 
         seed = _run_instruction(mandate, str(_PORTFOLIO_ID), _ASOF)
 
-        assert "Adviser standing directives" in seed
+        assert "The user's standing directives" in seed
         assert "- Keep 5% cash." in seed
         assert "- Avoid energy." in seed
         assert seed.index("Avoid energy.") < seed.index(_SEED_OPENING)
@@ -1121,7 +1121,7 @@ def test_missing_constraint_set_raises(db_session) -> None:
     model = ScriptedFundModel(universe=_UNIVERSE, weights={"AAA": 1.0})
 
     # An empty store has no active ConstraintSet for the portfolio.
-    with pytest.raises(RuntimeError, match="profiler"):
+    with pytest.raises(RuntimeError, match="optimisation inputs"):
         _run(model, db_session, store=InMemoryStore())
 
     # Fail-fast before any run row is opened.

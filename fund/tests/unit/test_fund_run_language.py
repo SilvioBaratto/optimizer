@@ -1,8 +1,8 @@
 """The text a fund run puts in front of its agents never picks a candidate.
 
-The four candidates are presented side by side and the adviser alone chooses one,
+The four candidates are presented side by side and the user alone chooses one,
 so nothing the run's agents read may rank one or call one recommended, best or
-matching the client: not the role prompts, the role descriptions, the run and
+matching the user: not the role prompts, the role descriptions, the run and
 respond instructions, the bound tools' docstrings, nor the role skills. The same
 text must tell the agents to present the candidates without choosing.
 """
@@ -43,7 +43,7 @@ _DIRECTIVES = ("Keep 5% cash.", "Avoid energy.")
 _ALLOWED = ("AAA", "BBB")
 _BARRED = (("CCC", "delisted"),)
 _NO_CHOICE = "never choose"
-_ADVISER_CHOOSES = "the adviser chooses"
+_USER_CHOOSES = "the user chooses"
 
 
 def _bound_tool_docstrings() -> dict[str, str]:
@@ -112,7 +112,7 @@ def test_fund_run_text_has_no_recommendation_language() -> None:
     fund.agents.toolsets.bind_toolset binds and the role skills: none ranks a
     candidate or calls one recommended, best, optimal or matching the client, and the
     PM, allocator, risk and executor prompts and the ``place_orders`` tool tell the
-    agents the adviser chooses while they never choose."""
+    agents the user chooses while they never choose."""
     texts = _fund_run_text()
     assert set(SKILLS_BY_AGENT) >= set(_RUN_ROLES)
 
@@ -129,5 +129,5 @@ def test_fund_run_text_has_no_recommendation_language() -> None:
         "EXECUTOR_SYSTEM_PROMPT",
     ):
         assert _NO_CHOICE in texts[source].lower(), source
-    assert _ADVISER_CHOOSES in texts["PM_SYSTEM_PROMPT"].lower()
-    assert _ADVISER_CHOOSES in texts["tool place_orders"].lower()
+    assert _USER_CHOOSES in texts["PM_SYSTEM_PROMPT"].lower()
+    assert _USER_CHOOSES in texts["tool place_orders"].lower()

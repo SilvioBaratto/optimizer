@@ -64,7 +64,7 @@ async def test_a_failed_directive_save_keeps_the_respond_audited(
         await pilot.pause()
         await _steer(app, pilot, env, remember=True)
 
-        assert "directive not saved" in app.last_status
+        assert "instruction not saved" in app.last_status
         assert "mandate write failed" in app.last_status
     with env.get_session() as session:
         assert AgentRunRepository(session).get_run(env.run_id).status == "responded"

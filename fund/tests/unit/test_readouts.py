@@ -232,7 +232,7 @@ def test_candidates_step_reads_out_every_candidate_in_id_order():
     text = render_readout("allocator", "compute_candidates", payload)
 
     assert text is not None
-    assert text.startswith("candidates (listed by id; the adviser chooses)")
+    assert text.startswith("candidates (listed by id; you choose)")
     positions = [text.index(f"  {cid} · ") for cid in CANDIDATE_IDS]
     assert positions == sorted(positions)
     assert "mean_risk · mean_risk · ● feasible" in text

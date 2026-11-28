@@ -100,4 +100,4 @@ def _round_flight(
     return guarded
 
 
-_ROUND_BUSY = "a run or profile is already in progress — wait for it to finish"
+_ROUND_BUSY = "a run or an inputs save is already in progress — wait for it to finish"
