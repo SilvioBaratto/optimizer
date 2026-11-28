@@ -100,7 +100,7 @@ appetite scale `[0, 1]` as the bands above.
 | `objective_capacity_mismatch` | `objectives.goal` is `growth` or `max` **and** the weakest of `A_tol`, `A_cap` and the stated loss-capacity sub-score `clip(max_1yr_loss_pct / 0.50)` is below 0.4 |
 | `overconfidence` | `A_tol - A_cap >= 0.4` (attitude far outstripping finances) |
 | `reaction_tolerance_mismatch` | `A_tol >= 0.6` **and** `loss_reaction` is `sell_all` |
-| `unanswered_input:<datum>` | the user left that field unanswered (`MiFIDAnswers.unanswered`); one flag per datum, and the field holds its conservative placeholder |
+| `unanswered_input:<datum>` | the user left that field unanswered (`MiFIDAnswers.unanswered`); one flag per datum, and the field holds its conservative placeholder. Never raised for an ESG datum when no sector is excluded: excluding sectors is optional, and an empty `esg.exclusions` is a complete answer |
 | `unanswered_input:esg.look_through_tolerance` | sectors are excluded but the user gave no fund tolerance, so the strict 0 was assumed; never raised when nothing is excluded, and an explicit 0 counts as stated |
 | `unenforced_esg_preference` | `esg.other_preferences` is non-empty: a preference no GICS sector expresses, shown to the user but not enforced |
 

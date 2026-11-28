@@ -268,6 +268,15 @@ Behaviour changes to know about:
   `mifid-profiling` and the CLI commands and flags (`fund mandate set`, `fund profile`,
   `--candidate`) are unchanged. `fund/tests/unit/test_no_advice_language.py` fails on
   the old phrases and on "adviser" in any user-visible string (REQ-FUND-052).
+- **fund**: excluding sectors on ESG grounds is optional, and an empty list is a
+  complete answer. Inputs with no sector excluded no longer list `esg.exclusions` or
+  `esg.look_through_tolerance` in `MiFIDAnswers.unanswered` (the schema drops them,
+  whatever the extraction model or a stored record put there), so the profile gate shows
+  no `unanswered_input:esg.exclusions` flag and the inputs keep the risk limits of the
+  answers as given. The extraction prompt no longer calls an empty list a conservative
+  value and tells the model never to list `esg.exclusions` as unanswered. Sectors the
+  model says the user never named are still flagged, and excluding every sector still
+  blocks the profile (REQ-FUND-052).
 - **ingestion (BREAKING)**: the ingestion daemon (`python -m app.worker`, the
   `scheduler` container) now refuses to start until Yahoo's terms are acknowledged: the
   worker logs why and exits with status 2 before it serves metrics, opens its database

@@ -150,6 +150,24 @@ def test_a_stated_look_through_tolerance_survives_the_placeholder_pass() -> None
     assert cs.esg.look_through_tolerance == 0.1
 
 
+@pytest.mark.criterion("REQ-FUND-052")
+def test_no_esg_exclusions_map_without_a_flag_or_a_placeholder() -> None:
+    """Validates fund.agents.profiler.run_mapping: inputs with no sector excluded, even
+    when the extraction listed the ESG data as unstated, map to an empty ESG block,
+    raise no flag and keep the risk band of the stated answers."""
+    stated = _answers()
+    extracted = _answers(unanswered=("esg.exclusions", "esg.look_through_tolerance"))
+
+    cs, sa = run_mapping(extracted, portfolio_id="pf-1")
+    stated_cs, stated_sa = run_mapping(stated, portfolio_id="pf-1")
+
+    assert cs.esg == EsgPolicy(exclusions=(), look_through_tolerance=0.0)
+    assert sa.esg_exclusions == ()
+    assert sa.inconsistency_flags == ()
+    assert sa.answers == stated
+    assert (cs, sa.band) == (stated_cs, stated_sa.band)
+
+
 def test_excluding_every_sector_hard_blocks() -> None:
     all_sectors = tuple(GicsSector)
     with pytest.raises(SuitabilityBreachError):

@@ -289,6 +289,43 @@ def test_look_through_tolerance_is_a_valid_unanswered_datum():
     assert a.unanswered == ("esg.look_through_tolerance",)
 
 
+_EXCLUSIONS_PATH = "esg.exclusions"
+_OTHER_UNANSWERED = "capacity.buffer_months"
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.parametrize(
+    "listed",
+    [(_EXCLUSIONS_PATH,), (_TOLERANCE_PATH,), (_EXCLUSIONS_PATH, _TOLERANCE_PATH)],
+)
+def test_questionnaire_accepts_no_esg_exclusions_without_conservative_placeholder(
+    listed: tuple[str, ...],
+):
+    """Validates fund.schemas.questionnaire.MiFIDAnswers: no sector excluded is a
+    complete ESG answer, so neither ESG datum stays listed as unanswered, from the
+    extraction model's payload or from the typed form."""
+    payload = _esg_payload(exclusions=[])
+    payload["unanswered"] = [*listed, _OTHER_UNANSWERED]
+
+    extracted = MiFIDAnswers.model_validate(payload)
+    typed = _valid_answers(esg=EsgAnswers(exclusions=()), unanswered=listed)
+
+    assert extracted.esg.exclusions == ()
+    assert extracted.unanswered == (_OTHER_UNANSWERED,)
+    assert typed.unanswered == ()
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+def test_excluded_sectors_the_user_never_stated_stay_unanswered():
+    """Validates fund.schemas.questionnaire.MiFIDAnswers: only an empty exclusion
+    list counts as answered, so sectors the extraction model marks as unstated stay
+    listed and reach the review gate."""
+    payload = _esg_payload(exclusions=["energy"], look_through_tolerance=0.0)
+    payload["unanswered"] = [_EXCLUSIONS_PATH]
+
+    assert MiFIDAnswers.model_validate(payload).unanswered == (_EXCLUSIONS_PATH,)
+
+
 def test_legacy_answers_without_the_unanswered_key_still_validate():
     payload = _valid_answers().model_dump(mode="json")
     payload.pop("unanswered", None)

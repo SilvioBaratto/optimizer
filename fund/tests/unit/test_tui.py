@@ -88,7 +88,7 @@ from fund.tui.app import (
 )
 from fund.tui.ask import ResolvedAction
 from fund.tui.barge_in import BargeInResult, BargeInScreen
-from fund.tui.questionnaire import QuestionnaireScreen
+from fund.tui.questionnaire import OnboardingSubmission, QuestionnaireScreen
 from fund.tui.stream import StepStatus, StreamEvent
 from fund.tui.views import (
     AskView,
@@ -3806,6 +3806,38 @@ async def test_questionnaire_is_titled_optimisation_inputs_with_optional_sectors
     assert title == "Optimisation inputs"
     assert esg_label == "Sectors to exclude (optional)"
     assert answers.esg.exclusions == ()
+
+
+@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.asyncio
+async def test_questionnaire_submits_with_no_sector_excluded(shell_env) -> None:
+    """Validates fund.tui.questionnaire.QuestionnaireScreen._submit: Submit with no
+    sector ticked dismisses the form with complete answers that map to no ESG block
+    and no flag."""
+    from _profiler_fakes import make_answers
+
+    from fund.agents.profiler import run_mapping
+
+    submitted: list[object] = []
+    app = _make_shell(shell_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        await pilot.pause()
+        screen = QuestionnaireScreen(ask_capital=True)
+        app.push_screen(screen, submitted.append)
+        await pilot.pause()
+        _fill_questionnaire(screen, make_answers(), capital="100000")
+        await pilot.click("#q-submit")
+        await pilot.pause()
+        still_open = isinstance(app.screen, QuestionnaireScreen)
+
+    assert not still_open
+    [submission] = submitted
+    assert isinstance(submission, OnboardingSubmission)
+    assert submission.answers.esg.exclusions == ()
+    assert submission.answers.unanswered == ()
+    constraint_set, suitability = run_mapping(submission.answers, portfolio_id="pf-1")
+    assert constraint_set.esg.exclusions == ()
+    assert suitability.inconsistency_flags == ()
 
 
 @pytest.mark.asyncio

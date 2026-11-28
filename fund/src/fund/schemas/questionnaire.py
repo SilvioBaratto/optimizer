@@ -31,6 +31,8 @@ buffer, say) would otherwise force the extractor to invent it. ``MiFIDAnswers.
 unanswered`` is the escape hatch: the extractor lists the datum it could not ground in
 the text, the profiler turns each entry into an inconsistency flag shown at the HITL
 gate, and the adviser sees that the value was assumed rather than client-provided.
+The ESG section is the exception: excluding sectors is optional, so an empty
+exclusion list is a complete answer and no ESG datum is ever listed beside it.
 """
 
 from __future__ import annotations
@@ -85,6 +87,10 @@ UnansweredDatum = Literal[
 # Owed only when sectors are excluded: with nothing excluded there is no fund screen
 # for the figure to loosen.
 LOOK_THROUGH_TOLERANCE_PATH: UnansweredDatum = "esg.look_through_tolerance"
+# The ESG filter is optional, so with no sector excluded neither ESG datum can be
+# missing. Both stay valid entries: stored records may list them, and a sector list
+# the extraction model marks as unstated must still reach the review gate.
+_ESG_DATA: frozenset[str] = frozenset({"esg.exclusions", LOOK_THROUGH_TOLERANCE_PATH})
 
 _Pillar = Literal["knowledge", "capacity", "objectives", "esg"]
 _QuestionKind = Literal["single_choice", "multi_choice", "likert", "numeric"]
@@ -278,23 +284,63 @@ class MiFIDAnswers(BaseModel):
         unstated. Anything this cannot read is passed on for the field validators to
         reject.
         """
-        if not isinstance(data, dict):
+        esg = _raw_esg_answer(data)
+        unanswered = _raw_unanswered(data)
+        if esg is None or unanswered is None:
             return data
-        esg = data.get("esg")
-        if isinstance(esg, EsgAnswers):
-            excluded = bool(esg.exclusions)
-            stated = "look_through_tolerance" in esg.model_fields_set
-        elif isinstance(esg, dict):
-            excluded = bool(esg.get("exclusions"))
-            stated = "look_through_tolerance" in esg
-        else:
-            return data
-        unanswered = data.get("unanswered", ())
-        if not isinstance(unanswered, list | tuple):
-            return data
+        excluded, stated = esg
         if not excluded or stated or LOOK_THROUGH_TOLERANCE_PATH in unanswered:
             return data
         return {**data, "unanswered": (*unanswered, LOOK_THROUGH_TOLERANCE_PATH)}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_exclusions_answer_the_esg_section(cls, data: Any) -> Any:
+        """Drop the ESG data from ``unanswered`` when no sector is excluded.
+
+        The ESG filter is optional and an empty list is the user's answer, while the
+        fund tolerance only matters once a sector is excluded. Left listed, either
+        path would reach the review gate as an assumed value the user was never
+        required to give.
+        """
+        esg = _raw_esg_answer(data)
+        unanswered = _raw_unanswered(data)
+        if esg is None or unanswered is None:
+            return data
+        excluded, _ = esg
+        kept = tuple(path for path in unanswered if path not in _ESG_DATA)
+        if excluded or len(kept) == len(unanswered):
+            return data
+        return {**data, "unanswered": kept}
+
+
+def _raw_esg_answer(data: Any) -> tuple[bool, bool] | None:
+    """``(sectors excluded, tolerance stated)`` read from raw ``MiFIDAnswers`` input.
+
+    ``None`` when ``data`` is no mapping or its ESG section is neither a mapping nor an
+    ``EsgAnswers``, so the field validators report it. For a typed ``EsgAnswers`` the
+    tolerance counts as stated only when its constructor was given one.
+    """
+    if not isinstance(data, dict):
+        return None
+    esg = data.get("esg")
+    if isinstance(esg, EsgAnswers):
+        return bool(esg.exclusions), "look_through_tolerance" in esg.model_fields_set
+    if isinstance(esg, dict):
+        return bool(esg.get("exclusions")), "look_through_tolerance" in esg
+    return None
+
+
+def _raw_unanswered(data: Any) -> list[Any] | tuple[Any, ...] | None:
+    """The raw ``unanswered`` entries of a mapping input.
+
+    ``None`` when ``data`` is no mapping or the entries are no sequence, so the field
+    validators report it.
+    """
+    if not isinstance(data, dict):
+        return None
+    unanswered = data.get("unanswered", ())
+    return unanswered if isinstance(unanswered, list | tuple) else None
 
 
 class SuitabilityAssessment(BaseModel):
