@@ -16,7 +16,7 @@ keyless import.
 Transaction discipline (D1): :func:`apply_action` opens no session of its own and
 never commits — the caller injects a sync session and owns the transaction boundary
 (the TUI worker commits once the action lands, exactly like ``resume_run``). The one
-exception is a ``profile`` action that hits a MiFID suitability breach:
+exception is a ``profile`` action whose inputs block the profile (a hard breach):
 ``run_profiler`` then rolls the session back and commits only the blocked run's
 trail (see its docstring), so the staged work of that action sequence is discarded.
 """
@@ -1984,7 +1984,7 @@ def is_within_suitability_band(proposed_band: str, suitability_band: str) -> boo
 
     Returns:
         ``True`` when ``proposed_band`` is no riskier than ``suitability_band``. An
-        unrecognised band resolves toward *flagging*, not silence (the compliance-safe
+        unrecognised band resolves toward *flagging*, not silence (the fail-safe
         direction): an unknown proposal is treated as most-risky and an unknown ceiling
         as most-restrictive, so a typo or an unmapped future band surfaces the override
         rather than hiding it.

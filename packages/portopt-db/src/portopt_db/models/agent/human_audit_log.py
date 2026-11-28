@@ -8,8 +8,8 @@ two into one actor-attributed timeline.
 
 Each row carries provenance for the Audit detail pane (``prev_value`` /
 ``new_value`` / ``source`` / ``idempotency_key``) and the two flags the Audit
-view surfaces: ``override_flag`` (⚑ a guardrail edited past its MiFID band) and
-``suitability_flag`` (⚠ outside the suitability band). ``idempotency_key`` is
+view surfaces: ``override_flag`` (⚑ a risk limit edited past its band) and
+``suitability_flag`` (⚠ outside the risk-limit band). ``idempotency_key`` is
 UNIQUE but nullable, so a keyed action de-dups while un-keyed rows may repeat.
 
 The model lives here in ``portopt_db`` — pure SQLAlchemy, no
@@ -85,7 +85,7 @@ class HumanAuditLog(BaseModel):
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-# Append-only is a compliance guarantee, not a convention: the repository only ever
+# Append-only is an audit guarantee, not a convention: the repository only ever
 # INSERTs, so any UPDATE/DELETE is a bug (a stray flush, a session.merge(), a bulk
 # fix-up). ORM mapper events miss Core `update()`/`delete()`, so enforce it at the
 # engine. These SQLite triggers install under `create_all` (tests); the Postgres

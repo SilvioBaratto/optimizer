@@ -1,20 +1,20 @@
-"""MiFID II suitability questionnaire I/O (Fase 5, runtime step 0).
+"""Optimisation-inputs questionnaire I/O (Fase 5, runtime step 0).
 
 Three pure, frozen, serialisable pydantic-v2 shapes the profiler consumes and
 produces — building any of them imports **no** ``optimizer`` / ``deepagents``
-code (the deterministic MiFID→knob mapping lives in ``agents/profiler.py``, and
+code (the deterministic answers→knob mapping lives in ``agents/profiler.py``, and
 the LLM only ever emits typed answers, never a knob):
 
-* ``MiFIDQuestion`` (+ the ``QUESTION_BANK`` constant) — the questions the adviser
-  asks, one per row, tagged by ESMA pillar.
-* ``MiFIDAnswers`` — the four ESMA pillars as nested frozen models: knowledge &
+* ``MiFIDQuestion`` (+ the ``QUESTION_BANK`` constant) — the questions the form
+  asks, one per row, tagged by the input section it belongs to.
+* ``MiFIDAnswers`` — the four input sections as nested frozen models: knowledge &
   experience (``KnowledgeAnswers``), financial / loss-capacity
   (``CapacityAnswers``), investment objectives incl. the risk-tolerance Likert +
   horizon + reaction-to-loss (``ObjectivesAnswers``), and ESG (``EsgAnswers``).
-* ``SuitabilityAssessment`` — the structured MiFID record: the per-pillar answer
-  snapshot, the two appetite scores (tolerance / capacity, kept disjoint), the
-  binding ``a_gamma`` + its named ``RiskToleranceBand``, the derived ESG
-  exclusions, ``inconsistency_flags`` and a free-text ``rationale``.
+* ``SuitabilityAssessment`` — the structured record of the saved inputs: the
+  per-section answer snapshot, the two appetite scores (tolerance / capacity, kept
+  disjoint), the binding ``a_gamma`` + its named ``RiskToleranceBand``, the derived
+  ESG exclusions, ``inconsistency_flags`` and a free-text ``rationale``.
 
 Validation matches SPEC §5: an out-of-range Likert response, a non-ISO currency,
 and an unknown GICS sector are all rejected at construction. Everything is
@@ -101,10 +101,10 @@ _ANSWERS_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
 
 class MiFIDQuestion(BaseModel):
-    """One questionnaire item, tagged by the ESMA pillar it assesses.
+    """One questionnaire item, tagged by the input section it belongs to.
 
     Presentation-only metadata — the mapping never reads a question, only the
-    typed ``MiFIDAnswers`` the adviser records. ``options`` lists the allowed
+    typed ``MiFIDAnswers`` the user enters. ``options`` lists the allowed
     responses for a choice question (empty for ``likert`` / ``numeric``).
     """
 
@@ -348,9 +348,9 @@ def _raw_unanswered(data: Any) -> list[Any] | tuple[Any, ...] | None:
 
 
 class SuitabilityAssessment(BaseModel):
-    """The structured MiFID suitability record (no rendered document this phase).
+    """The structured record of a portfolio's saved optimisation inputs.
 
-    Retains the per-pillar ``answers`` snapshot, the two disjoint appetite scores
+    Retains the per-section ``answers`` snapshot, the two disjoint appetite scores
     (``appetite_from_tolerance`` / ``appetite_from_capacity`` ∈ [0, 1]), the
     binding ``a_gamma`` and its named ``band``, the derived ESG ``esg_exclusions``
     (the HARD block), any ``inconsistency_flags`` surfaced at the HITL gate, and a

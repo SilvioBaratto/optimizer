@@ -46,7 +46,7 @@ class OnboardingSubmission:
 
 
 class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
-    """The onboarding form: render the ESMA pillars, build a typed ``MiFIDAnswers``.
+    """The onboarding form: render the input sections, build a typed ``MiFIDAnswers``.
 
     Dismisses an :class:`OnboardingSubmission` on a valid submit, or ``None`` on
     Cancel / ``escape``. A validation error (an out-of-range Likert, a missing choice,

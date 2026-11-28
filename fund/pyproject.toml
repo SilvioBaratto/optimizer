@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "portopt-fund"
 version = "0.2.0"
-description = "deepagents investment-fund bridge: LLM chooses, optimizer computes"
+description = "Bridge between LLM agents and the optimizer: the optimizer computes candidate portfolios, you choose; paper tickets only"
 license = {text = "PolyForm-Noncommercial-1.0.0"}
 classifiers = [
     "License :: Other/Proprietary License",

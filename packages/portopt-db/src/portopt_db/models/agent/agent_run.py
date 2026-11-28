@@ -1,6 +1,7 @@
 """SQLAlchemy models for agent-run audit trail (``agent_runs`` / ``agent_decisions``).
 
-A ``fund`` run is one allocator pass: the LLM chooses, the optimizer computes.
+A ``fund`` run is one allocator pass: the optimizer computes candidate portfolios and
+the user chooses one.
 ``AgentRun`` is the run-level record (universe in, weights out, config + an audit seed
 label); ``AgentDecision`` is the ordered per-step trail (constraint/view
 snapshots, the LLM prompt/response-or-hash, any HITL decision). The model lives

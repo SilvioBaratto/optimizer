@@ -26,7 +26,8 @@ __all__ = [
 
 
 class ObjectiveChoice(str, Enum):
-    """MiFID suitability objective. Maps onto ``ObjectiveFunctionType``."""
+    """Investment objective from the optimisation inputs. Maps onto
+    ``ObjectiveFunctionType``."""
 
     PROTECTION = "protection"
     INCOME = "income"
@@ -114,8 +115,8 @@ class LossReaction(str, Enum):
 class RiskToleranceBand(str, Enum):
     """The five named MiFID risk categories.
 
-    The appetite score buckets into one of these; the category name is recorded
-    in the suitability assessment alongside the derived ``a_gamma``.
+    The appetite score buckets into one of these; the category name is saved with
+    the inputs alongside the derived ``a_gamma``.
     """
 
     DEFENSIVE = "defensive"
