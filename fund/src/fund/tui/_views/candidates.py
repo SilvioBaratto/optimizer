@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 __all__ = [
+    "ALLOCATOR_AGENT",
     "CANDIDATES_STEP",
     "CANDIDATE_COLUMNS",
     "ORDER_GATE",
@@ -31,8 +32,10 @@ __all__ = [
 ]
 
 ORDER_GATE = "place_orders"
-# The allocator step that records a run's candidate set; the audit repository keeps
-# its own name for it, which these import-light modules cannot import.
+# The agent that computes the candidates, and its step that records a run's
+# candidate set; the audit repository keeps its own names for them, which these
+# import-light modules cannot import.
+ALLOCATOR_AGENT = "allocator"
 CANDIDATES_STEP = "compute_candidates"
 
 CANDIDATE_COLUMNS: tuple[str, ...] = (

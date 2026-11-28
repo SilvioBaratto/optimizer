@@ -21,7 +21,7 @@ from fund.tui.screens import (
     RationaleConfirmScreen,
     ScopePickScreen,
 )
-from fund.tui.views import DecisionsView, ShellView
+from fund.tui.views import _NO_PICK, DecisionsView, ShellView
 
 # Logs under ``fund.tui.app``, the shell's name that operators and tests filter on.
 logger = logging.getLogger("fund.tui.app")
@@ -88,7 +88,7 @@ class DecisionsMixin(ShellHost):
         refusal = view.approve_refusal()
         candidate = view.selected_candidate()
         if refusal is not None or candidate is None:
-            self._set_status(refusal or "select a feasible candidate row first")
+            self._set_status(refusal or _NO_PICK)
             return
         portfolio_id = view.selected_portfolio_id
         shown_gate = view.rendered_gate_id

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from fund.tui._views.candidates import (
+    ALLOCATOR_AGENT,
     CANDIDATES_STEP,
     candidate_row,
     measures_line,
@@ -28,10 +29,10 @@ if TYPE_CHECKING:
     # helper params below are ``Any``) and only names the types for the checker.
     from fund.readouts_compute import ResultsCompute, RiskCompute
 
-# Keyed on the acting role, not the step, so the replay ``optimize_portfolio`` decision
-# and any future allocator step both route to the build/results read-out; only the
-# step that records the candidate set gets a read-out of its own.
-_ALLOCATOR_AGENT = "allocator"
+# Keyed on the acting role (``ALLOCATOR_AGENT``), not the step, so the replay
+# ``optimize_portfolio`` decision and any future allocator step both route to the
+# build/results read-out; only the step that records the candidate set gets a
+# read-out of its own.
 _RISK_AGENT = "risk"
 _CANDIDATES_HEADING = "candidates (listed by id; the adviser chooses)"
 
@@ -104,9 +105,9 @@ def render_readout(
         The rendered sub-panels joined by newlines, or ``None`` when the step has no
         structured read-out — the caller then falls back to the raw JSON dump.
     """
-    if agent == _ALLOCATOR_AGENT and step == CANDIDATES_STEP:
+    if agent == ALLOCATOR_AGENT and step == CANDIDATES_STEP:
         return "\n".join(_candidates_block(payload or {}))
-    if agent == _ALLOCATOR_AGENT and (payload or compute is not None):
+    if agent == ALLOCATOR_AGENT and (payload or compute is not None):
         safe = payload or {}
         return "\n".join([*_build_block(safe), *_results_block(safe, compute)])
     if agent == _RISK_AGENT and (expandable or compute is not None):

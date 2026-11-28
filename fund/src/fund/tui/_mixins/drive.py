@@ -15,7 +15,7 @@ from textual.widgets import ContentSwitcher, Static
 from fund import observe
 from fund.tui._mixins.flight import _ROUND_BUSY, _round_flight, _single_flight
 from fund.tui._mixins.host import ShellHost
-from fund.tui._views.candidates import CANDIDATES_STEP
+from fund.tui._views.candidates import ALLOCATOR_AGENT, CANDIDATES_STEP
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.questionnaire import QuestionnaireScreen, describe_error
 from fund.tui.views import DeliberationView, ShellView
@@ -330,7 +330,7 @@ class DriveMixin(ShellHost):
                 if run is None:
                     self.call_from_thread(self._set_status, "run not found")
                     return
-                if agent == "allocator":
+                if agent == ALLOCATOR_AGENT:
                     decision = next(
                         (d for d in run.decisions if d.decision_index == key), None
                     )
@@ -732,7 +732,7 @@ def _recorded_constraint_set(decisions: Sequence[Any], upto: int | None = None) 
     allocator = [
         decision
         for decision in decisions
-        if decision.agent == "allocator"
+        if decision.agent == ALLOCATOR_AGENT
         and (upto is None or decision.decision_index <= upto)
     ]
     sets = [decision for decision in allocator if decision.step == CANDIDATES_STEP]
