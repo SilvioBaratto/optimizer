@@ -337,7 +337,7 @@ def _ungated_end_reason(last_message: Any, *, pm_round_cap_reached: bool) -> str
     ``create_agent`` treats any turn without a valid tool call as a final answer, and
     langchain surfaces a truncated or unparsable tool call only as
     ``invalid_tool_calls``. Telling those apart from a blocking risk verdict is the
-    only way the adviser can see why a round ended: ``"pm_round_cap"`` when the
+    only way the user can see why a round ended: ``"pm_round_cap"`` when the
     delegation cap tripped, ``"output_truncated"`` when the provider reported an
     output-cap stop, ``"invalid_tool_call"`` when the call was malformed, and
     ``"no_order"`` otherwise (nothing left to commit).
@@ -376,10 +376,10 @@ def _finalize_incomplete(audit: Any, run_id: uuid.UUID, reason: str) -> None:
 # The PM prompt and the fund-orchestration skill teach the PM to recognise this
 # opening; keep the marker in sync with them.
 _RESPOND_FRAME = (
-    "ADVISER DIRECTIVE — place_orders was NOT executed and no ticket exists. "
+    "USER DIRECTIVE — place_orders was NOT executed and no ticket exists. "
     "Follow the directive below: re-run the affected pipeline stages "
     "(compute_candidates again if the universe changes, the risk gate included) "
-    "and call place_orders again so the adviser can choose. A directive never "
+    "and call place_orders again so the user can choose. A directive never "
     "selects a candidate. Directive: {directive}"
 )
 
@@ -681,9 +681,9 @@ def _raise_if_profile_superseded(session: Any, run: Any) -> None:
     current = MifidProfileRepository(session).get_active(run.portfolio_id)
     if current is not None and current.version > built_under:
         raise RuntimeError(
-            f"portfolio {run.portfolio_id} was re-profiled (v{built_under} -> "
-            f"v{current.version}) after run {run.id} opened; reject this run and "
-            "start a new round under the current profile"
+            f"portfolio {run.portfolio_id} got new optimisation inputs (v{built_under} "
+            f"-> v{current.version}) after run {run.id} opened; reject this run and "
+            "start a new round under the current inputs"
         )
 
 

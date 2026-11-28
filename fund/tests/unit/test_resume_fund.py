@@ -519,7 +519,7 @@ def test_resume_fund_requires_active_constraint_set(db_session) -> None:
         _store_with_cs(),
     )
     # An empty store no longer resolves the portfolio's profile → fail fast.
-    with pytest.raises(RuntimeError, match="profiler"):
+    with pytest.raises(RuntimeError, match="optimisation inputs"):
         resume_fund(
             run.run_id,
             "approve",
@@ -650,7 +650,7 @@ def test_resume_fund_refuses_a_gate_built_under_a_superseded_profile(
     )
     _add_profile_version(db_session)  # the adviser re-profiles while the gate waits
 
-    with pytest.raises(RuntimeError, match="re-profiled"):
+    with pytest.raises(RuntimeError, match="got new optimisation inputs"):
         resume_fund(
             run.run_id,
             decision,
@@ -2363,7 +2363,7 @@ def test_resume_command_frames_a_respond_directive_as_an_unexecuted_gate() -> No
 
     message = command.resume["decisions"][0]["message"]
     assert "cap each name at 5%" in message
-    assert message.startswith("ADVISER DIRECTIVE")
+    assert message.startswith("USER DIRECTIVE")
     assert "NOT executed" in message
     assert "no ticket" in message
     assert "place_orders again" in message
@@ -2721,7 +2721,7 @@ def test_resume_fund_approve_refused_by_the_mandate_does_not_complete_the_run(
     )
     _reprofile_with_energy_exclusion(db_session, store)
 
-    with pytest.raises(ValueError, match="breaches the current mandate"):
+    with pytest.raises(ValueError, match="breaches the current constraints"):
         resume_fund(
             run.run_id,
             "approve",
@@ -2752,7 +2752,7 @@ def test_fundrun_resume_approve_refused_by_the_mandate_does_not_complete_the_run
     )
     _reprofile_with_energy_exclusion(db_session, store)
 
-    with pytest.raises(ValueError, match="breaches the current mandate"):
+    with pytest.raises(ValueError, match="breaches the current constraints"):
         run.resume("approve", candidate_id=MEAN_RISK)
 
     assert AgentRunRepository(db_session).get_run(run.run_id).status == "paused"

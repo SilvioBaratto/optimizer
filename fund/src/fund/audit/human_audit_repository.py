@@ -60,7 +60,7 @@ class HumanAuditLogRepository(RepositoryBase):
             new_value: New value for an edit/override (arbitrary JSON).
             source: Provenance of the prior value (e.g. ``"profile"``).
             override_flag: ⚑ a guardrail edited past its MiFID band.
-            suitability_flag: ⚠ outside the suitability band.
+            suitability_flag: ⚠ outside the risk-limit band.
             idempotency_key: Dedup key; a repeat returns the first row.
             rationale: Free-text reason recorded with the action.
 

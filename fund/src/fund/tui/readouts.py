@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 # build/results read-out; only the step that records the candidate set gets a
 # read-out of its own.
 _RISK_AGENT = "risk"
-_CANDIDATES_HEADING = "candidates (listed by id; the adviser chooses)"
+_CANDIDATES_HEADING = "candidates (listed by id; you choose)"
 
 # The frontier replay re-solves the mean-risk problem, which only this candidate is.
 _FRONTIER_LABEL = "frontier point"

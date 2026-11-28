@@ -52,7 +52,7 @@ TOOL_CONTRACT: list[tuple[str, str, dict[str, Any]]] = [
         "Summarize the fund now: portfolios, pending gates, the focused portfolio.",
         {},
     ),
-    ("list_portfolios", "List every portfolio id the fund manages.", {}),
+    ("list_portfolios", "List every portfolio id the tool tracks.", {}),
     (
         "portfolio_state",
         "Show a portfolio's drift, holdings count and run status.\n\n"
@@ -73,7 +73,7 @@ TOOL_CONTRACT: list[tuple[str, str, dict[str, Any]]] = [
     ),
     (
         "mandate",
-        "Show a portfolio's mandate (limits, eligible tickers) and its warnings.",
+        "Show a portfolio's settings (limits, eligible tickers) and their warnings.",
         _BLANK_ID,
     ),
     (

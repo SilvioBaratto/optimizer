@@ -1,19 +1,23 @@
 # portopt-fund
 
-The deep-agent investment-fund bridge. Dist **`portopt-fund`**, import package
-**`fund`** (src-layout). Fourth member of the `optimizer` uv workspace, alongside
+The deep-agent bridge between LLM agents and the optimizer. Dist **`portopt-fund`**,
+import package **`fund`** (src-layout). Fourth member of the `optimizer` uv workspace, alongside
 `portopt-core`, `portopt`, and `portopt-db`.
 
-**Load-bearing principle: the LLM chooses, the optimizer computes.** Agents emit
-only structured inputs and enums (constraint sets, view sets, allocation
-decisions) — never portfolio weights. Weights come from `optimizer` (skfolio),
-run deterministically inside `@tool` functions.
+**Load-bearing principle: the optimizer computes candidate portfolios; you choose;
+paper tickets only.** Agents emit only structured inputs and enums (constraint sets,
+view sets, allocation records (`AllocDecision`, no weights)) — never portfolio
+weights, and never a choice between candidates. Weights come from `optimizer` (skfolio), run deterministically
+inside `@tool` functions; orders are simulated paper tickets and nothing is sent to a
+broker.
 
 Built on [`deepagents`](https://github.com/langchain-ai/deepagents)
-(LangChain/LangGraph): a PM orchestrator delegates to four subagents (economist,
-allocator, risk-controller, executor) after a MiFID II profiling step. Durable
-state (checkpointer + store) lives in a dedicated `langgraph` Postgres schema;
-Alembic stays the sole owner of `public`.
+(LangChain/LangGraph): an orchestrator delegates to four subagents (economist,
+allocator, risk checker, executor) after a step that records your optimisation
+inputs. Nothing here is investment advice or portfolio management: the inputs only
+set the limits the optimizer works within. Durable state (checkpointer + store)
+lives in a dedicated `langgraph` Postgres schema; Alembic stays the sole owner of
+`public`.
 
 ## Boundary (guarded, load-bearing)
 
@@ -40,16 +44,16 @@ fund-worker   # daemon         -> fund.worker:main
 ## Eligible universe
 
 `PortfolioMandate.eligible_tickers` is a hard per-portfolio allowlist; empty means
-unrestricted. `fund.tools.eligibility` resolves it once per run (on run, resume and the
-adviser edit, from the current mandate) into `Eligibility(allowed, barred)` on
+unrestricted. `fund.tools.eligibility` resolves it once per run (on run, resume and a
+weight edit you make, from the current settings) into `Eligibility(allowed, barred)` on
 `RunContext.eligible`, and the weighting tools enforce it: `list_universe` returns only
 the allowed set, `universe_filter` / `estimate_moments` / `compute_candidates` refuse an
 outside ticker, `risk_check` records a `not_eligible` violation and `place_orders` and
-the adviser edit refuse it. `get_prices` and `get_regime_stats` stay unrestricted. The
+a weight edit refuse it. `get_prices` and `get_regime_stats` stay unrestricted. The
 benchmark is not automatically eligible.
 
 Set it with `fund mandate set <portfolio_id> --eligible T [--eligible T ...]`
-(`--clear-eligible` to lift it) or the Mandate view's "eligible tickers" field. Saving
+(`--clear-eligible` to lift it) or the Constraints view's "eligible tickers" field. Saving
 goes through `apply_action`, which warns once about tickers without a priced instrument
 and syncs the portfolio's `mandate:<id>` pins in `pinned_instruments`, so the weekly
 universe build keeps the instruments. Add an instrument the Screener never returns with
@@ -58,7 +62,7 @@ universe build keeps the instruments. Add an instrument the Screener never retur
 A name is barred with one reason: `no_instrument`, `delisted`, `not_priced`,
 `esg:<gics sector>` or `esg_unclassified`. Under ESG exclusions a stock is judged by its
 stored sector and an ETF by look-through of its latest `etf_sector_weights` snapshot
-against the client's `look_through_tolerance` (strict 0 by default): commodity and
+against your `look_through_tolerance` (strict 0 by default): commodity and
 government / inflation-linked bond ETFs pass, any other fund needs a snapshot no older
 than `FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS` (180) that sums to one within 0.05, or it is
 barred `esg_unclassified`. Most corporate and aggregate bond ETFs stay barred, because
@@ -66,7 +70,7 @@ their sector data is sparse.
 
 ## TUI (`fund-tui`)
 
-The supervisor's read-first oversight cockpit (Textual): a left nav rail over one
+A read-first oversight cockpit (Textual): a left nav rail over one
 content pane. Launch fund-wide or focused on a portfolio:
 
 ```bash
@@ -77,8 +81,8 @@ fund-tui <portfolio-id>  # focus one portfolio
 **Eight views** (sidebar order): **Posture** (roster + fund strip + focused detail,
 incl. the real NAV tile) · **Deliberation** (run replay + live stream) · **Decisions**
 (cross-portfolio HITL inbox; a rebalance gate lists its four candidates in id order,
-and `a` approves the feasible row the adviser selected behind a confirm naming it) ·
-**Mandate** (run-policy + guardrails) · **Audit**
+and `a` approves the feasible row you selected behind a confirm naming it) ·
+**Constraints** (run settings + risk limits + saved instructions) · **Audit**
 (filterable decision timeline, CSV export) · **Performance** (metrics strip + holdings
 table + drill-down, chart-free) · **Ask** (NL Q&A) · **Daily brief** (per-day recap,
 markdown export).

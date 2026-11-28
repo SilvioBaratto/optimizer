@@ -226,7 +226,7 @@ def _require_fresh_pass(
         )
     if not check["data"]["passed"]:
         raise ValueError(
-            f"candidate {candidate_id!r} breaches the current mandate: "
+            f"candidate {candidate_id!r} breaches the current constraints: "
             f"{describe_breaches(check['data']['violations'])}; choose another "
             "candidate or reject the run"
         )
@@ -345,8 +345,8 @@ def refuse_candidate_at_profiler_gate(
     """
     if candidate_id is not None:
         raise ValueError(
-            f"agent_run {run_id} is at a profiler gate, which has no candidates; "
-            "approve it without a candidate id"
+            f"agent_run {run_id} is at an inputs (profile) gate, which has no "
+            "candidates; approve it without a candidate id"
         )
 
 

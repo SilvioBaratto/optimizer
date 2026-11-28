@@ -208,7 +208,7 @@ class AuditEntry:
         source: Provenance of the row (``"agent_decisions"`` or a human source).
         idempotency_key: The human row's dedup key; ``None`` for agent rows.
         override_flag: ⚑ a guardrail edited past its MiFID band (human only).
-        suitability_flag: ⚠ outside the suitability band (human only).
+        suitability_flag: ⚠ outside the risk-limit band (human only).
         target: The field, gate, or scope the human action touched (e.g. a re-arm's
             ``"fund"`` / ``"portfolio"`` scope); ``None`` for agent rows.
         rationale: The free-text reason recorded with the human action — the only

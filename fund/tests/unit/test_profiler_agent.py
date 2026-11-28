@@ -99,7 +99,7 @@ def test_extraction_prompt_names_the_look_through_tolerance_range_and_default():
 
     assert "esg.look_through_tolerance" in system
     assert "fraction in [0, 1]" in system
-    assert "only if the client states a figure" in system
+    assert "only if the user states a figure" in system
 
 
 def test_extraction_prompt_lists_an_unstated_tolerance_as_unanswered():
@@ -365,7 +365,11 @@ def test_resuming_a_run_that_never_reached_the_gate_is_refused(db_session):
     assert MifidProfileRepository(db_session).get_active(pid) is None
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_save_profile_tool_description_says_the_call_raises_the_gate(db_session):
+    """Validates fund.agents.profiler._make_save_profile: the ``save_profile``
+    description says the call itself pauses for the user's review and never tells
+    the model to wait for an approval first."""
     from fund.agents.profiler import _make_save_profile
 
     answers = make_answers()
@@ -382,8 +386,9 @@ def test_save_profile_tool_description_says_the_call_raises_the_gate(db_session)
     )
 
     # The system prompt tells the agent to call the tool now; a description that
-    # says "call after adviser approval" contradicts it and invites withholding.
-    assert "after adviser approval" not in tool.description
+    # says "call after approval" contradicts it and invites withholding.
+    assert "after user approval" not in tool.description
+    assert "after approval" not in tool.description
     assert "pauses" in tool.description
 
 

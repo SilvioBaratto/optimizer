@@ -301,7 +301,7 @@ def compute_risk(
                 passed=None,
                 violations=(),
                 sector_exposures=exposures,
-                error=f"mandate screen failed: {exc.__class__.__name__}",
+                error=f"constraints screen failed: {exc.__class__.__name__}",
             )
         if breaches:
             passed = False

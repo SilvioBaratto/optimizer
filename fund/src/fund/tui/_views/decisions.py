@@ -40,7 +40,7 @@ _CANDIDATES_TABLE = "decisions-candidates"
 _KEY_HINT = (
     "↵ select gate · tab candidates, ↵ select one · a approve (a rebalance gate "
     "confirms the selected candidate) · r reject · k killswitch · e edit weights · "
-    "s steer PM"
+    "s steer the run"
 )
 _STALE_SET = (
     "cannot approve: the gate was opened on another candidate set than the run's "
@@ -115,7 +115,7 @@ class DecisionsView(ShellView):
     # the App's action (the handlers live there, not on the view).
     BINDINGS: ClassVar[list[BindingType]] = [
         ("e", "app.edit_decision", "Edit weights"),
-        ("s", "app.steer_decision", "Steer PM"),
+        ("s", "app.steer_decision", "Steer the run"),
     ]
 
     primary_focus: ClassVar[str | None] = f"#{_QUEUE_TABLE}"
@@ -532,7 +532,7 @@ def _format_candidates(candidates: Any) -> list[str]:
             "candidates: none were computed, so an approve is refused; "
             "reject the run and start a fresh round"
         ]
-    lines = ["candidates (listed by id; the adviser picks one to approve):"]
+    lines = ["candidates (listed by id; you pick one to approve):"]
     for entry in entries:
         status = "feasible" if entry.get("feasible") else "infeasible"
         weights = ", ".join(

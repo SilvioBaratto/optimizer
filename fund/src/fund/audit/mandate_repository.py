@@ -104,8 +104,8 @@ class MandateRepository(RepositoryBase):
             and _comparable(row.mandate) != _comparable(expected)
         ):
             raise MandateConflictError(
-                f"mandate for portfolio {portfolio_id} changed since it was loaded; "
-                "reload it and apply the edit again"
+                f"settings for portfolio {portfolio_id} changed since they were "
+                "loaded; reload them and apply the edit again"
             )
         if (
             row is not None

@@ -1,17 +1,17 @@
-# MiFID profiling — pillar→knob reference
+# Optimisation inputs — section→knob reference
 
 On-demand support for the `mifid-profiling` skill. The numbers below are what the
 **deterministic mapping** (`fund.agents.profiler`) applies — they are here so you
-can explain a profile, **not** so you can type a knob yourself. Theory citations
+can explain how the inputs set the limits, **not** so you can type a knob yourself. Theory citations
 are `NN:line` references into the staged `optimizer-theory/docs/NN_*.md` chapters.
 
-## The four pillars → `ConstraintSet` knobs
+## The four input sections → `ConstraintSet` knobs
 
-| MiFID pillar | Sub-datum (typed answer) | → knob | Theory |
+| Input section | Sub-datum (typed answer) | → knob | Theory |
 |---|---|---|---|
 | Risk **tolerance** (attitudinal) | `objectives.likert_items` | risk-**appetite** `A_tol` → `a_gamma` | `01:142`, `30:41` |
 | Loss **capacity** (financial) | `capacity.max_1yr_loss_pct`, `capacity.buffer_months` | risk-**appetite** `A_cap` → `a_gamma` + `nu1/nu2/nu3` | `20:75` |
-| **Binding rule** | conform to tolerance **AND** capacity | `A = min(tolerance, capacity)` → `a_gamma` | regulatory prudence |
+| **Binding rule** | conform to tolerance **AND** capacity | `A = min(tolerance, capacity)` → `a_gamma` | the more cautious input binds |
 | Reaction to extreme loss | `objectives.loss_reaction` | `risk_measure` + `beta` | `04:18`, `16:22`, `20:29` |
 | Horizon | `objectives.horizon` | `horizon` (passthrough) | `11:175`, `30:24` |
 | Objective | `objectives.goal` | `objective` (passthrough) | `15:80`, `17:89` |
@@ -44,7 +44,7 @@ A naive `a_gamma = min(γ_tol, γ_cap)` would be backwards.
 
 ## Reaction → risk_measure + beta (D34)
 
-The more protective the reaction, the deeper the downside the profile controls.
+The more protective the reaction, the deeper the downside the limits control.
 
 | `loss_reaction` | `risk_measure` | `beta` |
 |---|---|---|
@@ -62,7 +62,7 @@ The more protective the reaction, the deeper the downside the profile controls.
 | `informed` | false | false | — |
 | `advanced` | false | false | — |
 
-The cap is not advisory: it tightens `bounds.max_weights` (the tighter of the two
+The cap is binding: it tightens `bounds.max_weights` (the tighter of the two
 wins), so it binds the optimizer and the `risk_check` ceiling alike. A cap of `c`
 needs at least `ceil(1 / c)` priced names; a smaller universe is reported as
 infeasible by `compute_candidates` rather than as an opaque solver failure.
@@ -79,7 +79,7 @@ blocks, past `nu1` only adds a warning. When the backtest cannot run, or its his
 is shorter than a year, the tiers cannot be checked and the verdict carries a
 blocking `drawdown_unverified` violation. A stated (or unanswered, hence zero) `L = 0`
 makes every tier 0: the gate then reports `zero_loss_tolerance` for any book with a
-loss, so confirm the figure with the client before saving such a profile.
+loss, so confirm the figure with the user before saving such inputs.
 
 ## Hard rules the mapping enforces (never the LLM)
 
@@ -91,8 +91,8 @@ loss, so confirm the figure with the client before saving such a profile.
 
 ## Inconsistency flags (flag, never clamp)
 
-The suitability check records a named flag per contradiction and leaves `a_gamma`
-untouched; the adviser sees the flags at the HITL gate. Thresholds are on the same
+The consistency check records a named flag per contradiction and leaves `a_gamma`
+untouched; the user sees the flags at the HITL gate. Thresholds are on the same
 appetite scale `[0, 1]` as the bands above.
 
 | Flag | Fires when |
@@ -100,17 +100,17 @@ appetite scale `[0, 1]` as the bands above.
 | `objective_capacity_mismatch` | `objectives.goal` is `growth` or `max` **and** the weakest of `A_tol`, `A_cap` and the stated loss-capacity sub-score `clip(max_1yr_loss_pct / 0.50)` is below 0.4 |
 | `overconfidence` | `A_tol - A_cap >= 0.4` (attitude far outstripping finances) |
 | `reaction_tolerance_mismatch` | `A_tol >= 0.6` **and** `loss_reaction` is `sell_all` |
-| `unanswered_input:<datum>` | the client left that field unanswered (`MiFIDAnswers.unanswered`); one flag per datum, and the field holds its conservative placeholder |
-| `unanswered_input:esg.look_through_tolerance` | sectors are excluded but the client gave no fund tolerance, so the strict 0 was assumed; never raised when nothing is excluded, and an explicit 0 counts as stated |
-| `unenforced_esg_preference` | `esg.other_preferences` is non-empty: a preference no GICS sector expresses, shown to the adviser but not enforced |
+| `unanswered_input:<datum>` | the user left that field unanswered (`MiFIDAnswers.unanswered`); one flag per datum, and the field holds its conservative placeholder |
+| `unanswered_input:esg.look_through_tolerance` | sectors are excluded but the user gave no fund tolerance, so the strict 0 was assumed; never raised when nothing is excluded, and an explicit 0 counts as stated |
+| `unenforced_esg_preference` | `esg.other_preferences` is non-empty: a preference no GICS sector expresses, shown to the user but not enforced |
 
 A growth/max objective ignores `a_gamma` in the optimizer, so the first flag is the
-only guard against it. It tests each pillar on its own as well as the blend because
+only guard against it. It tests each section on its own as well as the blend because
 the blended `A_cap` lets a large buffer mask a stated 0% loss capacity, and the
-attitude can be the weakest pillar even when the finances are ample.
+attitude can be the weakest section even when the finances are ample.
 
 An unanswered field takes its most conservative value (lowest appetite, narrowest
 universe, strongest tail control) so the band can never be lifted by a guess. That
-placeholder is not something the client said, so the three contradiction rules only
-read scores and answers whose inputs were all stated: an unanswered pillar shows up
-as `unanswered_input`, never as a contradiction the client did not make.
+placeholder is not something the user said, so the three contradiction rules only
+read scores and answers whose inputs were all stated: an unanswered section shows up
+as `unanswered_input`, never as a contradiction the user did not make.

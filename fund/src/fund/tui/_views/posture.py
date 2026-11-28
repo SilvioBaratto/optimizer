@@ -302,7 +302,7 @@ def _fund_strip(rows: list[_RosterRow]) -> str:
 def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
     """The focused-portfolio detail: state, NAV tile, mandate, active run, events.
 
-    An un-run portfolio renders the ``no runs yet · p profile to start`` empty-state
+    An un-run portfolio renders the ``no runs yet · p inputs to start`` empty-state
     (the launchpad to onboarding). The NAV tile shows the real NAV-series period return
     from ``observe.performance_summary``; a run-but-unmarked portfolio degrades to a
     ``no marks yet`` line rather than a fabricated figure.
@@ -311,7 +311,7 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
     warnings = _mandate_warning_lines(session, pid)
     if not runs:
         return "\n".join(
-            [f"portfolio {_short(pid)}", "no runs yet · p profile to start", *warnings]
+            [f"portfolio {_short(pid)}", "no runs yet · p inputs to start", *warnings]
         )
     latest = runs[0]
     state = observe.portfolio_state(session, pid)
@@ -324,7 +324,7 @@ def _render_posture_detail(session: Session, pid: uuid.UUID) -> str:
     mandate = observe.get_mandate(session, pid)
     if mandate is not None:
         lines.append(
-            f"mandate {mandate.base_currency} {mandate.capital} · "
+            f"settings {mandate.base_currency} {mandate.capital} · "
             f"drift ≥{mandate.drift_l1_threshold}"
         )
     lines.extend(warnings)

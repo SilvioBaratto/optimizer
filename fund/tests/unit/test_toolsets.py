@@ -1391,20 +1391,22 @@ def test_bound_place_orders_appends_executor_decision(db_session) -> None:
     assert decision.hitl_decision == {"decision": "approve"}
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_place_orders_description_says_the_call_itself_awaits_approval(
     db_session,
 ) -> None:
-    """The HITL gate pauses at the ``place_orders`` call, so the model-facing text
-    must not tell the model to wait for approval before calling it (a model that
-    does ends the run with no ticket)."""
+    """Validates fund.agents.toolsets._bind_place_orders: the HITL gate pauses at the
+    ``place_orders`` call, so the model-facing text must not tell the model to wait
+    for approval before calling it (a model that does ends the run with no ticket),
+    and it names the user as the one who chooses."""
     place = _find(
         bind_toolset("orchestrator", _make_context(db_session)), "place_orders"
     )
     description = " ".join(place.description.split())
 
-    assert "after adviser approval" not in description
+    assert "after user approval" not in description
     assert "pauses" in description
-    assert "adviser" in description
+    assert "the user" in description
 
 
 def test_place_orders_description_discloses_the_ticket_is_the_audited_proposal(
@@ -2178,13 +2180,17 @@ def test_parallel_optimize_calls_each_append_one_distinct_decision(
     assert sorted(indexes) == [0, 1]
 
 
+@pytest.mark.criterion("REQ-FUND-052")
 def test_place_orders_takes_no_model_supplied_weights(db_session) -> None:
+    """Validates fund.agents.toolsets._bind_place_orders: the tool takes no weights,
+    and its description never says to call it after an approval."""
     ctx = _make_context(db_session)
     place = _find(bind_toolset("orchestrator", ctx), "place_orders")
 
     assert "weights" not in place.args
     # Approval is requested BY calling it, so the text must not say "after approval".
-    assert "after adviser approval" not in place.description
+    assert "after user approval" not in place.description
+    assert "after approval" not in place.description
 
 
 # --- the blocking risk gate is recorded and enforced -------------------------
@@ -2338,8 +2344,8 @@ def _skill_surfaces() -> dict[str, str]:
 _ALL_SURFACES = {**_prompt_surfaces(), **_skill_surfaces()}
 
 # Surfaces a reader could take as describing how the allocator is fed: each must
-# say views are advisory rather than merely omit them.
-_MUST_LABEL_VIEWS_ADVISORY = (
+# say views are background context rather than merely omit them.
+_MUST_LABEL_VIEWS_CONTEXT = (
     "prompts module docstring",
     "PM_SYSTEM_PROMPT",
     "ECONOMIST_SYSTEM_PROMPT",
@@ -2441,11 +2447,17 @@ def test_agent_facing_surface_does_not_present_views_as_optimizer_input(
     assert match is None, f"{surface} presents views as an input: {match[0]!r}"
 
 
-@pytest.mark.parametrize("surface", _MUST_LABEL_VIEWS_ADVISORY)
-def test_surface_that_mentions_views_labels_them_advisory(surface: str) -> None:
+@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.parametrize("surface", _MUST_LABEL_VIEWS_CONTEXT)
+def test_surface_that_mentions_views_labels_them_background_context(
+    surface: str,
+) -> None:
+    """Validates the prompts, role descriptions and skills that describe how the
+    allocator is fed: each labels the economist's views background context, the
+    wording that replaced "advisory"."""
     text = _flat(_ALL_SURFACES[surface]).lower()
     assert re.search(r"\bviews?\b", text), f"{surface} no longer mentions views"
-    assert "advisory" in text, f"{surface} mentions views without saying advisory"
+    assert "background context" in text, f"{surface} does not call views context"
 
 
 @pytest.mark.criterion("REQ-FUND-052")
@@ -2498,7 +2510,7 @@ def test_bound_compute_candidates_refuses_an_ineligible_or_excluded_ticker(
     assert "CCC (esg:energy)" in outside["error"]
     assert "SPY (not_in_allowlist)" in outside["error"]
     assert breaching["ok"] is False
-    assert "universe breaches the client's mandate" in breaching["error"]
+    assert "universe breaches the user's constraints" in breaching["error"]
     assert "AAA (esg_exclusion" in breaching["error"]
     assert _allocator_decisions(db_session) == []
     for ctx in (restricted, excluded):

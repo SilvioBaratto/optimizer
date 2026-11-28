@@ -3,18 +3,18 @@ name: views-construction
 description: |
   Turn a regime/macro read into a structured ViewSet (asset- or factor-level
   relative/absolute expected-return views with a confidence) that the allocator
-  carries as advisory context. Use when the economist must express a directional
+  carries as background context. Use when the economist must express a directional
   opinion for the allocator and the audit rationale. Emits ONLY a ViewSet; it never
   emits weights, mu, or covariance.
 ---
 
-# Views construction (advisory)
+# Views construction (background context)
 
 The economist's second step: express opinions as a typed `ViewSet`, not as weights.
 The schema is Black-Litterman-shaped (confidence maps to the view-uncertainty
-matrix Omega), but today the views are advisory.
+matrix Omega), but today the views are background context only.
 
-## Views are advisory today
+## Views are background context today
 No bound tool accepts views: `estimate_moments` and `compute_candidates` take only a
 `universe`, so the optimizer runs on its own prior (empirical mean, Ledoit-Wolf
 covariance) and the weights are identical with or without a ViewSet.
@@ -38,7 +38,7 @@ confidence). The optimizer computes the weights — never the LLM.
    that is not built today, so it stays context for the rationale. When the brief
    lists an eligible universe, write asset views only on tickers inside it.
 4. Hand the ViewSet to the allocator as context for its rationale and for the
-   adviser; the allocator cannot pass it to the optimizer.
+   user; the allocator cannot pass it to the optimizer.
 
 ## Boundaries
 - Never emit weights, mu, or a covariance matrix.

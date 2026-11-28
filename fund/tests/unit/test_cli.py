@@ -80,10 +80,11 @@ _ASOF_STR = ASOF.isoformat()
 # the old single optimizer onto ``mean_risk``.
 _CANDIDATE = ("--candidate", MEAN_RISK)
 _OTHER_THAN_MEAN_RISK = tuple(cid for cid in CANDIDATE_IDS if cid != MEAN_RISK)
-_REPORT_CANDIDATES_HEADING = "candidates (listed by id; the adviser chooses):"
+_REPORT_CANDIDATES_HEADING = "candidates (listed by id; you choose):"
 # The same words the fund-run language guard refuses: the report must not rank either.
 _RECOMMENDATION = re.compile(
-    r"recommend|best|prefer|suggest|optimal|ideal|winner|matching the (client|profile)",
+    r"recommend|best|prefer|suggest|optimal|ideal|winner"
+    r"|matching the (client|profile|user|inputs)",
     re.IGNORECASE,
 )
 
@@ -484,7 +485,7 @@ def test_run_rejects_a_drift_that_could_never_be_breached(harness, monkeypatch) 
 def test_mandate_show_missing_errors(harness) -> None:
     res = harness.runner.invoke(cli.app, ["mandate", "show", str(PORTFOLIO_ID)])
     assert res.exit_code != 0
-    assert "no mandate" in res.output.lower()
+    assert "no settings" in res.output.lower()
 
 
 # --- run --------------------------------------------------------------------
@@ -668,7 +669,7 @@ def test_run_without_mandate_reports_the_error_exactly_once(
     assert res.exit_code == 1
     error_lines = [ln for ln in res.output.splitlines() if ln.startswith("error:")]
     assert len(error_lines) == 1, res.output
-    assert error_lines[0] != "error:" and "no mandate" in error_lines[0]
+    assert error_lines[0] != "error:" and "no settings" in error_lines[0]
     assert harness.pool.closed >= 1  # pool still released on the early exit
 
 
@@ -749,7 +750,7 @@ def test_approve_surfaces_a_failed_pm_follow_up(harness, monkeypatch) -> None:
     res = harness.runner.invoke(cli.app, ["approve", str(run_id), *_CANDIDATE])
 
     assert res.exit_code == 0, res.output
-    assert "PM follow-up failed" in res.output
+    assert "orchestrator follow-up failed" in res.output
     with harness.read() as session:
         assert AgentRunRepository(session).get_run(run_id).status == "completed"
 
@@ -938,7 +939,7 @@ def test_profile_gate_approve_takes_no_candidate(harness, monkeypatch) -> None:
     )
 
     assert named.exit_code == 1, named.output
-    assert "profiler gate" in named.output
+    assert "inputs (profile) gate" in named.output
     with harness.read() as session:
         assert AgentRunRepository(session).get_run(run_id).status == "paused"
         session.rollback()
@@ -1144,7 +1145,7 @@ def test_report_labels_the_mandate_as_the_current_one(harness, monkeypatch) -> N
 
     res = harness.runner.invoke(cli.app, ["report", str(run_id)])
 
-    assert "current mandate:" in res.output
+    assert "current settings:" in res.output
 
 
 @pytest.mark.criterion("REQ-FUND-049")
@@ -1239,8 +1240,8 @@ def test_report_lists_candidates_in_id_order_with_metrics_and_the_choice(
         assert f"n_positions={metrics.n_positions}" in row
         assert f"turnover={metrics.turnover:.4f}" in row
         assert row.endswith("check=passed")
-    assert f"chosen by the adviser: {chosen}" in res.output
-    assert res.output.index(rows[-1]) < res.output.index("chosen by the adviser")
+    assert f"chosen by you: {chosen}" in res.output
+    assert res.output.index(rows[-1]) < res.output.index("chosen by you")
 
 
 @pytest.mark.criterion("REQ-FUND-053")
@@ -1255,7 +1256,7 @@ def test_report_of_a_paused_run_lists_the_candidates_and_no_choice(
 
     assert res.exit_code == 0, res.output
     assert len(_candidate_lines(res.output)) == len(CANDIDATE_IDS)
-    assert "chosen by the adviser" not in res.output
+    assert "chosen by you" not in res.output
 
 
 @pytest.mark.criterion("REQ-FUND-053")
@@ -1302,7 +1303,7 @@ def test_report_text_has_no_recommendation_language(harness, monkeypatch) -> Non
     assert approve.exit_code == 0, approve.output
     approved = harness.runner.invoke(cli.app, ["report", str(run_id)])
 
-    assert f"chosen by the adviser: {MEAN_RISK}" in approved.output
+    assert f"chosen by you: {MEAN_RISK}" in approved.output
     for output in (paused.output, approved.output):
         assert _REPORT_CANDIDATES_HEADING in output
         assert _RECOMMENDATION.search(output) is None, _RECOMMENDATION.search(output)

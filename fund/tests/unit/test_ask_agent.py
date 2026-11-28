@@ -1461,6 +1461,6 @@ def test_the_prompt_describes_candidates_neutrally_and_sends_approval_to_decisio
 
     assert "hrp, mean_risk, min_risk, risk_parity" in prompt
     assert "never recommend, rank or favour one" in prompt
-    assert "the adviser chooses" in prompt
+    assert "the user chooses" in prompt
     assert "Decisions view" in prompt
     assert "'approve the gate'" not in prompt

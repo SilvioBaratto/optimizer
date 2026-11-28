@@ -13,7 +13,7 @@ description: |
 # Universe pre-selection
 
 The allocator's first step: shrink the investable universe to a well-conditioned
-ticker set so the optimizer is stable. The LLM chooses WHICH listed names to carry
+ticker set so the optimizer is stable. The LLM picks WHICH listed names to carry
 forward; the pipeline prunes them and the optimizer computes the four candidate
 portfolios over them (`compute_candidates`), none of which any agent chooses.
 
@@ -22,7 +22,7 @@ Start of the allocator step, before moments + `compute_candidates`.
 
 ## Load-bearing rule
 `universe_filter` picks the surviving names. The LLM only forwards tickers it
-took from `list_universe` (which already removes the client's ESG-excluded sectors
+took from `list_universe` (which already removes the user's ESG-excluded sectors
 and, when the portfolio has an eligible universe, returns exactly that set) or was
 handed by the task; it never adds, drops or invents a ticker by hand and never
 emits weights. A ticker the database cannot price comes back as `missing`.
@@ -38,16 +38,16 @@ emits weights. A ticker the database cannot price comes back as `missing`.
    names (`information_technology`) or the stored names (`Technology`); an unknown
    name returns an error listing the valid ones, never an empty page. Sector and
    market cap are the latest snapshot, so for a past run date the size ranking is
-   today's. With an eligible universe it returns exactly that set, in the mandate's
+   today's. With an eligible universe it returns exactly that set, in the settings'
    order, with `instrument_type` and `asset_class` on every row: take all of it as
    your tickers and do not sample by sector (an ETF has no sector, so a `sector`
    filter never returns one). If every listed ticker is barred it returns an error
-   naming each with its reason: report it to the PM.
+   naming each with its reason: report it to the orchestrator.
 3. Call `universe_filter(universe)` with the tickers. It returns the survivors in
    requested order (big frames stay in the tool; only the ticker list returns). Names
-   the client's mandate forbids (complex or leveraged products for a restricted client,
-   an unclassifiable instrument) come back under `mandate_excluded`: report them to the
-   PM. A name whose own price history is under half the panel's median comes back
+   the user's constraints forbid (complex or leveraged products under a knowledge
+   restriction, an unclassifiable instrument) come back under `mandate_excluded`:
+   report them to the orchestrator. A name whose own price history is under half the panel's median comes back
    under `dropped_for_history`: report it too, and do not put it back, since a young
    listing would shrink the sample every other name is fitted on. A universe holding a ticker outside the eligible universe is refused with an
    `ok: false` result naming each offender and its reason. An empty list is a valid
@@ -56,7 +56,7 @@ emits weights. A ticker the database cannot price comes back as `missing`.
    covariance + empirical mean over history up to the run date). Tickers it flags as
    `missing` had no instrument row (an unknown or mistyped ticker) or no priced days.
    The tools skip them on their own, so do not edit the list by hand: report the
-   `missing` names to the PM and never substitute other tickers.
+   `missing` names to the orchestrator and never substitute other tickers.
 5. Hand the survivors + moments to `optimization-objective-map`, which runs
    `compute_candidates` on them.
 
@@ -64,7 +64,7 @@ emits weights. A ticker the database cannot price comes back as `missing`.
 Fixed defaults, no thresholds to choose: data validation and outlier treatment,
 short-history (under half the median) and zero-variance drops, and a 0.95
 pairwise-correlation cap. The
-tool then applies the client's mandate from the ConstraintSet: names in an
+tool then applies the user's constraints from the ConstraintSet: names in an
 ESG-excluded sector or breaching the K&E instrument restrictions (and any whose sector
 it cannot classify) are removed and listed as `mandate_excluded`. The tools take only
 `universe`; any other argument is silently dropped, so never pass thresholds,
@@ -74,8 +74,8 @@ criteria or a config. `list_universe` takes only `sector`, `limit` and `offset`.
 - Never bypass `list_universe` and the filter to name assets directly; never emit
   weights.
 - There is no liquidity floor (no volume data is loaded), factor tilt or sector cap
-  in the filter. Never tell the PM one was applied.
-- Honour the mandate screen: never re-admit a name listed as `mandate_excluded`.
+  in the filter. Never tell the orchestrator one was applied.
+- Honour the constraints screen: never re-admit a name listed as `mandate_excluded`.
 
 ## Deeper detail
 Pipeline stages, what is not modelled, factor-selection theory and the pipeline

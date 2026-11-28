@@ -398,14 +398,14 @@ def test_candidate_id_on_reject_or_a_profiler_gate_is_refused(
 
     profiler_run = _legacy_paused_run(db_session, _PROFILER_STEP)
     profiler_before = _snapshot(db_session, profiler_run.id)
-    with pytest.raises(ValueError, match="profiler gate"):
+    with pytest.raises(ValueError, match=r"inputs \(profile\) gate"):
         apply_action(
             "approve",
             session=db_session,
             run_id=profiler_run.id,
             candidate_id=MEAN_RISK,
         )
-    with pytest.raises(ValueError, match="profiler gate"):
+    with pytest.raises(ValueError, match=r"inputs \(profile\) gate"):
         resume_run(
             profiler_run.id,
             "approve",
@@ -436,7 +436,7 @@ def test_approve_rechecks_the_chosen_candidate_against_the_current_mandate(
     )
     before = _snapshot(db_session, run.run_id)
 
-    with pytest.raises(ValueError, match="breaches the current mandate") as refused:
+    with pytest.raises(ValueError, match="breaches the current constraints") as refused:
         _resume(db_session, saver, store, run.run_id, "approve", candidate_id=MEAN_RISK)
 
     assert "esg" in str(refused.value).lower()
@@ -520,7 +520,7 @@ def test_place_orders_without_an_adviser_choice_places_nothing(db_session) -> No
 
     for refused in (place_audited_orders(run.ctx), tools["place_orders"].invoke({})):
         assert refused["ok"] is False
-        assert "no candidate has been chosen by the adviser" in refused["error"]
+        assert "no candidate has been chosen for this run" in refused["error"]
 
     _record_choice(db_session, run.run_id, MEAN_RISK)
     stored = observe.candidate_set(db_session, run.run_id)
@@ -529,7 +529,7 @@ def test_place_orders_without_an_adviser_choice_places_nothing(db_session) -> No
     )
     superseded = place_audited_orders(run.ctx)
     assert superseded["ok"] is False
-    assert "no candidate has been chosen by the adviser" in superseded["error"]
+    assert "no candidate has been chosen for this run" in superseded["error"]
     assert db_session.query(PaperOrder).count() == 0
 
 
@@ -597,7 +597,7 @@ def test_a_respond_requires_a_fresh_choice(db_session) -> None:
     assert repo.get_run(run.run_id).status == "responded"
     assert repo.latest_selected_weights(run.run_id) == {}
     refused = place_audited_orders(run.ctx)
-    assert "no candidate has been chosen by the adviser" in refused["error"]
+    assert "no candidate has been chosen for this run" in refused["error"]
     with pytest.raises(ValueError, match="requires a candidate id"):
         _resume(db_session, saver, store, run.run_id, "approve")
 

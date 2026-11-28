@@ -265,7 +265,7 @@ def _audit_detail(entry: Any) -> str:
     if entry.override_flag:
         lines.append("⚑ override")
     if entry.suitability_flag:
-        lines.append("⚠ outside suitability band")
+        lines.append("⚠ outside the risk-limit band")
     lines.append("(immutable audit record)")
     return "\n".join(lines)
 

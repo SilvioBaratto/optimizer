@@ -3,8 +3,8 @@
 > Portfolio optimization in one **uv workspace**: a composable skfolio /
 > scikit-learn optimization **library**, a scheduled market-data **ingestion
 > daemon** that keeps PostgreSQL fresh, a shared **database layer**, and an agentic
-> **fund** where an LLM chooses, the optimizer computes, and paper trades wait
-> behind human approval gates — four packages, one shared virtual environment.
+> **fund** where the optimizer computes candidate portfolios, you choose, and orders
+> are paper tickets only — four packages, one shared virtual environment.
 
 ![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
 ![License](https://img.shields.io/badge/license-PolyForm--Noncommercial--1.0.0-orange)
@@ -24,7 +24,7 @@
 - **No broker execution.** The software places no orders with any broker. The `fund`
   component records simulated (paper) orders only.
 - **Your data and LLM providers.** The `fund` component sends the data you give it
-  (holdings, constraints, questionnaire answers, ESG preferences) to the LLM provider
+  (holdings, constraints, your optimisation inputs, ESG preferences) to the LLM provider
   you configure (Ollama Cloud by default). Choose a provider whose terms you accept, or
   run a local model. Do not enter data you are not willing to share.
 - **Third-party data.** Market data comes from third parties (Yahoo Finance through the
@@ -51,7 +51,7 @@ boundaries:
 | Build and tune portfolio-optimization pipelines in your own code | the **`optimizer`** library (`portopt-core`) | **No** — pure Python (numpy/pandas/skfolio) |
 | Keep a PostgreSQL store of market / fundamental / macro data fresh on a schedule | the **`portopt`** ingestion daemon | Yes — PostgreSQL (via Docker) |
 | Share models, repositories and migrations across packages | the **`portopt-db`** layer | Yes — it *is* the DB layer |
-| Run an LLM-driven fund manager that decides and lets the optimizer compute | the **`fund`** bridge (`portopt-fund`) | Yes — PostgreSQL + a chat-model endpoint (DeepSeek on Ollama Cloud by default; any of ten providers via `LLM_PROVIDER`) |
+| Have the optimizer compute candidate portfolios that LLM agents prepare and describe, then choose one yourself (paper tickets only) | the **`fund`** bridge (`portopt-fund`) | Yes — PostgreSQL + a chat-model endpoint (DeepSeek on Ollama Cloud by default; any of ten providers via `LLM_PROVIDER`) |
 
 The **library installs and runs with zero Docker/DB dependency**. Docker +
 PostgreSQL are required only for the ingestion daemon and the fund bridge, which
@@ -69,7 +69,7 @@ Four workspace members, one shared venv (`uv sync` resolves them together):
 | `packages/portopt-core/` (declared from the repo-root `pyproject.toml`) | `portopt-core` | `optimizer` | Pure-Python optimization library (DB-agnostic, sklearn/skfolio-based) |
 | `ingestion/` | `portopt` | `app` | Headless ingestion daemon (APScheduler in-process, no HTTP API) + the `portopt` CLI |
 | `packages/portopt-db/` | `portopt-db` | `portopt_db` | Shared SQLAlchemy `Base` + models + repositories + `DatabaseManager` + the single Alembic tree |
-| `fund/` | `portopt-fund` | `fund` | deepagents/langgraph bridge: *the LLM chooses, the optimizer computes* |
+| `fund/` | `portopt-fund` | `fund` | deepagents/langgraph bridge: *the optimizer computes candidate portfolios; you choose; paper tickets only* |
 
 ### Import boundaries (enforced by static import-scan tests)
 
@@ -347,12 +347,14 @@ Full CLI surface (`portopt <command>` or `python -m app.cli <command>`):
 weekly universe build), `daily-events` (`--backfill START:END` rebuilds a date
 range), plus the lifecycle commands `setup`, `start`, `stop`, `status`.
 
-### The fund manager (`fund`)
+### The fund component (`fund`)
 
-The `fund` bridge lets an LLM make portfolio decisions and delegate the numeric
-work to `optimizer`, persisting runs to PostgreSQL via `portopt_db`. Orders are
-paper tickets, and by default a round pauses at a human-in-the-loop gate before
-`place_orders` (each portfolio's mandate sets its gates). The chat
+In the `fund` bridge the optimizer computes candidate portfolios, you choose, and
+orders are paper tickets only. LLM agents prepare the inputs and describe the
+results; every weight comes from `optimizer`, no agent chooses a candidate, and
+nothing is sent to a broker. Runs persist to PostgreSQL via `portopt_db`, and by
+default a round pauses at a human-in-the-loop gate before `place_orders` (each
+portfolio's settings set its gates). The chat
 model is chosen by `LLM_PROVIDER` from a ten-provider registry (ollama, openai,
 openrouter, anthropic, google, groq, nvidia, huggingface, aws, microsoft); set
 nothing and it stays on the verified default — DeepSeek on Ollama Cloud. Install
@@ -362,13 +364,13 @@ a provider's SDK with the matching extra (`uv sync --package portopt-fund
 
 | Command | What it does |
 |---|---|
-| `fund profile <portfolio_id>` | Build/refresh an investor profile from a questionnaire |
-| `fund mandate set <portfolio_id>` / `fund mandate show <portfolio_id>` | Write or display a portfolio's mandate (capital, base currency, drift threshold, benchmark, eligible tickers via repeatable `--eligible` / `--clear-eligible`) |
-| `fund run <portfolio_id> --asof <date>` | Run a decision round for a rebalance bar |
-| `fund approve <run_id> --candidate <id>` / `fund reject <run_id>` | Resolve a paused (human-in-the-loop) run; a rebalance gate is approved by naming one of its candidates, a profile gate without `--candidate` |
+| `fund profile <portfolio_id>` | Record or refresh a portfolio's optimisation inputs (the answers go to the configured LLM provider) |
+| `fund mandate set <portfolio_id>` / `fund mandate show <portfolio_id>` | Write or display a portfolio's settings (capital, base currency, drift threshold, benchmark, eligible tickers via repeatable `--eligible` / `--clear-eligible`) |
+| `fund run <portfolio_id> --asof <date>` | Compute the candidate portfolios for a rebalance bar |
+| `fund approve <run_id> --candidate <id>` / `fund reject <run_id>` | Resolve a paused (human-in-the-loop) run; a rebalance gate is approved by naming one of its candidates, an inputs (profile) gate without `--candidate` |
 | `fund status [portfolio_id]` | Show the paused-run queue |
-| `fund report <run_id>` | Tabular audit of one run, with its candidates and the one the adviser chose |
-| `fund nav-mark [--rebuild]` | Mark every active mandate's NAV now (the daily step, run by hand) |
+| `fund report <run_id>` | Tabular audit of one run, with its candidates and the one you chose |
+| `fund nav-mark [--rebuild]` | Mark every active portfolio's NAV now (the daily step, run by hand) |
 
 Two more entry points ship with it:
 
@@ -378,8 +380,8 @@ Two more entry points ship with it:
   finish (up to `FUND_NAV_MARK_WAIT_SECONDS`, 4 h by default) so it values holdings
   at fresh closes.
 - **`fund-tui`** — a Textual oversight cockpit with eight views (Posture,
-  Deliberation, Decisions, Mandate, Audit, Performance, Ask, Daily brief). Every
-  action it takes (approve, reject, freeze, mandate edits) lands in the audit log;
+  Deliberation, Decisions, Constraints, Audit, Performance, Ask, Daily brief). Every
+  action it takes (approve, reject, freeze, settings edits) lands in the audit log;
   approving a rebalance gate's candidate, a killswitch, a re-arm and every action
   typed in Ask ask for a confirm first. **Ask** answers questions about the fund in plain
   language by reading its data, docs and source (read-only), keeps a saved
@@ -397,7 +399,7 @@ A candidate that fails or breaches a constraint is shown as infeasible with its
 breaches. The agents present and compare the candidates and never choose one; there is
 no default.
 
-The adviser chooses at the `place_orders` gate, and paper orders are placed from the
+You choose at the `place_orders` gate, and paper orders are placed from the
 chosen candidate's weights only:
 
 ```bash
@@ -424,23 +426,23 @@ it, and an empty list (the default) leaves the portfolio unrestricted. To set on
 portopt add-instrument VWCE.DE --asset-class equity --pin
 portopt add-instrument IBGS.L --asset-class fixed_income --fi-subclass government --pin
 
-# 2. allowlist them on the portfolio's mandate (repeatable; replaces the list)
+# 2. allowlist them in the portfolio's settings (repeatable; replaces the list)
 fund mandate set <portfolio_id> --eligible VWCE.DE --eligible IBGS.L
 fund mandate set <portfolio_id> --clear-eligible   # back to unrestricted
 ```
 
-The same field is on the TUI Mandate view ("eligible tickers", comma-separated, saved
-with `ctrl+s`). A ticker with no priced instrument yet is accepted with a warning, so
-the mandate can be written before the instrument exists; until it has prices the
-ticker stays barred. Saving the mandate also pins the tickers (source
+The same field is on the TUI Constraints view ("eligible tickers", comma-separated,
+saved with `ctrl+s`). A ticker with no priced instrument yet is accepted with a
+warning, so the settings can be saved before the instrument exists; until it has prices
+the ticker stays barred. Saving the settings also pins the tickers (source
 `mandate:<portfolio_id>`) so the weekly build cannot delist them.
 
-With ESG exclusions in the client's profile, a fund is allowed by look-through: its
-latest sector snapshot must keep the excluded share within the client's tolerance
+With ESG exclusions in your inputs, a fund is allowed by look-through: its
+latest sector snapshot must keep the excluded share within your stated tolerance
 (`look_through_tolerance`, strict 0 by default). Commodity funds and government or
 inflation-linked bond funds pass; any other fund whose snapshot is missing, older than
 `FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS` (180) or incomplete is barred, so most corporate
-and aggregate bond ETFs are out under exclusions. The PM's instruction names every
+and aggregate bond ETFs are out under exclusions. The orchestrator's instruction names every
 barred ticker with its reason.
 
 ---
