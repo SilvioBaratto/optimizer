@@ -326,6 +326,10 @@ Behaviour changes to know about:
   `portopt setup --non-interactive` for a first install must add
   `--accept-yahoo-terms`. Manual one-shot commands (`python -m app.cli daily`,
   `docker compose exec scheduler python -m app.cli ...`) are unaffected.
+- **ingestion**: the root `.env.example` now lists `YAHOO_TERMS_ACKNOWLEDGED` (commented
+  out, `false`), with the note that a plain `docker compose up` reads it from the root
+  `.env`; before, only `ingestion/.env.example` and `docker-compose.yml` named it
+  (REQ-ING-028).
 - **ingestion**: the universe builder left the `trading212` package it was named after when
   Trading 212 sourced the universe. `UniverseBuilder`, `UniverseBuilderConfig`,
   `classify_instrument`, the asset-class enums, the protocols and the ETF filters now import
