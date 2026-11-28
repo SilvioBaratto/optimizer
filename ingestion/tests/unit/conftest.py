@@ -56,6 +56,25 @@ def _isolated_checkout(
 
 
 @pytest.fixture(autouse=True)
+def _no_host_database_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail any test that would read the compose database's migration state.
+
+    ``portopt start``, ``setup`` and ``migrate`` read it on the host through
+    ``localhost:54320``, which on a developer machine is the live stack's database.
+    A test that reaches the read without replacing it fails here instead of
+    connecting; tests of the read itself install their own fake over this one.
+    """
+
+    def _refuse(database_url: str, alembic_dir: Path) -> None:
+        raise AssertionError(
+            "a unit test reached host_database.inspect_migration_state; patch it "
+            "(or the function that calls it) instead of reading a real database"
+        )
+
+    monkeypatch.setattr("app.setup.host_database.inspect_migration_state", _refuse)
+
+
+@pytest.fixture(autouse=True)
 def _populated_universe_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """Report a populated universe so ``run_daily_pipeline`` never probes a database.
 

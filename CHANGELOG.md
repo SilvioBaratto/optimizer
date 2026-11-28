@@ -177,6 +177,20 @@ The entries under Security affect privacy or configuration and come first.
 
 Behaviour changes to know about:
 
+- **ingestion, fund (BREAKING for upgrades)**: a start on a database that holds data and
+  has pending migrations now stops instead of migrating it. Both container entrypoints
+  ask `python -m portopt_db.migration_state` before the Alembic upgrade and exit with
+  code 3, printing the current and head revision, how far behind the database is and what
+  to run, without applying anything. `portopt start` runs the same check on the host
+  before it restarts, builds or starts a container, and `portopt setup` no longer
+  migrates such a database either. Run `portopt migrate` (it takes a verified backup
+  first), then start again. A fresh install is unchanged: an empty database is still
+  migrated on start, and one already at head starts as before.
+  `PORTOPT_AUTO_MIGRATE=true` (compose passes it to both containers) restores the old
+  migrate-on-every-start behaviour, without a backup, for unattended setups. Under
+  `restart: unless-stopped` a refusing container is retried by Docker about once a minute
+  and starts by itself once the database reaches head.
+
 - **fund (BREAKING)**: a rebalance round no longer produces one proposal for you
   to approve. The allocator runs `compute_candidates`, which returns four
   candidate portfolios (`hrp`, `mean_risk`, `min_risk`, `risk_parity`), always listed in

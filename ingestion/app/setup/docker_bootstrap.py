@@ -20,7 +20,9 @@ from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
 
-from app.setup import ca_bundle, image_source, path_install
+from portopt_db.migration_state import MigrationStateError
+
+from app.setup import ca_bundle, host_database, image_source, path_install
 
 # Env var docker-compose.yml's `ca_bundle` secret reads its file path from.
 _CA_BUNDLE_ENV = "CA_BUNDLE_FILE"
@@ -260,14 +262,19 @@ def ensure_docker(*, timeout: float = _DAEMON_BOOT_TIMEOUT) -> None:
     check_docker()
 
 
-def bring_up_db() -> None:
-    """Start the Postgres service and wait for it to become healthy."""
-    result = _compose("up", "-d", "--wait", "db", timeout=_UP_TIMEOUT)
+def bring_up_db(*, repo: Path | None = None) -> None:
+    """Start the Postgres service and wait for it to become healthy.
+
+    Args:
+        repo: The checkout whose compose project to start it in; located when
+            omitted.
+
+    Raises:
+        DockerError: The service did not come up healthy.
+    """
+    result = _compose("up", "-d", "--wait", "db", repo=repo, timeout=_UP_TIMEOUT)
     if result.returncode != 0:
         raise DockerError(f"Failed to start the db service:\n{result.stderr}")
-
-
-_HOST_DB_URL = "postgresql://postgres:postgres@localhost:54320/optimizer_db"
 
 
 def _find_db_package() -> Path | None:
@@ -283,24 +290,51 @@ def _find_db_package() -> Path | None:
     cwd = Path.cwd()
     bases.extend([cwd, *cwd.parents])
     for base in bases:
-        candidate = base / "packages" / "portopt-db"
+        candidate = host_database.db_package_dir(base)
         if (candidate / "alembic.ini").is_file():
             return candidate
     return None
 
 
-def migrate() -> None:
-    """Run ``alembic upgrade head`` from packages/portopt-db (migrate-only).
+def run_alembic_upgrade(db_dir: Path) -> subprocess.CompletedProcess[str]:
+    """Run the Alembic upgrade to head on the host against the compose database.
 
-    Best-effort. alembic's ``script_location`` is relative (it must run from the
-    package dir), env.py imports ``portopt_db`` and refuses to run without
-    ``DATABASE_URL``, and a bare ``alembic`` on PATH may belong to an unrelated
-    environment (or be absent). So run it as ``sys.executable -m alembic`` — the
-    interpreter running ``portopt``, which has ``portopt_db`` + alembic — from the
-    package dir with the compose host DB URL forced. On any failure (missing dir,
-    alembic not importable, or a non-zero exit) warn and continue rather than
-    aborting setup: the fund container runs the same migration on start and its
-    healthcheck gates on it, so the DB reaches head there regardless.
+    alembic's ``script_location`` is relative (it must run from the package dir),
+    env.py imports ``portopt_db`` and refuses to run without ``DATABASE_URL``, and a
+    bare ``alembic`` on PATH may belong to an unrelated environment (or be absent).
+    So it runs as ``sys.executable -m alembic`` (the interpreter running
+    ``portopt``, which has ``portopt_db`` + alembic) from the package dir. The URL
+    travels in the child's environment, never on its command line.
+
+    Args:
+        db_dir: The ``packages/portopt-db`` directory holding ``alembic.ini``.
+
+    Returns:
+        The finished process; the caller judges its exit code.
+
+    Raises:
+        OSError: The interpreter could not be launched.
+        DockerError: The upgrade did not finish within the migration timeout.
+    """
+    # Assigned, not setdefault: an ambient DATABASE_URL (shell, direnv, .env) belongs
+    # to some other database and must never receive this DDL.
+    env = {**os.environ, "DATABASE_URL": host_database.HOST_DB_URL}
+    return _run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=str(db_dir),
+        env=env,
+        timeout=_MIGRATE_TIMEOUT,
+    )
+
+
+def migrate() -> None:
+    """Run the Alembic upgrade from packages/portopt-db for setup (migrate-only).
+
+    Best-effort: on any failure (missing dir, alembic not importable, or a non-zero
+    exit) warn and continue rather than aborting setup, because the containers run
+    the same check and migration on start. A database that holds data and has
+    pending revisions is left as it is (:func:`_left_for_portopt_migrate`): some
+    revisions delete data, and ``portopt migrate`` backs it up first.
     """
     db_dir = _find_db_package()
     if db_dir is None:
@@ -309,16 +343,10 @@ def migrate() -> None:
             "migration — the fund container migrates on start."
         )
         return
-    # Assigned, not setdefault: an ambient DATABASE_URL (shell, direnv, .env) belongs
-    # to some other database and must never receive this DDL.
-    env = {**os.environ, "DATABASE_URL": _HOST_DB_URL}
+    if _left_for_portopt_migrate(db_dir):
+        return
     try:
-        result = _run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
-            cwd=str(db_dir),
-            env=env,
-            timeout=_MIGRATE_TIMEOUT,
-        )
+        result = run_alembic_upgrade(db_dir)
     except (OSError, DockerError) as exc:
         print(
             f"warning: could not run host-side migration ({exc}) — the fund "
@@ -331,6 +359,26 @@ def migrate() -> None:
             "warning: host-side `alembic upgrade head` did not complete — the fund "
             f"container will migrate on start. Detail: {detail}"
         )
+
+
+def _left_for_portopt_migrate(db_dir: Path) -> bool:
+    """Return whether setup must leave the database to ``portopt migrate``, saying why.
+
+    A state that cannot be read is left alone too: the containers check it again
+    on start, and setup never migrates what it could not judge.
+    """
+    try:
+        refusal = host_database.pending_refusal(db_dir, environ=os.environ)
+    except MigrationStateError as exc:
+        print(
+            f"warning: could not check the database for pending migrations ({exc}); "
+            "skipping host-side migration — the containers check it on start."
+        )
+        return True
+    if refusal is None:
+        return False
+    print(f"warning: setup left the database as it is.\n{refusal}")
+    return True
 
 
 def running_services(*, repo: Path | None = None) -> set[str]:

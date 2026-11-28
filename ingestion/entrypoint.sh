@@ -39,8 +39,18 @@ until run pg_isready -h "${DB_HOST:-db}" -p "${DB_PORT:-5432}" -U "${DB_USER:-po
 done
 echo "==> Database ready."
 
-echo "==> Running Alembic migrations (portopt-db, the single migration owner)..."
+echo "==> Checking for pending migrations (portopt-db, the single migration owner)..."
 cd "${MIGRATIONS_DIR:-/app/portopt-db}"
+# Some revisions delete data, so a database that holds data is not migrated here:
+# the check exits 3 with the reason, and `portopt migrate` backs it up first.
+# PORTOPT_AUTO_MIGRATE=true makes the check pass without looking.
+check=0
+run python -m portopt_db.migration_state || check=$?
+if [ "$check" -ne 0 ]; then
+    exit "$check"
+fi
+
+echo "==> Running Alembic migrations..."
 run alembic upgrade head
 cd - >/dev/null
 echo "==> Migrations complete."

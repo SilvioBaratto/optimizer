@@ -8,12 +8,27 @@ up (fund + ingestion); `run_stop` stops only the fund, leaving the scheduler up;
 from pathlib import Path
 
 import pytest
+from portopt_db.migration_state import (
+    MigrationState,
+    MigrationStateError,
+    MigrationStatus,
+    PendingRevision,
+)
 
-from app.setup import lifecycle, path_install
+from app.setup import host_database, lifecycle, path_install
 from app.setup.terms import ACKNOWLEDGEMENT_CONFIG_KEY, ACKNOWLEDGEMENT_ENV_VAR
 
 # unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
+# Kept before the fixture replaces it, for the tests that run the real guard.
+_REAL_REFUSAL = host_database.pending_refusal
+_PENDING = MigrationStatus(
+    MigrationState.PENDING,
+    "8ed6504aee6a",
+    ("2266e24c509f",),
+    (PendingRevision("8ed6504aee6a", "drop the scraper tables"),),
+    ("public.instruments",),
+)
 
 
 @pytest.fixture
@@ -93,6 +108,25 @@ def patched(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
         lifecycle.docker_bootstrap,
         "restart_services",
         lambda services, **kw: calls["compose"].append(f"restart:{','.join(services)}"),
+    )
+    # The migration guard answers "nothing pending" unless a test sets
+    # `migration_refusal` to a message (refused) or an exception (unreadable).
+    calls["migration_refusal"] = None
+    monkeypatch.setattr(
+        lifecycle.docker_bootstrap,
+        "bring_up_db",
+        lambda **kw: calls.update(db_up_repo=kw.get("repo")),
+    )
+
+    def _fake_pending_refusal(db_dir: Path, **kw: object) -> str | None:
+        calls["migration_checked"] = db_dir
+        answer = calls["migration_refusal"]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(
+        lifecycle.host_database, "pending_refusal", _fake_pending_refusal
     )
     return calls
 
@@ -207,6 +241,83 @@ def test_run_start_accepts_an_exported_acknowledgement(
 
     assert patched["compose"] == ["up"]
     assert patched["build_env"] == {}
+
+
+_REFUSAL = "Database migrations are pending: run `portopt migrate`."
+
+
+@pytest.mark.criterion("REQ-ING-030")
+def test_run_start_refuses_pending_migrations_before_touching_the_app_containers(
+    patched: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Validates ``lifecycle.run_start`` via ``lifecycle._refuse_pending_migrations``.
+
+    The check runs against the checkout's own tree with the db brought up first, and
+    a refusal stops the start before a rotated-secret restart, the build or ``up``
+    could start a container on the new code, and before any plaintext is rendered.
+    """
+    patched["migration_refusal"] = _REFUSAL
+    _rotate(
+        patched,
+        monkeypatch,
+        on_disk={"fred_api_key": "old"},
+        new={"fred_api_key": "new"},
+        running={"scheduler"},
+    )
+
+    with pytest.raises(lifecycle.LifecycleError, match="portopt migrate"):
+        lifecycle.run_start("pw")
+
+    assert patched["db_up_repo"] == patched["repo"]
+    assert patched["migration_checked"] == patched["repo"] / "packages/portopt-db"
+    assert patched["compose"] == []
+    assert patched["rendered"] is None
+
+
+@pytest.mark.criterion("REQ-ING-030")
+def test_run_start_proceeds_when_no_migration_is_pending(patched: dict) -> None:
+    """Validates ``lifecycle.run_start`` via ``lifecycle._refuse_pending_migrations``
+    on an empty or current database: the stack comes up exactly as before."""
+    lifecycle.run_start("pw")
+
+    assert patched["db_up_repo"] == patched["repo"]
+    assert patched["compose"] == ["up"]
+
+
+@pytest.mark.criterion("REQ-ING-030")
+def test_run_start_warns_and_proceeds_when_the_state_cannot_be_read(
+    patched: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Validates ``lifecycle._refuse_pending_migrations`` when the host cannot read
+    the state: the containers run the same check, so the start goes on and says so."""
+    patched["migration_refusal"] = MigrationStateError("connection refused")
+
+    lifecycle.run_start("pw")
+
+    assert patched["compose"] == ["up"]
+    assert "could not check the database" in capsys.readouterr().out
+
+
+@pytest.mark.criterion("REQ-ING-030")
+@pytest.mark.parametrize(("auto", "refused"), [("true", False), ("", True)])
+def test_run_start_on_a_pending_database_honours_auto_migrate(
+    patched: dict, monkeypatch: pytest.MonkeyPatch, auto: str, refused: bool
+) -> None:
+    """Validates ``lifecycle.run_start`` with the real ``host_database.pending_refusal``:
+    PORTOPT_AUTO_MIGRATE=true lets the containers migrate as before, unset refuses."""
+    monkeypatch.setattr(lifecycle.host_database, "pending_refusal", _REAL_REFUSAL)
+    monkeypatch.setattr(
+        lifecycle.host_database, "inspect_migration_state", lambda *a: _PENDING
+    )
+    monkeypatch.setenv("PORTOPT_AUTO_MIGRATE", auto)
+
+    if refused:
+        with pytest.raises(lifecycle.LifecycleError, match="8ed6504aee6a"):
+            lifecycle.run_start("pw")
+        assert patched["compose"] == []
+    else:
+        lifecycle.run_start("pw")
+        assert patched["compose"] == ["up"]
 
 
 def _rotate(
@@ -949,6 +1060,10 @@ def real_render(monkeypatch: pytest.MonkeyPatch, tmp_path) -> dict:
     )
     monkeypatch.setattr(
         lifecycle.docker_bootstrap, "stop_services", lambda s, **kw: None
+    )
+    monkeypatch.setattr(lifecycle.docker_bootstrap, "bring_up_db", lambda **kw: None)
+    monkeypatch.setattr(
+        lifecycle.host_database, "pending_refusal", lambda *a, **kw: None
     )
     return {"repo": repo, "elsewhere": elsewhere}
 

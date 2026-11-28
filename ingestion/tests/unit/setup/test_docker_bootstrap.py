@@ -14,13 +14,20 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from portopt_db.migration_state import MigrationStateError
 
-from app.setup import ca_bundle
+from app.setup import ca_bundle, host_database
 from app.setup import docker_bootstrap as db
 from app.setup.terms import ACKNOWLEDGEMENT_ENV_VAR
 
 # unit -> setup -> tests -> ingestion -> repo root (docker-compose.yml owner).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+@pytest.fixture(autouse=True)
+def _nothing_pending(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let `migrate` reach alembic unless a test makes the guard refuse."""
+    monkeypatch.setattr(db.host_database, "pending_refusal", lambda *a, **kw: None)
 
 
 # What the patched fingerprint reports, so a "present" image is current when its
@@ -116,7 +123,77 @@ def test_migrate_targets_the_compose_db_despite_an_ambient_database_url(
     mock_find.return_value = tmp_path
     mock_run.return_value = _cp(0)
     db.migrate()
-    assert mock_run.call_args.kwargs["env"]["DATABASE_URL"] == db._HOST_DB_URL
+    assert mock_run.call_args.kwargs["env"]["DATABASE_URL"] == host_database.HOST_DB_URL
+    argv = mock_run.call_args[0][0]
+    assert not any("postgres:postgres" in arg for arg in argv)
+
+
+@pytest.mark.criterion("REQ-ING-030")
+@patch("app.setup.docker_bootstrap._find_db_package")
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_migrate_leaves_pending_revisions_over_data_to_portopt_migrate(
+    mock_run: MagicMock,
+    mock_find: MagicMock,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    """Validates ``docker_bootstrap.migrate`` via ``_left_for_portopt_migrate``: a
+    setup re-run after an upgrade must not apply data-deleting revisions unbacked."""
+    mock_find.return_value = tmp_path
+    asked: list[Path] = []
+    monkeypatch.setattr(
+        db.host_database,
+        "pending_refusal",
+        lambda db_dir, **kw: asked.append(db_dir) or "Run `portopt migrate`.",
+    )
+
+    db.migrate()
+
+    mock_run.assert_not_called()
+    assert asked == [tmp_path]
+    assert "portopt migrate" in capsys.readouterr().out
+
+
+@pytest.mark.criterion("REQ-ING-030")
+@patch("app.setup.docker_bootstrap._find_db_package")
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_migrate_skips_a_database_whose_state_cannot_be_read(
+    mock_run: MagicMock,
+    mock_find: MagicMock,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    """Validates ``docker_bootstrap.migrate`` via ``_left_for_portopt_migrate``: setup
+    never migrates what it could not judge; the containers check on start."""
+    mock_find.return_value = tmp_path
+
+    def _unreadable(db_dir: Path, **kw: object) -> str | None:
+        raise MigrationStateError("connection refused")
+
+    monkeypatch.setattr(db.host_database, "pending_refusal", _unreadable)
+
+    db.migrate()
+
+    mock_run.assert_not_called()
+    assert "could not check" in capsys.readouterr().out
+
+
+@pytest.mark.criterion("REQ-ING-030")
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_bring_up_db_pins_the_checkout_it_is_given(
+    mock_run: MagicMock, tmp_path
+) -> None:
+    """Validates ``docker_bootstrap.bring_up_db``: `portopt start` brings up the db of
+    the checkout it rendered secrets into, whatever the cwd."""
+    mock_run.return_value = _cp(0)
+
+    db.bring_up_db(repo=tmp_path)
+
+    argv = mock_run.call_args[0][0]
+    assert argv[:4] == ["docker", "compose", "--project-directory", str(tmp_path)]
+    assert argv[-1] == "db"
 
 
 @patch("app.setup.docker_bootstrap._find_db_package")

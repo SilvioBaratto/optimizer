@@ -103,6 +103,12 @@ services:
       # start` passes the acknowledgement `portopt setup` stored; for a plain
       # `docker compose up`, set it in the shell or the root .env.
       YAHOO_TERMS_ACKNOWLEDGED: "${YAHOO_TERMS_ACKNOWLEDGED:-false}"
+      # The entrypoint refuses (exit 3) to apply pending migrations to a database
+      # that holds data; `portopt migrate` backs it up and migrates. `true` restores
+      # migrate-on-every-start, without a backup, for unattended setups. Under
+      # `restart: unless-stopped` a refusing container is retried at most once a
+      # minute and starts by itself once the database reaches head.
+      PORTOPT_AUTO_MIGRATE: "${PORTOPT_AUTO_MIGRATE:-false}"
     # Secrets are mounted read-only at /run/secrets/<name>; app.config reads them
     # (see PORTOPT_SECRETS_DIR). `portopt start` renders ./secrets/<name> from the
     # encrypted store before `docker compose up`; the files are git-ignored.
@@ -200,6 +206,8 @@ services:
       # to the ./exports bind mount below, so they survive a container recreate and
       # show up on the host instead of vanishing in the writable layer.
       FUND_EXPORT_DIR: /app/exports
+      # Same pending-migration guard and opt-out as the scheduler's.
+      PORTOPT_AUTO_MIGRATE: "${PORTOPT_AUTO_MIGRATE:-false}"
     volumes:
       - ./exports:/app/exports
     # Mounted read-only at /run/secrets/<name>; `portopt start` renders
@@ -224,7 +232,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Healthy only once the single portopt-db Alembic tree reaches head. The
-    # entrypoint runs `alembic upgrade head` before the worker starts; `alembic
+    # entrypoint migrates an empty database (or one already at head) before the
+    # worker starts and exits 3 on pending revisions over data; `alembic
     # current` prints the revision annotated `(head)` only after that finished, so
     # `up --wait` gates on migrations, not merely on the process being alive. The
     # probe runs in the migration owner's dir (alembic.ini lives there), matching
