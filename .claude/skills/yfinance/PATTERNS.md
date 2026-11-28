@@ -23,8 +23,11 @@ print(fi.currency)
 
 # ISIN identifier
 # Caution: `Ticker.isin` / `get_isin()` scrape a third-party site whose terms ban
-# scrapers; this repo never calls them (tests/test_no_ticker_isin_lookup.py fails on
-# it). Store an ISIN you already know: `portopt add-instrument <TICKER> --isin <ISIN>`.
+# scrapers; this repo never calls them. tests/test_no_ticker_isin_lookup.py fails on
+# any `.isin` read (not a method call such as pandas' `Series.isin()`), `get_isin()`
+# call or `getattr(..., "isin")` under ingestion/app or fund/src, except an `isin`
+# column read on the names it lists (the instruments model and row).
+# Store an ISIN you already know: `portopt add-instrument <TICKER> --isin <ISIN>`.
 print(ticker.isin)  # e.g., "US0378331005"
 ```
 

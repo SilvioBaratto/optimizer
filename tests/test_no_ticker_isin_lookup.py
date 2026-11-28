@@ -2,21 +2,28 @@
 
 ``Ticker.isin`` and ``Ticker.get_isin()`` do not ask Yahoo: yfinance scrapes a
 third-party site for them, whose terms ban scrapers, so the ingestion stopped calling
-them and now stores an ISIN only when the operator passes one. The scan parses every
-``.py`` file under ``ingestion/app`` and ``fund/src`` and reports each ``get_isin``
-call, each ``getattr(..., "isin")`` and each ``.isin`` read on a Ticker: a
-``Ticker(...)`` call, a name bound to one, or a name annotated as one. An ``isin``
-column or field on a model or a row, and pandas' ``Series.isin(...)``, are not Ticker
-reads and pass.
+them and now stores an ISIN only when the operator passes one.
 
-What it cannot see: a Ticker reached through a container (``tickers["X"].isin``) or a
-name it is passed to without an annotation.
+A Ticker reaches code through ``yf.Ticker(...)``, through the repo's own factories
+(``_get_ticker``, ``get_ticker``) and through any name, attribute or container it is
+kept in, so the scan does not try to tell a Ticker apart from other objects. It parses
+every ``.py`` file under ``ingestion/app`` and ``fund/src`` and reports each read of an
+attribute named ``isin`` that is not a method call, each ``get_isin`` call and each
+``getattr(..., "isin")``. The one exception is a read on a bare name listed in
+``_ISIN_RECEIVERS``, the instruments model and row whose ``isin`` is a database
+column. A new database read under another name needs its own entry and reason, and a
+listed name that no file reads ``isin`` on any more fails the guard, so the list
+cannot outlive its reason. A method named ``isin``, such as pandas'
+``Series.isin(...)``, and an assignment to an ``isin`` attribute pass.
+
+What it cannot see: a Ticker bound to one of the listed names, the attribute fetched
+under a computed name (``getattr(t, name)``, ``operator.attrgetter``), and code outside
+the two scanned trees.
 """
 
 from __future__ import annotations
 
 import ast
-import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -24,10 +31,14 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCANNED_TREES = (_REPO_ROOT / "ingestion" / "app", _REPO_ROOT / "fund" / "src")
-_TICKER = "Ticker"
 _ISIN = "isin"
 _GET_ISIN = "get_isin"
-_WORD = re.compile(r"\w+")
+
+# Bare names whose ``.isin`` is the ``instruments.isin`` column, never a Ticker's.
+_ISIN_RECEIVERS: dict[str, str] = {
+    "Instrument": "the ORM model, filtered on its isin column in add_instrument",
+    "row": "the instruments row add_instrument stores the operator's ISIN on",
+}
 
 
 def _terminal_name(node: ast.AST) -> str | None:
@@ -38,66 +49,71 @@ def _terminal_name(node: ast.AST) -> str | None:
     return None
 
 
-def _is_ticker_call(node: ast.AST | None) -> bool:
-    return isinstance(node, ast.Call) and _terminal_name(node.func) == _TICKER
-
-
-def _is_ticker_annotation(node: ast.AST | None) -> bool:
-    if node is None:
-        return False
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return _TICKER in _WORD.findall(node.value)
-    return any(_terminal_name(part) == _TICKER for part in ast.walk(node))
-
-
-def _bound_names(node: ast.AST) -> Iterator[str]:
-    """The names ``node`` binds to a Ticker, by its value or its annotation."""
-    if isinstance(node, ast.Assign) and _is_ticker_call(node.value):
-        yield from (t.id for t in node.targets if isinstance(t, ast.Name))
-    elif isinstance(node, ast.AnnAssign | ast.NamedExpr):
-        annotation = getattr(node, "annotation", None)
-        if isinstance(node.target, ast.Name) and (
-            _is_ticker_call(node.value) or _is_ticker_annotation(annotation)
+def _isin_reads(tree: ast.AST) -> Iterator[ast.Attribute]:
+    """Each ``.isin`` in ``tree`` loaded as a value rather than called as a method."""
+    called = {id(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == _ISIN
+            and isinstance(node.ctx, ast.Load)
+            and id(node) not in called
         ):
-            yield node.target.id
-    elif isinstance(node, ast.arg) and _is_ticker_annotation(node.annotation):
-        yield node.arg
+            yield node
 
 
-def _lookup_at(node: ast.AST, tickers: set[str]) -> str | None:
-    if isinstance(node, ast.Attribute) and node.attr == _ISIN:
-        receiver = node.value
-        if _is_ticker_call(receiver) or _terminal_name(receiver) in tickers:
-            return "a Ticker's .isin"
-    if isinstance(node, ast.Call):
-        if _terminal_name(node.func) == _GET_ISIN:
-            return "a get_isin() call"
-        named = [arg for arg in node.args[1:2] if isinstance(arg, ast.Constant)]
-        if _terminal_name(node.func) == "getattr" and any(
-            arg.value == _ISIN for arg in named
-        ):
-            return 'getattr(..., "isin")'
+def _listed_receiver(read: ast.Attribute) -> str | None:
+    receiver = read.value
+    if isinstance(receiver, ast.Name) and receiver.id in _ISIN_RECEIVERS:
+        return receiver.id
+    return None
+
+
+def _call_lookup_at(node: ast.AST) -> str | None:
+    if not isinstance(node, ast.Call):
+        return None
+    if _terminal_name(node.func) == _GET_ISIN:
+        return "a get_isin() call"
+    named = [arg for arg in node.args[1:2] if isinstance(arg, ast.Constant)]
+    if _terminal_name(node.func) == "getattr" and any(
+        arg.value == _ISIN for arg in named
+    ):
+        return 'getattr(..., "isin")'
     return None
 
 
 def ticker_isin_lookups(source: str, label: str) -> list[str]:
-    """Return ``label:line: what`` for each ISIN lookup through yfinance in ``source``.
+    """Return ``label:line: what`` for each possible yfinance ISIN lookup in ``source``.
 
     Args:
         source: Python source text.
         label: The file's name, used to prefix each finding.
 
     Returns:
-        One finding per lookup, in source order; empty when there is none.
+        One finding per ``.isin`` read on an unlisted receiver, ``get_isin`` call or
+        ``getattr(..., "isin")``, in source order; empty when there is none.
     """
     tree = ast.parse(source, filename=label)
-    tickers = {name for node in ast.walk(tree) for name in _bound_names(node)}
     found = [
+        (read.lineno, f"an .isin read on {ast.unparse(read.value)}")
+        for read in _isin_reads(tree)
+        if _listed_receiver(read) is None
+    ]
+    found += [
         (node.lineno, what)
         for node in ast.walk(tree)
-        if (what := _lookup_at(node, tickers)) is not None
+        if (what := _call_lookup_at(node)) is not None
     ]
     return [f"{label}:{line}: {what}" for line, what in sorted(found)]
+
+
+def listed_receivers_read(source: str) -> set[str]:
+    """Return the names in ``_ISIN_RECEIVERS`` that ``source`` reads ``.isin`` on."""
+    return {
+        name
+        for read in _isin_reads(ast.parse(source))
+        if (name := _listed_receiver(read)) is not None
+    }
 
 
 def _scanned_files() -> list[Path]:
@@ -106,8 +122,9 @@ def _scanned_files() -> list[Path]:
 
 @pytest.mark.criterion("REQ-OPS-005")
 def test_ingestion_and_fund_never_look_an_isin_up_through_yfinance() -> None:
-    """Validates every module under ingestion/app and fund/src: none reads a Ticker's
-    ``isin``, calls ``get_isin`` or fetches ``isin`` with ``getattr``."""
+    """Validates every module under ingestion/app and fund/src: none reads ``isin``
+    off anything but a listed database receiver, calls ``get_isin`` or fetches
+    ``isin`` with ``getattr``."""
     files = _scanned_files()
     assert all(tree.is_dir() for tree in _SCANNED_TREES)
     assert files
@@ -124,6 +141,17 @@ def test_ingestion_and_fund_never_look_an_isin_up_through_yfinance() -> None:
 
 
 @pytest.mark.criterion("REQ-OPS-005")
+def test_every_listed_receiver_still_reads_an_isin_column() -> None:
+    """Validates ``_ISIN_RECEIVERS``: each listed name is still read ``.isin`` on
+    under ingestion/app or fund/src, so no stale entry lets a new read through."""
+    read = set().union(
+        *(listed_receivers_read(path.read_text("utf-8")) for path in _scanned_files())
+    )
+
+    assert read == set(_ISIN_RECEIVERS)
+
+
+@pytest.mark.criterion("REQ-OPS-005")
 @pytest.mark.parametrize(
     "lookup",
     [
@@ -135,6 +163,16 @@ def test_ingestion_and_fund_never_look_an_isin_up_through_yfinance() -> None:
         'yf.Ticker("X").get_isin()\n',
         "ticker.get_isin(proxy=None)\n",
         'getattr(yf.Ticker("X"), "isin")\n',
+        # v0.2.0's MetadataClient.fetch_isin, verbatim: the repo's own Ticker factory.
+        "def _action() -> str | None:\n    return self._get_ticker(symbol).isin\n",
+        "def f(self, sym):\n    return self.get_ticker(sym).isin\n",
+        "def f(self, sym):\n    t = self._get_ticker(sym)\n    return t.isin\n",
+        "class C:\n"
+        "    def __init__(self):\n"
+        "        self.t = yf.Ticker('X')\n"
+        "    def code(self):\n"
+        "        return self.t.isin\n",
+        'tickers["X"].isin\n',
     ],
 )
 def test_the_scan_flags_each_isin_lookup(lookup: str) -> None:
