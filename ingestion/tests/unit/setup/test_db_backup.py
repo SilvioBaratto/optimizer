@@ -268,6 +268,23 @@ def test_an_existing_backup_is_never_overwritten(
 
 
 @pytest.mark.criterion("REQ-ING-030")
+def test_a_partial_dump_of_the_same_name_is_left_to_its_owner(
+    container: _FakeDbContainer, tmp_path: Path
+) -> None:
+    """Validates app.setup.db_backup.take_verified_backup: the cleanup of a failed run
+    removes only the file this run created."""
+    target = db_backup.dump_path(tmp_path, "optimizer_db", _NOW)
+    partial = target.with_name(target.name + db_backup.PARTIAL_SUFFIX)
+    partial.write_bytes(b"another run in the same second")
+
+    with pytest.raises(db_backup.BackupError, match="already exists"):
+        _backup(tmp_path, tmp_path / "repo")
+
+    assert partial.read_bytes() == b"another run in the same second"
+    assert container.calls == []
+
+
+@pytest.mark.criterion("REQ-ING-030")
 @pytest.mark.parametrize(
     ("size", "text"),
     [(512, "512 B"), (2048, "2.0 KiB"), (5 * 1024**3 + 1024**3 // 2, "5.5 GiB")],

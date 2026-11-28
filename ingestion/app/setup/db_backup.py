@@ -165,9 +165,10 @@ def take_verified_backup(
             the verification steps failed; nothing new is left on disk.
     """
     target = dump_path(directory, database, now)
-    if target.exists():
-        raise BackupError(f"{target} already exists; a backup is never overwritten")
     partial = target.with_name(target.name + PARTIAL_SUFFIX)
+    for existing in (target, partial):
+        if existing.exists():
+            raise BackupError(f"{existing} already exists; a dump is never overwritten")
     try:
         _dump(repo, partial, database=database, user=user)
         _verify(repo, partial, expected=(*expected_tables, VERSION_TABLE))
