@@ -262,8 +262,9 @@ migrations. The backup folder is private (mode `0700`) and outside the checkout;
 `--backup-dir` or a `backup_dir` key in `~/.portopt/config.toml` picks another, and
 old dumps are never deleted. Then run `portopt start` again. `portopt setup` does not
 migrate such a database either. The scheduler and fund containers refuse it on their
-own as well (exit status 3), so a plain `docker compose up` stops there too: Docker
-retries them about once a minute, and they start once the database is at head. A
+own as well (exit status 3), so a plain `docker compose up` stops there too (`--wait`
+fails at once, and `docker compose logs scheduler` shows the reason): Docker retries
+them about once a minute, and they start once the database is at head. A
 fresh install is still migrated on its first start. For an unattended setup,
 `PORTOPT_AUTO_MIGRATE=true` (in the shell or the root `.env`) restores migrating on
 every start, without a backup.
