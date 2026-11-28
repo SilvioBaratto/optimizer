@@ -278,6 +278,12 @@ Behaviour changes to know about:
   `mifid-profiling` and the CLI commands and flags (`fund mandate set`, `fund profile`,
   `--candidate`) are unchanged. `fund/tests/unit/test_no_advice_language.py` fails on
   the old phrases and on "adviser" in any user-visible string (REQ-FUND-052).
+- **fund**: the comments and docstrings of `fund` (the source the Ask agent stages as
+  `/code` and quotes to you) no longer call the person running the tool by the old
+  role title: they say "the user", and the `SuitabilityBreachError` docstring says
+  "hard limit conflict". Prose only, no identifier or behaviour changes; the guard
+  `fund/tests/unit/test_no_advice_language.py` now scans those comments and docstrings
+  too, and `portopt_db`'s (REQ-FUND-052).
 - **fund**: excluding sectors on ESG grounds is optional, and an empty list is a
   complete answer. Inputs with no sector excluded no longer list `esg.exclusions` or
   `esg.look_through_tolerance` in `MiFIDAnswers.unanswered` (the schema drops them,
