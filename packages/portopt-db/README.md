@@ -16,7 +16,9 @@ consumer may rely on is the surface it imports: the models, the repositories, `R
 protocols and the frozen dataclasses they return) and `portopt_db.resilience` (the `CircuitBreaker` protocol, `DbCircuitBreaker`,
 `BreakerConfig`, `DatabaseUnavailableError`, `BreakerState`, `ProbeTicket`,
 `is_connectivity_failure`, the breaker defaults, the validator and the environment parsers
-`parse_failure_threshold` and `parse_reset_timeout`). A change to that surface, or to a table a consumer reads, goes in
+`parse_failure_threshold` and `parse_reset_timeout`) and `portopt_db.migration_state` (whether
+a database is empty, at the migration head or behind it, which the container entrypoints and
+`portopt start` / `portopt migrate` ask before migrating). A change to that surface, or to a table a consumer reads, goes in
 `CHANGELOG.md`, and the consumer's tests change in the same pull request.
 
 ## Migrations

@@ -91,6 +91,13 @@ The entries under Security affect privacy or configuration and come first.
 
 ### Added
 
+- **portopt-db**: `portopt_db.migration_state`. `inspect_migration_state(url, alembic_dir)`
+  reads a database's tables and Alembic stamp over a read-only connection and returns
+  `EMPTY` (no user table), `AT_HEAD` or `PENDING` with the revisions an upgrade would run,
+  oldest first; a database with tables but no stamp counts as pending from the base, and a
+  stamp the tree does not hold (a newer version migrated it) is an error. Run as
+  `python -m portopt_db.migration_state`, it exits 0 (proceed), 3 (pending on a database
+  that holds data, with the refusal on stderr) or 1 (the state could not be read).
 - **portopt-db**: `portopt_db.config.pin_postgres_driver(url)`, public and exported. It
   rewrites a URL that starts with `postgresql://` to `postgresql+psycopg2://` and leaves every
   other URL (an explicit driver, SQLite, an empty string) untouched. The engine, Alembic's
