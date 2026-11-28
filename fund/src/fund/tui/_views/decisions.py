@@ -306,11 +306,13 @@ class DecisionsView(ShellView):
         try:
             with self.read_session() as session:
                 rows = observe.pending_hitl(session, saver, None)
+                self._read_recovered("queue")
                 selected = self.selected_run_id
                 if selected is None or all(row.run_id != selected for row in rows):
                     return rows, _GateDetail()
                 return rows, self._read_selected_gate(session, saver, selected)
-        except Exception:  # keep the poll loop alive on any read error
+        except Exception as exc:  # keep the poll loop alive on any read error
+            self._read_failed("queue", exc)
             return None
 
     def _read_selected_gate(

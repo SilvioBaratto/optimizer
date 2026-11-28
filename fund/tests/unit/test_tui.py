@@ -1894,6 +1894,53 @@ async def test_decisions_read_error_keeps_last_queue_and_selection(
         assert "read failed" in count
 
 
+@pytest.mark.criterion("REQ-FUND-054")
+@pytest.mark.asyncio
+async def test_a_failing_queue_read_is_logged_once_per_reason(
+    tui_env, monkeypatch, caplog
+) -> None:
+    """Validates fund.tui._views.decisions.DecisionsView._read: a queue read that
+    keeps failing across poll ticks is logged once with its traceback while the
+    label says the queue is the last one known; a successful read resets it, so the
+    next failure is logged again."""
+    original = observe.pending_hitl
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(_SQL_ERROR_TEXT)
+
+    def _queue_failures() -> list[logging.LogRecord]:
+        return [r for r in caplog.records if "queue read failed" in r.getMessage()]
+
+    app = _make_shell(tui_env)
+    async with app.run_test(size=_SIZE) as pilot:
+        view = await _open_decisions(app, pilot)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="fund.tui.views"):
+            monkeypatch.setattr(observe, "pending_hitl", _boom)
+            for _tick in range(3):
+                view.refresh_view()
+            await pilot.pause()
+            failed = list(_queue_failures())
+            label = str(view.query_one("#decisions-count", Label).render())
+
+            monkeypatch.setattr(observe, "pending_hitl", original)
+            view.refresh_view()
+            await pilot.pause()
+            recovered = str(view.query_one("#decisions-count", Label).render())
+
+            monkeypatch.setattr(observe, "pending_hitl", _boom)
+            view.refresh_view()
+            await pilot.pause()
+            again = _queue_failures()
+        running = app.is_running
+    assert len(failed) == 1
+    assert failed[0].exc_info is not None
+    assert "read failed" in label
+    assert recovered == "1 awaiting"
+    assert len(again) == 2
+    assert running
+
+
 @pytest.mark.asyncio
 async def test_decisions_gate_render_error_does_not_empty_the_queue(
     tui_env, monkeypatch
