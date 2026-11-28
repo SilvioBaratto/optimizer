@@ -16,7 +16,9 @@ daemon, the agent graphs with their toolsets and subagents, and the Ask agent mu
 hold no reference at all. It imports no implementation module.
 
 What it cannot see: a callee reached through a computed name (``getattr`` with a
-string), which no syntax-tree scan resolves.
+string), which no syntax-tree scan resolves; and an approve that a listed scope of the
+resume mechanism passes through a named constant (``APPROVE = "approve"``), because the
+check that the mechanism only forwards a decision reads string literals, not constants.
 """
 
 from __future__ import annotations
@@ -38,8 +40,11 @@ _APPROVING = frozenset({"approve", "edit"})
 # Each callable on the resume chain and where a call passes its decision, as
 # ``(keyword, position)``; ``None`` when every call approves (an edit). ``Command``
 # carries the decision inside its ``resume`` payload and is read separately.
+# ``ACTION_HANDLERS`` is apply_action's dispatch table, keyed by the action kind: it is
+# only ever subscripted, never called, so each reference to it counts as forwarding.
 _DECISION_ARGUMENT: dict[str, tuple[str, int | None] | None] = {
     "Command": None,
+    "ACTION_HANDLERS": ("kind", None),
     "_resume_command": ("decision", 0),
     "_resume_agent": ("decision", 2),
     "_resume_at_gate": ("decision", 2),
@@ -54,6 +59,7 @@ _DECISION_ARGUMENT: dict[str, tuple[str, int | None] | None] = {
     "_apply_edit": None,
     "_handle_edit": None,
     "apply_action": ("action", 0),
+    "_dispatch": ("action", 0),
     "_action_worker": ("decision", 2),
     "_edit_worker": None,
 }
@@ -87,6 +93,12 @@ _HUMAN_ENTRY_POINTS: dict[tuple[str, str, str], str] = {
     ),
     (_DECISIONS, "DecisionsMixin._edit_worker", "apply_action"): (
         "the TUI edit worker, started only by the weight editor's Commit"
+    ),
+    (_ACTIONS, "apply_action", "_dispatch"): (
+        "hands its dispatcher the action apply_action was called with"
+    ),
+    (_ACTIONS, "_dispatch", "ACTION_HANDLERS"): (
+        "runs the handler of the action apply_action was called with"
     ),
     (_ACTIONS, _MODULE_SCOPE, "_handle_resume"): (
         "ACTION_HANDLERS: apply_action routes approve/reject/respond/killswitch here"
@@ -180,13 +192,20 @@ def _argument(call: ast.Call, keyword: str, position: int | None) -> ast.expr | 
 
 
 def _command_approval(node: ast.AST) -> bool | None:
-    payload = None
-    if isinstance(node, ast.Call):
-        payload = next((kw.value for kw in node.keywords if kw.arg == "resume"), None)
-    if payload is None:
-        return None  # a type annotation or a ``Command(goto=...)``: no decision
+    """Whether a ``Command`` supplies an approve; ``None`` when it carries no resume.
+
+    A ``**`` mapping and a positional argument may hold the ``resume`` payload, so they
+    count as one; only named keywords other than ``resume`` are known not to.
+    """
+    if not isinstance(node, ast.Call):
+        return None  # a type annotation: no decision
+    payloads = [kw.value for kw in node.keywords if kw.arg in ("resume", None)]
+    payloads.extend(node.args)
+    if not payloads:
+        return None  # a ``Command(goto=...)`` or ``Command(update=...)``
     return any(
         isinstance(part, ast.Constant) and part.value in _APPROVING
+        for payload in payloads
         for part in ast.walk(payload)
     )
 
@@ -344,9 +363,33 @@ _INJECTED_APPROVALS = [
         "apply_action",
     ),
     (
+        "scheduler.py",
+        "def _sneak(req):\n    ACTION_HANDLERS[ActionKind.APPROVE](req)\n",
+        _SNEAK,
+        "ACTION_HANDLERS",
+    ),
+    (
+        "scheduler.py",
+        "def _sneak(req):\n    _dispatch('approve', req)\n",
+        _SNEAK,
+        "_dispatch",
+    ),
+    (
         "agents/toolsets.py",
         "def _sneak(agent):\n"
         "    agent.invoke(Command(resume={'decisions': [{'type': 'approve'}]}))\n",
+        _SNEAK,
+        "Command",
+    ),
+    (
+        "agents/toolsets.py",
+        "def _sneak(agent, payload):\n    agent.invoke(Command(**payload))\n",
+        _SNEAK,
+        "Command",
+    ),
+    (
+        "agents/toolsets.py",
+        "def _sneak(agent, payload):\n    agent.invoke(Command(None, None, payload))\n",
         _SNEAK,
         "Command",
     ),
@@ -359,6 +402,14 @@ _INJECTED_APPROVALS = [
 ]
 
 
+def _added_sites(module: str, injected: str) -> set[_Site]:
+    """The sites ``injected`` adds when appended to a copy of ``module``'s source."""
+    original = (_PACKAGE_ROOT / module).read_text(encoding="utf-8")
+    return approval_sites(f"{original}\n\n{injected}", module) - approval_sites(
+        original, module
+    )
+
+
 @pytest.mark.criterion("REQ-FUND-051")
 @pytest.mark.parametrize(("module", "injected", "scope", "callee"), _INJECTED_APPROVALS)
 def test_the_guard_flags_an_approve_added_to_unattended_code(
@@ -368,11 +419,7 @@ def test_the_guard_flags_an_approve_added_to_unattended_code(
     fund.agents.toolsets and fund.tools.orders as the guard reads them: an approve
     added to a copy of the module is a new site with no listed reason, in code that
     must hold none."""
-    original = (_PACKAGE_ROOT / module).read_text(encoding="utf-8")
-
-    added = approval_sites(f"{original}\n\n{injected}", module) - approval_sites(
-        original, module
-    )
+    added = _added_sites(module, injected)
 
     assert _unlisted(added) == [(module, scope, callee)]
     assert _unattended(added) == [(module, scope, callee)]
@@ -382,13 +429,9 @@ def test_the_guard_flags_an_approve_added_to_unattended_code(
 def test_the_guard_flags_an_approve_the_resume_mechanism_supplies() -> None:
     """Validates fund.agents.graph as the guard reads it: a resume that passes its
     own approve instead of the caller's decision is reported."""
-    original = (_PACKAGE_ROOT / _GRAPH).read_text(encoding="utf-8")
-    injected = (
-        "def _sneak(rid, s):\n    return resume_fund(rid, 'approve', session=s)\n"
-    )
-
-    added = approval_sites(f"{original}\n\n{injected}", _GRAPH) - approval_sites(
-        original, _GRAPH
+    added = _added_sites(
+        _GRAPH,
+        "def _sneak(rid, s):\n    return resume_fund(rid, 'approve', session=s)\n",
     )
 
     assert _approved_by_the_mechanism(added) == [(_GRAPH, _SNEAK, "resume_fund")]
@@ -401,14 +444,10 @@ def test_the_guard_flags_an_approve_the_resume_mechanism_supplies() -> None:
 def test_the_guard_ignores_a_decision_that_cannot_approve(decision: str) -> None:
     """Validates fund.scheduler as the guard reads it: a resume with a literal decision
     other than approve or edit is no approval site."""
-    original = (_PACKAGE_ROOT / "scheduler.py").read_text(encoding="utf-8")
-    injected = (
+    added = _added_sites(
+        "scheduler.py",
         f"def _sneak(rid, s, fresh):\n    apply_action({decision}, session=s, "
-        "run_id=rid)\n"
-    )
-
-    added = approval_sites(f"{original}\n\n{injected}", "scheduler.py") - (
-        approval_sites(original, "scheduler.py")
+        "run_id=rid)\n",
     )
 
     assert added == set()

@@ -158,7 +158,8 @@ The entries under Security affect privacy or configuration and come first.
 - **fund**: a guard that only a human resumes a paused run with approve.
   `fund/tests/unit/hygiene/test_no_unattended_approval.py` parses `fund/src` and lists
   every reference on the resume chain whose decision can be an approve, from
-  `Command(resume=...)` up to `fund approve`, the Decisions keys, the candidate confirm,
+  `Command(resume=...)` through `apply_action`'s dispatch table (`ACTION_HANDLERS`) up
+  to `fund approve`, the Decisions keys, the candidate confirm,
   the weight editor and a confirmed Ask action, each with its reason; a new reference
   fails it until a reason is written down. The daemon (`fund.scheduler`, `fund.worker`),
   the agent graphs with their toolsets and subagents, the Ask agent and `fund.tools`
