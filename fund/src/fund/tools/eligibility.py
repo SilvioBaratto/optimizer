@@ -105,13 +105,10 @@ class Eligibility:
             held, in mandate order. Reasons are stable strings: ``no_instrument``,
             ``delisted``, ``not_priced``, ``esg:<gics sector>``,
             ``esg_unclassified``.
-        notes: Caveats the system raises about this resolution for the adviser and
-            the PM seed.
     """
 
     allowed: tuple[str, ...]
     barred: tuple[tuple[str, str], ...]
-    notes: tuple[str, ...] = ()
 
     @property
     def allowed_set(self) -> frozenset[str]:

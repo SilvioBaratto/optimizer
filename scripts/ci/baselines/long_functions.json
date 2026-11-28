@@ -16,7 +16,6 @@
   "fund/src/fund/agents/graph_assembly.py::_pm_round_cap_middleware": 41,
   "fund/src/fund/agents/graph_hitl.py::_finalize_hitl": 46,
   "fund/src/fund/agents/graph_hitl.py::_settle_hitl": 46,
-  "fund/src/fund/agents/graph_prompts.py::_eligible_block": 34,
   "fund/src/fund/agents/graph_prompts.py::_history_summary": 42,
   "fund/src/fund/agents/model.py::_build_ollama": 32,
   "fund/src/fund/agents/profiler.py::_inconsistency_flags": 50,

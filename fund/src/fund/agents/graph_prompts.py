@@ -190,7 +190,6 @@ def _eligible_block(eligible: Eligibility | None) -> str:
     """
     if eligible is None:
         return ""
-    notes = " ".join(f"Note: {note}." for note in eligible.notes)
     barred = _fit_entries(
         "Barred and unavailable: ",
         [f"{ticker} ({reason})" for ticker, reason in eligible.barred],
@@ -215,8 +214,7 @@ def _eligible_block(eligible: Eligibility | None) -> str:
             "proposing names outside the list."
         )
         allowed = ""
-    parts = (intro, allowed, barred, notes)
-    return " ".join(part for part in parts if part) + "\n\n"
+    return " ".join(part for part in (intro, allowed, barred) if part) + "\n\n"
 
 
 def _constraint_digest(constraint_set: ConstraintSet) -> str:

@@ -593,6 +593,11 @@ declaration of its own, and `uv lock --upgrade` now has nothing left to move:
   rows are not restored. The deliberate data loss is a recorded deviation from the
   reversible-migration rule, with the reason and the backup step, under "Destructive
   migrations" in `packages/portopt-db/README.md`.
+- **fund**: `Eligibility.notes`. The field carried the caveat a removed broker overlay
+  raised about a resolution, and nothing sets it any more. The run seed no longer renders
+  a `Note: ...` sentence after the eligible-universe block; no seed changes, because the
+  sentence only appeared when a note was set. `Eligibility(...)` no longer accepts a
+  `notes=` argument (REQ-FUND-005, REQ-FUND-052).
 
 ### Removed (BREAKING — ingestion CLI, scheduler and settings)
 
