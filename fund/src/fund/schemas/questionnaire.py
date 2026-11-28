@@ -214,8 +214,11 @@ class EsgAnswers(BaseModel):
     exclusions: tuple[GicsSector, ...] = Field(
         description=(
             "GICS sectors the user wants excluded on ESG grounds (a subset of "
-            "the 11 sectors). Optional in substance: always present, as an empty "
-            "list when the user names none."
+            "the 11 sectors). Optional: always present, as an empty list when the "
+            "user names none, a complete answer. With no sector excluded list "
+            "neither 'esg.exclusions' nor 'esg.look_through_tolerance' in "
+            "unanswered; list 'esg.exclusions' only when it holds a sector you "
+            "cannot tell the user named."
         ),
     )
     other_preferences: tuple[str, ...] = Field(
@@ -233,8 +236,9 @@ class EsgAnswers(BaseModel):
         description=(
             "Largest share of a FUND's weight allowed in an excluded sector, as a "
             "FRACTION in [0, 1] (0.05 means 5%). 0 means none at all. Set it only "
-            "from a figure the user stated; otherwise leave 0 and list "
-            "'esg.look_through_tolerance' in unanswered."
+            "from a figure the user stated. When sectors are excluded and the user "
+            "stated no figure, leave 0 and list 'esg.look_through_tolerance' in "
+            "unanswered; with no sector excluded it needs no entry."
         ),
     )
 

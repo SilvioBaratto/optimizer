@@ -150,7 +150,7 @@ def test_a_stated_look_through_tolerance_survives_the_placeholder_pass() -> None
     assert cs.esg.look_through_tolerance == 0.1
 
 
-@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.criterion("REQ-FUND-055")
 def test_no_esg_exclusions_map_without_a_flag_or_a_placeholder() -> None:
     """Validates fund.agents.profiler.run_mapping: inputs with no sector excluded, even
     when the extraction listed the ESG data as unstated, map to an empty ESG block,

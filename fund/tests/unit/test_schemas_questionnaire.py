@@ -293,7 +293,7 @@ _EXCLUSIONS_PATH = "esg.exclusions"
 _OTHER_UNANSWERED = "capacity.buffer_months"
 
 
-@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.criterion("REQ-FUND-055")
 @pytest.mark.parametrize(
     "listed",
     [(_EXCLUSIONS_PATH,), (_TOLERANCE_PATH,), (_EXCLUSIONS_PATH, _TOLERANCE_PATH)],
@@ -315,7 +315,30 @@ def test_questionnaire_accepts_no_esg_exclusions_without_conservative_placeholde
     assert typed.unanswered == ()
 
 
-@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.criterion("REQ-FUND-055")
+def test_esg_field_descriptions_state_the_rule_the_validator_applies():
+    """Validates fund.schemas.questionnaire.EsgAnswers: the field descriptions the
+    extraction model reads list neither ESG datum with no sector excluded, and ask
+    for the fund tolerance only beside an exclusion."""
+    fields = EsgAnswers.model_json_schema()["properties"]
+    exclusions, tolerance = (
+        " ".join(fields[name]["description"].lower().split())
+        for name in ("exclusions", "look_through_tolerance")
+    )
+
+    assert "an empty list when the user names none, a complete answer" in exclusions
+    assert (
+        "with no sector excluded list neither 'esg.exclusions' nor "
+        "'esg.look_through_tolerance' in unanswered" in exclusions
+    )
+    assert (
+        "when sectors are excluded and the user stated no figure, leave 0 and list "
+        "'esg.look_through_tolerance' in unanswered" in tolerance
+    )
+    assert "with no sector excluded it needs no entry" in tolerance
+
+
+@pytest.mark.criterion("REQ-FUND-055")
 def test_excluded_sectors_the_user_never_stated_stay_unanswered():
     """Validates fund.schemas.questionnaire.MiFIDAnswers: only an empty exclusion
     list counts as answered, so sectors the extraction model marks as unstated stay

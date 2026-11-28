@@ -282,11 +282,11 @@ Behaviour changes to know about:
   complete answer. Inputs with no sector excluded no longer list `esg.exclusions` or
   `esg.look_through_tolerance` in `MiFIDAnswers.unanswered` (the schema drops them,
   whatever the extraction model or a stored record put there), so the profile gate shows
-  no `unanswered_input:esg.exclusions` flag and the inputs keep the risk limits of the
-  answers as given. The extraction prompt no longer calls an empty list a conservative
-  value and tells the model never to list `esg.exclusions` as unanswered. Sectors the
-  model says the user never named are still flagged, and excluding every sector still
-  blocks the profile (REQ-FUND-052).
+  no `unanswered_input:esg.exclusions` flag. The extraction prompt and the ESG field
+  descriptions no longer call an empty list a conservative value: with no sector
+  excluded they tell the model to list neither ESG datum as unanswered. A non-empty
+  exclusion list the model marks as unstated is still flagged, and excluding every
+  sector still blocks the profile (REQ-FUND-055).
 - **ingestion (BREAKING)**: the ingestion daemon (`python -m app.worker`, the
   `scheduler` container) now refuses to start until Yahoo's terms are acknowledged: the
   worker logs why and exits with status 2 before it serves metrics, opens its database

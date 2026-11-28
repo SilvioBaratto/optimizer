@@ -441,10 +441,10 @@ Excluding sectors on ESG grounds is optional: leave the list empty and nothing i
 screened on ESG grounds. With ESG exclusions in your inputs, a fund is allowed by
 look-through: its latest sector snapshot must keep the excluded share within your
 stated tolerance (`look_through_tolerance`, strict 0 by default). Commodity funds and
-government or inflation-linked bond funds pass; any other fund whose snapshot is missing, older than
-`FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS` (180) or incomplete is barred, so most corporate
-and aggregate bond ETFs are out under exclusions. The orchestrator's instruction names every
-barred ticker with its reason.
+government or inflation-linked bond funds pass; any other fund whose snapshot is
+missing, older than `FUND_ESG_SECTOR_WEIGHTS_MAX_AGE_DAYS` (180) or incomplete is
+barred, so most corporate and aggregate bond ETFs are out under exclusions. The
+orchestrator's instruction names every barred ticker with its reason.
 
 ---
 

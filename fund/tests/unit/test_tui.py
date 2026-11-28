@@ -3808,7 +3808,7 @@ async def test_questionnaire_is_titled_optimisation_inputs_with_optional_sectors
     assert answers.esg.exclusions == ()
 
 
-@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.criterion("REQ-FUND-055")
 @pytest.mark.asyncio
 async def test_questionnaire_submits_with_no_sector_excluded(shell_env) -> None:
     """Validates fund.tui.questionnaire.QuestionnaireScreen._submit: Submit with no

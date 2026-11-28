@@ -112,19 +112,28 @@ def test_extraction_prompt_lists_an_unstated_tolerance_as_unanswered():
     assert "esg.exclusions is non-empty" in system
 
 
-@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.criterion("REQ-FUND-055")
 def test_extraction_prompt_treats_no_esg_exclusions_as_a_complete_answer():
     """Validates fund.agents.profiler._extraction_messages: an empty sector list is
-    the user's complete ESG answer, never an unstated datum or a conservative value."""
+    the user's complete ESG answer, never an unstated datum or a conservative value,
+    and a sector list is marked unstated only when the model cannot tell the user
+    named it, as the schema's validator keeps it."""
     from fund.agents.profiler import _extraction_messages
 
     system = _extraction_messages("EUR, growth")[0]["content"]
 
     assert "esg.exclusions []" not in system
-    assert "never list 'esg.exclusions' in unanswered" in system
+    assert (
+        "with no sector excluded list neither 'esg.exclusions' nor "
+        "'esg.look_through_tolerance' in unanswered" in system
+    )
+    assert (
+        "list 'esg.exclusions' only when it holds a sector you cannot tell the user "
+        "named" in system
+    )
 
 
-@pytest.mark.criterion("REQ-FUND-052")
+@pytest.mark.criterion("REQ-FUND-055")
 def test_no_esg_exclusions_reach_the_gate_as_a_complete_answer(db_session):
     """Validates fund.agents.profiler.run_profiler: an extraction with no sector
     excluded pauses at the gate with no ESG exclusion and no unanswered flag, even
