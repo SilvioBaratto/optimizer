@@ -91,6 +91,21 @@ The entries under Security affect privacy or configuration and come first.
 
 ### Added
 
+- **ingestion**: `portopt migrate`, the way through a start that stopped on pending
+  migrations. It brings the db service up and does nothing for an empty or current
+  database. Otherwise it lists the revisions that will run and asks `Proceed?` (`--yes`
+  skips it), refuses while a fund round runs, stops the scheduler and fund, and takes a
+  `pg_dump --format=custom` with the db container's own client tools, streamed to
+  `~/.portopt/backups/optimizer_db-YYYYmmdd-HHMMSS-pre-migrate.dump` (the folder is created
+  with mode `0700` and is never inside the checkout; `--backup-dir` or a `backup_dir` key
+  in `~/.portopt/config.toml` picks another, an existing dump is never overwritten or
+  deleted, the file is `0600`). The dump counts only after `pg_restore --list` shows data
+  for every table and the Alembic stamp and a full `pg_restore` read succeeds; any failure
+  deletes the partial file, leaves the database unmigrated and restarts the daemons it
+  stopped. Then it runs the Alembic upgrade on the host, reads the state back, and prints
+  the dump's path and size. `--no-backup` needs `--yes`. No password appears on a command
+  line: the dump uses the container's local socket and Alembic gets the URL through its
+  environment. Exit status 0 on success or nothing to do, 1 on a refusal or failure.
 - **portopt-db**: `portopt_db.migration_state`. `inspect_migration_state(url, alembic_dir)`
   reads a database's tables and Alembic stamp over a read-only connection and returns
   `EMPTY` (no user table), `AT_HEAD` or `PENDING` with the revisions an upgrade would run,

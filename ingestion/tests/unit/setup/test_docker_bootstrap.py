@@ -196,6 +196,53 @@ def test_bring_up_db_pins_the_checkout_it_is_given(
     assert argv[-1] == "db"
 
 
+@pytest.mark.criterion("REQ-ING-030")
+@patch("app.setup.docker_bootstrap.subprocess.run")
+def test_exec_in_service_streams_binary_io_without_a_tty(
+    mock_run: MagicMock, tmp_path
+) -> None:
+    """Validates ``docker_bootstrap.exec_in_service``: `-T` so a dump crosses intact,
+    the given files as stdin/stdout, and an empty stdin when none is given."""
+    mock_run.return_value = subprocess.CompletedProcess([], 0, b"", b"")
+    archive = (tmp_path / "out.dump").open("wb")
+
+    with archive:
+        db.exec_in_service(
+            "db",
+            ["pg_dump", "--format=custom"],
+            repo=tmp_path,
+            stdout=archive,
+            timeout=5,
+        )
+
+    argv = mock_run.call_args[0][0]
+    assert argv == [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(tmp_path),
+        "exec",
+        "-T",
+        "db",
+        "pg_dump",
+        "--format=custom",
+    ]
+    assert mock_run.call_args.kwargs["stdout"] is archive
+    assert mock_run.call_args.kwargs["stdin"] is subprocess.DEVNULL
+    assert "text" not in mock_run.call_args.kwargs
+
+
+@pytest.mark.criterion("REQ-ING-030")
+@patch(
+    "app.setup.docker_bootstrap.subprocess.run",
+    side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=5),
+)
+def test_exec_in_service_reports_a_hung_command(mock_run: MagicMock, tmp_path) -> None:
+    """Validates ``docker_bootstrap.exec_in_service`` when the command hangs."""
+    with pytest.raises(db.DockerError, match="did not finish"):
+        db.exec_in_service("db", ["pg_dump"], repo=tmp_path, timeout=5)
+
+
 @patch("app.setup.docker_bootstrap._find_db_package")
 @patch("app.setup.docker_bootstrap.subprocess.run")
 def test_migrate_failure_is_best_effort(

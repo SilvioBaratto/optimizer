@@ -33,7 +33,7 @@ from app.setup import terms
 runner = CliRunner()
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_LIFECYCLE_COMMANDS = frozenset({"setup", "start", "stop", "status"})
+_LIFECYCLE_COMMANDS = frozenset({"setup", "start", "stop", "status", "migrate"})
 
 SCHED = "app.services.jobs.scheduler"
 
@@ -402,6 +402,76 @@ class TestDotenvDiscovery:
         )
 
         assert result.stdout.strip() == "root", result.stderr
+
+
+class TestMigrateCommand:
+    """`portopt migrate` wires its flags to ``migration.run_migrate``: 0 or 1."""
+
+    @pytest.mark.criterion("REQ-ING-030")
+    def test_defaults_ask_before_migrating_with_a_backup(self) -> None:
+        """Validates app.cli.migrate with no flags."""
+        from app.setup.migration import MigrateOptions
+
+        with patch("app.setup.migration.run_migrate") as mock_run:
+            result = runner.invoke(app, ["migrate"])
+
+        assert result.exit_code == 0, result.output
+        options = mock_run.call_args[0][0]
+        assert options == MigrateOptions(backup_dir=None, no_backup=False)
+        assert callable(mock_run.call_args.kwargs["confirm"])
+
+    @pytest.mark.criterion("REQ-ING-030")
+    def test_flags_reach_the_options(self, tmp_path: Path) -> None:
+        """Validates app.cli.migrate with --backup-dir, --no-backup and --yes."""
+        from app.setup.migration import MigrateOptions
+
+        with patch("app.setup.migration.run_migrate") as mock_run:
+            result = runner.invoke(
+                app,
+                ["migrate", "--backup-dir", str(tmp_path), "--no-backup", "--yes"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_run.call_args[0][0] == MigrateOptions(
+            backup_dir=tmp_path, no_backup=True, assume_yes=True
+        )
+
+    @pytest.mark.criterion("REQ-ING-030")
+    def test_a_refusal_or_failure_exits_one(self) -> None:
+        """Validates app.cli.migrate's exit code on a ``MigrateError``."""
+        from app.setup.migration import MigrateError
+
+        with patch(
+            "app.setup.migration.run_migrate",
+            side_effect=MigrateError("The backup failed, so nothing was migrated."),
+        ):
+            result = runner.invoke(app, ["migrate", "--yes"])
+
+        assert result.exit_code == 1
+        assert "Migrate failed: The backup failed" in result.output
+
+    @pytest.mark.criterion("REQ-ING-030")
+    def test_the_prompt_defaults_to_no(self) -> None:
+        """Validates app.cli.migrate's confirmation: Enter alone does not migrate."""
+        seen: dict[str, object] = {}
+
+        class _Prompter:
+            def confirm(self, message: str, *, default: bool = False) -> bool:
+                """Record the question and its default, then answer no."""
+                seen.update(message=message, default=default)
+                return False
+
+        def _run(options: object, *, confirm) -> None:
+            assert confirm("Proceed?") is False
+
+        with (
+            patch("app.setup.prompts.make_prompter", return_value=_Prompter()),
+            patch("app.setup.migration.run_migrate", side_effect=_run),
+        ):
+            result = runner.invoke(app, ["migrate"])
+
+        assert result.exit_code == 0, result.output
+        assert seen == {"message": "Proceed?", "default": False}
 
 
 class TestLifecycleCommands:

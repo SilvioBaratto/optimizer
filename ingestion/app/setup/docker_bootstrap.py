@@ -19,6 +19,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
+from typing import BinaryIO
 
 from portopt_db.migration_state import MigrationStateError
 
@@ -182,6 +183,53 @@ def _compose(
         env=env,
         timeout=timeout,
     )
+
+
+def exec_in_service(
+    service: str,
+    argv: Sequence[str],
+    *,
+    repo: Path,
+    stdin: BinaryIO | None = None,
+    stdout: BinaryIO | None = None,
+    timeout: float,
+) -> subprocess.CompletedProcess[bytes]:
+    """Run a command inside a running compose service, with binary stdin and stdout.
+
+    ``-T`` keeps compose from allocating a pseudo-terminal, which would rewrite the
+    line endings of a binary stream (a ``pg_dump`` archive) on its way through.
+
+    Args:
+        service: The compose service whose container runs the command.
+        argv: The command and its arguments inside the container.
+        repo: The checkout whose compose project holds the service.
+        stdin: A file fed to the command's stdin; empty input when omitted.
+        stdout: A file the command's stdout streams into; captured when omitted.
+        timeout: Seconds before the command is declared hung and killed.
+
+    Returns:
+        The finished process, with stderr (and stdout when not streamed) as bytes.
+
+    Raises:
+        DockerError: The command did not finish within ``timeout``.
+    """
+    cmd = ["docker", "compose", "--project-directory", str(repo)]
+    cmd += ["exec", "-T", service, *argv]
+    try:
+        return subprocess.run(  # noqa: S603 - static, trusted argv; never shell=True
+            cmd,
+            stdin=subprocess.DEVNULL if stdin is None else stdin,
+            stdout=subprocess.PIPE if stdout is None else stdout,
+            stderr=subprocess.PIPE,
+            cwd=str(repo),
+            env=_compose_env(repo),
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DockerError(
+            f"`{shlex.join(cmd)}` did not finish within {timeout:.0f}s."
+        ) from exc
 
 
 def check_docker() -> None:
