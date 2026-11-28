@@ -290,22 +290,27 @@ Behaviour changes to know about:
 - **fund**: the last regulated-service wording is gone. The `portopt-fund` package
   summary now reads "Bridge between LLM agents and the optimizer: the optimizer computes
   candidate portfolios, you choose; paper tickets only". The docstrings and comments the
-  Ask agent reads in `fund` and `portopt_db` no longer describe the profiler, its record
-  or the audit trail as a regulated, suitability or record-keeping service (identifiers,
-  the `mifid_profiles` table and stored data are unchanged), the setup wizard says
-  "optimisation inputs" instead of "questionnaire answers", and the README tagline calls
-  `fund` a bridge. `fund/tests/unit/test_no_advice_language.py` now also scans every
-  package description, the `portopt_db` source and this section of the changelog. Two
-  guards are stricter: `fund/tests/unit/hygiene/test_candidate_selection_writers.py`
-  also limits who records a risk verdict, who writes the weight-edit kind and who
-  writes a raw choice or verdict row (REQ-FUND-051), and the new
-  `tests/test_no_ticker_isin_lookup.py` fails on any yfinance ISIN lookup in
-  `ingestion/app` or `fund/src` (REQ-OPS-005). The README Notices now say that the news
-  step downloads articles from the publishers' sites under their terms, and tests pin the
-  LLM-provider, third-party-terms and no-hosted-service statements. The README gives the
-  CI downgrade window as seven revisions and tells upgraders to delete files an earlier
-  version left in `./secrets/`; the project skills warn that `Ticker.isin` is never
-  called and name the current Alembic head.
+  Ask agent reads in `fund` and `portopt_db` no longer describe the profiler, the inputs
+  it saves, the risk gate or the audit trail as a regulated, suitability-assessment or
+  record-keeping service (identifiers, the `mifid_profiles` table and stored data are
+  unchanged), the setup wizard says "optimisation inputs" instead of "questionnaire
+  answers", and the README tagline calls `fund` a bridge.
+  `fund/tests/unit/test_no_advice_language.py` now also scans every package
+  description, the `portopt_db` source and this section of the changelog. Two guards
+  are stricter: `fund/tests/unit/hygiene/test_candidate_selection_writers.py` also
+  limits who records a risk verdict, who writes the weight-edit kind and who writes a
+  raw choice or verdict row (REQ-FUND-051), and the new
+  `tests/test_no_ticker_isin_lookup.py` fails on any `.isin` read that is not a method
+  call, any `get_isin()` call and any `getattr(..., "isin")` in `ingestion/app` or
+  `fund/src`, except an `isin` column read on the instruments model or row it lists, so
+  a Ticker from `yf.Ticker(...)` or from the repo's own factories is caught under any
+  other name (REQ-OPS-005). The README Notices now say that the news step downloads
+  articles from the publishers' sites under their terms, and tests pin the
+  LLM-provider, third-party-terms and no-hosted-service statements. The root and
+  `portopt-db` READMEs give the CI downgrade window as seven revisions, the root README
+  tells upgraders to delete files an earlier version left in `./secrets/`, and the
+  project skills warn that `Ticker.isin` is never called and name the current Alembic
+  head.
 - **ingestion (BREAKING)**: the ingestion daemon (`python -m app.worker`, the
   `scheduler` container) now refuses to start until Yahoo's terms are acknowledged: the
   worker logs why and exits with status 2 before it serves metrics, opens its database

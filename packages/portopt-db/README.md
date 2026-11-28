@@ -75,7 +75,7 @@ uv run alembic downgrade -1
 The `postgres-integration` CI job builds an empty database and runs the validation
 sequence from the commands block (upgrade, check, the downgrade window and back) and then
 the integration suite below. A model that changed without a migration fails the check, and
-one of the five most recent revisions that cannot be reversed fails the round trip. Run the
+one of the seven most recent revisions that cannot be reversed fails the round trip. Run the
 same sequence against a scratch database before you merge a revision.
 
 ### Rolling back
