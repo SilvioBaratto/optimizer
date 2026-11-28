@@ -211,3 +211,65 @@ def test_constraints_readout_without_a_cap_keeps_the_recorded_max():
     assert text is not None
     assert "max 100.00%" in text
     assert "K&E cap" not in text
+
+
+def _candidate_set_payload() -> dict:
+    """A recorded set: ``mean_risk`` feasible, the other three not fitted."""
+    from _fund_fakes import candidate_set_payload
+
+    return candidate_set_payload({"AAA": 0.6, "CCC": 0.4})
+
+
+@pytest.mark.criterion("REQ-FUND-045")
+def test_candidates_step_reads_out_every_candidate_in_id_order():
+    """Validates fund.tui.readouts.render_readout: the compute_candidates step lists
+    every candidate in id order with the same neutral measures, an infeasible one
+    with its breach, and offers no frontier or backtest to compute."""
+    from fund.schemas.candidates import CANDIDATE_IDS
+
+    payload = {"candidate_set": _candidate_set_payload()}
+
+    text = render_readout("allocator", "compute_candidates", payload)
+
+    assert text is not None
+    assert text.startswith("candidates (listed by id; the adviser chooses)")
+    positions = [text.index(f"  {cid} · ") for cid in CANDIDATE_IDS]
+    assert positions == sorted(positions)
+    assert "mean_risk · mean_risk · ● feasible" in text
+    assert "volatility 10.00% · CVaR 95% 1.00% · largest 50.00%" in text
+    assert "hrp · hrp · ○ infeasible · solver_failed" in text
+    assert "weights · AAA 60.0%, CCC 40.0%" in text
+    assert "frontier point" not in text
+    assert "backtest" not in text
+
+
+@pytest.mark.criterion("REQ-FUND-045")
+@pytest.mark.parametrize(
+    ("hitl_decision", "shows_frontier"),
+    [
+        ({"decision": "select_candidate", "candidate_id": "mean_risk"}, True),
+        ({"decision": "select_candidate", "candidate_id": "min_risk"}, False),
+        ({"decision": "select_candidate", "candidate_id": "hrp"}, False),
+        ({"decision": "edit"}, False),
+    ],
+    ids=["mean_risk", "min_risk", "hrp", "edit"],
+)
+def test_frontier_readout_shows_only_for_a_mean_risk_choice(
+    hitl_decision, shows_frontier
+):
+    """Validates fund.tui.readouts.render_readout: the mean-risk frontier replay is
+    shown, labelled, only when the adviser chose the mean_risk candidate; for any
+    other choice or an edit it is hidden, and the backtest of the chosen weights
+    stays."""
+    payload = {"weights": {"AAA": 1.0}, "hitl_decision": hitl_decision}
+
+    text = render_readout(
+        "allocator", "optimize_portfolio", payload, _results_compute()
+    )
+
+    assert text is not None
+    assert ("frontier point (mean_risk candidate) · mean +4.12%" in text) is (
+        shows_frontier
+    )
+    assert ("frontier point" in text) is shows_frontier
+    assert "backtest · sharpe 0.45" in text

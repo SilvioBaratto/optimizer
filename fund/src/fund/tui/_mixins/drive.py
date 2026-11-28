@@ -20,6 +20,8 @@ from fund.tui.questionnaire import QuestionnaireScreen, describe_error
 from fund.tui.views import DeliberationView, ShellView
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from textual.worker import Worker
 
     from fund.tui.questionnaire import OnboardingSubmission
@@ -332,9 +334,7 @@ class DriveMixin(ShellHost):
                         (d for d in run.decisions if d.decision_index == key), None
                     )
                     weights = AgentRunRepository.decode_weights(decision)
-                    constraint_set: Any = (
-                        decision.constraint_set if decision is not None else None
-                    )
+                    constraint_set = _recorded_constraint_set(run.decisions, key)
                     mandate = (
                         observe.get_mandate(session, run.portfolio_id)
                         if run.portfolio_id is not None
@@ -353,18 +353,9 @@ class DriveMixin(ShellHost):
                     )
                 else:
                     weights = repo.latest_optimizer_weights(run_id)
-                    # Risk evaluates the run's authoritative allocation; pair its bounds
-                    # with the SAME newest allocator proposal those weights came from
-                    # (decisions are decision_index ASC, so scan reversed — mirrors
-                    # ``observe.run_metrics``).
-                    constraint_set = next(
-                        (
-                            d.constraint_set
-                            for d in reversed(run.decisions)
-                            if d.agent == "allocator" and d.step == "optimize_portfolio"
-                        ),
-                        None,
-                    )
+                    # Risk evaluates the run's authoritative allocation, under the
+                    # bounds the newest allocator step recorded.
+                    constraint_set = _recorded_constraint_set(run.decisions)
                     mandate = (
                         observe.get_mandate(session, run.portfolio_id)
                         if run.portfolio_id is not None
@@ -715,6 +706,33 @@ class DriveMixin(ShellHost):
         """On the main thread once onboarding committed: refresh the picker + report."""
         self._populate_picker()
         self._after_action(message)
+
+
+# The allocator steps that record the client's constraint set with their output.
+_CONSTRAINED_STEPS = frozenset({"compute_candidates", "optimize_portfolio"})
+
+
+def _recorded_constraint_set(decisions: Sequence[Any], upto: int | None = None) -> Any:
+    """The constraint set of the newest allocator step at or before ``upto``.
+
+    The adviser's choice and edit rows record none: the candidate set they were
+    made against carries it on its ``compute_candidates`` row, so a replay of a
+    choice reads it there. A step recorded after ``upto`` never applies to it.
+
+    Args:
+        decisions: The run's decisions in ``decision_index`` order.
+        upto: The replayed decision's index, or ``None`` for the newest.
+
+    Returns:
+        The recorded ``ConstraintSet`` dump, or ``None`` when no step recorded one.
+    """
+    for decision in reversed(decisions):
+        if upto is not None and decision.decision_index > upto:
+            continue
+        recorded = decision.agent == "allocator" and decision.step in _CONSTRAINED_STEPS
+        if recorded and decision.constraint_set:
+            return decision.constraint_set
+    return None
 
 
 def _recorded_train_size(optimizer_config: dict[str, Any] | None) -> int | None:

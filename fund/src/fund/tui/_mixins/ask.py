@@ -16,12 +16,13 @@ from textual.widgets import ContentSwitcher
 from fund.tui import ask
 from fund.tui._mixins.decisions import _gate_target
 from fund.tui._mixins.host import ShellHost
+from fund.tui._views.candidates import ORDER_GATE
 from fund.tui.ask_history import AskHistory, scope_of
 from fund.tui.barge_in import BargeInResult, BargeInScreen
 from fund.tui.exports import export_path
 from fund.tui.safe_text import describe_error as describe_ask_error
 from fund.tui.screens import ConfirmScreen, RationaleConfirmScreen
-from fund.tui.views import AskView, ShellView, _live_gate_id
+from fund.tui.views import AskView, ShellView, _live_gate_id, _pending_gate_names
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -33,6 +34,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("fund.tui.app")
 
 _GATE_UNREADABLE = "cannot approve: gate details unavailable - retry shortly"
+_REBALANCE_APPROVE_REFUSED = (
+    "cannot approve a rebalance gate from Ask: approving it means choosing one of "
+    "its candidates - open Decisions, select a candidate row, then press a (a "
+    "confirm names it)"
+)
 
 
 class AskMixin(ShellHost):
@@ -135,10 +141,12 @@ class AskMixin(ShellHost):
         """Push the confirm matching ``action``; dispatch it only on a deliberate yes.
 
         Every Ask action — even approve/reject — goes behind a confirm (unlike the
-        Decisions view's direct approve), so nothing mutates from a typed sentence
-        without a second, explicit step. A **fund** re-arm takes the rationale-gated
-        ceremony; a steer collects its directive in the barge-in overlay; the rest take
-        a plain spelled-out-consequence confirm.
+        Decisions view's direct reject), so nothing mutates from a typed sentence
+        without a second, explicit step. An approve of a rebalance gate is refused
+        before any confirm, since it means choosing a candidate, which is done in
+        Decisions. A **fund** re-arm takes the rationale-gated ceremony; a steer
+        collects its directive in the barge-in overlay; the rest take a plain
+        spelled-out-consequence confirm.
         """
         if self._ask_refused_by_db_gate(view):
             return
@@ -161,14 +169,31 @@ class AskMixin(ShellHost):
 
         prompt = _ask_confirm_prompt(action)
         if action.verb == "approve" and action.run_id is not None:
-            # The id first, then the text it labels (see DecisionsView._read).
-            shown_gate = self._shown_gate_id(action.run_id)
-            gate = self._ask_approve_gate(action.run_id)
-            if gate is None:
-                self._ask_refuse(view, _GATE_UNREADABLE)
+            approve = self._ask_approve_confirm(view, action.run_id, prompt)
+            if approve is None:
                 return
-            prompt = f"{prompt}\n\n{gate}"
+            prompt, shown_gate = approve
         self.push_screen(ConfirmScreen(prompt), _resolved)
+
+    def _ask_approve_confirm(
+        self, view: AskView, run_id: uuid.UUID, prompt: str
+    ) -> tuple[str, str | None] | None:
+        """The approve confirm's text and the id of the gate it shows.
+
+        Returns ``None`` once the approve has been refused on the Ask log (a
+        rebalance gate, or a gate that cannot be read), so no confirm opens.
+        """
+        refusal = self._ask_approve_refusal(run_id)
+        if refusal is not None:
+            self._ask_refuse(view, refusal)
+            return None
+        # The id first, then the text it labels (see decisions._read_gate).
+        shown_gate = self._shown_gate_id(run_id)
+        gate = self._ask_approve_gate(run_id)
+        if gate is None:
+            self._ask_refuse(view, _GATE_UNREADABLE)
+            return None
+        return f"{prompt}\n\n{gate}", shown_gate
 
     def _ask_refused_by_db_gate(self, view: AskView) -> bool:
         """Say why on the log and status bar, and return True, while writes are held.
@@ -186,6 +211,25 @@ class AskMixin(ShellHost):
         """Explain on the Ask log and the status bar why nothing was sent."""
         view.append_log("ask", reason)
         self._set_status(reason)
+
+    def _ask_approve_refusal(self, run_id: uuid.UUID) -> str | None:
+        """Why Ask must not approve ``run_id``'s gate, or ``None`` when it may.
+
+        Approving a rebalance gate means choosing one of its candidates, which only
+        the Decisions view offers (a selected row and a confirm naming it), so Ask
+        refuses before any confirm. A gate whose pending call cannot be read is
+        refused too, rather than guessed at.
+        """
+        try:
+            with self._session_factory() as session:
+                names = _pending_gate_names(session, self._persistence.saver, run_id)
+                session.rollback()
+        except Exception:
+            logger.warning("ask approve: pending gate unreadable", exc_info=True)
+            return _GATE_UNREADABLE
+        if not names:
+            return _GATE_UNREADABLE
+        return _REBALANCE_APPROVE_REFUSED if ORDER_GATE in names else None
 
     def _shown_gate_id(self, run_id: uuid.UUID) -> str | None:
         """The id of the gate ``run_id`` is parked at, or ``None`` on any read error."""

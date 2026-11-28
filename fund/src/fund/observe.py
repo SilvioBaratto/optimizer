@@ -58,6 +58,10 @@ _INTERRUPT_CHANNEL = "__interrupt__"
 # monitor's already-awaiting-a-human guard and the history panel's awaiting flag.
 _LIVE_GATE_STATUSES = ("paused", "responded")
 
+# The allocator step that records a run's candidate set (its ``llm_response`` holds
+# the whole set, which a transcript entry carries for the Deliberation read-out).
+_CANDIDATES_STEP = "compute_candidates"
+
 
 @dataclass(frozen=True)
 class RunSummary:
@@ -476,10 +480,11 @@ def interrupt_for(saver: Any, run: Any) -> dict[str, Any] | None:
 
     The value written to the ``__interrupt__`` channel (the same one
     :func:`pending_hitl` cross-checks) is a ``list[Interrupt]``; its first element's
-    ``.value`` is the dict the gated tool raised — carrying ``action_requests`` (the
-    ``place_orders`` name + proposed weights the adviser reviews) and
-    ``review_configs``. The HITL-queue panel renders that dict when a paused run is
-    selected. Returns ``None`` when the thread carries no live interrupt.
+    ``.value`` is the dict the gated tool raised — carrying ``action_requests`` (each
+    gated call's name and args; for ``place_orders`` the run's candidate set, from
+    which the adviser chooses the one to place) and ``review_configs``. The
+    HITL-queue panel renders that dict when a paused run is selected. Returns
+    ``None`` when the thread carries no live interrupt.
 
     Agent-stack-free by construction: a bare ``saver.get_tuple`` read of the
     checkpoint's pending writes, mirroring :func:`_has_pending_interrupt` — no
@@ -1352,6 +1357,10 @@ def _decision_entry(decision: Any) -> TranscriptEntry:
     optimizer_config = _optimizer_config_from_response(decision.llm_response)
     if optimizer_config:
         payload["optimizer_config"] = optimizer_config
+    if decision.step == _CANDIDATES_STEP:
+        candidate_set = _parse_json_object(decision.llm_response)
+        if candidate_set is not None:
+            payload["candidate_set"] = candidate_set
     return TranscriptEntry(
         source="decision",
         agent=decision.agent,

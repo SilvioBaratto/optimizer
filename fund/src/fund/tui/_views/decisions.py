@@ -4,19 +4,76 @@ from __future__ import annotations
 
 import uuid
 from contextlib import suppress
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from textual import events
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Label, Static
 from textual.widgets.data_table import RowDoesNotExist
 
 from fund import observe
 from fund.observe import RunSummary
+from fund.tui._views.candidates import (
+    CANDIDATE_COLUMNS,
+    ORDER_GATE,
+    candidate_row,
+    decided_gate,
+    find_candidate,
+    gate_names,
+    is_selectable,
+    payload_set_hash,
+    pick_line,
+    refused_pick_line,
+)
 from fund.tui._views.shell import ShellView, _keep_cursor, _short
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from textual.binding import BindingType
+
+_QUEUE_TABLE = "decisions-table"
+_CANDIDATES_TABLE = "decisions-candidates"
+
+_KEY_HINT = (
+    "↵ select gate · tab candidates, ↵ select one · a approve (confirm) · "
+    "r reject · k killswitch · e edit weights · s steer PM"
+)
+_STALE_SET = (
+    "cannot approve: the gate was opened on another candidate set than the run's "
+    "latest one - reject the run, or wait for it to re-gate"
+)
+_NO_SET = "cannot approve: this gate has no candidate set - reject the run"
+_NO_PICK = (
+    "select a feasible candidate row (enter) before approving - nothing is chosen "
+    "for you"
+)
+
+
+@dataclass(frozen=True)
+class _GateDetail:
+    """What one read of the selected gate found, before it is painted.
+
+    Attributes:
+        text: The rendered gate detail, or ``None`` when nothing is selected.
+        unavailable: Whether the gate could not be read (``text`` says why).
+        gate_id: The id of the gate the run is parked at.
+        gate_name: The gated tool an approve decides (see :func:`decided_gate`).
+        payload_set_hash: The candidate-set digest the gate payload was opened with.
+        set_hash: The digest of the run's newest stored candidate set.
+        candidates: That set's candidates as JSON dumps, in id order; empty off the
+            order gate.
+    """
+
+    text: str | None = None
+    unavailable: bool = False
+    gate_id: str | None = None
+    gate_name: str | None = None
+    payload_set_hash: str | None = None
+    set_hash: str | None = None
+    candidates: tuple[dict[str, Any], ...] = ()
 
 
 class DecisionsView(ShellView):
@@ -24,26 +81,32 @@ class DecisionsView(ShellView):
 
     Reads ``observe.pending_hitl(session, saver, None)`` — fund-wide, so no awaiting
     gate slips regardless of the header focus — into a queue table; selecting a row
-    reveals the full gate context (gate name, portfolio, the proposed orders) and a
-    "why" line. ``a`` / ``r`` resolve the selected gate through
-    :func:`fund.actions.apply_action` on a worker thread (dispatched by the App), and
-    ``k`` killswitches it (finalise rejected, no undo) behind an explicit-consequence
-    confirm; ``e`` edits the proposed weights (``apply_action("edit")``) and ``s``
-    steers the PM with a directive (``respond``), both dispatched by the App. Every one
-    of these acts on the selected gate and is refused while the cursor rests on a
-    different row, so the highlighted gate is always the one that gets resolved.
+    reveals the full gate context (gate name, portfolio, its candidates) and a "why"
+    line. A rebalance gate also lists its candidates in a table of their own, in id
+    order and never sorted; the adviser selects one row (``↵``) and ``a`` approves
+    it behind a confirm naming it. Nothing is selected for them, and an infeasible
+    row cannot be selected. At any other gate ``a`` approves at once, without a
+    candidate. ``r`` rejects, ``k`` killswitches (finalise rejected, no undo) behind
+    an explicit-consequence confirm, ``e`` edits weights starting from the selected
+    candidate (``apply_action("edit")``) and ``s`` steers the PM with a directive
+    (``respond``); the App dispatches each on a worker. Every one of these acts on
+    the selected gate and is refused while the cursor rests on a different row, so
+    the highlighted gate is always the one that gets resolved.
 
     Attributes:
         selected_run_id: The focused queued run, or ``None`` when nothing is selected.
         selected_portfolio_id: That run's portfolio (for the audit attribution).
         gate_text: Mirror of the rendered gate detail — a headless-test hook.
         gate_unavailable: ``True`` while the selected gate's detail could not be
-            rendered. ``a`` / ``r`` fire with no confirm, so they are refused until the
-            orders are back on screen.
-        selected_candidate_id: The candidate the adviser picked for the selected
-            rebalance gate, which ``a`` approves; ``None`` until one is picked, and
-            cleared whenever the selected run changes, so a pick never carries over
-            to another gate.
+            rendered; every decision is refused until it is back on screen.
+        rendered_gate_id: The id of the gate on screen, so a decision is refused if
+            the run has since moved on.
+        rendered_gate_name: The gated tool the gate on screen decides.
+        rendered_set_hash: The digest of the candidate set the table shows.
+        selected_candidate_id: The candidate the adviser selected for the gate on
+            screen; ``None`` until they select one. It is cleared when the selected
+            run, the gate id or the candidate set changes, so a selection never
+            carries over to candidates the adviser did not see.
     """
 
     # View-scoped so ``e``/``s`` mean edit/steer only while Decisions holds focus; the
@@ -54,7 +117,7 @@ class DecisionsView(ShellView):
         ("s", "app.steer_decision", "Steer PM"),
     ]
 
-    primary_focus: ClassVar[str | None] = "#decisions-table"
+    primary_focus: ClassVar[str | None] = f"#{_QUEUE_TABLE}"
 
     def __init__(self, view_key: str, view_title: str, **kwargs: Any) -> None:
         super().__init__(view_key, view_title, **kwargs)
@@ -62,9 +125,14 @@ class DecisionsView(ShellView):
         self.selected_portfolio_id: uuid.UUID | None = None
         self.gate_text: str = ""
         self.gate_unavailable = False
-        # The gate on screen, so a decision is refused if the run has since moved on.
         self.rendered_gate_id: str | None = None
+        self.rendered_gate_name: str | None = None
+        self.rendered_set_hash: str | None = None
         self.selected_candidate_id: str | None = None
+        self._payload_set_hash: str | None = None
+        self._candidates: tuple[dict[str, Any], ...] = ()
+        # The (gate id, set hash) a selection was made on; any other pair clears it.
+        self._pick_anchor: tuple[str | None, str | None] | None = None
         self._queue: list[RunSummary] = []
 
     def compose(self) -> ComposeResult:
@@ -73,27 +141,39 @@ class DecisionsView(ShellView):
         yield Label("0 awaiting", id="decisions-count", classes="view-subtitle")
         with Horizontal(classes="decisions-body"):
             yield DataTable(
-                id="decisions-table", cursor_type="row", classes="decisions-queue"
+                id=_QUEUE_TABLE, cursor_type="row", classes="decisions-queue"
             )
-            # The gate's "why" is model prose; as markup, "[BLOCK]" would vanish and a
-            # stray "[/x]" would raise MarkupError. The panes below follow suit.
-            yield Static(
-                "(select a paused gate)",
-                id="decisions-gate",
-                classes="decisions-gate",
-                markup=False,
-            )
+            with Vertical(classes="decisions-detail"):
+                yield from self._compose_gate_detail()
+        yield Static(_KEY_HINT, id="decisions-hint", classes="decisions-hint")
+
+    def _compose_gate_detail(self) -> ComposeResult:
+        """Yield the gate detail, its candidate table and the selection line."""
+        # The gate's "why" is model prose; as markup, "[BLOCK]" would vanish and a
+        # stray "[/x]" would raise MarkupError. The selection line follows suit.
         yield Static(
-            "↵ select · a approve · r reject · k killswitch · e edit weights · "
-            "s steer PM",
-            id="decisions-hint",
-            classes="decisions-hint",
+            "(select a paused gate)",
+            id="decisions-gate",
+            classes="decisions-gate",
+            markup=False,
         )
+        # No cursor until the adviser moves into the table, so no candidate sits
+        # highlighted by default.
+        yield DataTable(
+            id=_CANDIDATES_TABLE,
+            cursor_type="row",
+            show_cursor=False,
+            classes="decisions-candidates",
+        )
+        yield Static("", id="decisions-pick", classes="decisions-pick", markup=False)
 
     def on_mount(self) -> None:
-        """Seed the queue table's columns once its DataTable has mounted."""
-        self.query_one("#decisions-table", DataTable).add_columns(
+        """Seed both tables' columns once their DataTables have mounted."""
+        self.query_one(f"#{_QUEUE_TABLE}", DataTable).add_columns(
             "run", "portfolio", "asof"
+        )
+        self.query_one(f"#{_CANDIDATES_TABLE}", DataTable).add_columns(
+            *CANDIDATE_COLUMNS
         )
 
     def refresh_view(self) -> None:
@@ -107,9 +187,12 @@ class DecisionsView(ShellView):
         if read is None:
             self._paint_read_error()
             return
-        rows, gate, unavailable, gate_id = read
+        rows, detail = read
         self._paint_queue(rows)
-        self._paint_gate(gate, unavailable=unavailable, gate_id=gate_id)
+        self._paint_candidates(detail)
+        self._paint_gate(
+            detail.text, unavailable=detail.unavailable, gate_id=detail.gate_id
+        )
 
     def select_run(self, run_id: uuid.UUID) -> None:
         """Focus a queued run by id, then repaint the gate detail.
@@ -120,67 +203,119 @@ class DecisionsView(ShellView):
         """
         summary = next((row for row in self._queue if row.run_id == run_id), None)
         if run_id != self.selected_run_id:
-            self.selected_candidate_id = None
+            self._clear_pick()
         self.selected_run_id = run_id
         self.selected_portfolio_id = summary.portfolio_id if summary else None
         self.refresh_view()
-        table = self.query_one("#decisions-table", DataTable)
+        table = self.query_one(f"#{_QUEUE_TABLE}", DataTable)
         with suppress(RowDoesNotExist):
             table.move_cursor(row=table.get_row_index(str(run_id)))
 
-    def select_candidate(self, candidate_id: str | None) -> None:
-        """Pick the candidate ``a`` approves for the selected gate (``None`` clears).
+    def select_candidate(self, candidate_id: str | None) -> bool:
+        """Select the candidate ``a`` approves on the gate on screen (``None`` clears).
 
-        A driver/test hook: the adviser's pick is held as typed and validated only by
-        the approve itself, which refuses an id the run's candidate set does not
-        offer as feasible.
+        The hook behind ``↵`` on a candidate row, and a test driver. Only a feasible
+        row of the set on screen can be selected; any other id leaves nothing
+        selected and the line under the table says why. The selection is tied to the
+        gate and the set it was made on (see :attr:`selected_candidate_id`).
+
+        Args:
+            candidate_id: The candidate to select, or ``None`` to clear.
+
+        Returns:
+            Whether a candidate is now selected.
         """
+        candidate = find_candidate(self._candidates, candidate_id)
+        if candidate_id is None or candidate is None or not is_selectable(candidate):
+            self._clear_pick()
+            refusal = (
+                refused_pick_line(candidate_id, candidate)
+                if candidate_id is not None
+                else None
+            )
+            self._paint_pick(refusal)
+            return False
         self.selected_candidate_id = candidate_id
+        self._pick_anchor = (self.rendered_gate_id, self.rendered_set_hash)
+        self._paint_pick()
+        return True
+
+    @property
+    def at_order_gate(self) -> bool:
+        """Whether the gate on screen is a ``place_orders`` (rebalance) gate."""
+        return self.rendered_gate_name == ORDER_GATE
+
+    def selected_candidate(self) -> Mapping[str, Any] | None:
+        """Return the selected candidate's JSON dump while it is still feasible."""
+        candidate = find_candidate(self._candidates, self.selected_candidate_id)
+        return candidate if candidate is not None and is_selectable(candidate) else None
+
+    def approve_refusal(self) -> str | None:
+        """Return why ``a`` may not approve the rebalance gate on screen, or ``None``.
+
+        Fails closed: a gate opened on another candidate set than the run's newest
+        one is refused whatever is selected, as is a gate with no set or no selection.
+        """
+        if self._payload_set_hash != self.rendered_set_hash:
+            return _STALE_SET
+        if not self._candidates:
+            return _NO_SET
+        if self.selected_candidate() is None:
+            return _NO_PICK
+        return None
 
     def highlighted_run_id(self) -> uuid.UUID | None:
         """The queued run under the table cursor, or ``None`` for an empty queue."""
-        table = self.query_one("#decisions-table", DataTable)
+        table = self.query_one(f"#{_QUEUE_TABLE}", DataTable)
         if not table.row_count:
             return None
         key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         return uuid.UUID(key) if key is not None else None
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """A queue-row selection focuses that gate and reveals its detail."""
+        """A queue row focuses its gate; a candidate row selects that candidate."""
         key = event.row_key.value
-        if key is not None:
+        if key is None:
+            return
+        if event.data_table.id == _CANDIDATES_TABLE:
+            self.select_candidate(key)
+        else:
             self.select_run(uuid.UUID(key))
 
-    def _read(self) -> tuple[list[RunSummary], str | None, bool, str | None] | None:
-        """Read the queue + the selected run's gate text within one short session.
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        """Show the candidate cursor only while the adviser is in that table."""
+        if event.widget.id == _CANDIDATES_TABLE and isinstance(event.widget, DataTable):
+            event.widget.show_cursor = True
+
+    def on_descendant_blur(self, event: events.DescendantBlur) -> None:
+        """Hide the candidate cursor again once focus leaves the table."""
+        if event.widget.id == _CANDIDATES_TABLE and isinstance(event.widget, DataTable):
+            event.widget.show_cursor = False
+
+    def _read(self) -> tuple[list[RunSummary], _GateDetail] | None:
+        """Read the queue + the selected run's gate within one short session.
 
         Returns ``None`` on a queue read error — distinct from an empty queue, so the
         poll keeps the last-known queue and selection instead of mistaking a hiccup for
-        a cleared inbox. The gate text is read only when the selection is still in the
-        live queue, and a gate that cannot be rendered degrades to a one-line notice
-        (flagged by the third element) without discarding the queue. The fourth element
-        is the id of the gate rendered, read before its text: a run that moves between
-        the two reads then leaves an older id than the text, and a decision on it is
-        refused instead of landing on a gate nobody saw.
+        a cleared inbox. The gate is read only when the selection is still in the live
+        queue, and a gate that cannot be read degrades to a one-line notice (flagged
+        ``unavailable``) without discarding the queue.
         """
         saver = self.shell._persistence.saver
         try:
             with self.read_session() as session:
                 rows = observe.pending_hitl(session, saver, None)
-                gate: str | None = None
-                gate_id: str | None = None
-                unavailable = False
+                detail = _GateDetail()
                 if self.selected_run_id is not None and any(
                     row.run_id == self.selected_run_id for row in rows
                 ):
                     try:
-                        gate_id = _live_gate_id(session, saver, self.selected_run_id)
-                        gate = _gate_text(session, saver, self.selected_run_id)
+                        detail = _read_gate(session, saver, self.selected_run_id)
                     except Exception as exc:  # one bad gate must not hide the queue
-                        gate = f"(gate unavailable: {exc})"
-                        gate_id = None
-                        unavailable = True
-                return rows, gate, unavailable, gate_id
+                        detail = _GateDetail(
+                            text=f"(gate unavailable: {exc})", unavailable=True
+                        )
+                return rows, detail
         except Exception:  # keep the poll loop alive on any read error
             return None
 
@@ -192,7 +327,7 @@ class DecisionsView(ShellView):
 
     def _paint_queue(self, rows: list[RunSummary]) -> None:
         self._queue = rows
-        table = self.query_one("#decisions-table", DataTable)
+        table = self.query_one(f"#{_QUEUE_TABLE}", DataTable)
         with _keep_cursor(table):
             table.clear()
             for row in rows:
@@ -209,7 +344,47 @@ class DecisionsView(ShellView):
         ):
             self.selected_run_id = None
             self.selected_portfolio_id = None
-            self.selected_candidate_id = None
+            self._clear_pick()
+
+    def _paint_candidates(self, detail: _GateDetail) -> None:
+        """Repaint the candidate table from ``detail`` and re-check the selection.
+
+        A read that failed keeps the selection, since the gate and its set may not
+        have changed, but shows no rows, so nothing can be selected or approved until
+        the gate renders again.
+        """
+        if not detail.unavailable:
+            if self._pick_anchor not in (None, (detail.gate_id, detail.set_hash)):
+                self._clear_pick()
+            self.rendered_gate_name = detail.gate_name
+            self.rendered_set_hash = detail.set_hash
+            self._payload_set_hash = detail.payload_set_hash
+        self._candidates = detail.candidates
+        table = self.query_one(f"#{_CANDIDATES_TABLE}", DataTable)
+        with _keep_cursor(table, (self.selected_run_id, self.rendered_set_hash)):
+            table.clear()
+            for candidate in self._candidates:
+                table.add_row(
+                    *candidate_row(candidate), key=str(candidate["candidate_id"])
+                )
+        self._paint_pick("" if detail.unavailable else None)
+
+    def _paint_pick(self, refusal: str | None = None) -> None:
+        """Say under the table what ``a`` would approve, or why it would not."""
+        if refusal is None and self.at_order_gate:
+            blocked = (
+                _STALE_SET if self._payload_set_hash != self.rendered_set_hash else None
+            )
+            refusal = pick_line(
+                self.selected_candidate(),
+                has_candidates=bool(self._candidates),
+                blocked=blocked,
+            )
+        self.query_one("#decisions-pick", Static).update(refusal or "")
+
+    def _clear_pick(self) -> None:
+        self.selected_candidate_id = None
+        self._pick_anchor = None
 
     def _paint_gate(
         self,
@@ -224,6 +399,40 @@ class DecisionsView(ShellView):
         self.query_one("#decisions-gate", Static).update(
             gate or "(select a paused gate)"
         )
+
+
+def _read_gate(session: Any, saver: Any, run_id: uuid.UUID) -> _GateDetail:
+    """Read the selected run's gate: its id, its detail and its candidate set.
+
+    The gate id is read from the checkpoint before the detail it labels: a run that
+    moves between the two reads then leaves an older id than the text, and a decision
+    on it is refused instead of landing on a gate nobody saw. The stored candidate
+    set is read only for an order gate, the one gate that shows candidates. The run
+    repository is imported lazily from its submodule, keeping ``fund.tui.views`` free
+    of the ``fund.audit`` package at import time.
+    """
+    from fund.audit.repository import AgentRunRepository
+
+    run = AgentRunRepository(session).get_run(run_id)
+    if run is None:
+        return _GateDetail()
+    gate_id = observe.live_gate_id(saver, run)
+    interrupt = observe.interrupt_for(saver, run)
+    gate_name = decided_gate(gate_names(interrupt))
+    candidate_set = (
+        observe.candidate_set(session, run_id) if gate_name == ORDER_GATE else None
+    )
+    return _GateDetail(
+        text=_format_decision_gate(interrupt, run),
+        gate_id=gate_id,
+        gate_name=gate_name,
+        payload_set_hash=payload_set_hash(interrupt),
+        set_hash=candidate_set.digest() if candidate_set is not None else None,
+        candidates=tuple(
+            candidate.model_dump(mode="json")
+            for candidate in (candidate_set.candidates if candidate_set else ())
+        ),
+    )
 
 
 def _live_gate_id(session: Any, saver: Any, run_id: uuid.UUID) -> str | None:
@@ -245,86 +454,56 @@ def _gate_text(session: Any, saver: Any, run_id: uuid.UUID) -> str | None:
     """
     from fund.audit.repository import AgentRunRepository
 
-    repo = AgentRunRepository(session)
-    run = repo.get_run(run_id)
+    run = AgentRunRepository(session).get_run(run_id)
     if run is None:
         return None
-    return _format_decision_gate(
-        observe.interrupt_for(saver, run), run, repo.latest_optimizer_weights(run_id)
-    )
+    return _format_decision_gate(observe.interrupt_for(saver, run), run)
 
 
-# The orders block prints weights to four decimals; a PM/audit gap below half a unit
-# in the last place is invisible to the adviser and not worth a warning.
-_WEIGHT_DISPLAY_TOLERANCE = 5e-5
+def _pending_gate_names(session: Any, saver: Any, run_id: uuid.UUID) -> tuple[str, ...]:
+    """The gated tool names ``run_id`` is paused on; empty when it has no gate."""
+    from fund.audit.repository import AgentRunRepository
+
+    run = AgentRunRepository(session).get_run(run_id)
+    return gate_names(observe.interrupt_for(saver, run)) if run is not None else ()
 
 
-def _pm_weights_differ(pm_weights: Any, audited: dict[str, float]) -> bool:
-    """Whether the PM's ``place_orders`` weights disagree with the audited vector.
-
-    A missing ticker counts as weight 0 and anything non-numeric counts as a
-    disagreement, since the PM's tool-call args are unvalidated until after the gate.
-    """
-    if pm_weights is None:
-        return False
-    if not isinstance(pm_weights, dict):
-        return True
-    try:
-        return any(
-            not abs(
-                float(pm_weights.get(ticker, 0.0)) - float(audited.get(ticker, 0.0))
-            )
-            <= _WEIGHT_DISPLAY_TOLERANCE
-            for ticker in pm_weights.keys() | audited.keys()
-        )
-    except (TypeError, ValueError):
-        return True
+# The middleware's default description ends with the call's raw args; on a candidate
+# gate those are rendered below as candidates, so the "why" stops before them.
+_DESCRIPTION_ARGS_MARKER = "\n\nTool: "
 
 
-def _format_decision_gate(
-    interrupt: dict[str, Any] | None, run: Any, audited: dict[str, float]
-) -> str:
-    """Render ``run``'s pending gate: header, the "why", and the orders it executes.
+def _format_decision_gate(interrupt: dict[str, Any] | None, run: Any) -> str:
+    """Render ``run``'s pending gate: header, the "why", and what it would place.
 
-    The orders block shows ``audited`` — the allocator's logged optimizer weights,
-    which ``place_orders`` places on approval — not the PM's tool-call args, which
-    that tool ignores. A PM vector that disagrees is flagged instead of shown, so the
-    adviser never approves a vector other than the one that executes.
+    A rebalance gate lists every candidate its payload carries, in id order (see
+    :func:`_format_candidates`); which one is placed is the adviser's choice alone.
+    A ``place_orders`` gate without a candidate set (one left paused from before
+    candidates existed) is shown as one an approve refuses. No weight vector the PM
+    typed into the tool call is ever shown, since ``place_orders`` ignores it.
 
     Args:
         interrupt: The run's pending HITL payload (``action_requests``), or ``None``.
         run: The ORM run row (``id`` / ``portfolio_id``) for the header.
-        audited: The run's latest audited optimizer weights (``{}`` when the allocator
-            never produced a proposal).
     """
     pf = _short(run.portfolio_id) if run.portfolio_id else "fund-wide"
     requests = (interrupt or {}).get("action_requests") or []
     request = requests[0] if requests else {}
     name = request.get("name", "gate")
+    args = request.get("args") or {}
     lines = [f"GATE · {name} · #{_short(run.id)} · {pf}"]
     why = request.get("description")
+    if why and "candidates" in args:
+        why = why.split(_DESCRIPTION_ARGS_MARKER, 1)[0]
     lines.append(f"why: {why}" if why else "why: review before it executes")
-    args = request.get("args") or {}
     lines.extend(_format_risk_gate(args.get("risk_gate")))
     if "candidates" in args:
         lines.extend(_format_candidates(args["candidates"]))
-        return "\n".join(lines)
-    if name == "place_orders" or "weights" in args:
-        if audited:
-            lines.append("orders (audited optimizer weights, executed on approval):")
-            lines.extend(
-                f"  {ticker}: {weight:.4f}"
-                for ticker, weight in sorted(audited.items())
-            )
-        else:
-            lines.append(
-                "orders: no audited optimizer weights, approval places no ticket"
-            )
-        if _pm_weights_differ(args.get("weights"), audited):
-            lines.append(
-                "⚠ PM-proposed weights differ from the audited vector; "
-                "approval executes the audited one"
-            )
+    elif name == ORDER_GATE or "weights" in args:
+        lines.append(
+            "orders: none - this gate has no candidate set, so an approve is "
+            "refused; reject the run and start a fresh round"
+        )
     return "\n".join(lines)
 
 
@@ -332,11 +511,14 @@ def _format_candidates(candidates: Any) -> list[str]:
     """Render the candidate set a rebalance gate carries: id order, never ranked.
 
     Each candidate is shown with its label, whether it is feasible and the weights
-    approving it would place; which one is placed is the adviser's pick alone.
+    approving it would place; which one is placed is the adviser's choice alone.
     """
     entries = [entry for entry in candidates or [] if isinstance(entry, dict)]
     if not entries:
-        return ["candidates: none were computed, approval places no ticket"]
+        return [
+            "candidates: none were computed, so an approve is refused; "
+            "reject the run and start a fresh round"
+        ]
     lines = ["candidates (listed by id; the adviser picks one to approve):"]
     for entry in entries:
         status = "feasible" if entry.get("feasible") else "infeasible"
@@ -360,10 +542,11 @@ _RISK_GATE_LABELS: dict[str, str] = {
 
 
 def _format_risk_gate(gate: Any) -> list[str]:
-    """Render the risk verdict pinned on a ``place_orders`` gate (empty when absent).
+    """Render the risk verdict pinned on a pre-candidate gate (empty when absent).
 
-    A gate that is not ``passed`` is one ``place_orders`` will refuse, so it is
-    spelled out in words rather than left to a colour or glyph.
+    Gates opened before candidates existed carried the risk officer's verdict on
+    their one proposal. It is spelled out in words rather than left to a colour or
+    glyph.
     """
     if not isinstance(gate, dict) or gate.get("status") not in _RISK_GATE_LABELS:
         return []

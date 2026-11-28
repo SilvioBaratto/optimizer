@@ -2,20 +2,22 @@
 
 Turn a recorded agent decision's payload into readable, plain-text sub-panels — what
 the agent decided and why — in place of the raw JSON dump. Import-light by contract:
-stdlib only at runtime (no ``optimizer`` / ``fund.tools`` / agent stack), so importing
-:mod:`fund.tui.app` stays agent-stack-light. Live recompute (frontier / backtest / risk
-verdict) is the view worker's job; this module only formats data already read.
+the stdlib and the stdlib-only candidate formatter at runtime (no ``optimizer`` /
+``fund.tools`` / agent stack), so importing :mod:`fund.tui.app` stays
+agent-stack-light. Live recompute (frontier / backtest / risk verdict) is the view
+worker's job; this module only formats data already read.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+from fund.tui._views.candidates import candidate_row, measures_line
 
+if TYPE_CHECKING:
     # Annotation-only: these recompute dataclasses live in ``fund.readouts_compute``,
     # which imports ``optimizer`` at its top. Importing them for real would break the
     # import-light contract, so this module duck-types ``compute`` at runtime (the
@@ -23,9 +25,16 @@ if TYPE_CHECKING:
     from fund.readouts_compute import ResultsCompute, RiskCompute
 
 # Keyed on the acting role, not the step, so the replay ``optimize_portfolio`` decision
-# and any future allocator step both route to the build/results read-out.
+# and any future allocator step both route to the build/results read-out; only the
+# step that records the candidate set gets a read-out of its own.
 _ALLOCATOR_AGENT = "allocator"
 _RISK_AGENT = "risk"
+_CANDIDATES_STEP = "compute_candidates"
+_CANDIDATES_HEADING = "candidates (listed by id; the adviser chooses)"
+
+# The frontier replay re-solves the mean-risk problem, which only this candidate is.
+_FRONTIER_LABEL = "frontier point"
+_MEAN_RISK = "mean_risk"
 
 # Signals / factors / views are never generated or persisted (the ``views`` column is
 # always NULL); label them rather than fabricate numbers.
@@ -92,6 +101,8 @@ def render_readout(
         The rendered sub-panels joined by newlines, or ``None`` when the step has no
         structured read-out — the caller then falls back to the raw JSON dump.
     """
+    if agent == _ALLOCATOR_AGENT and step == _CANDIDATES_STEP:
+        return "\n".join(_candidates_block(payload or {}))
     if agent == _ALLOCATOR_AGENT and (payload or compute is not None):
         safe = payload or {}
         return "\n".join([*_build_block(safe), *_results_block(safe, compute)])
@@ -136,20 +147,83 @@ def _results_block(payload: Mapping[str, Any], compute: Any = None) -> list[str]
     """
     lines = ["results"]
     lines += _indent(_weights_lines(payload))
-    lines += _indent(_frontier_lines(compute))
+    frontier_label = _frontier_label(payload)
+    if frontier_label is not None:
+        lines += _indent(_frontier_lines(compute, frontier_label))
     lines += _indent(_backtest_lines(compute))
     return lines
 
 
-def _frontier_lines(compute: Any) -> list[str]:
+def _frontier_label(payload: Mapping[str, Any]) -> str | None:
+    """How to label the frontier replay of ``payload``'s weights, or ``None`` to hide.
+
+    The replay solves the mean-risk problem, so it describes the weights only when
+    they are that solve: a proposal from before candidates existed, or the adviser's
+    choice of the ``mean_risk`` candidate (labelled as such). For any other choice,
+    or weights the adviser typed, it would describe a portfolio nobody chose.
+    """
+    hitl = payload.get("hitl_decision")
+    if not isinstance(hitl, Mapping) or "decision" not in hitl:
+        return _FRONTIER_LABEL
+    # Only a choice names a candidate; an edit's weights name none.
+    if hitl.get("candidate_id") == _MEAN_RISK:
+        return f"{_FRONTIER_LABEL} ({_MEAN_RISK} candidate)"
+    return None
+
+
+def _candidates_block(payload: Mapping[str, Any]) -> list[str]:
+    """The *candidates* family: every candidate the step computed, in id order.
+
+    Each candidate gets the same lines (label and status, the neutral measures and
+    check, its weights by ticker) and none is ranked or marked: the adviser chooses.
+    The client's recorded constraints follow, as the build read-out shows them.
+
+    Args:
+        payload: The compute_candidates decision payload (``candidate_set`` and
+            ``constraint_set``).
+
+    Returns:
+        The ``candidates`` and ``build`` sub-panel lines.
+    """
+    recorded = payload.get("candidate_set")
+    entries = (
+        [c for c in recorded.get("candidates") or [] if isinstance(c, Mapping)]
+        if isinstance(recorded, Mapping)
+        else []
+    )
+    lines = [_CANDIDATES_HEADING]
+    if not entries:
+        lines.append("  none recorded")
+    for entry in entries:
+        lines += _indent(_candidate_lines(entry))
+    lines.append("build")
+    lines += _indent(_constraints_lines(payload.get("constraint_set")))
+    return lines
+
+
+def _candidate_lines(candidate: Mapping[str, Any]) -> list[str]:
+    """One candidate's read-out: id, label and status, measures, weights by ticker."""
+    candidate_id, label, status, *_ = candidate_row(candidate)
+    lines = [f"{candidate_id} · {label} · {status}", f"  {measures_line(candidate)}"]
+    weights = sorted((candidate.get("weights") or {}).items())
+    if weights:
+        shown = ", ".join(f"{ticker} {_pct(w)}" for ticker, w in weights[:_MAX_NAMES])
+        extra = len(weights) - _MAX_NAMES
+        lines.append(
+            f"  weights · {shown}" + (f", … +{extra} more" if extra > 0 else "")
+        )
+    return lines
+
+
+def _frontier_lines(compute: Any, label: str = _FRONTIER_LABEL) -> list[str]:
     """The frontier point: pending until recomputed, then the solved point."""
     if compute is None:
-        return [f"frontier point · {_PENDING_LABEL}"]
+        return [f"{label} · {_PENDING_LABEL}"]
     if compute.frontier is None:
-        return [f"frontier point · unavailable ({compute.frontier_error})"]
+        return [f"{label} · unavailable ({compute.frontier_error})"]
     point = compute.frontier
     return [
-        f"frontier point · mean {_pct2(point.mean, signed=True)}"
+        f"{label} · mean {_pct2(point.mean, signed=True)}"
         f" · vol {_pct2(point.standard_deviation)}"
         f" · sharpe {_ratio(point.sharpe_ratio)} {_units_label(compute)}"
     ]

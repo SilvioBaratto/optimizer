@@ -63,15 +63,12 @@ from fund.tui._views.daily_brief import _render_brief_detail as _render_brief_de
 from fund.tui._views.daily_brief import _render_brief_markdown as _render_brief_markdown
 from fund.tui._views.daily_brief import _sorted_contributions as _sorted_contributions
 from fund.tui._views.decisions import _RISK_GATE_LABELS as _RISK_GATE_LABELS
-from fund.tui._views.decisions import (
-    _WEIGHT_DISPLAY_TOLERANCE as _WEIGHT_DISPLAY_TOLERANCE,
-)
 from fund.tui._views.decisions import DecisionsView
 from fund.tui._views.decisions import _format_decision_gate as _format_decision_gate
 from fund.tui._views.decisions import _format_risk_gate as _format_risk_gate
 from fund.tui._views.decisions import _gate_text as _gate_text
 from fund.tui._views.decisions import _live_gate_id as _live_gate_id
-from fund.tui._views.decisions import _pm_weights_differ as _pm_weights_differ
+from fund.tui._views.decisions import _pending_gate_names as _pending_gate_names
 from fund.tui._views.deliberation import DeliberationView
 from fund.tui._views.deliberation import _detail_payload as _detail_payload
 from fund.tui._views.deliberation import _stream_detail as _stream_detail

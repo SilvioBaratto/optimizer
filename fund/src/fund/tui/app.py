@@ -173,8 +173,11 @@ class ShellApp(
     .posture-hint { height: 1; color: $accent; }
     .decisions-body { height: 1fr; }
     .decisions-queue { width: 45%; }
-    .decisions-gate { width: 1fr; padding: 0 1; color: $warning; }
-    .decisions-hint { height: 1; color: $accent; }
+    .decisions-detail { width: 1fr; overflow-y: auto; }
+    .decisions-gate { height: auto; padding: 0 1; color: $warning; }
+    .decisions-candidates { height: auto; max-height: 8; }
+    .decisions-pick { height: auto; padding: 0 1; }
+    .decisions-hint { height: auto; color: $accent; }
     .mandate-body { height: 1fr; }
     .mandate-policy { width: 50%; }
     .mandate-guardrails { width: 1fr; padding: 0 1; }
