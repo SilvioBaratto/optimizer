@@ -1,4 +1,4 @@
-"""The Ask view: the saved conversation and the input the adviser types into."""
+"""The Ask view: the saved conversation and the input the user types into."""
 
 from __future__ import annotations
 

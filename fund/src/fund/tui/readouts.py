@@ -52,7 +52,7 @@ _MAX_NAMES = 8
 _REQUESTED_LABEL = "requested (not applied)"
 
 # Frontier / backtest are live-computable (not aspirational): mark them pending until
-# the adviser expands the step and the recompute worker fills them in (T6).
+# the user expands the step and the recompute worker fills them in (T6).
 _PENDING_LABEL = "compute to view"
 
 # Mean / vol / Sharpe come from the recompute already scaled to per-year (the same
@@ -99,7 +99,7 @@ def render_readout(
         expandable: Whether the surface can recompute on demand. A risk step with no
             ``compute`` is nothing but pending markers, so where nothing can resolve
             them (the live stream) it yields no read-out rather than advertise an
-            action the adviser cannot take.
+            action the user cannot take.
 
     Returns:
         The rendered sub-panels joined by newlines, or ``None`` when the step has no
@@ -162,9 +162,9 @@ def _frontier_label(payload: Mapping[str, Any]) -> str | None:
     """How to label the frontier replay of ``payload``'s weights, or ``None`` to hide.
 
     The replay solves the mean-risk problem, so it describes the weights only when
-    they are that solve: a proposal from before candidates existed, or the adviser's
+    they are that solve: a proposal from before candidates existed, or the user's
     choice of the ``mean_risk`` candidate (labelled as such). For any other choice,
-    or weights the adviser typed, it would describe a portfolio nobody chose.
+    or weights the user typed, it would describe a portfolio nobody chose.
     """
     hitl = payload.get("hitl_decision")
     if not isinstance(hitl, Mapping) or "decision" not in hitl:
@@ -179,7 +179,7 @@ def _candidates_block(payload: Mapping[str, Any]) -> list[str]:
     """The *candidates* family: every candidate the step computed, in id order.
 
     Each candidate gets the same lines (label and status, the neutral measures and
-    check, its weights by ticker) and none is ranked or marked: the adviser chooses.
+    check, its weights by ticker) and none is ranked or marked: the user chooses.
     The client's recorded constraints follow, as the build read-out shows them.
 
     Args:

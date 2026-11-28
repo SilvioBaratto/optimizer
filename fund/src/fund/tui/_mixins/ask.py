@@ -84,7 +84,7 @@ class AskMixin(ShellHost):
         view = self._active_ask_view()
         if view is None:
             return
-        # The worker answers for the scope on screen *now*: the adviser may switch
+        # The worker answers for the scope on screen *now*: the user may switch
         # portfolio before it finishes, and the answer must stay with its own question.
         focus = self._portfolio_id
         scope = scope_of(focus)
@@ -335,7 +335,7 @@ class AskMixin(ShellHost):
         Resolution runs on the event loop inside the ``Input.Submitted`` handler, where
         an escaped exception exits the whole App. A failed gate read therefore comes
         back as an ``unresolved`` resolution (and a status line) instead, so the
-        adviser sees why nothing happened and nothing is confirmed on an unread gate
+        user sees why nothing happened and nothing is confirmed on an unread gate
         list.
         """
         try:
@@ -414,7 +414,7 @@ class AskMixin(ShellHost):
         rows: list[tuple[str, str]] | None,
         error: Exception | None,
     ) -> None:
-        """Show the messages that were read, unless the adviser has moved on since."""
+        """Show the messages that were read, unless the user has moved on since."""
         if view.history is not history:
             return
         if rows is not None:
@@ -465,7 +465,7 @@ class AskMixin(ShellHost):
     def ask_turn_refused(self) -> bool:
         """Whether a typed turn must wait because the history is being deleted.
 
-        Says why on the status line, so the adviser knows to retype it.
+        Says why on the status line, so the user knows to retype it.
         """
         if self._ask_clearing:
             self._set_status("Ask history is being deleted - try again in a moment")
@@ -584,7 +584,7 @@ class AskMixin(ShellHost):
         reply never lands under the newer question. The turns of one scope share one
         agent thread, so they run one at a time under ``_ask_lock``. ``scope`` and
         ``history`` are the conversation the question was asked in, captured when it was
-        dispatched: if the adviser has moved to another portfolio by the time the answer
+        dispatched: if the user has moved to another portfolio by the time the answer
         arrives, it is saved to its own conversation and not shown in the new one. The
         agent stack is imported lazily so ``import fund.tui.app`` stays
         agent-stack-light.

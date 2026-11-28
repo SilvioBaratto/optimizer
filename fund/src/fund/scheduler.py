@@ -254,8 +254,8 @@ def _drive_rebalance(
         window = dt.timedelta(days=settings.approval_max_age_days)
         for run in paused:
             if run_age(run) > window:
-                # Approving it is refused, so it blocks every later round until an
-                # adviser rejects it; nothing else would surface that.
+                # Approving it is refused, so it blocks every later round until a
+                # user rejects it; nothing else would surface that.
                 logger.warning(
                     "drive[%s]: skipped — paused run %s is stale (past the %d-day "
                     "approval window); reject it to unblock scheduled rebalances",
@@ -486,7 +486,7 @@ def _sweep_cron_mandates(
     """Drive each active ``triggers.cron`` mandate; one error is skipped, not fatal.
 
     Each portfolio is its own transaction: committed as soon as it reaches its
-    gate, rolled back if it fails. A paused run is therefore visible to the adviser
+    gate, rolled back if it fails. A paused run is therefore visible to the user
     immediately and survives a crash later in the sweep, and a failed portfolio
     can neither leave a pending orphan row nor poison the session for the rest.
     Returns which portfolios errored so the slot can report them.
@@ -619,7 +619,7 @@ def _in_discard_cooldown(
 
     Drift persists after a rejected or order-less round, so without this the
     monitor would re-drive the full LLM pipeline on every tick and override the
-    adviser's rejection within one interval.
+    user's rejection within one interval.
     """
     runs = observe.list_portfolio_runs(session, portfolio_id)
     if not runs or runs[0].status not in _DISCARDED_RUN_STATUSES:

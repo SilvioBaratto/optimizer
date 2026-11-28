@@ -40,7 +40,7 @@ def _single_flight(
     Args:
         label: Present-tense phrase shown on the status line while the action runs.
         refused: Called with the worker's own arguments when the action is turned away;
-            returns what was not done (for example the adviser's typed directive), which
+            returns what was not done (for example the user's typed directive), which
             is appended to the status line so the refusal does not swallow it.
 
     Returns:

@@ -32,7 +32,7 @@ __all__ = [
 _CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 # Far more than an answer normally needs; the point is a bound, not a style.
 MAX_MESSAGE_CHARS = 20_000
-# An error shown to the adviser or the model is cut to this many characters, plus a
+# An error shown to the user or the model is cut to this many characters, plus a
 # note of how many were cut.
 _ERROR_CHARS = 300
 _IMAGE = re.compile(r"!\[(?P<alt>[^\]\n]*)\]\([^)\n]*\)")
@@ -62,7 +62,7 @@ def defang_markdown(text: str) -> str:
 
 
 def describe_error(exc: BaseException) -> str:
-    """Return a short, safe description of an error for the adviser or the model.
+    """Return a short, safe description of an error for the user or the model.
 
     It is shown on screen and in the status bar, and returned to the model as a tool
     result. A driver error's own text embeds the SQL statement and its bound

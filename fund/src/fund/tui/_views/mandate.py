@@ -140,7 +140,7 @@ class MandateView(ShellView):
         self.currency_locked = False
         self.read_error: str | None = None
         self._directives: list[str] = []
-        # Value each editable widget was last painted with, to tell an adviser edit
+        # Value each editable widget was last painted with, to tell a user edit
         # from a stale repaint; reset whenever the focused portfolio changes.
         self._painted: dict[str, Any] = {}
         self._painted_pid: uuid.UUID | None = None
@@ -329,7 +329,7 @@ class MandateView(ShellView):
             return None
 
     def _paint_read_failure(self, switched: bool) -> None:
-        """Report a failed read without wiping what the adviser is working on.
+        """Report a failed read without wiping what the user is working on.
 
         The inputs and the last-known mandate are left alone, so an unsaved edit
         survives a transient error. After a switch to another portfolio they would
@@ -377,7 +377,7 @@ class MandateView(ShellView):
     def _take_persisted(self, key: str, current: Any, persisted: Any) -> bool:
         """Whether ``key``'s widget may be repainted with the ``persisted`` value.
 
-        ``False`` only when the adviser changed the widget since it was last painted
+        ``False`` only when the user changed the widget since it was last painted
         and it still differs from ``persisted`` — that unsaved edit must survive the
         poll. Otherwise the field is clean (or just saved), so it is released and its
         painted baseline advances to ``persisted``.
@@ -397,7 +397,7 @@ class MandateView(ShellView):
         it and a later save would overwrite that change. Equality is therefore judged
         on the validated model, once, at save time — not per poll, where treating
         ``0.20`` as equal to ``0.2`` would repaint the field mid-keystroke. A widget
-        the adviser edited again after pressing save keeps its protection, and the
+        the user edited again after pressing save keeps its protection, and the
         pending band pick is untouched (the band is not part of the mandate).
 
         Args:
@@ -500,6 +500,6 @@ class MandateView(ShellView):
         listview = self.query_one("#mandate-directives", ListView)
         listview.clear()
         for directive in self._directives:
-            # Adviser free text: parsed as markup it would hide `[bracketed]` words or
+            # User free text: parsed as markup it would hide `[bracketed]` words or
             # raise MarkupError on a stray `[/x]` on every repaint.
             listview.append(ListItem(Label(directive, markup=False)))

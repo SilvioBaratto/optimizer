@@ -35,7 +35,7 @@ class DeliberationView(ShellView):
     While a round streams it switches to a **live tail**: :meth:`start_live` swaps the
     replay split for a single timeline that :meth:`ingest_event` fills in emission
     order, flipping each prior step's ●/✓ marker as the next event lands; auto-follow
-    glues the view to the newest row until the adviser moves the cursor to inspect
+    glues the view to the newest row until the user moves the cursor to inspect
     (``f`` / :meth:`action_follow_live` re-snaps). :meth:`end_live` drops back to the
     replay transcript on the terminal event.
 
@@ -80,7 +80,7 @@ class DeliberationView(ShellView):
         self._live_events: list[StreamEvent] = []
         # The worker's recompute for the expanded step: (run_id, agent, key, result),
         # where key is the allocator decision_index (None for risk). Held so it survives
-        # poll ticks until the adviser selects a different run/step.
+        # poll ticks until the user selects a different run/step.
         self._readout: tuple[uuid.UUID, str, int | None, Any] | None = None
 
     def compose(self) -> ComposeResult:
@@ -190,7 +190,7 @@ class DeliberationView(ShellView):
         becomes ✓ before the new row lands, so markers need no second producer pass;
         the viewport snaps to the tail while :attr:`following`, and the detail pane
         mirrors the newest step.
-        While the adviser is inspecting an earlier row the cursor and the detail pane
+        While the user is inspecting an earlier row the cursor and the detail pane
         stay where they are.
         """
         if self.live_run_id is None or event.run_id != self.live_run_id:
@@ -210,7 +210,7 @@ class DeliberationView(ShellView):
         if self.following:
             # Keeping the cursor on the tail makes ``following`` mean "cursor on the
             # last row", so a highlight message that outlives a later event cannot
-            # read as the adviser moving away.
+            # read as the user moving away.
             table.move_cursor(row=table.row_count - 1)
             table.scroll_end(animate=False)
             self._paint_live_detail(event)
@@ -243,7 +243,7 @@ class DeliberationView(ShellView):
         return True
 
     def _live_tail_is_spent(self) -> bool:
-        """Whether the live tail no longer matches a gate the adviser can act on.
+        """Whether the live tail no longer matches a gate the user can act on.
 
         Never spent while the stream is running. Afterwards the tail is spent when the
         header moved to another portfolio, or when the watched run is readable and has
@@ -317,7 +317,7 @@ class DeliberationView(ShellView):
     def held_step_label(self) -> str:
         """Header line of the newest streamed step, or ``"the gate"`` before any.
 
-        The stream is held at its tail whatever row the adviser is inspecting, so the
+        The stream is held at its tail whatever row the user is inspecting, so the
         barge-in overlay reads this rather than :attr:`live_text`, which mirrors the
         inspected row.
         """

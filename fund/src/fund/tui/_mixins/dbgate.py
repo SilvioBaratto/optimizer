@@ -2,7 +2,7 @@
 
 Reads through the shell's ``session_factory`` need no database gate: the breaker
 refuses them at once. A write would be refused the same way, but only after the
-adviser had read a run's approval gate and answered a confirm, so the bindings that
+user had read a run's approval gate and answered a confirm, so the bindings that
 start one are disabled instead and the status bar says why. A key-binding confirm
 already open when the database gate shut is not checked again; its worker meets the
 breaker when it opens a session.

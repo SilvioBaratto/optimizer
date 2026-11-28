@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 # Each resume-style action maps to the ``resume_run`` verb it drives the paused run
 # with. approve/reject/respond are self-named; killswitch finalises a paused run as a
 # reject but is logged distinctly (its own audit action, no paired undo). ``respond``
-# is a ``place_orders``-only barge-in that threads the adviser's ``pm_directive`` back
+# is a ``place_orders``-only barge-in that threads the user's ``pm_directive`` back
 # to the PM — not a terminal decision: the run re-gates as ``responded`` (still
 # awaiting approval) or finalises incomplete. The keys are the kinds ACTION_HANDLERS
 # routes to the resume handler.
@@ -70,7 +70,7 @@ MODEL_FREE_ACTIONS = frozenset({"reject", "killswitch"})
 # a terminal outcome (mirrors the guard in ``resume_fund``).
 _FINAL_STATUSES = ("completed", "rejected", "incomplete", "blocked", "failed")
 
-# Resolution of the weights the shell shows and the adviser edits (4 decimals).
+# Resolution of the weights the shell shows and the user edits (4 decimals).
 _EDIT_RESOLUTION = 1e-4
 # Float noise on the headroom comparison, so a residual exactly at capacity is absorbed.
 _ROUNDING_EPS = 1e-12
@@ -148,7 +148,7 @@ class ActionTarget:
 
 @dataclass(frozen=True)
 class ActionPayload:
-    """What the adviser supplied, and the provenance its audit row records.
+    """What the user supplied, and the provenance its audit row records.
 
     Attributes:
         mandate: The mandate to save (``mandate_edit`` / ``new_portfolio``) or run.
@@ -164,7 +164,7 @@ class ActionPayload:
         suitability_flag: Outside the risk-limit band.
         idempotency_key: Dedup key; a repeated key replays the first result.
         rationale: Free-text reason recorded with the action.
-        pm_directive: Adviser text threaded to the PM by ``respond``.
+        pm_directive: User text threaded to the PM by ``respond``.
         candidate_id: The candidate an ``approve`` of a rebalance gate places.
     """
 
@@ -212,7 +212,7 @@ class ActionRequest:
 
     Attributes:
         target: What the action is applied to.
-        payload: What the adviser supplied, with its audit provenance.
+        payload: What the user supplied, with its audit provenance.
         deps: The collaborators the action runs with.
     """
 
@@ -263,15 +263,15 @@ def apply_action(
 
     ``approve`` resumes the paused run via :func:`fund.agents.graph.resume_run`
     (dispatched by gate); approving a rebalance gate names the ``candidate_id`` the
-    adviser chose, and a missing, unknown or infeasible id is refused before anything
+    user chose, and a missing, unknown or infeasible id is refused before anything
     is written. ``reject`` finalises it rejected in the DB alone, so the
     emergency stop needs no model, store or checkpointer (:data:`MODEL_FREE_ACTIONS`).
-    ``respond`` threads the adviser's ``pm_directive`` back to the PM at the
+    ``respond`` threads the user's ``pm_directive`` back to the PM at the
     ``place_orders`` gate (the run re-gates as ``responded`` or finalises incomplete)
     and, like every action here, is recorded with its own ``human_audit_log`` row;
     ``killswitch`` finalises a paused run through the same reject path but is logged
     under its own action (no paired undo).
-    ``edit`` validates the adviser-supplied ``new_value`` weights against the risk
+    ``edit`` validates the user-supplied ``new_value`` weights against the risk
     invariants, logs them as a fresh allocator decision, and resumes via the approve
     path so the ticket/positions/run all commit the edited allocation (⚑ override).
     ``freeze`` / ``rearm`` flip the autonomy posture at ``scope``: a ``run`` freeze is
@@ -318,14 +318,14 @@ def apply_action(
             gate resolution build it with :func:`resolution_key` so it names the gate,
             not just the run.
         rationale: Free-text reason recorded with the action.
-        pm_directive: Adviser free text threaded to the PM for a ``respond`` barge-in;
+        pm_directive: User free text threaded to the PM for a ``respond`` barge-in;
             required (non-empty) for ``respond``, ignored by the other actions.
         scope: Autonomy scope for ``freeze`` (``run`` / ``portfolio`` / ``fund``) or
             ``rearm`` (``portfolio`` / ``fund``); ignored by the other actions.
         config: Fund settings threaded to the resumer.
         candidate_id: The candidate (``hrp``, ``mean_risk``, ``min_risk`` or
             ``risk_parity``) an ``approve`` of a rebalance gate places; required
-            there unless an adviser edit is in force, and refused on every other
+            there unless a user edit is in force, and refused on every other
             action and on a profiler gate.
 
     Returns:
@@ -426,7 +426,7 @@ def _handle_resume(kind: ActionKind, request: ActionRequest) -> ActionResult:
 
 
 def _handle_edit(request: ActionRequest) -> ActionResult:
-    """Approve a paused run with the adviser's edited weights."""
+    """Approve a paused run with the user's edited weights."""
     target, payload, deps = request.target, request.payload, request.deps
     return _apply_edit(
         session=deps.session,
@@ -562,7 +562,7 @@ def _handle_run(request: ActionRequest) -> ActionResult:
     )
 
 
-# Exactly one handler per kind: a kind left out would only fail once an adviser used it.
+# Exactly one handler per kind: a kind left out would only fail once a user used it.
 ACTION_HANDLERS: dict[ActionKind, ActionHandler] = {
     ActionKind.APPROVE: partial(_handle_resume, ActionKind.APPROVE),
     ActionKind.REJECT: partial(_handle_resume, ActionKind.REJECT),
@@ -606,8 +606,8 @@ def _apply_resume(
     ``decision`` is the ``resume_run`` verb (``approve`` / ``reject`` / ``respond``);
     ``action`` is what gets logged — they coincide for approve/reject/respond but
     diverge for killswitch (logged distinctly, resumed as a reject). ``respond`` threads
-    the adviser's ``pm_directive`` (required) back to the PM at the ``place_orders``
-    gate, and an approve of that gate names the ``candidate_id`` the adviser chose,
+    the user's ``pm_directive`` (required) back to the PM at the ``place_orders``
+    gate, and an approve of that gate names the ``candidate_id`` the user chose,
     which is checked against the run's candidate set before the audit row is written.
     The agent stack is imported here, never at module scope.
     """
@@ -668,7 +668,7 @@ def _require_resume_args(
     """The run a resume action targets, once its arguments are complete.
 
     A candidate belongs to an approve alone: naming one on a reject, killswitch or
-    respond would read as a choice the adviser never made.
+    respond would read as a choice the user never made.
 
     Raises:
         ValueError: ``run_id`` is missing, ``respond`` has no ``pm_directive``, or a
@@ -692,10 +692,10 @@ def resume_message(
     ``place_orders`` reports a missing fill bar or unknown ticker as a soft failure, so
     the resume itself succeeds. An approve/edit whose run did not end ``completed``
     (finalised ``incomplete``, or re-gated and left ``paused`` / ``responded``) placed
-    no paper ticket; claiming plain success would hide that from the adviser. A respond
+    no paper ticket; claiming plain success would hide that from the user. A respond
     the PM answered without re-gating is reported ``incomplete``, not ``responded``.
     A PM follow-up turn that failed after the gate was consumed (``resume_error``) is
-    appended: the decision stands, but the adviser should know the model did not finish.
+    appended: the decision stands, but the user should know the model did not finish.
 
     Args:
         session: A sync session that sees the resume's writes; not committed here.
@@ -717,7 +717,7 @@ def resume_message(
         run = AgentRunRepository(session).get_run(run_id)
         if run is not None and run.status == "incomplete":
             # The PM answered without re-gating, so the run was finalised: "responded"
-            # alone would send the adviser to wait for a gate that never appears.
+            # alone would send the user to wait for a gate that never appears.
             message = (
                 f"run {run_id} incomplete (the orchestrator did not re-gate after the "
                 "response)"
@@ -738,7 +738,7 @@ def _ticketed_weights(
     """The allocation an approve will ticket, in the shape the audit row records.
 
     The gated ``place_orders`` ignores the PM's own args and places only the
-    candidate the adviser names (or weights the adviser typed in an edit still in
+    candidate the user names (or weights the user typed in an edit still in
     force), so that choice is what the approval commits. It is resolved against the
     gate the run is paused at (read from ``checkpointer``; with none, the order
     gate's rule applies) and the run's stored candidate set here, before the audit
@@ -812,10 +812,10 @@ def _apply_edit(
     rationale: str | None,
     config: FundConfig,
 ) -> ActionResult:
-    """Commit adviser-edited weights, then resume the paused run via ``approve``.
+    """Commit user-edited weights, then resume the paused run via ``approve``.
 
     The edit never touches the gated tool's args. It resolves ``new_value`` (the
-    ``{ticker: weight}`` the adviser typed) onto the run's tickers, those of every
+    ``{ticker: weight}`` the user typed) onto the run's tickers, those of every
     allocator row plus the universe of its newest candidate set (see
     :func:`_edit_universe`; case/whitespace-insensitive; anything else is refused),
     validates it
@@ -825,7 +825,7 @@ def _apply_edit(
     :func:`_absorb_rounding`), confirms every line can fill, then appends a fresh
     **allocator / optimize_portfolio** decision carrying the edited weights and resumes
     through the existing approve path, with no candidate id.
-    ``_place_orders_impl`` places ``latest_selected_weights`` (the adviser's choice in
+    ``_place_orders_impl`` places ``latest_selected_weights`` (the user's choice in
     force, which an edit newer than the candidate set is), so that appended row is the
     single source every downstream record (the paper ticket + ``weights_hash``,
     ``agent_runs.weights``, and the positions snapshot) derives from — no graph
@@ -875,7 +875,7 @@ def _apply_edit(
         portfolio_id=run.portfolio_id,
     )
     # The edit has no mandate of its own; without the persisted allowlist it would
-    # let an adviser type the run into a name the portfolio may not hold.
+    # let a user type the run into a name the portfolio may not hold.
     ctx = dataclasses.replace(
         ctx,
         eligible=resolve_mandate_eligibility(
@@ -923,7 +923,7 @@ def _apply_edit(
     )
     # The bound ``place_orders`` refuses weights the risk gate has not passed. The
     # edit just cleared the same mandate check ``risk_check`` applies, so record that
-    # as the verdict, labelled as the adviser's.
+    # as the verdict, labelled as the user's.
     run_repo.append_risk_verdict(
         rid, weights=edited, passed=True, violations=[], source="adviser_edit"
     )
@@ -948,11 +948,11 @@ def _apply_edit(
 
 
 def _edit_universe(session: Session, run: Any) -> set[str]:
-    """The tickers an adviser edit may weight for ``run``.
+    """The tickers a user edit may weight for ``run``.
 
     Every allocator row, not just the latest, since a prior edit may have dropped a
-    name the adviser now wants back, plus the universe the run's newest candidate set
-    was fitted on, the one the candidates the adviser reviewed hold.
+    name the user now wants back, plus the universe the run's newest candidate set
+    was fitted on, the one the candidates the user reviewed hold.
     """
     from fund import observe
     from fund.audit.repository import AgentRunRepository
@@ -979,7 +979,7 @@ def _absorb_rounding(
     risk gate's 1e-6 budget tolerance would bounce. Each name is only known to within
     half a step, so the residual is shared out in proportion to how far each held name
     can move in the needed direction: at most half a step, never past its min/max
-    bound, and a name the adviser dropped stays dropped. A residual that headroom
+    bound, and a name the user dropped stays dropped. A residual that headroom
     cannot cover is a real hole in the book and is left for ``risk_check`` to refuse.
     """
     limits = bounds or {}
@@ -1006,7 +1006,7 @@ def _absorb_rounding(
 
 
 def _canonical_weights(new_value: Any, universe: set[str]) -> dict[str, float]:
-    """Map the adviser's typed ``{ticker: weight}`` onto the allocator's own tickers.
+    """Map the user's typed ``{ticker: weight}`` onto the allocator's own tickers.
 
     Matching ignores case and surrounding whitespace so ``" aaa "`` lands on ``AAA``
     instead of becoming a phantom position. Tickers outside ``universe`` bypass the
@@ -1051,7 +1051,7 @@ def _reject_at_gate(
     interrupt without recording the reject. The standing interrupt is left alone, as a
     portfolio/fund freeze leaves it: the finalised status keeps ``resume_fund`` from
     ever re-driving it. Writes the same decision row the graph path logs for the gate,
-    tagged with ``via`` when something other than the adviser's own reject closed it.
+    tagged with ``via`` when something other than the user's own reject closed it.
     No commit (the caller owns it).
 
     Raises:
@@ -1343,7 +1343,7 @@ def resolution_key(
         run_id: The run being resolved.
         action: The logged action (``approve`` / ``reject`` / ``killswitch`` /
             ``edit``).
-        expected_gate: The gate id the adviser was shown (``observe.live_gate_id`` at
+        expected_gate: The gate id the user was shown (``observe.live_gate_id`` at
             render time). When the run is parked at another gate the decision is
             refused, so an approve never releases orders nobody has seen; a finished
             run still replays, and ``reject`` / ``killswitch`` never wait on it.
@@ -1443,7 +1443,7 @@ def _check_benchmark(session: Session, mandate: Any) -> tuple[Any, list[str]]:
     """Canonicalise the mandate's benchmark to the stored ticker, or warn about it.
 
     A benchmark that names no instrument with price history is saved anyway (the
-    adviser may be about to add it), but every NAV point would then carry no
+    user may be about to add it), but every NAV point would then carry no
     benchmark, so the caller reports the warning instead of staying silent.
 
     Returns:
@@ -1485,7 +1485,7 @@ def _check_eligible(session: Session, mandate: Any) -> list[str]:
     The allowlist is saved anyway: onboarding sets the mandate first and adds the
     instrument second, so a hard error would block the documented order. The
     resolver bars such a name at run time (``not_priced`` / ``no_instrument``), and
-    this tells the adviser before then.
+    this tells the user before then.
     """
     tickers = _normalised_tickers(mandate.eligible_tickers)
     if not tickers:

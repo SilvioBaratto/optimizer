@@ -202,7 +202,7 @@ def classify(turn: str) -> Literal["query", "action"]:
     numbers" are reads.
 
     Args:
-        turn: The adviser's natural-language turn.
+        turn: The user's natural-language turn.
 
     Returns:
         ``"action"`` when the leading word is a decision verb, else ``"query"``.
@@ -277,7 +277,7 @@ def resolve_target(
       narrowed to the focus;
 
     Args:
-        turn: The adviser's action turn.
+        turn: The user's action turn.
         session: An injected read-only sync session; not owned here.
         saver: The bootstrapped LangGraph checkpointer (opaque), for the gate reads.
         focus: The focused portfolio, or ``None`` for a fund-wide turn.
@@ -415,7 +415,7 @@ def _match_gate(turn: str, gates: list[RunSummary]) -> RunSummary | None:
 def _stale_ids(turn: str, gates: list[RunSummary]) -> list[str]:
     """The ids typed in ``turn`` that name none of ``gates``.
 
-    A non-empty result means the adviser pointed at something that is not a live gate,
+    A non-empty result means the user pointed at something that is not a live gate,
     so the turn must not fall back to "the only gate" — that would act on a proposal
     they never named.
     """
@@ -605,7 +605,7 @@ def resolve_pending(
 
     Args:
         pending: The carried :class:`PendingAction` from the prior ambiguous turn.
-        turn: The adviser's follow-up turn.
+        turn: The user's follow-up turn.
         session: An injected read-only sync session; not owned here.
         saver: The bootstrapped LangGraph checkpointer (opaque), for the gate reads.
         focus: The focused portfolio, or ``None``. Not consulted (see above); kept so

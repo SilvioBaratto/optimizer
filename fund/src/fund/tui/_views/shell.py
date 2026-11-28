@@ -86,7 +86,7 @@ def _keep_cursor(table: DataTable, scope: Hashable = None) -> Generator[None]:
     """Hold ``table``'s cursor row and scroll offset across a clear-and-refill repaint.
 
     ``DataTable.clear()`` resets the cursor to row 0 and scrolls to the top, so a table
-    repainted on every poll tick would yank the adviser's highlight and viewport back to
+    repainted on every poll tick would yank the user's highlight and viewport back to
     the top and a following Enter would act on the wrong row. The cursor is re-seated on
     the same row key when that row survives the refill, else on the same index clamped
     to the new row count (rows added without a key get a fresh random key each paint and

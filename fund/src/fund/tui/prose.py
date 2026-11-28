@@ -267,7 +267,7 @@ def format_ask_log(turns: Sequence[tuple[str, str]]) -> Content:
 
     Args:
         turns: ``(speaker, text)`` pairs, oldest first. Only the ``ask`` speaker's
-            text is read as formatted; what the adviser typed is shown as typed.
+            text is read as formatted; what the user typed is shown as typed.
 
     Returns:
         The whole log as one styled content.

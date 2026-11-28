@@ -18,7 +18,7 @@ all side effects:
 * **Agent-stack-light import.** ``import fund.tui.app`` pulls only Textual + the
   agent-stack-free read model — no ``deepagents`` / ``langgraph`` / model at
   module scope. The chat model is built lazily via the injected ``model_factory``
-  only when the adviser acts; the persistence handles (checkpointer + store) are
+  only when the user acts; the persistence handles (checkpointer + store) are
   built in ``main``.
 
 Every collaborator is injected (``session_factory`` / ``persistence`` /
@@ -248,7 +248,7 @@ class ShellApp(
                 SQLAlchemy Session for read ticks and the portfolio picker.
             persistence: Langgraph persistence bundle exposing ``.saver`` and
                 ``.store`` (used by the data-bearing views in later phases).
-            model_factory: Called lazily when the adviser acts; unused by the
+            model_factory: Called lazily when the user acts; unused by the
                 Phase-0 placeholder views.
             fallback_factory: Called lazily alongside ``model_factory`` to build
                 the model the subagents retry on; ``None`` runs without one.
@@ -274,7 +274,7 @@ class ShellApp(
         # so a mid-stream refresh does not repaint the DB-derived running glyph.
         self._streaming = False
         # When set, the live stream may advance; when cleared, it is held at a step
-        # boundary while the adviser barges in. The stream worker waits on it between
+        # boundary while the user barges in. The stream worker waits on it between
         # steps; the barge-in overlay clears it on open and re-sets it on resolve, so it
         # is never left cleared (which would hang the worker).
         self._stream_resume = threading.Event()
@@ -376,7 +376,7 @@ class ShellApp(
 
         Textual's auto-focus parks on the first focusable widget, the header portfolio
         picker, so without this the landing view's hinted keys (``d`` brief) and arrow
-        selection stay dead until the adviser tabs in. The header stays reachable with
+        selection stay dead until the user tabs in. The header stays reachable with
         shift+tab.
         """
         self._refresh()
@@ -628,7 +628,7 @@ class ShellApp(
     def _ask_approve_gate(self, run_id: uuid.UUID) -> str | None:
         """The gate text an Ask approve shows, or ``None`` when it cannot be read.
 
-        Decisions refuses an approve whose gate has not rendered, so the adviser has
+        Decisions refuses an approve whose gate has not rendered, so the user has
         always seen the gate they resolve; Ask holds itself to the same rule instead
         of confirming a bare gate id. Only gates other than ``place_orders`` get here,
         since Ask refuses a rebalance approve outright. Read on the event loop over a
@@ -650,7 +650,7 @@ def main() -> None:
     The portfolio id is **optional**: no arg opens the fund-wide shell (Posture
     landing); ``fund-tui <uuid>`` focuses that portfolio. Needs ``DATABASE_URL``
     (for the checkpointer/store pool); the chat model stays lazy — only built when
-    the adviser acts — so a bare launch needs no ``OLLAMA_API_KEY``. The pool is
+    the user acts — so a bare launch needs no ``OLLAMA_API_KEY``. The pool is
     always closed on exit. ``typer`` is imported here (not at module top) to keep
     ``import fund.tui.app`` light.
     """

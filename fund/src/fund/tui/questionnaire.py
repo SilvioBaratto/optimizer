@@ -214,7 +214,7 @@ class QuestionnaireScreen(ModalScreen["OnboardingSubmission | None"]):
 
         A blank tolerance leaves ``look_through_tolerance`` out of the constructor
         instead of passing 0.0: only an omitted figure is flagged as assumed at the
-        adviser gate, while an explicit ``0`` is the client saying "none at all".
+        confirmation gate, while an explicit ``0`` is the client saying "none at all".
         """
         from fund.schemas.questionnaire import EsgAnswers
 
@@ -278,7 +278,7 @@ def describe_error(exc: Exception) -> str:
     """One-line, per-field summary of a form error.
 
     A pydantic ``ValidationError`` stringifies to a multi-line dump with the offending
-    ``input_value`` and a docs URL; the field path plus the rule is what the adviser
+    ``input_value`` and a docs URL; the field path plus the rule is what the user
     needs to fix the entry.
 
     Args:

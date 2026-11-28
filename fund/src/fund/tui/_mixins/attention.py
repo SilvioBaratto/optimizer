@@ -25,7 +25,7 @@ logger = logging.getLogger("fund.tui.app")
 
 
 # ``App.notify`` has no "never expire" value: ``timeout=None`` falls back to the
-# default (5s). A day outlasts any unattended stretch, and the adviser can still click
+# default (5s). A day outlasts any unattended stretch, and the user can still click
 # a toast away.
 _ATTENTION_TOAST_TIMEOUT_S = 24 * 60 * 60.0
 
@@ -74,7 +74,7 @@ class AttentionMixin(ShellHost):
 
         The feed marks every mandated portfolio's book, so on the event loop it cost
         more per tick as the roster grew. :meth:`_refresh` keeps the synchronous read
-        for the repaint that follows an adviser's action.
+        for the repaint that follows a user's action.
         """
         if self._attention_read_inflight:
             return
